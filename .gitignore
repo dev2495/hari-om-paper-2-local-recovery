@@ -33,3 +33,20 @@ reports/
 hariom-erp/docs/
 hariom-erp/services/inventory-service/tests/
 hariom-erp/services/auth-service/venv/
+hariom-erp/services/auth-service/test.db
+hariom-erp/.gitignore
+hariom-erp/ACCESS_GUIDE.md
+hariom-erp/Hariom_ERP_Final_Requirements_and_Plan.md
+hariom-erp/README.md
+hariom-erp/ROADMAP.md
+hariom-erp/TASK.md
+hariom-erp/docker-compose.yml
+hariom-erp/scripts/run_release_gate.sh
+hariom-erp/start_all.sh
+scripts/generate_spec_sheet_sample_report.py
+scripts/manual_polish_review.js
+scripts/recover_dataless_python_from_pyc.py
+scripts/repair_from_sibling.py
+scripts/restart_all.sh
+scripts/run_verification 2.sh
+stop_services.sh
