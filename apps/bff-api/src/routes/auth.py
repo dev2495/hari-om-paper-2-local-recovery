@@ -7,7 +7,7 @@ import os
 from src.middleware.auth import extract_token
 
 router = APIRouter()
-AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://localhost:28001")
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://127.0.0.1:18001")
 http_client = httpx.AsyncClient(timeout=15.0)
 
 

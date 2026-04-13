@@ -55,7 +55,7 @@ class ItemMaster(Base):
     name = Column(String(200), nullable=False)
     type = Column(SQLEnum(ItemType), nullable=False)
     uom = Column(SQLEnum(UOM), nullable=False)
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -72,7 +72,7 @@ class StockBatch(Base):
     batch_no = Column(String(100), nullable=False)
     received_qty = Column(Float, nullable=False)
     location = Column(String(100), nullable=True)
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     spec_id = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -93,7 +93,7 @@ class StockTransaction(Base):
 
     reference_type = Column(SQLEnum(ReferenceType), nullable=False)
     reference_id = Column(UUID(as_uuid=True), nullable=False)
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     external_ref = Column(String(120), unique=True, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -115,7 +115,7 @@ class Reservation(Base):
     reserved_qty = Column(Float, nullable=False)
     consumed_qty = Column(Float, nullable=False, default=0.0)
     status = Column(SQLEnum(ReservationStatus), nullable=False, default=ReservationStatus.ACTIVE)
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     created_by = Column(String(200), nullable=False)
 
     created_at = Column(DateTime, default=datetime.utcnow)

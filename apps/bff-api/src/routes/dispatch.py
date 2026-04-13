@@ -5,7 +5,7 @@ from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
-PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://localhost:28004")
+PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004")
 
 @router.get("/ready-jobs")
 async def get_ready_jobs_for_dispatch(request: Request, token: str = Depends(get_token)):

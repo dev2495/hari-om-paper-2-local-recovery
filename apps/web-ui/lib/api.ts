@@ -3,7 +3,7 @@ import axios from "axios"
 const isBrowser = typeof window !== "undefined"
 const browserBaseUrl = "/"
 const serverBaseUrl =
-  process.env.BFF_INTERNAL_URL || process.env.NEXT_PUBLIC_BFF_URL || "http://localhost:24000"
+  process.env.BFF_INTERNAL_URL || process.env.NEXT_PUBLIC_BFF_URL || "http://127.0.0.1:14000"
 const TOKEN_STORAGE_KEY = "hariom_access_token"
 const PLANT_STORAGE_KEY = "hariom_active_plant"
 
@@ -214,6 +214,14 @@ export const productionApi = {
     include_unscheduled?: boolean
     plant_id?: string
   }) => api.get("/api/production/planning/queues", { params }),
+  getPlanningBoard: (params: {
+    stage?: string
+    plan_date?: string
+    include_unscheduled?: boolean
+    plant_id?: string
+  }) => api.get("/api/production/planning/board", { params }),
+  movePlanningBoard: (data: any) => api.post("/api/production/planning/board/move", data),
+  splitPlanningSegment: (data: any) => api.post("/api/production/planning/board/split", data),
   reorderPlanningQueue: (data: any) => api.patch("/api/production/planning/queues/reorder", data),
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
@@ -224,6 +232,14 @@ export const productionApi = {
   validateJobCard: (id: string, data: any) => api.post(`/api/production/jobs/${id}/validate`, data),
   closeJobCard: (id: string, data: any) => api.post(`/api/production/jobs/${id}/close`, data),
   addReelIssue: (jobId: string, data: any) => api.post(`/api/production/jobs/${jobId}/reels`, data),
+  getShiftMaterialLedger: (params?: any) => api.get("/api/production/shift-material-ledger", { params }),
+  getShiftMaterialRetally: (params?: any) => api.get("/api/production/shift-material-retally", { params }),
+  getPlantRetallySummary: (params?: any) => api.get("/api/production/plant-retally-summary", { params }),
+  getMonthlyMaterialSummary: (params?: any) => api.get("/api/production/monthly-material-summary", { params }),
+  getMonthlyCloseState: (params?: any) => api.get("/api/production/monthly-close-state", { params }),
+  createShiftMaterialLedger: (data: any) => api.post("/api/production/shift-material-ledger", data),
+  importMonthlyActuals: (payload: any, plantId?: string) => api.post("/api/production/import-monthly-actuals", { payload, plant_id: plantId }),
+  approveMonthlyClose: (payload: any, plantId?: string) => api.post("/api/production/approve-monthly-close", { payload, plant_id: plantId }),
 }
 
 export const inventoryApi = {

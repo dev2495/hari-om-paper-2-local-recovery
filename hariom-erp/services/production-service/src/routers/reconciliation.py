@@ -19,6 +19,8 @@ from ..models import (
     MonthlyMaterialClose,
     MonthlyMaterialProvisional,
     PackingRecord,
+    PLANT_A_UUID,
+    PLANT_B_UUID,
     QualityHold,
     ShiftMaterialLedger,
 )
@@ -234,6 +236,11 @@ def _apply_scope(query, model, plant_scope: dict):
 
 
 def _to_uuid(value: str, field: str = "plant_id") -> uuid.UUID:
+    normalized = str(value or "").strip().upper()
+    if normalized in {"PLANT_A", "PLANT-1", "PLANT_1", "PLANT1"}:
+        return PLANT_A_UUID
+    if normalized in {"PLANT_B", "PLANT-2", "PLANT_2", "PLANT2"}:
+        return PLANT_B_UUID
     try:
         return uuid.UUID(str(value))
     except ValueError as exc:

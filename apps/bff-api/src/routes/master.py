@@ -7,7 +7,7 @@ from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
-MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", "http://localhost:28002")
+MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", "http://127.0.0.1:18002")
 http_client = httpx.AsyncClient(timeout=15.0)
 
 

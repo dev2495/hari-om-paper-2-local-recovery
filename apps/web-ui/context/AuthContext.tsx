@@ -7,9 +7,11 @@ interface User {
   id: string
   email: string
   name: string
-  role: string
+  role: string | null
   plant_id: string
+  roles: string[]
   permissions: string[]
+  is_active?: boolean
 }
 
 interface AuthContextType {

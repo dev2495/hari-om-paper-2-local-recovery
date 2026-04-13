@@ -102,7 +102,7 @@ export default function EODProductionEntryPage() {
     }
 
     return (
-        <div className="space-y-8 animate-in fade-in duration-500 pb-20">
+        <div className="space-y-8 animate-in fade-in duration-500 pb-20" data-testid="supervisor-entry:search">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold tracking-tight text-white uppercase italic">EOD Production Entry</h1>

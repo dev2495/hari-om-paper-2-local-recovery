@@ -1,10 +1,27 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 from .database import Base, engine
 from .routers import balance, dispatch, fg_inward, inward, issue, items, ledger, reservations
 
 Base.metadata.create_all(bind=engine)
+
+
+def ensure_runtime_schema() -> None:
+  with engine.begin() as connection:
+    for table_name in ("item_master", "stock_batch", "stock_transaction", "reservations"):
+      connection.execute(text(f"ALTER TABLE IF EXISTS {table_name} ALTER COLUMN plant_id DROP DEFAULT"))
+      connection.execute(
+        text(
+          f"ALTER TABLE IF EXISTS {table_name} "
+          "ALTER COLUMN plant_id TYPE VARCHAR(50) USING plant_id::text"
+        )
+      )
+      connection.execute(text(f"ALTER TABLE IF EXISTS {table_name} ALTER COLUMN plant_id SET DEFAULT 'PLANT_A'"))
+
+
+ensure_runtime_schema()
 
 app = FastAPI(
   title="Hari Om Paper Inventory Service",

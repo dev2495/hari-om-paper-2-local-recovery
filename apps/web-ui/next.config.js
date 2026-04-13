@@ -1,5 +1,5 @@
 /** @type {import('next').NextConfig} */
-const bffInternalUrl = process.env.BFF_INTERNAL_URL || "http://localhost:24000"
+const bffInternalUrl = process.env.BFF_INTERNAL_URL || process.env.NEXT_PUBLIC_BFF_URL || "http://127.0.0.1:14000"
 
 const nextConfig = {
   reactStrictMode: true,

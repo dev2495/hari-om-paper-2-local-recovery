@@ -21,6 +21,7 @@ from .database import Base
 
 
 PLANT_A_UUID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+PLANT_B_UUID = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 
 
 class ProductionJob(Base):

@@ -5,7 +5,7 @@ from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
-SALES_SERVICE_URL = os.getenv("SALES_SERVICE_URL", "http://localhost:28008")
+SALES_SERVICE_URL = os.getenv("SALES_SERVICE_URL", "http://127.0.0.1:18008")
 
 
 @router.get("/orders")

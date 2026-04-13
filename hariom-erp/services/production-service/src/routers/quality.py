@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import AuditEvent, JobCard, PackingRecord, QualityHold, QualityInspection
+from ..models import AuditEvent, JobCard, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/quality", tags=["quality"])
@@ -21,6 +21,11 @@ STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"}
 
 
 def _to_uuid(value: str, field: str = "id") -> uuid.UUID:
+    normalized = str(value or "").strip().upper()
+    if normalized in {"PLANT_A", "PLANT-1", "PLANT_1", "PLANT1"}:
+        return PLANT_A_UUID
+    if normalized in {"PLANT_B", "PLANT-2", "PLANT_2", "PLANT2"}:
+        return PLANT_B_UUID
     try:
         return uuid.UUID(str(value))
     except ValueError as exc:

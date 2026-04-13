@@ -3,7 +3,7 @@
     {
       "id": "admin-user",
       "email": "admin@hariom.com",
-      "password": "admin123",
+      "password": "$pbkdf2-sha256$29000$lTJm7P3/X4tRynkP4TznnA$UgRp5UAqPMLzymu6jGD6UDxSuc3TCdMLro2WBvLY.m0",
       "name": "System Admin",
       "roles": [
         "Owner",

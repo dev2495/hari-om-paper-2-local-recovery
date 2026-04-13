@@ -5,7 +5,7 @@ from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
-INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://localhost:28005")
+INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:18005")
 
 
 @router.get("/items")

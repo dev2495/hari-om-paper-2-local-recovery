@@ -37,7 +37,7 @@ fi
 port_is_free() {
   local port="$1"
   if command -v lsof >/dev/null 2>&1; then
-    ! lsof -ti "tcp:${port}" >/dev/null 2>&1
+    ! lsof -tiTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
     return
   fi
   if command -v nc >/dev/null 2>&1; then

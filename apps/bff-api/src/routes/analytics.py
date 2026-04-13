@@ -5,7 +5,7 @@ from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
-ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:28007")
+ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://127.0.0.1:18007")
 
 
 @router.get("/dashboard/overview")

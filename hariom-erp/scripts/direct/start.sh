@@ -100,7 +100,7 @@ require_cmd() {
 check_port_free() {
   local port="$1"
   local name="$2"
-  if command -v lsof >/dev/null 2>&1 && lsof -ti "tcp:${port}" >/dev/null 2>&1; then
+  if command -v lsof >/dev/null 2>&1 && lsof -tiTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "Port ${port} is already in use (service: ${name})."
     echo "Stop conflicting services (for example Docker stack) or override ${name} port env var."
     exit 1
@@ -224,10 +224,8 @@ start_web_ui() {
       hash -r
     fi
     if [[ "$WEB_UI_MODE" == "prod" ]]; then
-      if [[ ! -d ".next" ]]; then
-        echo "[start] building web-ui for production startup..."
-        env BFF_INTERNAL_URL="$BFF_URL" NEXT_PUBLIC_BFF_URL="$BFF_URL" npm run build
-      fi
+      echo "[preflight] Web UI production build..."
+      env BFF_INTERNAL_URL="$BFF_URL" NEXT_PUBLIC_BFF_URL="$BFF_URL" npm run build
       nohup env \
         BFF_INTERNAL_URL="$BFF_URL" \
         NEXT_PUBLIC_BFF_URL="$BFF_URL" \

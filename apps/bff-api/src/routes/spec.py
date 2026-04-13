@@ -5,7 +5,7 @@ from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
-SPEC_SERVICE_URL = os.getenv("SPEC_SERVICE_URL", "http://localhost:28003")
+SPEC_SERVICE_URL = os.getenv("SPEC_SERVICE_URL", "http://127.0.0.1:18003")
 
 
 @router.get("/specifications")
@@ -31,6 +31,11 @@ async def update_specification(spec_id: str, request: Request, token: str = Depe
 @router.post("/specifications/{spec_id}/approve")
 async def approve_specification(spec_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/approve", request, token)
+
+
+@router.post("/specifications/{spec_id}/obsolete")
+async def obsolete_specification(spec_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/obsolete", request, token)
 
 
 @router.get("/spec-fields")
@@ -73,6 +78,11 @@ async def get_recipe(recipe_id: str, request: Request, token: str = Depends(get_
     return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}", request, token)
 
 
+@router.post("/recipes/{recipe_id}/approve")
+async def approve_recipe(recipe_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}/approve", request, token)
+
+
 @router.post("/recipes/{recipe_id}/layers")
 async def add_recipe_layer(recipe_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}/layers", request, token)
@@ -80,6 +90,11 @@ async def add_recipe_layer(recipe_id: str, request: Request, token: str = Depend
 
 @router.post("/trials/{recipe_id}")
 async def create_trial(recipe_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/trials/{recipe_id}", request, token)
+
+
+@router.get("/trials/{recipe_id}")
+async def get_trials(recipe_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, f"/trials/{recipe_id}", request, token)
 
 

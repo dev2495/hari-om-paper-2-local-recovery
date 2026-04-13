@@ -15,6 +15,7 @@ apps/web-ui/node_modules/
 apps/web-ui/playwright-report/
 apps/web-ui/test-results/
 apps/web-ui.unreadable.bak/
+.playwright-cli/
 
 hariom-erp/.runtime/
 hariom-erp/runtime/

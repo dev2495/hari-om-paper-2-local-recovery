@@ -10,7 +10,7 @@ class SpecificationSheet(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     customer_name = Column(String(200), nullable=False)
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     
     # Foreign Keys to masterdata (stored as UUIDs, no actual FK constraint)
     tube_size_id = Column(UUID(as_uuid=True), nullable=False)
@@ -52,7 +52,7 @@ class RecipeHeader(Base):
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     spec_id = Column(UUID(as_uuid=True), ForeignKey('specification_sheet.id'), nullable=False)
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     version = Column(Integer, nullable=False)
     status = Column(String(20), default="trial")
     notes = Column(Text, nullable=True)
@@ -114,7 +114,7 @@ class SpecDynamicField(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     key = Column(String(100), nullable=False, index=True) # Removed global unique constraint
-    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     label = Column(String(200), nullable=False)
     field_type = Column(String(50), nullable=False)  # text, number, boolean, select
     required = Column(Boolean, default=False)
@@ -131,7 +131,7 @@ class SpecDynamicFieldValue(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     spec_id = Column(UUID(as_uuid=True), ForeignKey("specification_sheet.id"), nullable=False)
     field_id = Column(UUID(as_uuid=True), ForeignKey("spec_dynamic_fields.id"), nullable=False)
-    value = Column(String(500), nullable=True)
+    value = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     specification = relationship("SpecificationSheet", back_populates="dynamic_values")

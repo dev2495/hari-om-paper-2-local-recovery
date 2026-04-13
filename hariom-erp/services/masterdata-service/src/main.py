@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from .database import engine
 from . import models
-from .routers import paper, adhesive, parchment, tube_size, mandrel, machine
+from .routers import adhesive, customer, machine, mandrel, paper, parchment, tube_size
 
 app = FastAPI(
     title="Hari Om Paper ERP - Master Data Service",
@@ -14,6 +14,7 @@ app.include_router(adhesive.router)
 app.include_router(parchment.router)
 app.include_router(tube_size.router)
 app.include_router(mandrel.router)
+app.include_router(customer.router)
 app.include_router(machine.router)
 
 # Create tables
@@ -32,6 +33,7 @@ def health_check():
             "/master/parchment/colors",
             "/master/tube-sizes",
             "/master/mandrels",
+            "/master/customers",
             "/master/machines"
         ]
     }
