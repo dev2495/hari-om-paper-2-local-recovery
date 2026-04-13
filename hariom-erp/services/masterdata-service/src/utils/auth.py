@@ -5,6 +5,21 @@ from ..security import jwt_handler
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
+PLANT_ALIAS_GROUPS = (
+    {
+        "PLANT_A",
+        "PLANT-1",
+        "PLANT1",
+        "00000000-0000-0000-0000-0000000000A1",
+    },
+    {
+        "PLANT_B",
+        "PLANT-2",
+        "PLANT2",
+        "00000000-0000-0000-0000-0000000000B2",
+    },
+)
+
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
     payload = jwt_handler.decode_access_token(token)
@@ -34,8 +49,8 @@ def get_current_plant(
 ) -> str:
     user_roles = set(current_user.get("roles", []))
     
-    # Owner can override plant via header
-    if "Owner" in user_roles and x_plant_id:
+    # Owner and Admin can override plant via header
+    if ("Owner" in user_roles or "Admin" in user_roles) and x_plant_id:
         return x_plant_id
         
     # Default to user's assigned plant
@@ -46,6 +61,18 @@ def get_current_plant(
             detail="User has no assigned plant"
         )
     return plant_id
+
+
+def get_plant_aliases(plant_id: str) -> list[str]:
+    normalized = str(plant_id or "").strip()
+    if not normalized:
+        return []
+
+    uppercase = normalized.upper()
+    for group in PLANT_ALIAS_GROUPS:
+        if uppercase in group:
+            return sorted(group)
+    return [normalized]
 
 
 def require_role(required_roles: list[str]):

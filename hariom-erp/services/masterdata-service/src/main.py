@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from .database import engine
 from . import models
-from .routers import adhesive, customer, machine, mandrel, paper, parchment, tube_size
+from .routers import adhesive, customer, machine, mandrel, packaging, paper, parchment, tool, tube_size
 
 app = FastAPI(
     title="Hari Om Paper ERP - Master Data Service",
@@ -16,6 +16,8 @@ app.include_router(tube_size.router)
 app.include_router(mandrel.router)
 app.include_router(customer.router)
 app.include_router(machine.router)
+app.include_router(packaging.router)
+app.include_router(tool.router)
 
 # Create tables
 models.Base.metadata.create_all(bind=engine)
@@ -34,7 +36,11 @@ def health_check():
             "/master/tube-sizes",
             "/master/mandrels",
             "/master/customers",
-            "/master/machines"
+            "/master/machines",
+            "/master/packaging/boxes",
+            "/master/packaging/plastic-sheets",
+            "/master/packaging/fadda",
+            "/master/tools",
         ]
     }
 

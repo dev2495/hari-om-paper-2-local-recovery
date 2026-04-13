@@ -9,6 +9,10 @@ resolve_runtime_dir() {
     echo "${ERP_RUNTIME_DIR}"
     return
   fi
+  if [[ -d "${erp_dir}/.runtime" && ( -f "${erp_dir}/.runtime/orchestrator.env" || -d "${erp_dir}/.runtime/pids" ) ]]; then
+    echo "${erp_dir}/.runtime"
+    return
+  fi
   if [[ -d "${erp_dir}/runtime" || ! -e "${erp_dir}/.runtime" ]]; then
     echo "${erp_dir}/runtime"
     return

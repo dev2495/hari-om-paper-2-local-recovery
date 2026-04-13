@@ -10,6 +10,9 @@ import {
   useAdhesives,
   useCustomers,
   useMandrels,
+  usePackagingBoxes,
+  usePackagingFadda,
+  usePackagingPlasticSheets,
   usePapers,
   useParchments,
   useTubeSizes,
@@ -98,18 +101,45 @@ function PaperChip({
   )
 }
 
+function packagingBoxLabel(box: any) {
+  if (!box) return "Box"
+  const code = String(box.code || "").trim()
+  const sizeLabel = String(box.size_label || "").trim()
+  const dimensions =
+    Number(box.length_mm || 0) > 0 && Number(box.width_mm || 0) > 0 && Number(box.height_mm || 0) > 0
+      ? `${box.length_mm}x${box.width_mm}x${box.height_mm}`
+      : ""
+  return [code, sizeLabel, dimensions].filter(Boolean).join(" · ")
+}
+
+function plasticSheetLabel(plasticSheet: any) {
+  if (!plasticSheet) return "Plastic sheet"
+  return [plasticSheet.sku, plasticSheet.size_label].filter(Boolean).join(" · ")
+}
+
+function faddaLabel(fadda: any) {
+  if (!fadda) return "Fadda"
+  return [fadda.sku, Number(fadda.weight_kg || 0) > 0 ? `${fadda.weight_kg} kg` : ""].filter(Boolean).join(" · ")
+}
+
 function PreviewRail({
   state,
   preview,
   selectedCustomer,
   selectedTubeSize,
   selectedMandrel,
+  selectedBox,
+  selectedPlasticSheet,
+  selectedFadda,
 }: {
   state: SpecEditorState
   preview: ReturnType<typeof computePreviewMetrics>
   selectedCustomer: any
   selectedTubeSize: any
   selectedMandrel: any
+  selectedBox: any
+  selectedPlasticSheet: any
+  selectedFadda: any
 }) {
   return (
     <aside className="space-y-4 xl:sticky xl:top-24">
@@ -195,10 +225,11 @@ function PreviewRail({
           <h4 className="font-semibold">Packing Handoff</h4>
         </div>
         <div className="mt-3 space-y-2 text-sm text-slate-600">
-          <p>Box: <span className="font-medium text-slate-900">{state.packing.box_code || "-"}</span></p>
-          <p>Plastic: <span className="font-medium text-slate-900">{state.packing.plastic_sku || "-"}</span></p>
-          <p>Fadda: <span className="font-medium text-slate-900">{state.packing.fadda_sku || "-"}</span></p>
+          <p>Box: <span className="font-medium text-slate-900">{packagingBoxLabel(selectedBox) || state.packing.box_code || "-"}</span></p>
+          <p>Plastic: <span className="font-medium text-slate-900">{plasticSheetLabel(selectedPlasticSheet) || state.packing.plastic_sku || "-"}</span></p>
+          <p>Fadda: <span className="font-medium text-slate-900">{faddaLabel(selectedFadda) || state.packing.fadda_sku || "-"}</span></p>
           <p>Qty/Box: <span className="font-medium text-slate-900">{state.packing.qty_per_box || "-"}</span></p>
+          <p>Bundle: <span className="font-medium text-slate-900">{state.packing.bundle_type || "-"}</span></p>
         </div>
       </div>
     </aside>
@@ -218,6 +249,9 @@ export function SpecSheetDocument({
   const { data: papers = [] } = usePapers()
   const { data: adhesives = [] } = useAdhesives()
   const { data: parchments = [] } = useParchments()
+  const { data: packagingBoxes = [] } = usePackagingBoxes()
+  const { data: packagingPlasticSheets = [] } = usePackagingPlasticSheets()
+  const { data: packagingFadda = [] } = usePackagingFadda()
 
   const normalizedPapers = useMemo(
     () => (Array.isArray(papers) ? papers : []).map(normalizePaper).sort((left, right) => left.gsm - right.gsm),
@@ -258,6 +292,27 @@ export function SpecSheetDocument({
   const selectedMandrel = useMemo(
     () => (Array.isArray(mandrels) ? mandrels : []).find((mandrel: any) => String(mandrel.id) === state.mandrelId),
     [mandrels, state.mandrelId],
+  )
+  const selectedBox = useMemo(
+    () =>
+      (Array.isArray(packagingBoxes) ? packagingBoxes : []).find(
+        (box: any) => String(box.code || box.id || "") === String(state.packing.box_code || ""),
+      ) || null,
+    [packagingBoxes, state.packing.box_code],
+  )
+  const selectedPlasticSheet = useMemo(
+    () =>
+      (Array.isArray(packagingPlasticSheets) ? packagingPlasticSheets : []).find(
+        (plasticSheet: any) => String(plasticSheet.sku || plasticSheet.id || "") === String(state.packing.plastic_sku || ""),
+      ) || null,
+    [packagingPlasticSheets, state.packing.plastic_sku],
+  )
+  const selectedFadda = useMemo(
+    () =>
+      (Array.isArray(packagingFadda) ? packagingFadda : []).find(
+        (fadda: any) => String(fadda.sku || fadda.id || "") === String(state.packing.fadda_sku || ""),
+      ) || null,
+    [packagingFadda, state.packing.fadda_sku],
   )
 
   const selectedCandidates = useMemo(
@@ -538,6 +593,54 @@ export function SpecSheetDocument({
                 className="h-11 rounded-2xl border-slate-200 bg-white"
               />
             </FieldBlock>
+          </div>
+        </section>
+
+        <section className="erp-panel rounded-[2rem] border border-white/70 px-5 py-5">
+          <div className="flex items-center gap-2 text-slate-900">
+            <Sparkles className="h-4 w-4 text-cyan-700" />
+            <h3 className="text-lg font-semibold">Manufacturing math and preview</h3>
+          </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Live theory values stay attached to the spec so the same sheet drives manufacturing, bamboo planning, and packing handoff.
+          </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Paper</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.paper_weight_g} g</p>
+              <p className="mt-1 text-xs text-slate-500">Recipe stack theory</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Adhesive</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.adhesive_weight_g} g</p>
+              <p className="mt-1 text-xs text-slate-500">Fixed {DEFAULT_ADHESIVE_PERCENT}% base</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Parchment</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.parchment_weight_g} g</p>
+              <p className="mt-1 text-xs text-slate-500">{state.parchmentColor || "Without parchment"}</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Wet Weight</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.wet_weight_g} g</p>
+              <p className="mt-1 text-xs text-slate-500">After drying-loss reverse math</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Wall</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.wall_thickness_mm} mm</p>
+              <p className="mt-1 text-xs text-slate-500">Ply thickness sum</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Bamboo</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">
+                {preview.bamboo_plan?.selected_bamboo_length_mm || "-"}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {preview.bamboo_plan
+                  ? `${preview.bamboo_plan.tubes_per_bamboo} tubes · ${preview.bamboo_plan.trim_waste_mm} mm trim`
+                  : "Length not set"}
+              </p>
+            </div>
           </div>
         </section>
 
@@ -877,33 +980,194 @@ export function SpecSheetDocument({
             <h3 className="text-lg font-semibold">Packing and dispatch cues</h3>
           </div>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {[
-              ["Box Code", "box_code"],
-              ["Box Size", "box_size"],
-              ["Bundle Type", "bundle_type"],
-              ["Bundle Code", "bundle_code"],
-              ["Packing Ply", "packing_ply"],
-              ["Qty per Box", "qty_per_box"],
-              ["Packing PCS", "packing_pcs"],
-              ["Plastic SKU", "plastic_sku"],
-              ["Plastic per Box", "plastic_per_box"],
-              ["Fadda SKU", "fadda_sku"],
-              ["Fadda per Box", "fadda_per_box"],
-            ].map(([label, key]) => (
-              <FieldBlock key={key} label={label}>
-                <Input
-                  value={(state.packing as any)[key]}
-                  onChange={(event) =>
-                    setState((current) => ({
-                      ...current,
-                      packing: { ...current.packing, [key]: event.target.value },
-                    }))
-                  }
-                  disabled={readOnly}
-                  className="h-11 rounded-2xl border-slate-200 bg-white"
-                />
-              </FieldBlock>
-            ))}
+            <FieldBlock label="Box Master">
+              <select
+                value={state.packing.box_code || "__NONE__"}
+                onChange={(event) => {
+                  const nextCode = event.target.value === "__NONE__" ? "" : event.target.value
+                  const nextBox = (packagingBoxes as any[]).find(
+                    (box: any) => String(box.code || box.id || "") === nextCode,
+                  )
+                  setState((current) => ({
+                    ...current,
+                    packing: {
+                      ...current.packing,
+                      box_code: nextCode,
+                      box_size: nextBox?.size_label || "",
+                    },
+                  }))
+                }}
+                disabled={readOnly}
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
+              >
+                <option value="__NONE__">Select box master</option>
+                {(packagingBoxes as any[]).map((box: any) => (
+                  <option key={String(box.id || box.code)} value={String(box.code || box.id || "")}>
+                    {packagingBoxLabel(box)}
+                  </option>
+                ))}
+              </select>
+            </FieldBlock>
+            <FieldBlock label="Box Snapshot">
+              <Input
+                value={selectedBox ? packagingBoxLabel(selectedBox) : state.packing.box_size}
+                disabled
+                className="h-11 rounded-2xl border-slate-200 bg-slate-50"
+              />
+            </FieldBlock>
+            <FieldBlock label="Bundle Type">
+              <select
+                value={state.packing.bundle_type || "__NONE__"}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: {
+                      ...current.packing,
+                      bundle_type: event.target.value === "__NONE__" ? "" : event.target.value,
+                    },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
+              >
+                <option value="__NONE__">Select bundle type</option>
+                <option value="BOX">BOX</option>
+                <option value="BUNDLE">BUNDLE</option>
+                <option value="LOOSE">LOOSE</option>
+              </select>
+            </FieldBlock>
+            <FieldBlock label="Bundle Code">
+              <Input
+                value={state.packing.bundle_code}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: { ...current.packing, bundle_code: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+              />
+            </FieldBlock>
+            <FieldBlock label="Packing Ply">
+              <Input
+                value={state.packing.packing_ply}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: { ...current.packing, packing_ply: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+              />
+            </FieldBlock>
+            <FieldBlock label="Qty per Box">
+              <Input
+                value={state.packing.qty_per_box}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: { ...current.packing, qty_per_box: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+              />
+            </FieldBlock>
+            <FieldBlock label="Packing PCS">
+              <Input
+                value={state.packing.packing_pcs}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: { ...current.packing, packing_pcs: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+              />
+            </FieldBlock>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master links</p>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                <p>Box {state.packing.box_code || "-"}</p>
+                <p>Plastic {state.packing.plastic_sku || "-"}</p>
+                <p>Fadda {state.packing.fadda_sku || "-"}</p>
+              </div>
+            </div>
+            <FieldBlock label="Plastic Master">
+              <select
+                value={state.packing.plastic_sku || "__NONE__"}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: {
+                      ...current.packing,
+                      plastic_sku: event.target.value === "__NONE__" ? "" : event.target.value,
+                    },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
+              >
+                <option value="__NONE__">Select plastic master</option>
+                {(packagingPlasticSheets as any[]).map((plasticSheet: any) => (
+                  <option key={String(plasticSheet.id || plasticSheet.sku)} value={String(plasticSheet.sku || plasticSheet.id || "")}>
+                    {plasticSheetLabel(plasticSheet)}
+                  </option>
+                ))}
+              </select>
+            </FieldBlock>
+            <FieldBlock label="Plastic per Box">
+              <Input
+                value={state.packing.plastic_per_box}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: { ...current.packing, plastic_per_box: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+              />
+            </FieldBlock>
+            <FieldBlock label="Fadda Master">
+              <select
+                value={state.packing.fadda_sku || "__NONE__"}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: {
+                      ...current.packing,
+                      fadda_sku: event.target.value === "__NONE__" ? "" : event.target.value,
+                    },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
+              >
+                <option value="__NONE__">Select fadda master</option>
+                {(packagingFadda as any[]).map((fadda: any) => (
+                  <option key={String(fadda.id || fadda.sku)} value={String(fadda.sku || fadda.id || "")}>
+                    {faddaLabel(fadda)}
+                  </option>
+                ))}
+              </select>
+            </FieldBlock>
+            <FieldBlock label="Fadda per Box">
+              <Input
+                value={state.packing.fadda_per_box}
+                onChange={(event) =>
+                  setState((current) => ({
+                    ...current,
+                    packing: { ...current.packing, fadda_per_box: event.target.value },
+                  }))
+                }
+                disabled={readOnly}
+                className="h-11 rounded-2xl border-slate-200 bg-white"
+              />
+            </FieldBlock>
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-3">
@@ -975,6 +1239,9 @@ export function SpecSheetDocument({
         selectedCustomer={selectedCustomer}
         selectedTubeSize={selectedTubeSize}
         selectedMandrel={selectedMandrel}
+        selectedBox={selectedBox}
+        selectedPlasticSheet={selectedPlasticSheet}
+        selectedFadda={selectedFadda}
       />
     </form>
   )

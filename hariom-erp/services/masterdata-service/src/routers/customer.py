@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from .. import models
 from ..database import get_db
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import get_current_user, require_role, get_current_plant, get_plant_aliases
 
 router = APIRouter(prefix="/master/customers", tags=["customers"])
 
@@ -45,8 +45,9 @@ def get_customers(
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant)
 ):
+    plant_aliases = get_plant_aliases(plant_id)
     return db.query(models.Customer).filter(
-        models.Customer.plant_id == plant_id,
+        models.Customer.plant_id.in_(plant_aliases),
         models.Customer.active == True
     ).order_by(models.Customer.name.asc()).all()
 

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from ..database import get_db
 from .. import models
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import get_current_user, require_role, get_current_plant, get_plant_aliases
 
 router = APIRouter(prefix="/master/parchment", tags=["parchment"])
 
@@ -55,8 +55,9 @@ def get_vendors(
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant)
 ):
+    plant_aliases = get_plant_aliases(plant_id)
     return db.query(models.ParchmentVendor).filter(
-        models.ParchmentVendor.plant_id == plant_id,
+        models.ParchmentVendor.plant_id.in_(plant_aliases),
         models.ParchmentVendor.active == True
     ).all()
 
@@ -135,8 +136,9 @@ def get_colors(
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant)
 ):
+    plant_aliases = get_plant_aliases(plant_id)
     query = db.query(models.ParchmentColor).filter(
-        models.ParchmentColor.plant_id == plant_id,
+        models.ParchmentColor.plant_id.in_(plant_aliases),
         models.ParchmentColor.active == True
     )
     if vendor_id:

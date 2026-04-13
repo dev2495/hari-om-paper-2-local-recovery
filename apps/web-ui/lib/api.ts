@@ -158,6 +158,26 @@ export const masterApi = {
 
   getCustomers: () => api.get("/api/master/customers"),
   createCustomer: (data: any) => api.post("/api/master/customers", data),
+
+  getPackagingBoxes: () => api.get("/api/master/packaging/boxes"),
+  createPackagingBox: (data: any) => api.post("/api/master/packaging/boxes", data),
+  updatePackagingBox: (id: string, data: any) => api.put(`/api/master/packaging/boxes/${id}`, data),
+  deletePackagingBox: (id: string) => api.delete(`/api/master/packaging/boxes/${id}`),
+
+  getPackagingPlasticSheets: () => api.get("/api/master/packaging/plastic-sheets"),
+  createPackagingPlasticSheet: (data: any) => api.post("/api/master/packaging/plastic-sheets", data),
+  updatePackagingPlasticSheet: (id: string, data: any) => api.put(`/api/master/packaging/plastic-sheets/${id}`, data),
+  deletePackagingPlasticSheet: (id: string) => api.delete(`/api/master/packaging/plastic-sheets/${id}`),
+
+  getPackagingFadda: () => api.get("/api/master/packaging/fadda"),
+  createPackagingFadda: (data: any) => api.post("/api/master/packaging/fadda", data),
+  updatePackagingFadda: (id: string, data: any) => api.put(`/api/master/packaging/fadda/${id}`, data),
+  deletePackagingFadda: (id: string) => api.delete(`/api/master/packaging/fadda/${id}`),
+
+  getTools: (params?: any) => api.get("/api/master/tools", { params }),
+  createTool: (data: any) => api.post("/api/master/tools", data),
+  updateTool: (id: string, data: any) => api.put(`/api/master/tools/${id}`, data),
+  deleteTool: (id: string) => api.delete(`/api/master/tools/${id}`),
 }
 
 export const specApi = {

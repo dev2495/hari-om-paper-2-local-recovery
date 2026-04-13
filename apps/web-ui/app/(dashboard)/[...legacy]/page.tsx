@@ -14,9 +14,11 @@ import LogisticsDispatchPage from "../logistics/dispatch/page"
 import MasterAdhesivesPage from "../master/adhesives/page"
 import MasterItemsPage from "../master/items/page"
 import MasterMandrelsPage from "../master/mandrels/page"
+import MasterPackagingPage from "../master/packaging/page"
 import MasterPage from "../master/page"
 import MasterPapersPage from "../master/papers/page"
 import MasterParchmentsPage from "../master/parchments/page"
+import MasterToolsPage from "../master/tools/page"
 import MasterTubeSizesPage from "../master/tube-sizes/page"
 import CustomersPage from "../masters/customers/page"
 import PlanningTrackerPage from "../planning/tracker/page"
@@ -63,13 +65,14 @@ const componentMap: Record<string, any> = {
   "inventory/reservations": InventoryPage,
   "inventory/valuation": ReportsInventoryPage,
   "master/customers": CustomersPage,
-  "master/packaging": MasterItemsPage,
+  "master/packaging": MasterPackagingPage,
+  "master/tools": MasterToolsPage,
   "masters/adhesives": MasterAdhesivesPage,
   "masters/machines": MasterItemsPage,
   "masters/mandrels": MasterMandrelsPage,
-  "masters/packaging": MasterItemsPage,
+  "masters/packaging": MasterPackagingPage,
   "masters/parchments": MasterParchmentsPage,
-  "masters/tools": MasterItemsPage,
+  "masters/tools": MasterToolsPage,
   "masters/tube-sizes": MasterTubeSizesPage,
   "planning": ProductionPlannerPage,
   "planning/board": ProductionPlannerPage,

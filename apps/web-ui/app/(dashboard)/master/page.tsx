@@ -9,6 +9,8 @@ const links = [
   { href: "/master/mandrels", title: "Mandrels", description: "Manage mandrel setup for production and spec sheet." },
   { href: "/master/parchments", title: "Parchment Colors", description: "Manage parchment vendors/colors for sales order option." },
   { href: "/master/adhesives", title: "Adhesives", description: "Adhesive master for recipe and process setup." },
+  { href: "/master/packaging", title: "Packaging", description: "Boxes, plastic sheets, and fadda masters used by specification packing handoff." },
+  { href: "/master/tools", title: "Tools", description: "Notch, punch, die, wider-tool, and packing tool masters restored from the live database." },
 ]
 
 export default function MasterOverviewPage() {

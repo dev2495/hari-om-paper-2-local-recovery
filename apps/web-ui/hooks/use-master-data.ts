@@ -227,6 +227,170 @@ export function useCreateCustomer() {
     })
 }
 
+// Packaging boxes
+export function usePackagingBoxes() {
+    return useQuery({
+        queryKey: ["packaging-boxes"],
+        queryFn: async () => {
+            const { data } = await masterApi.getPackagingBoxes()
+            return data
+        },
+    })
+}
+
+export function useCreatePackagingBox() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createPackagingBox(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-boxes"] })
+        },
+    })
+}
+
+export function useUpdatePackagingBox() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updatePackagingBox(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-boxes"] })
+        },
+    })
+}
+
+export function useDeletePackagingBox() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deletePackagingBox(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-boxes"] })
+        },
+    })
+}
+
+// Packaging plastic sheets
+export function usePackagingPlasticSheets() {
+    return useQuery({
+        queryKey: ["packaging-plastic-sheets"],
+        queryFn: async () => {
+            const { data } = await masterApi.getPackagingPlasticSheets()
+            return data
+        },
+    })
+}
+
+export function useCreatePackagingPlasticSheet() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createPackagingPlasticSheet(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-plastic-sheets"] })
+        },
+    })
+}
+
+export function useUpdatePackagingPlasticSheet() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updatePackagingPlasticSheet(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-plastic-sheets"] })
+        },
+    })
+}
+
+export function useDeletePackagingPlasticSheet() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deletePackagingPlasticSheet(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-plastic-sheets"] })
+        },
+    })
+}
+
+// Packaging fadda
+export function usePackagingFadda() {
+    return useQuery({
+        queryKey: ["packaging-fadda"],
+        queryFn: async () => {
+            const { data } = await masterApi.getPackagingFadda()
+            return data
+        },
+    })
+}
+
+export function useCreatePackagingFadda() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createPackagingFadda(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-fadda"] })
+        },
+    })
+}
+
+export function useUpdatePackagingFadda() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updatePackagingFadda(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-fadda"] })
+        },
+    })
+}
+
+export function useDeletePackagingFadda() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deletePackagingFadda(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["packaging-fadda"] })
+        },
+    })
+}
+
+// Tools
+export function useTools(params?: any) {
+    return useQuery({
+        queryKey: ["tools", params || {}],
+        queryFn: async () => {
+            const { data } = await masterApi.getTools(params)
+            return data
+        },
+    })
+}
+
+export function useCreateTool() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createTool(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tools"] })
+        },
+    })
+}
+
+export function useUpdateTool() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateTool(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tools"] })
+        },
+    })
+}
+
+export function useDeleteTool() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteTool(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tools"] })
+        },
+    })
+}
+
 // Machines
 export function useMachines() {
     return useQuery({
@@ -267,4 +431,3 @@ export function useDeleteMachine() {
         },
     })
 }
-

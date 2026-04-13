@@ -222,6 +222,86 @@ async def create_customer(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/customers/", request, token)
 
 
+@router.get("/packaging/boxes")
+async def get_packaging_boxes(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/boxes", request, token)
+
+
+@router.post("/packaging/boxes")
+async def create_packaging_box(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/boxes", request, token)
+
+
+@router.put("/packaging/boxes/{box_id}")
+async def update_packaging_box(box_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/boxes/{box_id}", request, token)
+
+
+@router.delete("/packaging/boxes/{box_id}")
+async def delete_packaging_box(box_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/boxes/{box_id}", request, token)
+
+
+@router.get("/packaging/plastic-sheets")
+async def get_packaging_plastic_sheets(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/plastic-sheets", request, token)
+
+
+@router.post("/packaging/plastic-sheets")
+async def create_packaging_plastic_sheet(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/plastic-sheets", request, token)
+
+
+@router.put("/packaging/plastic-sheets/{plastic_id}")
+async def update_packaging_plastic_sheet(plastic_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/plastic-sheets/{plastic_id}", request, token)
+
+
+@router.delete("/packaging/plastic-sheets/{plastic_id}")
+async def delete_packaging_plastic_sheet(plastic_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/plastic-sheets/{plastic_id}", request, token)
+
+
+@router.get("/packaging/fadda")
+async def get_packaging_fadda(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/fadda", request, token)
+
+
+@router.post("/packaging/fadda")
+async def create_packaging_fadda(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/packaging/fadda", request, token)
+
+
+@router.put("/packaging/fadda/{fadda_id}")
+async def update_packaging_fadda(fadda_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/fadda/{fadda_id}", request, token)
+
+
+@router.delete("/packaging/fadda/{fadda_id}")
+async def delete_packaging_fadda(fadda_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/packaging/fadda/{fadda_id}", request, token)
+
+
+@router.get("/tools")
+async def get_tools(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/", request, token)
+
+
+@router.post("/tools")
+async def create_tool(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/", request, token)
+
+
+@router.put("/tools/{tool_id}")
+async def update_tool(tool_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/{tool_id}", request, token)
+
+
+@router.delete("/tools/{tool_id}")
+async def delete_tool(tool_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/{tool_id}", request, token)
+
+
 @router.put("/customers/{customer_id}")
 async def update_customer(customer_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}", request, token)

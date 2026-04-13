@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import uuid
 from ..database import get_db
 from .. import models
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import get_current_user, require_role, get_current_plant, get_plant_aliases
 
 router = APIRouter(prefix="/master/papers", tags=["papers"])
 
@@ -41,8 +41,9 @@ def get_papers(
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant)
 ):
+    plant_aliases = get_plant_aliases(plant_id)
     papers = db.query(models.PaperMaster).filter(
-        models.PaperMaster.plant_id == plant_id,
+        models.PaperMaster.plant_id.in_(plant_aliases),
         models.PaperMaster.active == True
     ).all()
     return papers
