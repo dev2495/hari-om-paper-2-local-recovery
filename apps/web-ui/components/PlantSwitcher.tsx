@@ -18,7 +18,7 @@ const FALLBACK_PLANT_LABELS: Record<string, string> = {
     ALL: "All Visible Plants",
 }
 
-export function PlantSwitcher() {
+export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     const { user, activePlant, setActivePlant } = useAuth()
     const [isOpen, setIsOpen] = React.useState(false)
     const [plants, setPlants] = React.useState<PlantOption[]>([])
@@ -81,7 +81,13 @@ export function PlantSwitcher() {
 
     if (!canSwitchPlants) {
         return (
-            <div className="flex items-center gap-2 rounded-full border border-white/70 bg-slate-900 px-3 py-2 text-[11px] font-semibold text-slate-50 shadow-sm">
+            <div
+                className={`flex items-center gap-2 rounded-full border shadow-sm ${
+                    compact
+                        ? "border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700"
+                        : "border-white/70 bg-slate-900 px-3 py-2 text-[11px] font-semibold text-slate-50"
+                }`}
+            >
                 <Building2 className="h-3 w-3" />
                 <span className="max-w-[180px] truncate uppercase tracking-[0.18em]">{currentPlantName}</span>
             </div>
@@ -92,7 +98,11 @@ export function PlantSwitcher() {
         <div className="relative">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 rounded-full border border-white/70 bg-white/92 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:border-cyan-200 hover:text-cyan-900"
+                className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-sm transition ${
+                    compact
+                        ? "border-slate-200 bg-white text-slate-600 hover:border-cyan-200 hover:text-cyan-900"
+                        : "border-white/70 bg-white/92 text-slate-700 hover:border-cyan-200 hover:text-cyan-900"
+                }`}
             >
                 <Building2 className="h-3 w-3" />
                 <span className="max-w-[180px] truncate uppercase tracking-[0.18em]">{currentPlantName}</span>

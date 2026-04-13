@@ -4,6 +4,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import {
   Bell,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -43,7 +44,7 @@ type NavGroup = {
   items: NavLink[]
 }
 
-const SIDEBAR_STORAGE_KEY = "hariom_sidebar_pinned"
+const SIDEBAR_STORAGE_KEY = "hariom_sidebar_pinned_v2"
 
 const navigationUnits: NavGroup[] = [
   {
@@ -170,6 +171,13 @@ function initialsFor(name: string | null | undefined) {
   return (joined || value.slice(0, 2)).toUpperCase()
 }
 
+function compactIdentity(value: string | null | undefined) {
+  const identity = String(value || "").trim()
+  if (!identity) return "00000000-0000-0000-0000-0000000000A1"
+  if (identity.length <= 22) return identity
+  return `${identity.slice(0, 18)}...`
+}
+
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/dashboard"
   const router = useRouter()
@@ -223,7 +231,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .slice(0, 6)
   }, [flatLinks, searchQuery])
 
-  const layoutOffsetClass = sidebarExpanded ? "lg:pl-[20rem]" : "lg:pl-[7.5rem]"
+  const headerShortcuts = useMemo(
+    () =>
+      ["/dashboard", "/sales-orders", "/production/job-cards"]
+        .map((href) => flatLinks.find((item) => item.href === href))
+        .filter(Boolean) as NavLink[],
+    [flatLinks],
+  )
+
+  const layoutOffsetClass = sidebarExpanded ? "lg:pl-[18.5rem]" : "lg:pl-[6.5rem]"
+  const roleLabel = String(user?.role || user?.roles?.[0] || "User").toUpperCase()
+  const identityLabel = compactIdentity(user?.id || user?.email || user?.name)
 
   const handleLogout = async () => {
     await logout()
@@ -283,28 +301,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onMouseEnter={() => setSidebarHovered(true)}
         onMouseLeave={() => setSidebarHovered(false)}
         className={cn(
-          "erp-panel fixed inset-y-4 left-4 z-40 hidden flex-col overflow-hidden transition-all duration-300 lg:flex",
-          sidebarExpanded ? "w-[18rem]" : "w-[5.75rem]",
+          "erp-panel fixed bottom-5 left-5 top-5 z-40 hidden flex-col overflow-visible rounded-[2rem] transition-all duration-300 lg:flex",
+          sidebarExpanded ? "w-[16.75rem]" : "w-[4.5rem]",
         )}
       >
-        <div className="flex items-center justify-between border-b border-white/70 px-4 py-4">
-          <Link href="/dashboard" className="flex min-w-0 items-center gap-3">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-cyan-950 via-cyan-900 to-cyan-700 text-white shadow-lg shadow-cyan-950/20">
+        <div
+          className={cn(
+            "relative flex min-h-[5.5rem] border-b border-slate-200/80",
+            sidebarExpanded ? "items-center justify-between px-4" : "items-center justify-center px-0",
+          )}
+        >
+          <Link href="/dashboard" className={cn("flex min-w-0 items-center", sidebarExpanded ? "gap-3" : "justify-center")}>
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[1.15rem] bg-gradient-to-br from-slate-900 via-cyan-950 to-cyan-800 text-white shadow-lg shadow-cyan-950/20">
               <Sparkles className="h-5 w-5" />
             </div>
-            <div className={cn("min-w-0 transition-all duration-200", sidebarExpanded ? "opacity-100" : "pointer-events-none w-0 opacity-0")}>
-              <p className="truncate text-[10px] font-bold uppercase tracking-[0.32em] text-cyan-700/70">Hari Om Paper</p>
-              <h1 className="truncate pt-1 text-xl font-semibold tracking-tight text-slate-950">TubeOS</h1>
+            <div
+              className={cn(
+                "min-w-0 transition-all duration-200",
+                sidebarExpanded ? "opacity-100" : "pointer-events-none w-0 opacity-0",
+              )}
+            >
+              <p className="truncate text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-700/70">Hari Om Paper</p>
+              <h1 className="truncate pt-1 text-[1.35rem] font-semibold tracking-tight text-slate-950">TubeOS</h1>
               <p className="truncate pt-1 text-[10px] font-medium uppercase tracking-[0.18em] text-slate-500">
-                Manufacturing control room
+                Textile tube manufacturing control room
               </p>
             </div>
           </Link>
           <button
             onClick={togglePinned}
             className={cn(
-              "hidden rounded-full border border-slate-200 bg-white/90 p-2 text-slate-500 transition hover:border-cyan-200 hover:text-cyan-800 lg:inline-flex",
-              !sidebarExpanded && "pointer-events-none opacity-0",
+              "absolute -right-3 top-5 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white text-slate-500 shadow-lg transition hover:border-cyan-200 hover:text-cyan-800",
             )}
             title={sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
           >
@@ -312,10 +339,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </button>
         </div>
 
-        <nav className="erp-sidebar-scroll flex-1 space-y-5 overflow-y-auto px-3 py-4">
+        <nav className={cn("erp-sidebar-scroll flex-1 space-y-5 overflow-y-auto py-5", sidebarExpanded ? "px-3" : "px-2")}>
           {navigationUnits.map((group) => (
             <div key={group.title} className="space-y-1">
-              <div className={cn("px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400 transition-all", sidebarExpanded ? "opacity-100" : "opacity-0")}>
+              <div
+                className={cn(
+                  "px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400 transition-all",
+                  sidebarExpanded ? "opacity-100" : "pointer-events-none h-0 overflow-hidden opacity-0",
+                )}
+              >
                 {group.title}
               </div>
               {group.items.map((item) => {
@@ -327,26 +359,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     onClick={() => navigateTo(item.href)}
                     title={!sidebarExpanded ? item.name : undefined}
                     className={cn(
-                      "group flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-all duration-200",
+                      "group flex w-full items-center gap-3 rounded-[1.15rem] text-left transition-all duration-200",
                       active
-                        ? "bg-cyan-950 text-white shadow-lg shadow-cyan-950/15"
-                        : "text-slate-600 hover:bg-white/90 hover:text-cyan-950 hover:shadow-sm",
-                      !sidebarExpanded && "justify-center px-2",
+                        ? "bg-slate-100 text-slate-950 shadow-sm"
+                        : "text-slate-500 hover:bg-slate-100/80 hover:text-cyan-950",
+                      sidebarExpanded ? "px-3 py-3" : "justify-center px-0 py-2.5",
                     )}
                   >
                     <span
                       className={cn(
-                        "flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition-all",
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-[1rem] transition-all",
                         active
-                          ? "bg-white/15 text-white"
-                          : "bg-white/75 text-slate-500 group-hover:bg-cyan-50 group-hover:text-cyan-900",
+                          ? "bg-white text-slate-950 shadow-sm"
+                          : "bg-transparent text-slate-400 group-hover:bg-white group-hover:text-cyan-900",
                       )}
                     >
                       <Icon className="h-4 w-4" />
                     </span>
-                    <div className={cn("min-w-0 flex-1 transition-all duration-200", sidebarExpanded ? "opacity-100" : "pointer-events-none w-0 opacity-0")}>
+                    <div
+                      className={cn(
+                        "min-w-0 flex-1 transition-all duration-200",
+                        sidebarExpanded ? "opacity-100" : "pointer-events-none w-0 opacity-0",
+                      )}
+                    >
                       <div className="truncate text-sm font-semibold">{item.name}</div>
-                      <div className={cn("truncate pt-0.5 text-[11px]", active ? "text-cyan-100/85" : "text-slate-400")}>
+                      <div className={cn("truncate pt-0.5 text-[11px]", active ? "text-slate-500" : "text-slate-400")}>
                         {item.description}
                       </div>
                     </div>
@@ -357,19 +394,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           ))}
         </nav>
 
-        <div className="border-t border-white/70 px-3 py-3">
-          <div className={cn("rounded-[1.6rem] bg-gradient-to-br from-amber-50 via-white to-cyan-50 px-3 py-3 shadow-inner transition-all", sidebarExpanded ? "opacity-100" : "opacity-0")}>
+        <div className={cn("border-t border-slate-200/80 py-3", sidebarExpanded ? "px-3" : "px-2")}>
+          <div
+            className={cn(
+              "rounded-[1.5rem] bg-[linear-gradient(180deg,rgba(239,252,255,0.96),rgba(255,255,255,0.92))] px-3 py-3 shadow-inner transition-all",
+              sidebarExpanded ? "opacity-100" : "pointer-events-none h-0 overflow-hidden p-0 opacity-0",
+            )}
+          >
             <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-amber-700">Approval Inbox</div>
             <p className="pt-2 text-xs leading-5 text-slate-600">
               Track pending specs, release approvals, and reconciliation checkpoints from one rail.
             </p>
           </div>
 
-          <div className={cn("mt-3 flex items-center gap-3 rounded-[1.4rem] border border-white/70 bg-white/85 px-3 py-3 shadow-sm transition-all", !sidebarExpanded && "justify-center px-2")}>
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-slate-950 text-xs font-bold text-white">
+          <div
+            className={cn(
+              "mt-3 flex items-center gap-3 rounded-[1.2rem] border border-white/80 bg-white/88 py-2.5 shadow-sm transition-all",
+              sidebarExpanded ? "px-3" : "justify-center px-0",
+            )}
+          >
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-950 text-xs font-bold text-white">
               {initialsFor(user.name)}
             </div>
-            <div className={cn("min-w-0 flex-1 transition-all duration-200", sidebarExpanded ? "opacity-100" : "pointer-events-none w-0 opacity-0")}>
+            <div
+              className={cn(
+                "min-w-0 flex-1 transition-all duration-200",
+                sidebarExpanded ? "opacity-100" : "pointer-events-none w-0 opacity-0",
+              )}
+            >
               <div className="truncate text-sm font-semibold text-slate-900">{user.name}</div>
               <div className="truncate pt-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-400">
                 {user.role || user.roles?.[0] || "System User"}
@@ -390,31 +442,39 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       <div className={cn("min-h-screen transition-all duration-300", layoutOffsetClass)}>
-        <header className="sticky top-0 z-30 px-4 pb-3 pt-4 md:px-6">
-          <div className="erp-panel mx-auto flex w-full max-w-[1740px] flex-col gap-4 px-4 py-4 md:px-5">
-            <div className="flex items-start justify-between gap-4">
+        <header className="sticky top-0 z-30 px-4 pb-3 pt-5 md:px-6">
+          <div className="erp-panel mx-auto flex w-full max-w-[1680px] flex-col gap-4 rounded-[2rem] px-5 py-5 md:px-6">
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="min-w-0">
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.24em] text-cyan-800/60">
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.26em] text-cyan-800/55">
                   <Sparkles className="h-3.5 w-3.5" />
                   <span>TubeOS Workspace</span>
                 </div>
-                <h2 className="pt-2 text-2xl font-semibold tracking-tight text-slate-950">{pageLink?.name || "Workspace"}</h2>
-                <p className="max-w-2xl pt-1 text-sm text-slate-500">{pageLink?.description || "Recovered ERP runtime workspace."}</p>
+                <h2 className="pt-2 text-[2rem] font-semibold tracking-tight text-slate-950">{pageLink?.name || "Workspace"}</h2>
+                <p className="max-w-3xl pt-1 text-sm text-slate-500">
+                  {pageLink?.description || "Recovered ERP runtime workspace."}
+                </p>
               </div>
 
-              <div className="hidden items-center gap-2 lg:flex">
-                <div className="rounded-full border border-white/80 bg-white/90 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 shadow-sm">
-                  {user.role || user.roles?.[0] || "User"}
+              <div className="hidden items-center gap-2 xl:flex">
+                <div className="rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 shadow-sm">
+                  {roleLabel}
                 </div>
-                <PlantSwitcher />
-                <Button variant="outline" className="rounded-full border-white/80 bg-white/90 px-4" onClick={handleLogout}>
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-600 shadow-sm">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-950 text-[9px] font-bold uppercase tracking-[0.16em] text-white">
+                    {initialsFor(user.name).slice(0, 1)}
+                  </span>
+                  <span className="max-w-[17ch] truncate tracking-[0.16em]">{identityLabel}</span>
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                </div>
+                <Button variant="outline" className="rounded-full border-slate-200 bg-white px-4" onClick={handleLogout}>
                   <LogOut className="mr-2 h-4 w-4" />
                   Logout
                 </Button>
               </div>
             </div>
 
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-start">
               <div className="flex items-center gap-2 lg:hidden">
                 <button
                   onClick={() => setMobileNavOpen(true)}
@@ -431,7 +491,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
 
               <div
-                className="relative flex-1"
+                className="relative xl:max-w-[980px]"
                 onFocusCapture={() => setSearchOpen(true)}
                 onBlurCapture={() => {
                   window.setTimeout(() => setSearchOpen(false), 120)
@@ -468,12 +528,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 ) : null}
               </div>
 
-              <div className="hidden items-center gap-2 md:flex">
-                {flatLinks.slice(0, 3).map((item) => (
+              <div className="hidden flex-wrap items-center justify-end gap-2 md:flex">
+                <PlantSwitcher compact />
+                {headerShortcuts.map((item) => (
                   <button
                     key={`quick-${item.href}`}
                     onClick={() => navigateTo(item.href)}
-                    className="rounded-full border border-white/80 bg-white/90 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500 shadow-sm transition hover:border-cyan-200 hover:text-cyan-900"
+                    className={cn(
+                      "rounded-full border px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.18em] shadow-sm transition",
+                      isActivePath(pathname, item.href)
+                        ? "border-cyan-100 bg-cyan-50 text-cyan-900"
+                        : "border-slate-200 bg-white text-slate-500 hover:border-cyan-200 hover:text-cyan-900",
+                    )}
                   >
                     {item.name}
                   </button>
@@ -484,7 +550,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </header>
 
         <main className="px-4 pb-8 md:px-6">
-          <div className="mx-auto w-full max-w-[1740px]">
+          <div className="mx-auto w-full max-w-[1680px]">
             {children}
           </div>
         </main>

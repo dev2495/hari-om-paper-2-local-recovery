@@ -373,18 +373,18 @@ export function SpecSheetDocument({
   const paperSearchPlaceholder = readOnly ? "Selected paper pool" : "Search paper masters..."
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <div className="space-y-6">
-        <section className="erp-panel animate-enter-up px-5 py-5">
+    <form onSubmit={handleSubmit} className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_332px]">
+      <div className="space-y-5">
+        <section className="erp-panel animate-enter-up overflow-hidden rounded-[2rem] border border-white/70 bg-[radial-gradient(circle_at_top_left,rgba(186,230,253,0.32),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.96),rgba(247,250,252,0.96))] px-5 py-5">
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Spec Sheet Workspace</p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">{resolveSpecTitle(initialSpec)}</h2>
+              <h2 className="mt-2 text-[2rem] font-semibold tracking-tight text-slate-950">{resolveSpecTitle(initialSpec)}</h2>
               <p className="mt-2 max-w-3xl text-sm text-slate-600">
                 Master-led specification flow with paper-pool selection, recipe suggestion, adhesive split, and manufacturing preview in one surface.
               </p>
             </div>
-            <div className="rounded-2xl border border-cyan-100 bg-cyan-50 px-4 py-3 text-right text-sm text-cyan-900">
+            <div className="rounded-[1.5rem] border border-cyan-100 bg-cyan-50/90 px-4 py-3 text-right text-sm text-cyan-900 shadow-sm">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-700">Global Rules</p>
               <p className="mt-2">Adhesive {DEFAULT_ADHESIVE_PERCENT}%</p>
               <p>Parchment {DEFAULT_PARCHMENT_PERCENT}%</p>
@@ -393,7 +393,7 @@ export function SpecSheetDocument({
           </div>
         </section>
 
-        <section className="erp-panel px-5 py-5">
+        <section className="erp-panel rounded-[2rem] border border-white/70 px-5 py-5">
           <div className="flex items-center gap-2 text-slate-900">
             <Factory className="h-4 w-4 text-cyan-700" />
             <h3 className="text-lg font-semibold">Commercial and size basis</h3>
@@ -541,7 +541,7 @@ export function SpecSheetDocument({
           </div>
         </section>
 
-        <section className="erp-panel px-5 py-5">
+        <section className="erp-panel rounded-[2rem] border border-white/70 px-5 py-5">
           <div className="flex items-center gap-2 text-slate-900">
             <Layers className="h-4 w-4 text-cyan-700" />
             <h3 className="text-lg font-semibold">Candidate paper pool and best-mix</h3>
