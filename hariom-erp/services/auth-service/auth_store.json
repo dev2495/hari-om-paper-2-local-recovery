@@ -1,0 +1,108 @@
+{
+  "users": [
+    {
+      "id": "admin-user",
+      "email": "admin@hariom.com",
+      "password": "admin123",
+      "name": "System Admin",
+      "roles": [
+        "Owner",
+        "Admin",
+        "Planner"
+      ],
+      "plant_ids": [
+        "PLANT-1"
+      ],
+      "active": true
+    }
+  ],
+  "roles": [
+    {
+      "code": "Owner",
+      "label": "Owner"
+    },
+    {
+      "code": "Admin",
+      "label": "Admin"
+    },
+    {
+      "code": "Planner",
+      "label": "Planner"
+    },
+    {
+      "code": "PlantManager",
+      "label": "PlantManager"
+    },
+    {
+      "code": "Production",
+      "label": "Production"
+    },
+    {
+      "code": "Store",
+      "label": "Store"
+    },
+    {
+      "code": "Sales",
+      "label": "Sales"
+    },
+    {
+      "code": "QC",
+      "label": "QC"
+    },
+    {
+      "code": "Operator",
+      "label": "Operator"
+    }
+  ],
+  "role_matrix": {
+    "Owner": {
+      "label": "Owner",
+      "enabled": true
+    },
+    "Admin": {
+      "label": "Admin",
+      "enabled": true
+    },
+    "Planner": {
+      "label": "Planner",
+      "enabled": true
+    },
+    "PlantManager": {
+      "label": "PlantManager",
+      "enabled": true
+    },
+    "Production": {
+      "label": "Production",
+      "enabled": true
+    },
+    "Store": {
+      "label": "Store",
+      "enabled": true
+    },
+    "Sales": {
+      "label": "Sales",
+      "enabled": true
+    },
+    "QC": {
+      "label": "QC",
+      "enabled": true
+    },
+    "Operator": {
+      "label": "Operator",
+      "enabled": true
+    }
+  },
+  "notifications": [],
+  "plants": [
+    {
+      "id": "PLANT_A",
+      "code": "PLANT_A",
+      "name": "Plant A"
+    },
+    {
+      "id": "PLANT_B",
+      "code": "PLANT_B",
+      "name": "Plant B"
+    }
+  ]
+}

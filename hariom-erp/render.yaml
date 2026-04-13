@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: hariom-analytics-service
+    runtime: python
+    rootDir: services/analytics-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: AUTH_SERVICE_URL
+        sync: false
+      - key: INTERNAL_EVENT_TOKEN
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_USE_TLS
+        sync: false
+      - key: OWNER_PACK_OUTPUT_DIR
+        value: /var/data/owner-pack
+
+  # Render schedules use UTC; 14:30 UTC is 20:00 IST.
+  - type: cron
+    name: hariom-owner-pack-daily
+    runtime: python
+    rootDir: services/analytics-service
+    schedule: "30 14 * * *"
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m src.daily_owner_pack
+    envVars:
+      - key: AUTH_SERVICE_URL
+        sync: false
+      - key: INTERNAL_EVENT_TOKEN
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USERNAME
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_USE_TLS
+        sync: false
+      - key: OWNER_PACK_OUTPUT_DIR
+        value: /var/data/owner-pack

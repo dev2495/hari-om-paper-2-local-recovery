@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-body: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+    --font-heading: "DIN Alternate", "Trebuchet MS", "Avenir Next", sans-serif;
+    --background: 43 47% 96%;
+    --foreground: 220 30% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 30% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 220 30% 12%;
+    --primary: 192 76% 31%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 32 56% 90%;
+    --secondary-foreground: 220 25% 20%;
+    --muted: 34 37% 93%;
+    --muted-foreground: 220 12% 40%;
+    --accent: 22 80% 63%;
+    --accent-foreground: 220 30% 12%;
+    --destructive: 0 76% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 36 29% 84%;
+    --input: 36 29% 84%;
+    --ring: 192 76% 31%;
+    --radius: 0.85rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    font-family: var(--font-body), sans-serif;
+    @apply text-foreground;
+    background:
+      radial-gradient(circle at 20% 10%, rgba(15, 157, 171, 0.16), transparent 32%),
+      radial-gradient(circle at 85% 0%, rgba(232, 126, 59, 0.16), transparent 24%),
+      linear-gradient(180deg, #fbf7ef 0%, #f5efe4 44%, #f9f5ee 100%);
+    min-height: 100vh;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-heading), sans-serif;
+  }
+}
+
+@layer utilities {
+  .glass {
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.72);
+  }
+}

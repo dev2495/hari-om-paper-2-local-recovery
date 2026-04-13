@@ -1,0 +1,14 @@
+INFO:     Will watch for changes in these directories: ['/Users/devarshthakkar/Documents/Hari Om Paper/hariom-erp/services/production-service']
+INFO:     Uvicorn running on http://0.0.0.0:18004 (Press CTRL+C to quit)
+INFO:     Started reloader process [11271] using WatchFiles
+/Users/devarshthakkar/Documents/Hari Om Paper/hariom-erp/.venv-direct/lib/python3.11/site-packages/pydantic/_internal/_config.py:321: UserWarning: Valid config keys have changed in V2:
+* 'orm_mode' has been renamed to 'from_attributes'
+  warnings.warn(message, UserWarning)
+INFO:     Started server process [11362]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [11362]
+INFO:     Stopping reloader process [11271]

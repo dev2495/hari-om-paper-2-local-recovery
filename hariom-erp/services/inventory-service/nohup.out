@@ -1,0 +1,12 @@
+INFO:     Will watch for changes in these directories: ['/Users/devarshthakkar/Documents/Hari Om Paper/hariom-erp/services/inventory-service']
+INFO:     Uvicorn running on http://0.0.0.0:18005 (Press CTRL+C to quit)
+INFO:     Started reloader process [20056] using WatchFiles
+INFO:     Started server process [20160]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     127.0.0.1:60534 - "GET /health HTTP/1.1" 200 OK
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [20160]
+INFO:     Stopping reloader process [20056]
