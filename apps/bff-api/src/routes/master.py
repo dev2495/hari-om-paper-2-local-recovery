@@ -11,6 +11,15 @@ MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", "http://127.0.0.1:18002")
 http_client = httpx.AsyncClient(timeout=15.0)
 
 
+def _master_headers(token: str, request: Request | None = None) -> dict[str, str]:
+    headers = {"Authorization": f"Bearer {token}"}
+    if request is not None:
+        plant_header = request.headers.get("X-Plant-ID")
+        if plant_header:
+            headers["X-Plant-ID"] = plant_header
+    return headers
+
+
 @router.get("/papers")
 async def get_papers(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/papers/", request, token)
@@ -52,14 +61,15 @@ async def delete_adhesive(adhesive_id: str, request: Request, token: str = Depen
 
 
 @router.get("/parchments")
-async def get_parchments(token: str = Depends(get_token)):
+async def get_parchments(request: Request, token: str = Depends(get_token)):
+    headers = _master_headers(token, request)
     vendors_resp = await http_client.get(
         f"{MASTER_SERVICE_URL}/master/parchment/vendors",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     colors_resp = await http_client.get(
         f"{MASTER_SERVICE_URL}/master/parchment/colors",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
 
     if vendors_resp.status_code != 200 or colors_resp.status_code != 200:
@@ -68,33 +78,52 @@ async def get_parchments(token: str = Depends(get_token)):
         return JSONResponse(status_code=status, content=detail)
 
     vendors = {vendor["id"]: vendor for vendor in vendors_resp.json()}
-    merged = []
+    merged_by_key = {}
     for color in colors_resp.json():
         vendor = vendors.get(color.get("vendor_id"), {})
-        merged.append(
-            {
-                "id": color.get("id"),
-                "vendor_id": color.get("vendor_id"),
-                "vendor_name": vendor.get("name"),
-                "color_name": color.get("color_name"),
-                "active": color.get("active", True),
-            }
+        vendor_name = vendor.get("name")
+        row = {
+            "id": color.get("id"),
+            "vendor_id": color.get("vendor_id"),
+            "vendor_name": vendor_name,
+            "vendor_family": vendor_name,
+            "color_name": color.get("color_name"),
+            "display_name": (
+                f"{vendor_name} / {color.get('color_name')}"
+                if vendor_name and color.get("color_name")
+                else vendor_name or color.get("color_name")
+            ),
+            "active": color.get("active", True),
+        }
+        key = (
+            str(row.get("vendor_name") or "").strip().lower(),
+            str(row.get("color_name") or "").strip().lower(),
         )
+        merged_by_key[key] = row
 
+    merged = sorted(
+        merged_by_key.values(),
+        key=lambda item: (
+            str(item.get("vendor_name") or "").lower(),
+            str(item.get("color_name") or "").lower(),
+        ),
+    )
     return JSONResponse(content=merged)
 
 
 @router.post("/parchments")
 async def create_parchment_color(request: Request, token: str = Depends(get_token)):
     body = await request.json()
-    vendor_name = body.get("vendor_name")
+    vendor_name = body.get("vendor_family") or body.get("vendor_name")
     color_name = body.get("color_name")
     if not vendor_name or not color_name:
         return JSONResponse(status_code=400, content={"detail": "vendor_name and color_name are required"})
 
+    headers = _master_headers(token, request)
+
     vendors_resp = await http_client.get(
         f"{MASTER_SERVICE_URL}/master/parchment/vendors",
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     if vendors_resp.status_code != 200:
         return JSONResponse(status_code=vendors_resp.status_code, content=vendors_resp.json())
@@ -109,7 +138,7 @@ async def create_parchment_color(request: Request, token: str = Depends(get_toke
         create_vendor_resp = await http_client.post(
             f"{MASTER_SERVICE_URL}/master/parchment/vendors",
             json={"name": vendor_name},
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
         )
         if create_vendor_resp.status_code != 200:
             return JSONResponse(status_code=create_vendor_resp.status_code, content=create_vendor_resp.json())
@@ -118,7 +147,7 @@ async def create_parchment_color(request: Request, token: str = Depends(get_toke
     create_color_resp = await http_client.post(
         f"{MASTER_SERVICE_URL}/master/parchment/colors",
         json={"vendor_id": vendor_id, "color_name": color_name},
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     return JSONResponse(status_code=create_color_resp.status_code, content=create_color_resp.json())
 
@@ -127,16 +156,17 @@ async def create_parchment_color(request: Request, token: str = Depends(get_toke
 async def update_parchment_color(color_id: str, request: Request, token: str = Depends(get_token)):
     body = await request.json()
     payload = {}
+    headers = _master_headers(token, request)
 
     color_name = body.get("color_name")
     if color_name:
         payload["color_name"] = color_name
 
-    vendor_name = body.get("vendor_name")
+    vendor_name = body.get("vendor_family") or body.get("vendor_name")
     if vendor_name:
         vendors_resp = await http_client.get(
             f"{MASTER_SERVICE_URL}/master/parchment/vendors",
-            headers={"Authorization": f"Bearer {token}"},
+            headers=headers,
         )
         if vendors_resp.status_code != 200:
             return JSONResponse(status_code=vendors_resp.status_code, content=vendors_resp.json())
@@ -151,7 +181,7 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
             create_vendor_resp = await http_client.post(
                 f"{MASTER_SERVICE_URL}/master/parchment/vendors",
                 json={"name": vendor_name},
-                headers={"Authorization": f"Bearer {token}"},
+                headers=headers,
             )
             if create_vendor_resp.status_code != 200:
                 return JSONResponse(status_code=create_vendor_resp.status_code, content=create_vendor_resp.json())
@@ -162,7 +192,7 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
     update_color_resp = await http_client.put(
         f"{MASTER_SERVICE_URL}/master/parchment/colors/{color_id}",
         json=payload,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=headers,
     )
     return JSONResponse(status_code=update_color_resp.status_code, content=update_color_resp.json())
 
@@ -220,6 +250,46 @@ async def get_customers(request: Request, token: str = Depends(get_token)):
 @router.post("/customers")
 async def create_customer(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/customers/", request, token)
+
+
+@router.put("/customers/{customer_id}")
+async def update_customer(customer_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}", request, token)
+
+
+@router.delete("/customers/{customer_id}")
+async def delete_customer(customer_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}", request, token)
+
+
+@router.get("/customers/{customer_id}/contacts")
+async def get_customer_contacts(customer_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}/contacts", request, token)
+
+
+@router.post("/customers/{customer_id}/contacts")
+async def create_customer_contact(customer_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}/contacts", request, token)
+
+
+@router.put("/customers/{customer_id}/contacts/{contact_id}")
+async def update_customer_contact(customer_id: str, contact_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        MASTER_SERVICE_URL,
+        f"/master/customers/{customer_id}/contacts/{contact_id}",
+        request,
+        token,
+    )
+
+
+@router.delete("/customers/{customer_id}/contacts/{contact_id}")
+async def delete_customer_contact(customer_id: str, contact_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        MASTER_SERVICE_URL,
+        f"/master/customers/{customer_id}/contacts/{contact_id}",
+        request,
+        token,
+    )
 
 
 @router.get("/packaging/boxes")
@@ -300,13 +370,3 @@ async def update_tool(tool_id: str, request: Request, token: str = Depends(get_t
 @router.delete("/tools/{tool_id}")
 async def delete_tool(tool_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/{tool_id}", request, token)
-
-
-@router.put("/customers/{customer_id}")
-async def update_customer(customer_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}", request, token)
-
-
-@router.delete("/customers/{customer_id}")
-async def delete_customer(customer_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}", request, token)

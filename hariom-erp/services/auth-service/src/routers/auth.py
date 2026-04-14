@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
@@ -17,6 +17,8 @@ class UserCreate(BaseModel):
     password: str
     plant_id: str = "PLANT_A"
     role_names: List[str] = []
+    allowed_plant_ids: List[uuid.UUID] = []
+    is_owner_all_plants: bool = False
 
 class UserResponse(BaseModel):
     id: uuid.UUID
@@ -27,6 +29,10 @@ class UserResponse(BaseModel):
     role: str | None = None
     roles: List[str]
     permissions: List[str]
+    allowed_plants: List[str] = []
+    is_owner_all_plants: bool = False
+    acting_role: str | None = None
+    is_acting_session: bool = False
 
     class Config:
         from_attributes = True
@@ -40,7 +46,14 @@ class UserRoleAssignment(BaseModel):
     role_names: List[str]
 
 
+class ActingRolePayload(BaseModel):
+    role_name: str
+
+
 def serialize_user(user: models.User) -> dict:
+    allowed_plants = [str(plant.id) for plant in getattr(user, "allowed_plants", [])]
+    if not allowed_plants and user.plant_id:
+        allowed_plants = [str(user.plant_id)]
     permissions = sorted({
         permission.name
         for role in user.roles
@@ -50,12 +63,28 @@ def serialize_user(user: models.User) -> dict:
         "id": user.id,
         "name": user.name,
         "email": user.email,
-        "plant_id": user.plant.code if getattr(user, "plant", None) and user.plant else (str(user.plant_id) if user.plant_id else "PLANT_A"),
+        "plant_id": str(user.plant_id) if user.plant_id else (allowed_plants[0] if allowed_plants else "PLANT_A"),
         "is_active": user.is_active,
         "role": sorted([role.name for role in user.roles])[0] if user.roles else None,
         "roles": sorted([role.name for role in user.roles]),
         "permissions": permissions,
+        "allowed_plants": allowed_plants,
+        "is_owner_all_plants": bool(getattr(user, "is_owner_all_plants", False)),
+        "acting_role": None,
+        "is_acting_session": False,
     }
+
+
+def _assign_roles(user: models.User, role_names: List[str], db: Session) -> None:
+    normalized = sorted({str(role or "").strip() for role in (role_names or []) if str(role or "").strip()})
+    if not normalized:
+        return
+    roles = db.query(models.Role).filter(models.Role.name.in_(normalized)).all()
+    resolved = {role.name for role in roles}
+    missing = [name for name in normalized if name not in resolved]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"Unknown roles: {', '.join(missing)}")
+    user.roles = roles
 
 
 def create_user_record(user_in: UserCreate, db: Session) -> models.User:
@@ -78,9 +107,7 @@ def create_user_record(user_in: UserCreate, db: Session) -> models.User:
         hashed_password=hashed_pw
     )
 
-    if user_in.role_names:
-        roles = db.query(models.Role).filter(models.Role.name.in_(user_in.role_names)).all()
-        new_user.roles = roles
+    _assign_roles(new_user, user_in.role_names, db)
 
     db.add(new_user)
     db.commit()
@@ -98,10 +125,6 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
         )
     new_user = create_user_record(user_in, db)
     return serialize_user(new_user)
-
-
-    db.refresh(user)
-    return user
 
 @router.post("/login")
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -123,6 +146,56 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     access_token = jwt_handler.create_access_token(data=claims)
     return {"access_token": access_token, "token_type": "bearer", "user": serialize_user(user)}
 
+
+@router.post("/acting-role")
+def set_acting_role(
+    payload: ActingRolePayload,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    role_name = str(payload.role_name or "").strip()
+    if not role_name:
+        raise HTTPException(status_code=400, detail="role_name is required")
+
+    user_role_map = {role.name: role for role in current_user.roles}
+    role = user_role_map.get(role_name)
+    if role is None:
+        # Local runtime compatibility: admins/owners can switch to any seeded role.
+        if {"Admin", "Owner"} & set(user_role_map.keys()):
+            role = db.query(models.Role).filter(models.Role.name == role_name).first()
+    if role is None:
+        raise HTTPException(status_code=403, detail="Requested role is not assigned to this user")
+
+    permissions = sorted({permission.name for permission in role.permissions})
+    claims = jwt_handler.build_user_claims(current_user)
+    claims.update(
+        {
+            "actual_sub": claims.get("sub"),
+            "actual_user_id": claims.get("user_id"),
+            "actual_roles": claims.get("roles", []),
+            "acting_role": role_name,
+            "effective_roles": [role_name],
+            "roles": [role_name],
+            "role": role_name,
+            "permissions": permissions,
+            "is_acting_session": True,
+        }
+    )
+    access_token = jwt_handler.create_access_token(data=claims)
+    return {"access_token": access_token, "token_type": "bearer", "acting_role": role_name}
+
+
 @router.get("/me", response_model=UserResponse)
-def get_me(current_user: models.User = Depends(get_current_user)):
-    return serialize_user(current_user)
+def get_me(request: Request, current_user: models.User = Depends(get_current_user)):
+    response = serialize_user(current_user)
+    payload = getattr(current_user, "token_payload", None) or jwt_handler.decode_access_token(getattr(current_user, "token", ""))
+    if payload:
+        acting_role = payload.get("acting_role")
+        response["acting_role"] = acting_role
+        response["is_acting_session"] = bool(payload.get("is_acting_session") and acting_role)
+        if payload.get("effective_roles"):
+            response["roles"] = sorted({str(role) for role in payload.get("effective_roles", []) if str(role).strip()})
+            response["role"] = response["roles"][0] if response["roles"] else response.get("role")
+        if payload.get("permissions"):
+            response["permissions"] = sorted({str(permission) for permission in payload.get("permissions", []) if str(permission).strip()})
+    return response
