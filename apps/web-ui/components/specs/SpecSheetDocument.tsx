@@ -569,6 +569,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const manufacturingAverages = useMemo(() => {
     const mandrelOd = Number(selectedMandrel?.outer_diameter_mm || 0)
+    const mandrelAverageId = mandrelOd > 0 ? roundValue(mandrelOd + 0.1, 2) : roundValue(Number(form.averages.id || 0), 2)
     const usableLength = Number(specConstants?.bamboo_max_length_mm || 1560) - Number(specConstants?.cut_loss_mm || 40)
     const recoveryFactor = 1 - Number(form.shrinkPercent || 0) / 100
     const totalWall = form.recipeRows.reduce((sum, row) => sum + Number(row.thicknessPerPly || 0) * Math.max(1, Number(row.plyCount || 1)), 0)
@@ -576,8 +577,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const targetWeight = Number(form.averages.weight || 0)
 
     return {
-      id: mandrelOd > 0 ? roundValue(mandrelOd - 0.2, 2) : roundValue(Math.max(Number(form.averages.id || 0) - 0.2, 0), 2),
-      od: mandrelOd > 0 ? roundValue(mandrelOd - 0.2 + totalWall * 2, 2) : roundValue(Number(form.averages.od || 0), 2),
+      id: mandrelAverageId,
+      od: mandrelOd > 0 ? roundValue(mandrelAverageId + totalWall * 2, 2) : roundValue(Number(form.averages.od || 0), 2),
       length: roundValue(usableLength, 2),
       weight:
         targetWeight > 0
@@ -591,7 +592,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const manufacturingRows = useMemo(() => {
     const avg = manufacturingAverages
     const max = {
-      id: selectedMandrel?.outer_diameter_mm ? roundValue(Number(selectedMandrel.outer_diameter_mm) - 0.1, 2) : roundValue(avg.id + 0.1, 2),
+      id: roundValue(avg.id + 0.1, 2),
       od: roundValue(avg.od + DEFAULT_TOLERANCE_BANDS.od, 2),
       length: roundValue(avg.length + 20, 2),
       weight: roundValue(avg.weight + 20, 2),
@@ -599,7 +600,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       moisture: roundValue(clamp(avg.moisture + DEFAULT_TOLERANCE_BANDS.moisture, 0, 100), 2),
     }
     const min = {
-      id: selectedMandrel?.outer_diameter_mm ? roundValue(Number(selectedMandrel.outer_diameter_mm) - 0.3, 2) : roundValue(Math.max(avg.id - 0.1, 0), 2),
+      id: roundValue(Math.max(avg.id - 0.1, 0), 2),
       od: roundValue(Math.max(avg.od - DEFAULT_TOLERANCE_BANDS.od, 0), 2),
       length: roundValue(Math.max(avg.length - 20, 0), 2),
       weight: roundValue(Math.max(avg.weight - 20, 0), 2),
