@@ -111,6 +111,10 @@ export const authApi = {
   updateUser: (id: string, data: any) => api.put(`/api/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/api/auth/users/${id}`),
   getRoles: () => api.get("/api/auth/roles"),
+  getNotifications: (params?: any) => api.get("/api/auth/notifications", { params }),
+  getNotificationUnreadCount: () => api.get("/api/auth/notifications/unread-count"),
+  markAllNotificationsRead: () => api.post("/api/auth/notifications/mark-all-read"),
+  markNotificationRead: (id: string) => api.post(`/api/auth/notifications/${id}/read`),
   getPlants: () => api.get("/api/auth/plants"),
   createPlant: (data: any) => api.post("/api/auth/plants", data),
   updatePlant: (id: string, data: any) => api.patch(`/api/auth/plants/${id}`, data),
@@ -119,6 +123,24 @@ export const authApi = {
 
 export const dashboardApi = {
   getOverview: () => api.get("/api/analytics/dashboard/overview"),
+}
+
+function analyticsParams(
+  startOrParams?: string | Record<string, any>,
+  endDate?: string,
+  plant?: string,
+) {
+  if (typeof startOrParams === "object" && startOrParams !== null) {
+    return startOrParams
+  }
+  if (typeof startOrParams === "string" || typeof endDate === "string" || typeof plant === "string") {
+    return {
+      ...(startOrParams ? { start_date: startOrParams } : {}),
+      ...(endDate ? { end_date: endDate } : {}),
+      ...(plant ? { plant } : {}),
+    }
+  }
+  return undefined
 }
 
 export const analyticsApi = {
@@ -132,6 +154,10 @@ export const analyticsApi = {
   getInventoryValuation: () => api.get("/api/analytics/inventory/valuation"),
   getSalesTrends: (startDate: string, endDate: string) =>
     api.get("/api/analytics/sales/trends", { params: { start_date: startDate, end_date: endDate } }),
+  getSupplierLoss: (startOrParams?: any, endDate?: string, plant?: string) =>
+    api.get("/api/analytics/loss/supplier-loss", { params: analyticsParams(startOrParams, endDate, plant) }),
+  getWinderEfficiency: (startOrParams?: any, endDate?: string, plant?: string) =>
+    api.get("/api/analytics/production/winder", { params: analyticsParams(startOrParams, endDate, plant) }),
 }
 
 export const masterApi = {
@@ -167,6 +193,14 @@ export const masterApi = {
 
   getCustomers: () => api.get("/api/master/customers"),
   createCustomer: (data: any) => api.post("/api/master/customers", data),
+  updateCustomer: (id: string, data: any) => api.put(`/api/master/customers/${id}`, data),
+  deleteCustomer: (id: string) => api.delete(`/api/master/customers/${id}`),
+  getCustomerContacts: (customerId: string) => api.get(`/api/master/customers/${customerId}/contacts`),
+  createCustomerContact: (customerId: string, data: any) => api.post(`/api/master/customers/${customerId}/contacts`, data),
+  updateCustomerContact: (customerId: string, contactId: string, data: any) =>
+    api.put(`/api/master/customers/${customerId}/contacts/${contactId}`, data),
+  deleteCustomerContact: (customerId: string, contactId: string) =>
+    api.delete(`/api/master/customers/${customerId}/contacts/${contactId}`),
 
   getPackagingBoxes: () => api.get("/api/master/packaging/boxes"),
   createPackagingBox: (data: any) => api.post("/api/master/packaging/boxes", data),

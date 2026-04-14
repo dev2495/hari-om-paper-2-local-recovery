@@ -1,4 +1,5 @@
 import uuid
+import os
 from typing import Callable, Iterable
 
 from fastapi import Depends, HTTPException, Request, status
@@ -10,6 +11,9 @@ from ..security.jwt_handler import decode_access_token
 
 
 def _extract_token(request: Request) -> str | None:
+    acting_token = request.cookies.get("acting_token")
+    if acting_token:
+        return acting_token
     token = request.cookies.get("token")
     if token:
         return token
@@ -42,6 +46,7 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
 
     setattr(user, "token", token)
+    setattr(user, "token_payload", payload)
     return user
 
 
@@ -66,3 +71,10 @@ def require_role(allowed_roles: Iterable[str]) -> Callable[..., models.User]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
 
     return dependency
+
+
+def require_internal_event_request(request: Request) -> None:
+    expected = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")
+    provided = (request.headers.get("x-internal-token") or "").strip()
+    if not provided or provided != expected:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")

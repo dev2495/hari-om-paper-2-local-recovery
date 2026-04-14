@@ -73,28 +73,38 @@ def create_dispatch(
         )
 
     selected_batch_id = dispatch.batch_id
+    batch = None
     if selected_batch_id is None:
         batches = (
             db.query(StockBatch)
             .filter(
                 StockBatch.item_id == dispatch.item_id,
-                StockBatch.plant_id == plant_id
+                StockBatch.plant_id == plant_id,
+                StockBatch.stock_status.in_(["UNRESTRICTED", "DISPATCH_STAGING"])
             )
             .order_by(StockBatch.created_at.asc())
             .all()
         )
+        for candidate in batches:
+            if validate_batch_sufficient_available_stock(str(candidate.id), dispatch.qty, db):
+                selected_batch_id = candidate.id
+                batch = candidate
+                break
         if selected_batch_id is None:
             raise HTTPException(
                 status_code=400,
                 detail=f"Insufficient available stock. Available: {get_available_item_qty(str(dispatch.item_id), db)}",
             )
 
-    batch = db.query(StockBatch).filter(
-        StockBatch.id == selected_batch_id,
-        StockBatch.plant_id == plant_id
-    ).first()
+    if batch is None:
+        batch = db.query(StockBatch).filter(
+            StockBatch.id == selected_batch_id,
+            StockBatch.plant_id == plant_id
+        ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.stock_status not in {"UNRESTRICTED", "DISPATCH_STAGING"}:
+        raise HTTPException(status_code=400, detail=f"Batch is not dispatchable ({batch.stock_status})")
 
     if not validate_batch_sufficient_available_stock(str(selected_batch_id), dispatch.qty, db):
         raise HTTPException(
@@ -110,6 +120,9 @@ def create_dispatch(
         reference_type=ReferenceType.DISPATCH,
         reference_id=uuid.uuid5(uuid.NAMESPACE_URL, dispatch.dispatch_ref),
         plant_id=plant_id,
+        location_id=batch.location_id,
+        stock_status=batch.stock_status,
+        movement_metadata={"dispatch_ref": dispatch.dispatch_ref},
         external_ref=external_ref,
     )
     db.add(transaction)

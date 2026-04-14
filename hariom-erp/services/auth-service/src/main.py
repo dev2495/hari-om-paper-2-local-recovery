@@ -6,7 +6,7 @@ import uuid
 
 from .database import SessionLocal, engine
 from . import models
-from .routers import auth, roles, users
+from .routers import auth, notifications, roles, users
 from .security import hashing
 
 app = FastAPI(title="Hari Om Paper ERP - Auth Service")
@@ -14,6 +14,7 @@ app = FastAPI(title="Hari Om Paper ERP - Auth Service")
 app.include_router(auth.router)
 app.include_router(roles.router)
 app.include_router(users.router)
+app.include_router(notifications.router)
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -217,4 +218,9 @@ def delete_plant(plant_id: str):
 
 @app.get("/")
 def health_check():
+    return {"status": "healthy", "service": "auth-service"}
+
+
+@app.get("/health")
+def detailed_health():
     return {"status": "healthy", "service": "auth-service"}

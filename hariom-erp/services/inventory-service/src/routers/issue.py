@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import (
     ItemMaster,
+    ItemType,
     ReferenceType,
     StockBatch,
     StockTransaction,
@@ -21,6 +22,11 @@ from ..services import (
 from ..utils.auth import require_role, get_current_plant
 
 router = APIRouter(prefix="/issue", tags=["issue"])
+MANUAL_REASON_CODES = {
+    "NON_RECIPE_CONSUMABLE",
+    "DIRECT_CORRECTION",
+    "CONTROLLED_FALLBACK",
+}
 
 
 class IssueCreate(BaseModel):
@@ -28,6 +34,9 @@ class IssueCreate(BaseModel):
     batch_id: Optional[uuid.UUID] = None
     qty: float
     production_job_id: uuid.UUID
+    reason_code: str
+    notes: Optional[str] = None
+    allow_raw_paper_exception: bool = False
     external_ref: Optional[str] = None
 
 
@@ -48,12 +57,26 @@ def create_issue(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "Admin"])),
 ):
+    reason_code = str(issue.reason_code or "").strip().upper()
+    if reason_code not in MANUAL_REASON_CODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"reason_code must be one of {', '.join(sorted(MANUAL_REASON_CODES))}",
+        )
+
     item = db.query(ItemMaster).filter(
         ItemMaster.id == issue.item_id,
         ItemMaster.plant_id == plant_id
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.type == ItemType.FINISHED_GOOD:
+        raise HTTPException(status_code=400, detail="Finished goods cannot be manually issued to production")
+    if item.type == ItemType.RAW_PAPER and not issue.allow_raw_paper_exception:
+        raise HTTPException(
+            status_code=400,
+            detail="Use RM Issue to Section for raw paper. Manual raw-paper issue is exception-only and requires an explicit raw-paper override.",
+        )
 
     if not validate_sufficient_stock(str(issue.item_id), issue.qty, db):
         raise HTTPException(
@@ -62,15 +85,18 @@ def create_issue(
         )
 
     selected_batch_id = issue.batch_id
+    batch = None
 
     if selected_batch_id:
+        batch = db.query(StockBatch).filter(
+            StockBatch.id == selected_batch_id,
+            StockBatch.plant_id == plant_id
+        ).first()
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found in this plant")
+        if batch.stock_status not in {"UNRESTRICTED", "WIP"}:
+            raise HTTPException(status_code=400, detail=f"Batch is not issuable ({batch.stock_status})")
         if not validate_batch_sufficient_stock(str(selected_batch_id), issue.qty, db):
-            batch = db.query(StockBatch).filter(
-                StockBatch.id == selected_batch_id,
-                StockBatch.plant_id == plant_id
-            ).first()
-            if not batch:
-                 raise HTTPException(status_code=404, detail="Batch not found in this plant")
             raise HTTPException(
                 status_code=400,
                 detail=f"Insufficient stock in batch {batch.batch_no if batch else selected_batch_id}",
@@ -80,7 +106,8 @@ def create_issue(
             db.query(StockBatch)
             .filter(
                 StockBatch.item_id == issue.item_id,
-                StockBatch.plant_id == plant_id
+                StockBatch.plant_id == plant_id,
+                StockBatch.stock_status.in_(["UNRESTRICTED", "WIP"])
             )
             .order_by(StockBatch.created_at.asc())
             .all()
@@ -101,6 +128,15 @@ def create_issue(
         reference_type=ReferenceType.PRODUCTION_JOB,
         reference_id=issue.production_job_id,
         plant_id=plant_id,
+        location_id=batch.location_id if batch else None,
+        stock_status=batch.stock_status if batch else "WIP",
+        movement_metadata={
+            "production_job_id": str(issue.production_job_id),
+            "reason_code": reason_code,
+            "notes": issue.notes,
+            "allow_raw_paper_exception": bool(issue.allow_raw_paper_exception),
+            "manual_exception": True,
+        },
         external_ref=issue.external_ref,
     )
     db.add(transaction)
@@ -113,5 +149,5 @@ def create_issue(
         qty_issued=issue.qty,
         item_balance=get_item_balance(str(issue.item_id), db),
         batch_balance=get_batch_balance(str(selected_batch_id), db),
-        message=f"Issued {issue.qty} {item.uom.value} of {item.name} to production job",
+        message=f"Issued {issue.qty} {item.uom.value} of {item.name} as a manual exception against production",
     )

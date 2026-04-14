@@ -5,8 +5,8 @@ from typing import Optional
 from fastapi import HTTPException, Request, status
 
 
-def extract_token(request: Request) -> Optional[str]:
-    """Extract a JWT token from the auth cookie or Authorization header."""
+def extract_base_token(request: Request) -> Optional[str]:
+    """Extract the base (non-acting) token from cookie or Authorization header."""
     token = request.cookies.get("token")
     if token:
         return token
@@ -18,6 +18,14 @@ def extract_token(request: Request) -> Optional[str]:
             return bearer
 
     return None
+
+
+def extract_token(request: Request) -> Optional[str]:
+    """Extract acting-token first, then fall back to base token."""
+    acting_token = request.cookies.get("acting_token")
+    if acting_token:
+        return acting_token
+    return extract_base_token(request)
 
 
 async def get_token(request: Request) -> str:

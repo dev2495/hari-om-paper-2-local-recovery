@@ -22,6 +22,13 @@ role_permissions = Table(
     Column("permission_id", UUID(as_uuid=True), ForeignKey("permissions.id", ondelete="CASCADE"), primary_key=True),
 )
 
+user_allowed_plants = Table(
+    "user_allowed_plants",
+    Base.metadata,
+    Column("user_id", UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+    Column("plant_id", UUID(as_uuid=True), ForeignKey("plants.id", ondelete="CASCADE"), primary_key=True),
+)
+
 
 class Plant(Base):
     __tablename__ = "plants"
@@ -36,6 +43,7 @@ class Plant(Base):
     gstin = Column(String(32), nullable=True)
 
     users = relationship("User", back_populates="plant")
+    allowed_users = relationship("User", secondary=user_allowed_plants, back_populates="allowed_plants")
 
 
 class Permission(Base):
@@ -71,3 +79,23 @@ class User(Base):
 
     plant = relationship("Plant", back_populates="users")
     roles = relationship("Role", secondary=user_roles, back_populates="users")
+    allowed_plants = relationship("Plant", secondary=user_allowed_plants, back_populates="allowed_users")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    event_type = Column(String(80), nullable=False, index=True)
+    title = Column(String(200), nullable=False)
+    message = Column(Text, nullable=False)
+    href = Column(String(255), nullable=True)
+    role_context = Column(String(80), nullable=True)
+    payload = Column(Text, nullable=True)
+    is_read = Column(Boolean, nullable=False, default=False, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    user = relationship("User", foreign_keys=[user_id])
+    actor_user = relationship("User", foreign_keys=[actor_user_id])

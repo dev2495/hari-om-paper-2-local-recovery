@@ -1,9 +1,11 @@
 """Hari Om Paper ERP BFF API."""
 
+import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.routes import analytics, auth, dispatch, inventory, master, production, sales, spec
+from src.routes import analytics, auth, dispatch, inventory, master, production, sales, spec, workspace
 
 app = FastAPI(
     title="Hari Om Paper - BFF API",
@@ -27,6 +29,20 @@ app.include_router(production.router, prefix="/api/production", tags=["Productio
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
 app.include_router(dispatch.router, prefix="/api/dispatch", tags=["Dispatch"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
+app.include_router(workspace.router, prefix="/api/workspace", tags=["Workspace"])
+
+
+@app.get("/")
+async def root():
+    host = os.getenv("ERP_HOST", "127.0.0.1")
+    web_ui_port = os.getenv("WEB_UI_PORT", "13000")
+    return {
+        "service": "bff-api",
+        "message": "API gateway is running. Open the Web UI login page to use the ERP.",
+        "web_ui": f"http://{host}:{web_ui_port}/login",
+        "health": "/health",
+        "docs": "/docs",
+    }
 
 
 @app.get("/health")

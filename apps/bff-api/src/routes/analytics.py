@@ -12,6 +12,62 @@ ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://127.0.0.1:180
 async def get_dashboard_overview(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(ANALYTICS_SERVICE_URL, "/dashboard/overview", request, token)
 
+
+@router.get("/dashboard/owner")
+async def get_dashboard_owner(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/dashboard/owner", request, token)
+
+
+@router.get("/reports/owner-pack")
+async def get_owner_pack(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack", request, token)
+
+
+@router.get("/reports/owner-pack/html")
+async def get_owner_pack_html(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack/html", request, token)
+
+
+@router.get("/reports/owner-pack/pdf")
+async def get_owner_pack_pdf(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack/pdf", request, token)
+
+
+@router.get("/reports/production")
+async def get_production_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/production", request, token)
+
+
+@router.get("/reports/sales")
+async def get_sales_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/sales", request, token)
+
+
+@router.get("/reports/quality")
+async def get_quality_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/quality", request, token)
+
+
+@router.get("/reports/dispatch")
+async def get_dispatch_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/dispatch", request, token)
+
+
+@router.get("/reports/inventory-health")
+async def get_inventory_health_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/inventory-health", request, token)
+
+
+@router.get("/reports/plant-compare")
+async def get_plant_compare_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/plant-compare", request, token)
+
+
+@router.get("/reports/exceptions")
+async def get_exception_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/exceptions", request, token)
+
+
 @router.get("/production/trends")
 async def get_production_trends(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(ANALYTICS_SERVICE_URL, "/production/trends", request, token)
@@ -35,6 +91,14 @@ async def get_production_oven(request: Request, token: str = Depends(get_token))
 @router.get("/production/process")
 async def get_production_process(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(ANALYTICS_SERVICE_URL, "/production/process", request, token)
+
+@router.get("/production/live-wip")
+async def get_production_live_wip(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/production/live-wip", request, token)
+
+@router.get("/production/oee")
+async def get_production_oee(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/production/oee", request, token)
 
 @router.get("/inventory/valuation")
 async def get_inventory_valuation(request: Request, token: str = Depends(get_token)):

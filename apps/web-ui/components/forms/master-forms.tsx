@@ -18,22 +18,38 @@ export function PaperForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">GSM</label>
-          <Input type="number" {...register("gsm", { required: true })} />
+          <label className="text-sm font-medium">Paper Code</label>
+          <Input {...register("code", { required: true })} placeholder="KRAFT-230-18BF" />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Strength Type</label>
-          <Input {...register("strength_type", { required: true })} placeholder="BF or PB" />
+          <label className="text-sm font-medium">Variety</label>
+          <Input {...register("variety", { required: true })} placeholder="KRAFT PAPER" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Strength Value</label>
-          <Input type="number" {...register("strength_value", { required: true })} />
+          <label className="text-sm font-medium">GSM</label>
+          <Input type="number" {...register("gsm", { required: true })} />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Category</label>
-          <Input {...register("category")} placeholder="Kraft/Semi-Kraft" />
+          <label className="text-sm font-medium">BF</label>
+          <Input type="number" step="0.01" {...register("bf", { required: true })} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Bulk Factor</label>
+          <Input type="number" step="0.01" {...register("bulk_factor")} placeholder="1.00" />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Ply Bond</label>
+          <Input type="number" step="0.01" {...register("ply_bond")} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Price</label>
+          <Input type="number" step="0.01" {...register("price")} />
         </div>
       </div>
       <DialogFooter>
@@ -50,9 +66,33 @@ export function AdhesiveForm({ initialData, onSubmit, onCancel }: MasterFormProp
   const { register, handleSubmit } = useForm({ defaultValues: initialData })
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Variety</label>
+          <Input {...register("variety", { required: true })} placeholder="TL4(Vinsol)" />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Internal Code</label>
+          <Input {...register("internal_code", { required: true })} placeholder="20100" />
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Solid %</label>
+          <Input type="number" step="0.01" {...register("solid_content_percent")} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Viscosity</label>
+          <Input type="number" step="0.01" {...register("viscosity")} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">pH</label>
+          <Input type="number" step="0.01" {...register("ph")} />
+        </div>
+      </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Name</label>
-        <Input {...register("name", { required: true })} placeholder="Adhesive name" />
+        <label className="text-sm font-medium">Color</label>
+        <Input {...register("color")} placeholder="Amber" />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>

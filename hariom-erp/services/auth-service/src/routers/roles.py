@@ -5,6 +5,7 @@ import uuid
 from ..database import get_db
 from .. import models
 from ..utils.deps import require_role
+from ..workspace import seeded_role_groups
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -14,6 +15,10 @@ class RoleCreate(BaseModel):
 class RoleAssignment(BaseModel):
     user_id: uuid.UUID
     role_name: str
+
+
+class RoleMatrixUpdate(BaseModel):
+    enabled_roles: list[str] | None = None
 
 
 @router.get("/")
@@ -51,3 +56,46 @@ def assign_role(assign_in: RoleAssignment, db: Session = Depends(get_db), curren
         db.commit()
     
     return {"message": f"Role {assign_in.role_name} assigned to user {user.email}"}
+
+
+@router.get("/matrix")
+def get_role_matrix(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role(["Admin", "Owner"])),
+):
+    del current_user
+    roles = db.query(models.Role).order_by(models.Role.name.asc()).all()
+    role_names = [role.name for role in roles]
+    return {
+        "seeded_role_groups": seeded_role_groups(),
+        "enabled_roles": role_names,
+        "role_matrix": {
+            role_name: {
+                "label": role_name,
+                "enabled": True,
+            }
+            for role_name in role_names
+        },
+    }
+
+
+@router.put("/matrix")
+def update_role_matrix(
+    payload: RoleMatrixUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_role(["Admin", "Owner"])),
+):
+    del payload, current_user
+    roles = db.query(models.Role).order_by(models.Role.name.asc()).all()
+    role_names = [role.name for role in roles]
+    return {
+        "seeded_role_groups": seeded_role_groups(),
+        "enabled_roles": role_names,
+        "role_matrix": {
+            role_name: {
+                "label": role_name,
+                "enabled": True,
+            }
+            for role_name in role_names
+        },
+    }

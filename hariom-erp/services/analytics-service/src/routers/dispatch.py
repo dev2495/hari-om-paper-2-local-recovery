@@ -20,7 +20,7 @@ def sales_trends(
     end = parse_iso_date(end_date)
     orders: List[Dict[str, Any]] = []
     for scoped_plant_id in scope_plant_ids(plant_scope):
-        orders.extend(service_get(f"{SALES_SERVICE_URL}/sales-orders", token, plant_id=scoped_plant_id))
+        orders.extend(service_get(f"{SALES_SERVICE_URL}/sales-orders", token, plant_id=scoped_plant_id) or [])
 
     buckets = defaultdict(lambda: {"orders": 0, "released": 0, "closed": 0})
     for order in orders:
@@ -29,7 +29,7 @@ def sales_trends(
         if start <= created_day <= end:
             key = created_day.isoformat()
             buckets[key]["orders"] += 1
-            if order.get("status") in {"released", "partially_dispatched", "closed"}:
+            if order.get("status") in {"partially_released", "released", "partially_dispatched", "closed"}:
                 buckets[key]["released"] += 1
             if order.get("status") == "closed":
                 buckets[key]["closed"] += 1

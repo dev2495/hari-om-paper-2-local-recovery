@@ -1,21 +1,29 @@
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from pydantic import BaseModel
-import uuid
+from __future__ import annotations
+
 from datetime import datetime
-from ..database import get_db
+from typing import List, Optional
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
 from .. import models
-from ..utils.auth import get_current_user, require_role, get_current_plant, get_plant_aliases
+from ..database import get_db
+from ..utils.auth import (
+    accepted_persisted_plant_ids,
+    apply_plant_scope,
+    get_current_plant,
+    get_current_plant_scope,
+    require_role,
+)
 
 router = APIRouter(prefix="/master/parchment", tags=["parchment"])
+
 
 class VendorCreate(BaseModel):
     name: str
 
-class VendorUpdate(BaseModel):
-    name: Optional[str] = None
-    active: Optional[bool] = None
 
 class VendorResponse(BaseModel):
     id: uuid.UUID
@@ -27,14 +35,17 @@ class VendorResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class ColorCreate(BaseModel):
     vendor_id: uuid.UUID
     color_name: str
+
 
 class ColorUpdate(BaseModel):
     vendor_id: Optional[uuid.UUID] = None
     color_name: Optional[str] = None
     active: Optional[bool] = None
+
 
 class ColorResponse(BaseModel):
     id: uuid.UUID
@@ -47,169 +58,134 @@ class ColorResponse(BaseModel):
     class Config:
         from_attributes = True
 
-class VendorWithColors(VendorResponse):
-    colors: List[ColorResponse]
 
 @router.get("/vendors", response_model=List[VendorResponse])
 def get_vendors(
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
+    plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    plant_aliases = get_plant_aliases(plant_id)
-    return db.query(models.ParchmentVendor).filter(
-        models.ParchmentVendor.plant_id.in_(plant_aliases),
-        models.ParchmentVendor.active == True
-    ).all()
+    query = db.query(models.ParchmentVendor).filter(models.ParchmentVendor.active == True)
+    query = apply_plant_scope(query, models.ParchmentVendor.plant_id, plant_scope)
+    return query.order_by(models.ParchmentVendor.name.asc()).all()
 
-@router.get("/vendors/{vendor_id}", response_model=VendorWithColors)
-def get_vendor(
-    vendor_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
-):
-    vendor = db.query(models.ParchmentVendor).filter(
-        models.ParchmentVendor.id == vendor_id,
-        models.ParchmentVendor.plant_id == plant_id,
-        models.ParchmentVendor.active == True
-    ).first()
-    if not vendor:
-        raise HTTPException(status_code=404, detail="Vendor not found")
-    return vendor
 
 @router.post("/vendors", response_model=VendorResponse)
 def create_vendor(
-    vendor: VendorCreate,
+    payload: VendorCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin"])),
 ):
-    db_vendor = models.ParchmentVendor(**vendor.model_dump(), plant_id=plant_id)
-    db.add(db_vendor)
-    db.commit()
-    db.refresh(db_vendor)
-    return db_vendor
-
-@router.put("/vendors/{vendor_id}", response_model=VendorResponse)
-def update_vendor(
-    vendor_id: uuid.UUID,
-    vendor_update: VendorUpdate,
-    db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
-):
-    db_vendor = db.query(models.ParchmentVendor).filter(
-        models.ParchmentVendor.id == vendor_id,
-        models.ParchmentVendor.plant_id == plant_id
+    plant_values = accepted_persisted_plant_ids(plant_id)
+    existing = db.query(models.ParchmentVendor).filter(
+        models.ParchmentVendor.plant_id.in_(plant_values),
+        models.ParchmentVendor.name == payload.name,
     ).first()
-    if not db_vendor:
-        raise HTTPException(status_code=404, detail="Vendor not found")
-    
-    update_data = vendor_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_vendor, field, value)
-    
-    db.commit()
-    db.refresh(db_vendor)
-    return db_vendor
+    if existing:
+        return existing
 
-@router.delete("/vendors/{vendor_id}")
-def delete_vendor(
-    vendor_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
-):
-    db_vendor = db.query(models.ParchmentVendor).filter(
-        models.ParchmentVendor.id == vendor_id,
-        models.ParchmentVendor.plant_id == plant_id
-    ).first()
-    if not db_vendor:
-        raise HTTPException(status_code=404, detail="Vendor not found")
-    
-    db_vendor.active = False
+    model = models.ParchmentVendor(name=payload.name, plant_id=plant_id)
+    db.add(model)
     db.commit()
-    return {"message": "Vendor deactivated successfully"}
+    db.refresh(model)
+    return model
+
 
 @router.get("/colors", response_model=List[ColorResponse])
 def get_colors(
     vendor_id: Optional[uuid.UUID] = None,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
+    plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    plant_aliases = get_plant_aliases(plant_id)
-    query = db.query(models.ParchmentColor).filter(
-        models.ParchmentColor.plant_id.in_(plant_aliases),
-        models.ParchmentColor.active == True
-    )
+    query = db.query(models.ParchmentColor).filter(models.ParchmentColor.active == True)
+    query = apply_plant_scope(query, models.ParchmentColor.plant_id, plant_scope)
     if vendor_id:
         query = query.filter(models.ParchmentColor.vendor_id == vendor_id)
-    return query.all()
+    return query.order_by(models.ParchmentColor.color_name.asc()).all()
 
-@router.get("/colors/{color_id}", response_model=ColorResponse)
-def get_color(
-    color_id: uuid.UUID,
-    db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
-):
-    color = db.query(models.ParchmentColor).filter(
-        models.ParchmentColor.id == color_id,
-        models.ParchmentColor.plant_id == plant_id,
-        models.ParchmentColor.active == True
-    ).first()
-    if not color:
-        raise HTTPException(status_code=404, detail="Color not found")
-    return color
 
 @router.post("/colors", response_model=ColorResponse)
 def create_color(
-    color: ColorCreate,
+    payload: ColorCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin"])),
 ):
-    db_color = models.ParchmentColor(**color.model_dump(), plant_id=plant_id)
-    db.add(db_color)
+    plant_values = accepted_persisted_plant_ids(plant_id)
+    vendor = db.query(models.ParchmentVendor).filter(
+        models.ParchmentVendor.id == payload.vendor_id,
+        models.ParchmentVendor.plant_id.in_(plant_values),
+        models.ParchmentVendor.active == True,
+    ).first()
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Parchment vendor not found")
+
+    existing = db.query(models.ParchmentColor).filter(
+        models.ParchmentColor.vendor_id == payload.vendor_id,
+        models.ParchmentColor.color_name == payload.color_name,
+        models.ParchmentColor.plant_id.in_(plant_values),
+    ).first()
+    if existing:
+        return existing
+
+    model = models.ParchmentColor(
+        vendor_id=payload.vendor_id,
+        color_name=payload.color_name,
+        plant_id=plant_id,
+    )
+    db.add(model)
     db.commit()
-    db.refresh(db_color)
-    return db_color
+    db.refresh(model)
+    return model
+
 
 @router.put("/colors/{color_id}", response_model=ColorResponse)
 def update_color(
     color_id: uuid.UUID,
-    color_update: ColorUpdate,
+    payload: ColorUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin"])),
 ):
-    db_color = db.query(models.ParchmentColor).filter(
+    plant_values = accepted_persisted_plant_ids(plant_id)
+    model = db.query(models.ParchmentColor).filter(
         models.ParchmentColor.id == color_id,
-        models.ParchmentColor.plant_id == plant_id
+        models.ParchmentColor.plant_id.in_(plant_values),
     ).first()
-    if not db_color:
-        raise HTTPException(status_code=404, detail="Color not found")
-    
-    update_data = color_update.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(db_color, field, value)
-    
+    if not model:
+        raise HTTPException(status_code=404, detail="Parchment color not found")
+
+    if payload.vendor_id is not None:
+        vendor = db.query(models.ParchmentVendor).filter(
+            models.ParchmentVendor.id == payload.vendor_id,
+            models.ParchmentVendor.plant_id.in_(plant_values),
+            models.ParchmentVendor.active == True,
+        ).first()
+        if not vendor:
+            raise HTTPException(status_code=404, detail="Parchment vendor not found")
+
+    for key, value in payload.model_dump(exclude_unset=True).items():
+        setattr(model, key, value)
     db.commit()
-    db.refresh(db_color)
-    return db_color
+    db.refresh(model)
+    return model
+
 
 @router.delete("/colors/{color_id}")
 def delete_color(
     color_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin"])),
 ):
-    db_color = db.query(models.ParchmentColor).filter(
+    plant_values = accepted_persisted_plant_ids(plant_id)
+    model = db.query(models.ParchmentColor).filter(
         models.ParchmentColor.id == color_id,
-        models.ParchmentColor.plant_id == plant_id
+        models.ParchmentColor.plant_id.in_(plant_values),
     ).first()
-    if not db_color:
-        raise HTTPException(status_code=404, detail="Color not found")
-    
-    db_color.active = False
+    if not model:
+        raise HTTPException(status_code=404, detail="Parchment color not found")
+
+    model.active = False
     db.commit()
-    return {"message": "Color deactivated successfully"}
+    return {"message": "Parchment color deactivated successfully"}

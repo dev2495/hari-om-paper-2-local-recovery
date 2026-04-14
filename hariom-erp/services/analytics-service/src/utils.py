@@ -6,21 +6,27 @@ def service_get(
     url: str,
     token: str,
     params: Optional[Dict[str, Any]] = None,
-    timeout: float = 10.0,
+    timeout: float = 30.0,
     plant_id: Optional[str] = None,
 ):
     headers = {"Authorization": f"Bearer {token}"}
     if plant_id:
         headers["X-Plant-ID"] = plant_id
-    response = requests.get(
-        url,
-        params=params,
-        headers=headers,
-        timeout=timeout,
-    )
+    try:
+        response = requests.get(
+            url,
+            params=params,
+            headers=headers,
+            timeout=timeout,
+        )
+    except requests.RequestException:
+        return None
     if response.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Downstream service failed: {url}")
-    return response.json()
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        return None
 
 def scope_plant_ids(scope: dict) -> List[str]:
     if scope.get("scope_all"):

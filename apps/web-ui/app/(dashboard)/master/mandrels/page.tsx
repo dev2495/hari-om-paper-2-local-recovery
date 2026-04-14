@@ -11,8 +11,10 @@ export default function MandrelsPage() {
     const deleteMutation = useDeleteMandrel()
 
     const columns = [
-        { header: "Name/ID", accessorKey: "name" },
-        { header: "Size (mm)", accessorKey: "size" },
+        { header: "Mandrel Code", accessorKey: "mandrel_code" },
+        { header: "OD (mm)", accessorKey: "outer_diameter_mm" },
+        { header: "Length (mm)", accessorKey: "length_mm" },
+        { header: "Material", accessorKey: "material" },
     ]
 
     return (

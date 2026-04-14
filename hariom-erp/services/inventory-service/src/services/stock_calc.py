@@ -1,13 +1,14 @@
 """
-Stock and Reservation Calculation Service.
+Stock balance calculation service.
 
-Physical stock is always computed from stock transactions.
-Reservations are tracked separately and deducted to compute availability.
+Physical stock is computed from stock transactions.
+FG reservations are no longer part of the operational model, so availability
+matches physical stock until dispatch-time lot allocation occurs.
 """
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from ..models import ItemMaster, Reservation, ReservationStatus, StockBatch, StockTransaction
+from ..models import ItemMaster, StockBatch, StockTransaction
 
 
 def get_item_balance(item_id: str, db: Session) -> float:
@@ -29,17 +30,17 @@ def get_reserved_qty(
     item_id: Optional[str] = None,
     batch_id: Optional[str] = None,
 ) -> float:
-    query = db.query(
-        func.sum(Reservation.reserved_qty - Reservation.consumed_qty)
-    ).filter(Reservation.status == ReservationStatus.ACTIVE)
+    del db, item_id, batch_id
+    # Dispatch allocation is handled at dispatch time, not as a standing inventory reservation.
+    return 0.0
 
-    if item_id:
-        query = query.filter(Reservation.item_id == item_id)
-    if batch_id:
-        query = query.filter(Reservation.batch_id == batch_id)
 
-    result = query.scalar()
-    return float(result or 0.0)
+def get_dispatch_allocated_qty(
+    db: Session,
+    item_id: Optional[str] = None,
+    batch_id: Optional[str] = None,
+) -> float:
+    return get_reserved_qty(db=db, item_id=item_id, batch_id=batch_id)
 
 
 def get_available_item_qty(item_id: str, db: Session) -> float:
@@ -72,6 +73,9 @@ def get_item_ledger(item_id: str, db: Session) -> List[Dict]:
                 "reference": f"{txn.reference_type.value}:{str(txn.reference_id)}",
                 "external_ref": txn.external_ref,
                 "batch_id": str(txn.batch_id) if txn.batch_id else None,
+                "location_id": str(txn.location_id) if txn.location_id else None,
+                "stock_status": txn.stock_status,
+                "movement_metadata": txn.movement_metadata or {},
                 "running_balance": round(running_balance, 2),
             }
         )
@@ -96,6 +100,9 @@ def get_batch_ledger(batch_id: str, db: Session) -> List[Dict]:
                 "qty_change": txn.qty_change,
                 "reference": f"{txn.reference_type.value}:{str(txn.reference_id)}",
                 "external_ref": txn.external_ref,
+                "location_id": str(txn.location_id) if txn.location_id else None,
+                "stock_status": txn.stock_status,
+                "movement_metadata": txn.movement_metadata or {},
                 "running_balance": round(running_balance, 2),
             }
         )
@@ -103,9 +110,15 @@ def get_batch_ledger(batch_id: str, db: Session) -> List[Dict]:
     return list(reversed(ledger))
 
 
-def get_all_items_balance(db: Session, plant_id: Optional[str] = None) -> List[Dict]:
+def get_all_items_balance(
+    db: Session,
+    plant_id: Optional[str] = None,
+    plant_ids: Optional[Sequence[str]] = None,
+) -> List[Dict]:
     query = db.query(ItemMaster).filter(ItemMaster.active == "true")
-    if plant_id:
+    if plant_ids:
+        query = query.filter(ItemMaster.plant_id.in_(list(plant_ids)))
+    elif plant_id:
         query = query.filter(ItemMaster.plant_id == plant_id)
     items = query.all()
     balances = []
@@ -123,6 +136,7 @@ def get_all_items_balance(db: Session, plant_id: Optional[str] = None) -> List[D
                 "uom": item.uom.value,
                 "balance": round(physical, 2),
                 "reserved_qty": round(reserved, 2),
+                "dispatch_allocated_qty": round(reserved, 2),
                 "available_qty": round(available, 2),
             }
         )
@@ -148,8 +162,11 @@ def get_batch_details(batch_id: str, db: Session) -> Optional[Dict]:
         "received_qty": batch.received_qty,
         "current_balance": round(physical, 2),
         "reserved_qty": round(reserved, 2),
+        "dispatch_allocated_qty": round(reserved, 2),
         "available_qty": round(available, 2),
         "location": batch.location,
+        "location_id": str(batch.location_id) if batch.location_id else None,
+        "stock_status": batch.stock_status,
         "created_at": batch.created_at.isoformat(),
     }
 
@@ -169,8 +186,11 @@ def get_item_batches(item_id: str, db: Session) -> List[Dict]:
                 "received_qty": batch.received_qty,
                 "current_balance": round(physical, 2),
                 "reserved_qty": round(reserved, 2),
+                "dispatch_allocated_qty": round(reserved, 2),
                 "available_qty": round(physical - reserved, 2),
                 "location": batch.location,
+                "location_id": str(batch.location_id) if batch.location_id else None,
+                "stock_status": batch.stock_status,
                 "created_at": batch.created_at.isoformat(),
             }
         )

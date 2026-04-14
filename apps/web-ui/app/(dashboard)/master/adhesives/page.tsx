@@ -11,8 +11,10 @@ export default function AdhesivesPage() {
     const deleteMutation = useDeleteAdhesive()
 
     const columns = [
-        { header: "Name", accessorKey: "name" },
-        { header: "ID", accessorKey: "id" },
+        { header: "Variety", accessorKey: "variety" },
+        { header: "Code", accessorKey: "internal_code" },
+        { header: "Color", accessorKey: "color" },
+        { header: "pH", accessorKey: "ph" },
     ]
 
     return (

@@ -71,7 +71,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
 
     if (!response.ok) {
-      throw new Error("Invalid credentials")
+      let detail = "Login failed"
+      try {
+        const payload = await response.json()
+        detail = payload?.detail || detail
+      } catch {
+        // Keep fallback detail.
+      }
+      throw new Error(detail)
     }
 
     const data = await response.json()

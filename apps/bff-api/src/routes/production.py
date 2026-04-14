@@ -80,6 +80,56 @@ async def create_planning_job_card(request: Request, token: str = Depends(get_to
 
 
 @router.get("/job-cards")
+async def list_planning_job_cards(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
+
+
+@router.get("/job-cards/{job_card_id}")
+async def get_planning_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}", request, token)
+
+
+@router.get("/planning/queues")
+async def get_planning_queues(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/queues", request, token)
+
+
+@router.get("/planning/board")
+async def get_planning_board(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board", request, token)
+
+
+@router.patch("/planning/queues/reorder")
+async def reorder_planning_queue(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/queues/reorder", request, token)
+
+
+@router.patch("/planning/board/move")
+async def move_planning_board(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board/move", request, token)
+
+
+@router.post("/job-cards/{job_card_id}/assign-machine")
+async def assign_planning_machine(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/assign-machine", request, token)
+
+
+@router.post("/job-cards/{job_card_id}/stage-output")
+async def post_planning_stage_output(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/stage-output", request, token)
+
+
+@router.post("/sales-orders")
+async def create_planning_sales_order(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/sales-orders", request, token)
+
+
+@router.post("/job-cards")
+async def create_planning_job_card(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
+
+
+@router.get("/job-cards")
 async def get_planning_job_cards(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
 

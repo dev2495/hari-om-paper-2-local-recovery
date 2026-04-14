@@ -11,9 +11,10 @@ export default function TubeSizesPage() {
     const deleteMutation = useDeleteTubeSize()
 
     const columns = [
-        { header: "Inner Dia (mm)", accessorKey: "inner_dia" },
-        { header: "Outer Dia (mm)", accessorKey: "outer_dia" },
-        { header: "Length (mm)", accessorKey: "length" },
+        { header: "Inner Dia (mm)", accessorKey: "inner_diameter_mm" },
+        { header: "Outer Dia (mm)", accessorKey: "outer_diameter_mm" },
+        { header: "Length (mm)", accessorKey: "length_mm" },
+        { header: "Description", accessorKey: "description" },
     ]
 
     return (

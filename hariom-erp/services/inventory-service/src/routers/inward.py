@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ItemMaster, ReferenceType, StockBatch, StockTransaction, TransactionType
+from ..models import InventoryLocation, ItemMaster, ReferenceType, StockBatch, StockTransaction, TrackingMode, TransactionType
 from ..services import get_batch_balance, get_item_balance
 from ..utils.auth import require_role, get_current_plant
 
@@ -17,6 +17,8 @@ class InwardCreate(BaseModel):
     batch_no: str
     qty: float
     location: Optional[str] = None
+    location_id: Optional[uuid.UUID] = None
+    stock_status: str = "UNRESTRICTED"
     reference_type: str = "PURCHASE"
     reference_id: Optional[uuid.UUID] = None
     spec_id: Optional[uuid.UUID] = None
@@ -47,12 +49,28 @@ def create_inward(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if item.tracking_mode != TrackingMode.BULK:
+        raise HTTPException(status_code=400, detail="Use reel inward for reel-tracked raw paper")
+
+    location = None
+    if inward.location_id:
+        location = db.query(InventoryLocation).filter(
+            InventoryLocation.id == inward.location_id,
+            InventoryLocation.plant_id == plant_id,
+        ).first()
+        if not location:
+            raise HTTPException(status_code=404, detail="Inventory location not found")
+    stock_status = inward.stock_status.strip().upper()
+    if stock_status not in {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}:
+        raise HTTPException(status_code=400, detail="Invalid stock_status")
 
     batch = StockBatch(
         item_id=inward.item_id,
         batch_no=inward.batch_no,
         received_qty=inward.qty,
-        location=inward.location,
+        location=inward.location or (location.code if location else None),
+        location_id=inward.location_id,
+        stock_status=stock_status,
         spec_id=inward.spec_id,
         plant_id=plant_id,
     )
@@ -72,6 +90,9 @@ def create_inward(
         reference_type=ref_type,
         reference_id=inward.reference_id or batch.id,
         plant_id=plant_id,
+        location_id=batch.location_id,
+        stock_status=batch.stock_status,
+        movement_metadata={"batch_no": inward.batch_no},
         external_ref=inward.external_ref,
     )
     db.add(transaction)

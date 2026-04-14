@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { salesApi } from "@/lib/api"
 
 function normalizeReleasedLines(orders: any[]) {
@@ -29,6 +29,30 @@ export function useReleasedSalesLines() {
     queryFn: async () => {
       const { data } = await salesApi.getOrders()
       return normalizeReleasedLines(Array.isArray(data) ? data : data?.items || data?.rows || [])
+    },
+  })
+}
+
+export function useSalesOrders() {
+  return useQuery({
+    queryKey: ["sales", "orders"],
+    queryFn: async () => {
+      const { data } = await salesApi.getOrders()
+      if (Array.isArray(data)) return data
+      if (Array.isArray(data?.items)) return data.items
+      if (Array.isArray(data?.rows)) return data.rows
+      return []
+    },
+  })
+}
+
+export function useCreateSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => salesApi.createOrder(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sales", "orders"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
     },
   })
 }

@@ -11,8 +11,9 @@ export default function ParchmentsPage() {
     const deleteMutation = useDeleteParchment()
 
     const columns = [
-        { header: "Vendor", accessorKey: "vendor" },
-        { header: "Color", accessorKey: "color" },
+        { header: "Vendor", accessorKey: "vendor_name" },
+        { header: "Color", accessorKey: "color_name" },
+        { header: "Display", accessorKey: "display_name" },
     ]
 
     return (

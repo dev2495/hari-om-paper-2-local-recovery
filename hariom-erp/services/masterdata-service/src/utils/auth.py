@@ -1,9 +1,10 @@
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Query
 from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
 from ..security import jwt_handler
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+SUPER_ROLES = {"Owner", "Admin"}
 
 PLANT_ALIAS_GROUPS = (
     {
@@ -35,34 +36,104 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     roles = payload.get("roles", [])
     if not isinstance(roles, list):
         roles = [roles] if roles else []
+    if payload.get("role"):
+        roles = sorted({*roles, str(payload.get("role"))})
 
     permissions = payload.get("permissions", [])
     if not isinstance(permissions, list):
         permissions = [permissions] if permissions else []
 
+    allowed_plants = payload.get("allowed_plants") or payload.get("allowed_plant_ids") or []
+    if not isinstance(allowed_plants, list):
+        allowed_plants = [allowed_plants] if allowed_plants else []
+
     payload["roles"] = roles
     payload["permissions"] = permissions
+    payload["allowed_plants"] = [str(plant).strip() for plant in allowed_plants if str(plant).strip()]
     return payload
+
+
+def _is_plant_allowed(requested: str, allowed: list[str]) -> bool:
+    requested_aliases = set(get_plant_aliases(requested))
+    for plant in allowed:
+        if requested_aliases.intersection(get_plant_aliases(plant)):
+            return True
+    return False
+
+
+def _resolve_scope(
+    current_user: dict,
+    requested_plant_id: Optional[str],
+    allow_all: bool,
+) -> dict:
+    roles = set(current_user.get("roles", []))
+    is_owner = bool(roles.intersection(SUPER_ROLES))
+
+    token_plant = str(current_user.get("plant_id") or "").strip()
+    allowed_plants = [str(plant or "").strip() for plant in current_user.get("allowed_plants", []) if str(plant or "").strip()]
+    if not allowed_plants and token_plant:
+        allowed_plants = [token_plant]
+
+    requested = str(requested_plant_id or "").strip()
+    if requested.upper() == "ALL":
+        if not is_owner:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="ALL scope is only allowed for owner/admin")
+        if not allow_all:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select one concrete plant for this write action")
+        return {
+            "selected_plant_id": None,
+            "scope_all": True,
+            "allowed_plants": allowed_plants,
+            "is_owner": is_owner,
+        }
+
+    if not requested:
+        if token_plant:
+            requested = token_plant
+        elif allowed_plants:
+            requested = allowed_plants[0]
+        elif is_owner and allow_all:
+            return {
+                "selected_plant_id": None,
+                "scope_all": True,
+                "allowed_plants": [],
+                "is_owner": is_owner,
+            }
+
+    if not requested:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User has no assigned plant context")
+
+    if not is_owner and token_plant:
+        token_aliases = set(get_plant_aliases(token_plant))
+        if requested not in token_aliases:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cross-plant access is not permitted")
+
+    if is_owner and allowed_plants and not _is_plant_allowed(requested, allowed_plants):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Requested plant is outside allowed scope")
+
+    return {
+        "selected_plant_id": requested,
+        "scope_all": False,
+        "allowed_plants": allowed_plants,
+        "is_owner": is_owner,
+    }
 
 
 def get_current_plant(
     current_user: dict = Depends(get_current_user),
-    x_plant_id: Optional[str] = Header(None, alias="X-Plant-ID")
+    plant_id: Optional[str] = Query(None),
+    x_plant_id: Optional[str] = Header(None, alias="X-Plant-ID"),
 ) -> str:
-    user_roles = set(current_user.get("roles", []))
-    
-    # Owner and Admin can override plant via header
-    if ("Owner" in user_roles or "Admin" in user_roles) and x_plant_id:
-        return x_plant_id
-        
-    # Default to user's assigned plant
-    plant_id = current_user.get("plant_id")
-    if not plant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User has no assigned plant"
-        )
-    return plant_id
+    scope = _resolve_scope(current_user=current_user, requested_plant_id=(plant_id or x_plant_id), allow_all=False)
+    return str(scope.get("selected_plant_id"))
+
+
+def get_current_plant_scope(
+    current_user: dict = Depends(get_current_user),
+    plant_id: Optional[str] = Query(None),
+    x_plant_id: Optional[str] = Header(None, alias="X-Plant-ID"),
+) -> dict:
+    return _resolve_scope(current_user=current_user, requested_plant_id=(plant_id or x_plant_id), allow_all=True)
 
 
 def get_plant_aliases(plant_id: str) -> list[str]:
@@ -81,6 +152,39 @@ def get_plant_aliases(plant_id: str) -> list[str]:
             aliases.add(normalized.upper())
             return sorted(aliases)
     return sorted({normalized, normalized.lower(), normalized.upper()})
+
+
+def accepted_persisted_plant_ids(value: Optional[str]) -> list[str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return []
+    if normalized.upper() == "ALL":
+        aliases: set[str] = {"ALL", "all"}
+        for group in PLANT_ALIAS_GROUPS:
+            aliases.update(group)
+            aliases.update({item.lower() for item in group})
+            aliases.update({item.upper() for item in group})
+        return sorted(aliases)
+    return get_plant_aliases(normalized)
+
+
+def apply_plant_scope(query, plant_column, plant_scope: dict):
+    if not plant_scope:
+        return query
+
+    if plant_scope.get("scope_all"):
+        allowed = [str(plant).strip() for plant in plant_scope.get("allowed_plants", []) if str(plant).strip()]
+        if not allowed:
+            return query
+        allowed_aliases: set[str] = set()
+        for plant in allowed:
+            allowed_aliases.update(accepted_persisted_plant_ids(plant))
+        return query.filter(plant_column.in_(sorted(allowed_aliases)))
+
+    selected = str(plant_scope.get("selected_plant_id") or "").strip()
+    if not selected:
+        return query
+    return query.filter(plant_column.in_(accepted_persisted_plant_ids(selected)))
 
 
 def require_role(required_roles: list[str]):

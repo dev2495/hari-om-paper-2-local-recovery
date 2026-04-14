@@ -227,6 +227,70 @@ export function useCreateCustomer() {
     })
 }
 
+export function useUpdateCustomer() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateCustomer(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["customers"] })
+        },
+    })
+}
+
+export function useDeleteCustomer() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteCustomer(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["customers"] })
+        },
+    })
+}
+
+export function useCustomerContacts(customerId?: string | null) {
+    return useQuery({
+        queryKey: ["customer-contacts", customerId || ""],
+        queryFn: async () => {
+            if (!customerId) return []
+            const { data } = await masterApi.getCustomerContacts(customerId)
+            return data
+        },
+        enabled: Boolean(customerId),
+    })
+}
+
+export function useCreateCustomerContact() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ customerId, data }: { customerId: string; data: any }) => masterApi.createCustomerContact(customerId, data),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["customer-contacts", variables.customerId] })
+        },
+    })
+}
+
+export function useUpdateCustomerContact() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ customerId, contactId, data }: { customerId: string; contactId: string; data: any }) =>
+            masterApi.updateCustomerContact(customerId, contactId, data),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["customer-contacts", variables.customerId] })
+        },
+    })
+}
+
+export function useDeleteCustomerContact() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ customerId, contactId }: { customerId: string; contactId: string }) =>
+            masterApi.deleteCustomerContact(customerId, contactId),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["customer-contacts", variables.customerId] })
+        },
+    })
+}
+
 // Packaging boxes
 export function usePackagingBoxes() {
     return useQuery({

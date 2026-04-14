@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 import os
+import httpx
 
 from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
+from src.services.workspace import emit_from_response, response_body_json
 
 router = APIRouter()
 INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:18005")
@@ -15,27 +18,79 @@ async def get_items(request: Request, token: str = Depends(get_token)):
 
 @router.post("/items")
 async def create_item(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/items/", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/items/", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_ITEM_CREATED",
+        title=f"Inventory item created: {payload.get('item_code') or payload.get('id') or 'new item'}",
+        message="A new item is available for inventory flows.",
+        href="/inventory/items",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"item_id": str(payload.get('id') or '')},
+    )
+    return response
 
 
 @router.post("/inward")
 async def create_inward(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inward/", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inward/", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_INWARD_CREATED",
+        title="Raw material inward recorded",
+        message="Stores recorded new inbound stock.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Planner", "Production"],
+    )
+    return response
 
 
 @router.post("/issue")
 async def create_issue(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/issue/", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/issue/", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_ISSUE_CREATED",
+        title="Inventory issue recorded",
+        message="Material was issued from stores into production.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Production", "Planner"],
+    )
+    return response
 
 
 @router.post("/fg-inward")
 async def create_fg_inward(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/fg-inward/", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/fg-inward/", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="FG_INWARD_CREATED",
+        title="Finished goods inward recorded",
+        message="Finished goods stock is now available for dispatch planning.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Dispatch", "Sales"],
+    )
+    return response
 
 
 @router.post("/dispatch")
 async def create_dispatch(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/dispatch/", request, token)
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/dispatch/", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_DISPATCH_MOVED",
+        title="Inventory dispatch recorded",
+        message="Stock moved out against a dispatch flow.",
+        href="/dispatch",
+        recipient_roles=["Owner", "Admin", "Store", "Dispatch", "Sales"],
+    )
+    return response
 
 
 @router.get("/balance")
@@ -53,21 +108,143 @@ async def get_ledger(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/ledger", request, token)
 
 
-@router.post("/reservations")
-async def create_reservation(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reservations", request, token)
-
-
-@router.get("/reservations")
-async def list_reservations(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reservations", request, token)
-
-
-@router.post("/reservations/{reservation_id}/release")
-async def release_reservation(reservation_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reservations/{reservation_id}/release", request, token)
-
-
 @router.get("/lots/availability")
 async def lot_availability(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/lots/availability", request, token)
+
+
+@router.post("/reels/inward")
+async def create_reel_inward(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/reels/inward", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="REEL_INWARD_CREATED",
+        title="Reel inward recorded",
+        message="New reels are available in inventory.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Production"],
+    )
+    return response
+
+
+@router.get("/reels")
+async def list_reels(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reels", request, token)
+
+
+@router.get("/reels/{reel_id}")
+async def get_reel(reel_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}", request, token)
+
+
+@router.post("/reels/{reel_id}/scan")
+async def create_reel_scan_event(reel_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}/scan", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="REEL_SCANNED",
+        title="Reel scan captured",
+        message=f"Reel {reel_id} changed tracked state or location.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Production"],
+        payload={"reel_id": reel_id},
+    )
+    return response
+
+
+@router.get("/reels/{reel_id}/scans")
+async def list_reel_scan_events(reel_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}/scans", request, token)
+
+
+@router.post("/reel-issues")
+async def create_reel_issue(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="REEL_ISSUE_CREATED",
+        title="Reel issue recorded",
+        message="A reel variance or issue now needs follow-up.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Production", "QC"],
+    )
+    return response
+
+
+@router.get("/reel-issues")
+async def list_reel_issues(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reel-issues", request, token)
+
+
+@router.post("/reel-issues/{issue_id}/close")
+async def close_reel_issue(issue_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/reel-issues/{issue_id}/close", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="REEL_ISSUE_CLOSED",
+        title="Reel issue closed",
+        message=f"Reel issue {issue_id} was resolved.",
+        href="/inventory",
+        recipient_roles=["Owner", "Admin", "Store", "Production", "QC"],
+        payload={"issue_id": issue_id},
+    )
+    return response
+
+
+@router.get("/valuation/summary")
+async def get_valuation_summary(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/valuation/summary", request, token)
+
+
+@router.get("/valuation/reels")
+async def get_valuation_reels(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/valuation/reels", request, token)
+
+
+@router.get("/health/summary")
+async def get_health_summary(request: Request, token: str = Depends(get_token)):
+    try:
+        return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/summary", request, token)
+    except httpx.TimeoutException:
+        # Keep operational dashboards usable even if the health rollup times out transiently.
+        return JSONResponse(
+            status_code=200,
+            content={
+                "dispatch_allocated_qty": 0.0,
+                "active_dispatch_allocations": 0,
+                "blocked_qty": 0.0,
+                "qc_hold_qty": 0.0,
+                "occupied_locations": 0,
+                "total_locations": 0,
+                "aging_hotspots": 0,
+                "status_rows": [],
+                "summary": {
+                    "low_stock_items": 0,
+                    "fallback": True,
+                },
+            },
+        )
+
+
+@router.get("/health/status-summary")
+async def get_health_status_summary(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/status-summary", request, token)
+
+
+@router.get("/health/location-occupancy")
+async def get_health_location_occupancy(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/location-occupancy", request, token)
+
+
+@router.get("/health/aging")
+async def get_health_aging(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/aging", request, token)
+
+
+@router.get("/health/genealogy-exceptions")
+async def get_health_genealogy_exceptions(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/genealogy-exceptions", request, token)

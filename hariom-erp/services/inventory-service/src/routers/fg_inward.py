@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import ItemType, ItemMaster, ReferenceType, StockBatch, StockTransaction, TransactionType
+from ..models import InventoryLocation, ItemType, ItemMaster, ReferenceType, StockBatch, StockTransaction, TransactionType
 from ..services import get_item_balance
 from ..utils.auth import require_role, get_current_plant
 
@@ -18,6 +18,8 @@ class FGInwardCreate(BaseModel):
     qty: float
     production_job_id: uuid.UUID
     spec_id: Optional[uuid.UUID] = None
+    location_id: Optional[uuid.UUID] = None
+    stock_status: str = "UNRESTRICTED"
     external_ref: Optional[str] = None
 
 
@@ -27,6 +29,8 @@ class FGInwardResponse(BaseModel):
     item_id: uuid.UUID
     batch_no: str
     qty_received: float
+    location_id: Optional[uuid.UUID] = None
+    stock_status: str
     item_balance: float
     message: str
 
@@ -36,7 +40,7 @@ def create_fg_inward(
     fg_inward: FGInwardCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "Admin"])),
+    current_user: dict = Depends(require_role(["Production", "SupervisorEntry", "Admin", "PlantManager"])),
 ):
     item = db.query(ItemMaster).filter(
         ItemMaster.id == fg_inward.item_id,
@@ -51,6 +55,19 @@ def create_fg_inward(
             detail=f"Item {item.name} is not a finished good. Type: {item.type.value}",
         )
 
+    location_id = fg_inward.location_id
+    if location_id:
+        location = db.query(InventoryLocation).filter(
+            InventoryLocation.id == location_id,
+            InventoryLocation.plant_id == plant_id,
+        ).first()
+        if not location:
+            raise HTTPException(status_code=404, detail="Inventory location not found")
+
+    stock_status = fg_inward.stock_status.strip().upper()
+    if stock_status not in {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}:
+        raise HTTPException(status_code=400, detail="Invalid stock_status")
+
     if fg_inward.external_ref:
         existing_txn = db.query(StockTransaction).filter(
             StockTransaction.external_ref == fg_inward.external_ref,
@@ -64,6 +81,8 @@ def create_fg_inward(
                 item_id=existing_txn.item_id,
                 batch_no=existing_batch.batch_no if existing_batch else fg_inward.batch_no,
                 qty_received=abs(existing_txn.qty_change),
+                location_id=existing_batch.location_id if existing_batch else None,
+                stock_status=existing_batch.stock_status if existing_batch else stock_status,
                 item_balance=get_item_balance(str(existing_txn.item_id), db),
                 message="FG inward already posted (idempotent)",
             )
@@ -72,6 +91,8 @@ def create_fg_inward(
         item_id=fg_inward.item_id,
         batch_no=fg_inward.batch_no,
         received_qty=fg_inward.qty,
+        location_id=location_id,
+        stock_status=stock_status,
         spec_id=fg_inward.spec_id,
         plant_id=plant_id,
     )
@@ -86,6 +107,9 @@ def create_fg_inward(
         reference_type=ReferenceType.PRODUCTION_JOB,
         reference_id=fg_inward.production_job_id,
         plant_id=plant_id,
+        location_id=location_id,
+        stock_status=stock_status,
+        movement_metadata={"batch_no": fg_inward.batch_no},
         external_ref=fg_inward.external_ref,
     )
     db.add(transaction)
@@ -97,6 +121,8 @@ def create_fg_inward(
         item_id=fg_inward.item_id,
         batch_no=fg_inward.batch_no,
         qty_received=fg_inward.qty,
+        location_id=location_id,
+        stock_status=stock_status,
         item_balance=get_item_balance(str(fg_inward.item_id), db),
         message=f"FG inward recorded: {fg_inward.qty} {item.uom.value} of {item.name}",
     )

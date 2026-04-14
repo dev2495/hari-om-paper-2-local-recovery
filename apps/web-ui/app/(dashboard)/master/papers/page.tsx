@@ -11,9 +11,11 @@ export default function PapersPage() {
   const deleteMutation = useDeletePaper()
 
   const columns = [
-    { header: "Name", accessorKey: "name" },
+    { header: "Code", accessorKey: "code" },
+    { header: "Variety", accessorKey: "variety" },
     { header: "GSM", accessorKey: "gsm" },
-    { header: "Type", accessorKey: "type" },
+    { header: "BF", accessorKey: "bf" },
+    { header: "Thickness (mm)", accessorKey: "thickness_mm" },
   ]
 
   return (

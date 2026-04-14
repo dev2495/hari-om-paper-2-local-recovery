@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Request
 
-from ..middleware.auth import get_token
-from ..services.workspace import (
+from src.middleware.auth import get_token
+from src.services.workspace import (
     INVENTORY_SERVICE_URL,
     MASTER_SERVICE_URL,
     PRODUCTION_SERVICE_URL,
@@ -31,7 +31,10 @@ def _entity_result(kind: str, label: str, href: str, subtitle: str = "") -> dict
 
 def _workspace_warning(source: str, error: Exception) -> dict:
     detail = getattr(error, "detail", None) or getattr(error, "message", None) or str(error)
-    return {"source": source, "message": detail or f"{source} unavailable"}
+    return {
+        "source": source,
+        "message": detail or f"{source} unavailable",
+    }
 
 
 @router.get("/command-palette")
