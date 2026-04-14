@@ -11,14 +11,14 @@ router = APIRouter(prefix="/master/mandrels", tags=["mandrels"])
 
 class MandrelCreate(BaseModel):
     mandrel_code: str
-    outer_diameter_mm: int
-    length_mm: int
+    outer_diameter_mm: float
+    length_mm: float
     material: Optional[str] = None
 
 class MandrelUpdate(BaseModel):
     mandrel_code: Optional[str] = None
-    outer_diameter_mm: Optional[int] = None
-    length_mm: Optional[int] = None
+    outer_diameter_mm: Optional[float] = None
+    length_mm: Optional[float] = None
     material: Optional[str] = None
     active: Optional[bool] = None
 
@@ -27,8 +27,8 @@ from datetime import datetime
 class MandrelResponse(BaseModel):
     id: uuid.UUID
     mandrel_code: str
-    outer_diameter_mm: int
-    length_mm: int
+    outer_diameter_mm: float
+    length_mm: float
     material: Optional[str]
     plant_id: str
     active: bool

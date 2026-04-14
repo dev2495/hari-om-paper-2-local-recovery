@@ -10,15 +10,15 @@ from ..utils.auth import get_current_user, require_role, get_current_plant, get_
 router = APIRouter(prefix="/master/tube-sizes", tags=["tube-sizes"])
 
 class TubeSizeCreate(BaseModel):
-    inner_diameter_mm: int
-    outer_diameter_mm: int
-    length_mm: int
+    inner_diameter_mm: float
+    outer_diameter_mm: float
+    length_mm: float
     description: Optional[str] = None
 
 class TubeSizeUpdate(BaseModel):
-    inner_diameter_mm: Optional[int] = None
-    outer_diameter_mm: Optional[int] = None
-    length_mm: Optional[int] = None
+    inner_diameter_mm: Optional[float] = None
+    outer_diameter_mm: Optional[float] = None
+    length_mm: Optional[float] = None
     description: Optional[str] = None
     active: Optional[bool] = None
 
@@ -26,9 +26,9 @@ from datetime import datetime
 
 class TubeSizeResponse(BaseModel):
     id: uuid.UUID
-    inner_diameter_mm: int
-    outer_diameter_mm: int
-    length_mm: int
+    inner_diameter_mm: float
+    outer_diameter_mm: float
+    length_mm: float
     description: Optional[str]
     plant_id: str
     active: bool
