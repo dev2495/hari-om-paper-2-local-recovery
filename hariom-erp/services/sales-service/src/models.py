@@ -12,6 +12,7 @@ class SalesOrderStatus(str, enum.Enum):
     SUBMITTED = "submitted"
     APPROVED = "approved"
     RELEASED = "released"
+    PARTIALLY_RELEASED = "partially_released"
     PARTIALLY_DISPATCHED = "partially_dispatched"
     CLOSED = "closed"
 

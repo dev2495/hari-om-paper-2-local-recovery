@@ -234,7 +234,12 @@ def update_sales_order(
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
 
-    if order.status in [SalesOrderStatus.RELEASED, SalesOrderStatus.PARTIALLY_DISPATCHED, SalesOrderStatus.CLOSED]:
+    if order.status in [
+        SalesOrderStatus.RELEASED,
+        SalesOrderStatus.PARTIALLY_RELEASED,
+        SalesOrderStatus.PARTIALLY_DISPATCHED,
+        SalesOrderStatus.CLOSED,
+    ]:
         raise HTTPException(status_code=400, detail="Released/dispatched orders cannot be edited")
 
     if payload.customer_id is not None:
@@ -367,6 +372,7 @@ def validate_dispatch_for_line(
     order = line.sales_order
     if order.status not in [
         SalesOrderStatus.RELEASED,
+        SalesOrderStatus.PARTIALLY_RELEASED,
         SalesOrderStatus.PARTIALLY_DISPATCHED,
     ]:
         raise HTTPException(status_code=400, detail="Sales order line not released for dispatch")
