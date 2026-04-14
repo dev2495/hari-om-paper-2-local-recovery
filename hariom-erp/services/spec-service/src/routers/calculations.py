@@ -4,7 +4,7 @@ from typing import Dict, Any
 import uuid
 from ..database import get_db
 from ..models import RecipeHeader, SpecificationSheet
-from ..utils.auth import get_current_user, get_current_plant
+from ..utils.auth import apply_plant_scope, get_current_plant_scope, get_current_user
 from ..calculators import calculate_weights, calculate_yield, generate_bom
 
 router = APIRouter(prefix="/calculate", tags=["calculations"])
@@ -13,14 +13,15 @@ router = APIRouter(prefix="/calculate", tags=["calculations"])
 def get_weight_calculation(
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
     """Calculate weights for a recipe"""
     # Verify recipe exists and belongs to plant
-    recipe = db.query(RecipeHeader).filter(
-        RecipeHeader.id == recipe_id,
-        RecipeHeader.plant_id == plant_id
+    recipe = apply_plant_scope(
+        db.query(RecipeHeader).filter(RecipeHeader.id == recipe_id),
+        RecipeHeader.plant_id,
+        plant_scope,
     ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -36,14 +37,15 @@ def get_yield_calculation(
     spec_id: uuid.UUID,
     tube_length_mm: int = 150,  # Default tube length, should come from masterdata
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
     """Calculate tubes per bamboo for a specification"""
     # Verify spec exists and belongs to plant
-    spec = db.query(SpecificationSheet).filter(
-        SpecificationSheet.id == spec_id,
-        SpecificationSheet.plant_id == plant_id
+    spec = apply_plant_scope(
+        db.query(SpecificationSheet).filter(SpecificationSheet.id == spec_id),
+        SpecificationSheet.plant_id,
+        plant_scope,
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
@@ -60,14 +62,15 @@ def get_bom(
     tube_length_mm: int = 150,
     tube_od_mm: int = 122,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
     """Generate Bill of Materials for one bamboo"""
     # Verify recipe exists and belongs to plant
-    recipe = db.query(RecipeHeader).filter(
-        RecipeHeader.id == recipe_id,
-        RecipeHeader.plant_id == plant_id
+    recipe = apply_plant_scope(
+        db.query(RecipeHeader).filter(RecipeHeader.id == recipe_id),
+        RecipeHeader.plant_id,
+        plant_scope,
     ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")

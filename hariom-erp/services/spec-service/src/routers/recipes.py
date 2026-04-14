@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from ..database import get_db
 from ..models import RecipeHeader, RecipeLayer, SpecificationSheet
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..services.approval import ApprovalService
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
@@ -140,13 +140,14 @@ def get_recipes_for_spec(
     spec_id: uuid.UUID,
     status: Optional[str] = Query(None, description="Filter by status"),
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
     """Get all recipes for a specification"""
-    query = db.query(RecipeHeader).filter(
-        RecipeHeader.spec_id == spec_id,
-        RecipeHeader.plant_id == plant_id
+    query = apply_plant_scope(
+        db.query(RecipeHeader).filter(RecipeHeader.spec_id == spec_id),
+        RecipeHeader.plant_id,
+        plant_scope,
     )
     
     if status:
@@ -158,13 +159,14 @@ def get_recipes_for_spec(
 def get_recipe(
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
     """Get recipe with layers"""
-    recipe = db.query(RecipeHeader).filter(
-        RecipeHeader.id == recipe_id,
-        RecipeHeader.plant_id == plant_id
+    recipe = apply_plant_scope(
+        db.query(RecipeHeader).filter(RecipeHeader.id == recipe_id),
+        RecipeHeader.plant_id,
+        plant_scope,
     ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")

@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import uuid
 from ..database import get_db
 from .. import models
-from ..utils.auth import get_current_user, require_role, get_current_plant, get_plant_aliases
+from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/master/mandrels", tags=["mandrels"])
 
@@ -41,13 +41,10 @@ class MandrelResponse(BaseModel):
 def get_mandrels(
     code: Optional[str] = Query(None, description="Filter by mandrel code"),
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
+    plant_scope: dict = Depends(get_current_plant_scope)
 ):
-    plant_aliases = get_plant_aliases(plant_id)
-    query = db.query(models.Mandrel).filter(
-        models.Mandrel.plant_id.in_(plant_aliases),
-        models.Mandrel.active == True
-    )
+    query = db.query(models.Mandrel).filter(models.Mandrel.active == True)
+    query = apply_plant_scope(query, models.Mandrel.plant_id, plant_scope)
     if code:
         query = query.filter(models.Mandrel.mandrel_code.ilike(f"%{code}%"))
     return query.all()
@@ -56,13 +53,13 @@ def get_mandrels(
 def get_mandrel(
     mandrel_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
+    plant_scope: dict = Depends(get_current_plant_scope)
 ):
-    mandrel = db.query(models.Mandrel).filter(
+    query = db.query(models.Mandrel).filter(
         models.Mandrel.id == mandrel_id,
-        models.Mandrel.plant_id == plant_id,
         models.Mandrel.active == True
-    ).first()
+    )
+    mandrel = apply_plant_scope(query, models.Mandrel.plant_id, plant_scope).first()
     if not mandrel:
         raise HTTPException(status_code=404, detail="Mandrel not found")
     return mandrel

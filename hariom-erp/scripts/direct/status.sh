@@ -2,10 +2,20 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RUNTIME_DIR="${ROOT_DIR}/.runtime"
-if [[ ! -d "$RUNTIME_DIR" && -d "${ROOT_DIR}/runtime" ]]; then
-  RUNTIME_DIR="${ROOT_DIR}/runtime"
-fi
+resolve_runtime_dir() {
+  local erp_dir="$1"
+  if [[ -n "${ERP_RUNTIME_DIR:-}" ]]; then
+    echo "${ERP_RUNTIME_DIR}"
+    return
+  fi
+  if [[ -d "${erp_dir}/runtime" || ! -e "${erp_dir}/.runtime" ]]; then
+    echo "${erp_dir}/runtime"
+    return
+  fi
+  echo "${erp_dir}/.runtime"
+}
+
+RUNTIME_DIR="$(resolve_runtime_dir "${ROOT_DIR}")"
 PID_DIR="${RUNTIME_DIR}/pids"
 LOG_DIR="${RUNTIME_DIR}/logs"
 PORTS_FILE="${RUNTIME_DIR}/ports.env"

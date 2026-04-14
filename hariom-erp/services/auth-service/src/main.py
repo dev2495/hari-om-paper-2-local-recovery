@@ -6,6 +6,7 @@ import uuid
 
 from .database import SessionLocal, engine
 from . import models
+from .plant_service import PLANT_A_ID, PLANT_B_ID
 from .routers import auth, notifications, roles, users
 from .security import hashing
 
@@ -97,14 +98,17 @@ def seed_default_plants():
     db: Session = SessionLocal()
     try:
         defaults = [
-            ("PLANT_A", "Plant A"),
-            ("PLANT_B", "Plant B"),
-            ("ALL", "All Visible Plants"),
+            (PLANT_A_ID, "PLANT_A", "Plant A"),
+            (PLANT_B_ID, "PLANT_B", "Plant B"),
+            (uuid.UUID("00000000-0000-0000-0000-0000000000ff"), "ALL", "All Visible Plants"),
         ]
-        for code, name in defaults:
+        for plant_id, code, name in defaults:
             plant = db.query(models.Plant).filter(models.Plant.code == code).first()
             if not plant:
-                db.add(models.Plant(id=uuid.uuid4(), code=code, name=name, is_active=True))
+                db.add(models.Plant(id=plant_id, code=code, name=name, is_active=True))
+            else:
+                plant.name = name
+                plant.is_active = True
         db.commit()
     finally:
         db.close()
@@ -116,10 +120,6 @@ seed_default_plants()
 def seed_bootstrap_admin():
     db: Session = SessionLocal()
     try:
-        existing_users = db.query(models.User).count()
-        if existing_users > 0:
-            return
-
         admin_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@hariom.com")
         admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123")
         admin_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "System Admin")
@@ -132,15 +132,37 @@ def seed_bootstrap_admin():
             db.add_all(admin_roles)
             db.flush()
 
-        admin_user = models.User(
-            name=admin_name,
-            email=admin_email,
-            plant_id=admin_plant.id if admin_plant else None,
-            hashed_password=hashing.get_password_hash(admin_password),
-            is_active=True,
+        active_plants = (
+            db.query(models.Plant)
+            .filter(models.Plant.is_active.is_(True), models.Plant.code != "ALL")
+            .order_by(models.Plant.code.asc())
+            .all()
         )
-        admin_user.roles = admin_roles
-        db.add(admin_user)
+        existing_user = db.query(models.User).filter(models.User.email == admin_email).first()
+
+        if existing_user is None:
+            if db.query(models.User).count() > 0:
+                return
+            existing_user = models.User(
+                name=admin_name,
+                email=admin_email,
+                plant_id=admin_plant.id if admin_plant else None,
+                hashed_password=hashing.get_password_hash(admin_password),
+                is_active=True,
+            )
+            db.add(existing_user)
+            db.flush()
+
+        role_map = {role.name: role for role in existing_user.roles}
+        for role in admin_roles:
+            role_map[role.name] = role
+        existing_user.roles = list(role_map.values())
+        existing_user.is_active = True
+        existing_user.is_owner_all_plants = True
+        existing_user.allowed_plants = active_plants
+        if admin_plant:
+            existing_user.plant_id = admin_plant.id
+
         db.commit()
     finally:
         db.close()

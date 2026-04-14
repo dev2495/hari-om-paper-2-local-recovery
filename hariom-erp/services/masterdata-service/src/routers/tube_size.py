@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import uuid
 from ..database import get_db
 from .. import models
-from ..utils.auth import get_current_user, require_role, get_current_plant, get_plant_aliases
+from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/master/tube-sizes", tags=["tube-sizes"])
 
@@ -40,25 +40,22 @@ class TubeSizeResponse(BaseModel):
 @router.get("/", response_model=List[TubeSizeResponse])
 def get_tube_sizes(
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
+    plant_scope: dict = Depends(get_current_plant_scope)
 ):
-    plant_aliases = get_plant_aliases(plant_id)
-    return db.query(models.TubeSize).filter(
-        models.TubeSize.plant_id.in_(plant_aliases),
-        models.TubeSize.active == True
-    ).all()
+    query = db.query(models.TubeSize).filter(models.TubeSize.active == True)
+    return apply_plant_scope(query, models.TubeSize.plant_id, plant_scope).all()
 
 @router.get("/{size_id}", response_model=TubeSizeResponse)
 def get_tube_size(
     size_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant)
+    plant_scope: dict = Depends(get_current_plant_scope)
 ):
-    size = db.query(models.TubeSize).filter(
+    query = db.query(models.TubeSize).filter(
         models.TubeSize.id == size_id,
-        models.TubeSize.plant_id == plant_id,
         models.TubeSize.active == True
-    ).first()
+    )
+    size = apply_plant_scope(query, models.TubeSize.plant_id, plant_scope).first()
     if not size:
         raise HTTPException(status_code=404, detail="Tube size not found")
     return size

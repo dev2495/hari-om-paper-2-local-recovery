@@ -12,7 +12,14 @@ from ..models import (
     SalesOrderStatus,
     SalesOrderDispatchLog,
 )
-from ..utils.auth import require_role, get_current_user, enforce_maker_checker, get_current_plant
+from ..utils.auth import (
+    apply_plant_scope,
+    enforce_maker_checker,
+    get_current_plant,
+    get_current_plant_scope,
+    get_current_user,
+    require_role,
+)
 
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
@@ -113,7 +120,7 @@ def _serialize_order(order: SalesOrder) -> dict:
         "created_at": order.created_at,
         "approved_at": order.approved_at,
         "released_at": order.released_at,
-        "plant_id": order.plant_id,
+        "plant_id": str(order.plant_id),
         "lines": [_serialize_line(line) for line in order.lines],
     }
 
@@ -185,10 +192,14 @@ def list_sales_orders(
     status: Optional[str] = Query(None),
     customer_id: Optional[uuid.UUID] = Query(None),
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
-    query = db.query(SalesOrder).options(joinedload(SalesOrder.lines)).filter(SalesOrder.plant_id == plant_id)
+    query = apply_plant_scope(
+        db.query(SalesOrder).options(joinedload(SalesOrder.lines)),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
     if status:
         try:
             status_enum = SalesOrderStatus(status)
@@ -206,15 +217,15 @@ def list_sales_orders(
 def get_sales_order(
     order_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
-    order = (
-        db.query(SalesOrder)
-        .options(joinedload(SalesOrder.lines))
-        .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
-        .first()
+    query = apply_plant_scope(
+        db.query(SalesOrder).options(joinedload(SalesOrder.lines)).filter(SalesOrder.id == order_id),
+        SalesOrder.plant_id,
+        plant_scope,
     )
+    order = query.first()
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
     return _serialize_order(order)
@@ -339,13 +350,15 @@ def release_sales_order(
 def get_sales_order_line(
     line_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
-    line = db.query(SalesOrderLine).join(SalesOrder).filter(
-        SalesOrderLine.id == line_id,
-        SalesOrder.plant_id == plant_id
-    ).first()
+    query = apply_plant_scope(
+        db.query(SalesOrderLine).join(SalesOrder).filter(SalesOrderLine.id == line_id),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    line = query.first()
     if not line:
         raise HTTPException(status_code=404, detail="Sales order line not found")
     return _serialize_line(line)
@@ -356,16 +369,18 @@ def validate_dispatch_for_line(
     line_id: uuid.UUID,
     payload: DispatchValidationPayload,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
-    line = (
+    line = apply_plant_scope(
         db.query(SalesOrderLine)
         .join(SalesOrder)
         .options(joinedload(SalesOrderLine.sales_order))
-        .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
-        .first()
+        .filter(SalesOrderLine.id == line_id),
+        SalesOrder.plant_id,
+        plant_scope,
     )
+    line = line.first()
     if not line:
         raise HTTPException(status_code=404, detail="Sales order line not found")
 

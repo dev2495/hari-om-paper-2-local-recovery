@@ -3,11 +3,21 @@ set -euo pipefail
 
 BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ERP_DIR="${ERP_DIR:-${BASE_DIR}/hariom-erp}"
-RUNTIME_DIR="${ERP_DIR}/.runtime"
-if ! mkdir -p "${RUNTIME_DIR}" 2>/dev/null; then
-  RUNTIME_DIR="${ERP_DIR}/runtime"
-  mkdir -p "${RUNTIME_DIR}"
-fi
+resolve_runtime_dir() {
+  local erp_dir="$1"
+  if [[ -n "${ERP_RUNTIME_DIR:-}" ]]; then
+    echo "${ERP_RUNTIME_DIR}"
+    return
+  fi
+  if [[ -d "${erp_dir}/runtime" || ! -e "${erp_dir}/.runtime" ]]; then
+    echo "${erp_dir}/runtime"
+    return
+  fi
+  echo "${erp_dir}/.runtime"
+}
+
+RUNTIME_DIR="$(resolve_runtime_dir "${ERP_DIR}")"
+mkdir -p "${RUNTIME_DIR}"
 MODE_FILE="${RUNTIME_DIR}/orchestrator.env"
 
 
@@ -49,6 +59,31 @@ port_is_free() {
 
 RESERVED_PORTS=()
 
+pidfile_for_port_var() {
+  case "$1" in
+    AUTH_PORT) echo "${RUNTIME_DIR}/pids/auth-service.pid" ;;
+    MASTER_PORT) echo "${RUNTIME_DIR}/pids/masterdata-service.pid" ;;
+    SPEC_PORT) echo "${RUNTIME_DIR}/pids/spec-service.pid" ;;
+    PRODUCTION_PORT) echo "${RUNTIME_DIR}/pids/production-service.pid" ;;
+    INVENTORY_PORT) echo "${RUNTIME_DIR}/pids/inventory-service.pid" ;;
+    ANALYTICS_PORT) echo "${RUNTIME_DIR}/pids/analytics-service.pid" ;;
+    SALES_PORT) echo "${RUNTIME_DIR}/pids/sales-service.pid" ;;
+    BFF_PORT) echo "${RUNTIME_DIR}/pids/bff-api.pid" ;;
+    WEB_UI_PORT) echo "${RUNTIME_DIR}/pids/web-ui.pid" ;;
+    *) return 1 ;;
+  esac
+}
+
+service_running_for_port_var() {
+  local pidfile
+  pidfile="$(pidfile_for_port_var "$1")" || return 1
+  [[ -f "$pidfile" ]] || return 1
+  local pid
+  pid="$(cat "$pidfile" 2>/dev/null || true)"
+  [[ -n "$pid" ]] || return 1
+  kill -0 "$pid" >/dev/null 2>&1
+}
+
 is_reserved() {
   local port="$1"
   local reserved
@@ -79,8 +114,12 @@ pick_port() {
   local selected="$requested"
 
   if ! port_is_free "$requested" || is_reserved "$requested"; then
-    selected="$(find_free_port "$default_port")"
-    echo "[port] ${var_name} ${requested} unavailable, selected ${selected}"
+    if service_running_for_port_var "$var_name" && ! is_reserved "$requested"; then
+      selected="$requested"
+    else
+      selected="$(find_free_port "$default_port")"
+      echo "[port] ${var_name} ${requested} unavailable, selected ${selected}"
+    fi
   fi
 
   RESERVED_PORTS+=("$selected")

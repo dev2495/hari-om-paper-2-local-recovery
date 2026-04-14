@@ -127,6 +127,9 @@ def apply_user_scope(
 def resolve_allowed_plant_ids(db: Session | None, user: models.User) -> list[str]:
     if user.is_owner_all_plants:
         if db is None:
+            relation_values = [str(plant.id) for plant in getattr(user, "allowed_plants", []) if getattr(plant, "is_active", True)]
+            if relation_values:
+                return relation_values
             return [str(user.plant_id)] if user.plant_id else []
         return [str(plant.id) for plant in _active_plants(db)]
 

@@ -23,6 +23,10 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     const [isOpen, setIsOpen] = React.useState(false)
     const [plants, setPlants] = React.useState<PlantOption[]>([])
     const [isLoading, setIsLoading] = React.useState(false)
+    const allowedPlantIds = React.useMemo(
+        () => Array.from(new Set([...(user?.allowed_plant_ids || []), ...(user?.allowed_plants || [])].filter(Boolean))),
+        [user?.allowed_plant_ids, user?.allowed_plants],
+    )
 
     const canSwitchPlants = React.useMemo(() => {
         const roles = new Set([user?.role, ...(user?.roles || [])].filter(Boolean))
@@ -63,6 +67,17 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
         return Object.entries(FALLBACK_PLANT_LABELS).map(([id, name]) => ({ id, code: id, name }))
     }, [plants])
 
+    const visiblePlants = React.useMemo(() => {
+        const filtered = resolvedPlants.filter((plant) => plant.id !== "ALL" && plant.code !== "ALL")
+        if (user?.is_owner_all_plants || allowedPlantIds.length === 0) {
+            return filtered
+        }
+        return filtered.filter((plant) => {
+            const values = [plant.id, plant.code].filter(Boolean)
+            return values.some((value) => allowedPlantIds.includes(String(value)))
+        })
+    }, [allowedPlantIds, resolvedPlants, user?.is_owner_all_plants])
+
     const currentPlant = React.useMemo(
         () => resolvedPlants.find((plant) => plant.id === activePlant || plant.code === activePlant),
         [activePlant, resolvedPlants],
@@ -97,6 +112,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     return (
         <div className="relative">
             <button
+                data-testid="plant-switcher-trigger"
                 onClick={() => setIsOpen(!isOpen)}
                 className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-sm transition ${
                     compact
@@ -116,9 +132,28 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                         <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">
                             Select Plant
                         </p>
-                        {resolvedPlants
-                            .filter((plant) => plant.id !== "ALL")
-                            .map((plant) => (
+                        {user?.is_owner_all_plants ? (
+                            <button
+                                key="ALL"
+                                onClick={() => {
+                                    setActivePlant("ALL")
+                                    setIsOpen(false)
+                                    window.location.reload()
+                                }}
+                                className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${
+                                    activePlant === "ALL"
+                                        ? "bg-cyan-50 text-cyan-900"
+                                        : "text-slate-700 hover:bg-slate-50"
+                                }`}
+                            >
+                                <div className="min-w-0">
+                                    <span className="block truncate text-sm font-medium">All Visible Plants</span>
+                                    <span className="block text-[10px] opacity-60">ALL</span>
+                                </div>
+                                {activePlant === "ALL" ? <Check className="h-4 w-4 shrink-0" /> : null}
+                            </button>
+                        ) : null}
+                        {visiblePlants.map((plant) => (
                             <button
                                 key={plant.id}
                                 onClick={() => {

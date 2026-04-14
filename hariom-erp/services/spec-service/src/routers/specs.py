@@ -15,7 +15,14 @@ from ..models import (
     SpecificationSheet,
 )
 from ..services.approval import ApprovalService
-from ..utils.auth import enforce_maker_checker, get_current_user, require_role, get_current_plant
+from ..utils.auth import (
+    apply_plant_scope,
+    enforce_maker_checker,
+    get_current_plant,
+    get_current_plant_scope,
+    get_current_user,
+    require_role,
+)
 from ..config import get_settings
 
 router = APIRouter(prefix="/specs", tags=["specifications"])
@@ -626,10 +633,10 @@ def get_specs(
     customer_name: Optional[str] = Query(None),
     active_only: bool = Query(True),
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
-    query = db.query(SpecificationSheet).filter(SpecificationSheet.plant_id == plant_id)
+    query = apply_plant_scope(db.query(SpecificationSheet), SpecificationSheet.plant_id, plant_scope)
     if status:
         query = query.filter(SpecificationSheet.status == status)
     if customer_name:
@@ -644,12 +651,13 @@ def get_specs(
 def get_spec(
     spec_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
-    spec = db.query(SpecificationSheet).filter(
-        SpecificationSheet.id == spec_id,
-        SpecificationSheet.plant_id == plant_id
+    spec = apply_plant_scope(
+        db.query(SpecificationSheet).filter(SpecificationSheet.id == spec_id),
+        SpecificationSheet.plant_id,
+        plant_scope,
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")

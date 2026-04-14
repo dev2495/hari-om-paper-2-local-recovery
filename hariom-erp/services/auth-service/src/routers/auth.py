@@ -30,6 +30,7 @@ class UserResponse(BaseModel):
     roles: List[str]
     permissions: List[str]
     allowed_plants: List[str] = []
+    allowed_plant_ids: List[str] = []
     is_owner_all_plants: bool = False
     acting_role: str | None = None
     is_acting_session: bool = False
@@ -69,6 +70,7 @@ def serialize_user(user: models.User) -> dict:
         "roles": sorted([role.name for role in user.roles]),
         "permissions": permissions,
         "allowed_plants": allowed_plants,
+        "allowed_plant_ids": allowed_plants,
         "is_owner_all_plants": bool(getattr(user, "is_owner_all_plants", False)),
         "acting_role": None,
         "is_acting_session": False,

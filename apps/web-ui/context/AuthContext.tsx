@@ -9,10 +9,12 @@ interface User {
   name: string
   role: string | null
   plant_id: string
+  allowed_plants?: string[]
   allowed_plant_ids?: string[]
   roles: string[]
   permissions: string[]
   is_active?: boolean
+  is_owner_all_plants?: boolean
 }
 
 interface AuthContextType {
@@ -27,6 +29,41 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function normalizeAllowedPlants(user: Partial<User> | null | undefined) {
+  const rawValues = [...(user?.allowed_plant_ids || []), ...(user?.allowed_plants || [])]
+  return Array.from(new Set(rawValues.map((value) => String(value || "").trim()).filter(Boolean)))
+}
+
+function normalizeUser(rawUser: any): User {
+  const allowedPlantIds = normalizeAllowedPlants(rawUser)
+  return {
+    ...rawUser,
+    plant_id: String(rawUser?.plant_id || allowedPlantIds[0] || "PLANT_A"),
+    roles: Array.isArray(rawUser?.roles) ? rawUser.roles : [],
+    permissions: Array.isArray(rawUser?.permissions) ? rawUser.permissions : [],
+    allowed_plants: allowedPlantIds,
+    allowed_plant_ids: allowedPlantIds,
+    is_owner_all_plants: Boolean(rawUser?.is_owner_all_plants),
+  }
+}
+
+function resolveActivePlant(user: User, preferredPlant: string | null) {
+  if (preferredPlant) {
+    return preferredPlant
+  }
+  if (user.is_owner_all_plants) {
+    return "ALL"
+  }
+  const allowedPlantIds = normalizeAllowedPlants(user)
+  if (allowedPlantIds.length > 0) {
+    return allowedPlantIds[0]
+  }
+  if (user.plant_id) {
+    return user.plant_id
+  }
+  return null
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [activePlant, setActivePlantState] = useState<string | null>(null)
@@ -39,25 +76,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = async () => {
     try {
+      const storedPlant = getStoredPlant()
       const response = await fetch("/api/auth/me", {
-        headers: {
-          "X-Plant-ID": getStoredPlant() || "",
-        },
+        cache: "no-store",
+        credentials: "include",
+        headers: storedPlant ? { "X-Plant-ID": storedPlant } : undefined,
       })
       if (response.ok) {
-        const data = await response.json()
+        const data = normalizeUser(await response.json())
+        const nextPlant = resolveActivePlant(data, storedPlant)
         setUser(data)
-        // If no active plant set, use user's default
-        if (!getStoredPlant() && data.plant_id) {
-          setActivePlant(data.plant_id)
-        } else if (getStoredPlant()) {
-          setActivePlantState(getStoredPlant())
-        }
+        setActivePlantState(nextPlant)
+        setStoredPlant(nextPlant)
       } else {
         setUser(null)
+        setActivePlantState(null)
+        setStoredPlant(null)
       }
     } catch {
       setUser(null)
+      setActivePlantState(null)
     } finally {
       setIsLoading(false)
     }
@@ -66,6 +104,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const response = await fetch("/api/auth/login", {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     })
@@ -82,16 +121,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const data = await response.json()
-    setUser(data.user)
-    setStoredPlant(null) // Reset plant override on login
-    if (data.user.plant_id) {
-      setActivePlant(data.user.plant_id)
-    }
+    const normalizedUser = normalizeUser(data.user)
+    const nextPlant = resolveActivePlant(normalizedUser, null)
+    setUser(normalizedUser)
+    setActivePlantState(nextPlant)
+    setStoredPlant(nextPlant)
   }
 
   const logout = async () => {
     await fetch("/api/auth/logout", {
       method: "POST",
+      credentials: "include",
     })
     setUser(null)
     setActivePlantState(null)

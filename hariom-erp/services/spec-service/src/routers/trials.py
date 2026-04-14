@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from ..database import get_db
 from ..models import TrialResult, RecipeHeader
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/trials", tags=["trials"])
 
@@ -82,14 +82,15 @@ def create_trial(
 def get_trials(
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
     """Get all trials for a recipe"""
     # Verify recipe ownership
-    recipe = db.query(RecipeHeader).filter(
-        RecipeHeader.id == recipe_id,
-        RecipeHeader.plant_id == plant_id
+    recipe = apply_plant_scope(
+        db.query(RecipeHeader).filter(RecipeHeader.id == recipe_id),
+        RecipeHeader.plant_id,
+        plant_scope,
     ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")

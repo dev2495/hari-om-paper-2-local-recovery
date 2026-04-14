@@ -2,6 +2,19 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+resolve_runtime_dir() {
+  local erp_dir="$1"
+  if [[ -n "${ERP_RUNTIME_DIR:-}" ]]; then
+    echo "${ERP_RUNTIME_DIR}"
+    return
+  fi
+  if [[ -d "${erp_dir}/runtime" || ! -e "${erp_dir}/.runtime" ]]; then
+    echo "${erp_dir}/runtime"
+    return
+  fi
+  echo "${erp_dir}/.runtime"
+}
+
 resolve_runtime_venv_dir() {
   local erp_dir="$1"
   if [[ -n "${ERP_VENV_DIR:-}" ]]; then
@@ -18,10 +31,7 @@ resolve_runtime_venv_dir() {
   fi
   echo "${erp_dir}/.venv-direct"
 }
-RUNTIME_DIR="${ROOT_DIR}/.runtime"
-if ! mkdir -p "${RUNTIME_DIR}" 2>/dev/null; then
-  RUNTIME_DIR="${ROOT_DIR}/runtime"
-fi
+RUNTIME_DIR="$(resolve_runtime_dir "${ROOT_DIR}")"
 PID_DIR="${RUNTIME_DIR}/pids"
 LOG_DIR="${RUNTIME_DIR}/logs"
 PORTS_FILE="${RUNTIME_DIR}/ports.env"
@@ -56,7 +66,7 @@ JWT_SECRET="${JWT_SECRET:-change_me_in_production}"
 BOOTSTRAP_ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-admin@hariom.com}"
 BOOTSTRAP_ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD:-admin123}"
 BOOTSTRAP_ADMIN_NAME="${BOOTSTRAP_ADMIN_NAME:-System Admin}"
-BOOTSTRAP_ADMIN_PLANT_ID="${BOOTSTRAP_ADMIN_PLANT_ID:-PLANT-1}"
+BOOTSTRAP_ADMIN_PLANT_ID="${BOOTSTRAP_ADMIN_PLANT_ID:-PLANT_A}"
 
 WEB_UI_MODE="${WEB_UI_MODE:-prod}" # prod|dev
 NODE18_BIN="${NODE18_BIN:-/opt/homebrew/opt/node@18/bin}"
@@ -317,3 +327,15 @@ ANALYTICS_PORT=${ANALYTICS_PORT}
 BFF_PORT=${BFF_PORT}
 WEB_UI_PORT=${WEB_UI_PORT}
 EOF
+
+WORKSPACE_SCRIPTS_DIR="$(cd "${ROOT_DIR}/.." && pwd)/scripts"
+if [[ -d "${WORKSPACE_SCRIPTS_DIR}" ]] && command -v python3 >/dev/null 2>&1; then
+  (
+    cd "${WORKSPACE_SCRIPTS_DIR}"
+    ERP_RUNTIME_DIR="${RUNTIME_DIR}" python3 - <<'PY'
+from runtime_support import build_runtime_manifest, write_runtime_manifest
+
+write_runtime_manifest(build_runtime_manifest())
+PY
+  ) >/dev/null 2>&1 || true
+fi

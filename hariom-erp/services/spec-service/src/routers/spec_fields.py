@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import SpecDynamicField
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/spec-fields", tags=["spec-fields"])
 
@@ -65,11 +65,13 @@ def create_field(
 @router.get("/", response_model=List[FieldResponse])
 def get_fields(
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
 ):
-    return db.query(SpecDynamicField).filter(
-        SpecDynamicField.plant_id == plant_id
+    return apply_plant_scope(
+        db.query(SpecDynamicField),
+        SpecDynamicField.plant_id,
+        plant_scope,
     ).order_by(SpecDynamicField.key.asc()).all()
 
 
