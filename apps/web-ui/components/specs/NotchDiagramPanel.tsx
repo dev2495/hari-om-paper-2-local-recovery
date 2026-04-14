@@ -1,418 +1,176 @@
-"use client"
+import { clamp } from "@/lib/spec-sheet"
 
-import { useMemo } from "react"
-
-import { useTools } from "@/hooks/use-master-data"
-import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
-import type { SpecEditorNotch } from "./spec-sheet-utils"
+type DiagramData = {
+  title?: string
+  tubeLengthMm?: number
+  notchDistanceMm?: number
+  notchDepthMm?: number
+  notchType?: string
+  tubeDirection?: string
+}
 
 type NotchDiagramPanelProps = {
-  value: SpecEditorNotch
-  readOnly?: boolean
-  onChange?: (patch: Partial<SpecEditorNotch>) => void
+  data: DiagramData
+  compact?: boolean
+  editable?: boolean
+  onNotchDistanceChange?: (value: number) => void
+  onNotchDepthChange?: (value: number) => void
 }
 
-type ToolRecord = {
-  id?: string | number
-  category?: string
-  code?: string
-  name?: string
-  spec_text?: string
+function asNumber(value: unknown, fallback = 0) {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
 }
 
-function Field({
-  label,
-  value,
-  onChange,
-  readOnly,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  readOnly?: boolean
-}) {
-  return (
-    <label className="space-y-1">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</span>
-      <Input
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={readOnly}
-        className="h-10 rounded-2xl border-slate-200 bg-white/80 text-sm"
-      />
-    </label>
-  )
-}
+export function NotchDiagramPanel({
+  data,
+  compact = false,
+  editable = false,
+  onNotchDistanceChange,
+  onNotchDepthChange,
+}: NotchDiagramPanelProps) {
+  const tubeLengthMm = Math.max(asNumber(data?.tubeLengthMm, 0), 1)
+  const notchDistanceMm = clamp(asNumber(data?.notchDistanceMm, tubeLengthMm * 0.07), 0, tubeLengthMm)
+  const notchDepthMm = Math.max(asNumber(data?.notchDepthMm, 0), 0)
+  const remainingLengthMm = Math.max(tubeLengthMm - notchDistanceMm, 0)
 
-function ToolSelect({
-  label,
-  value,
-  onChange,
-  options,
-  readOnly,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  options: ToolRecord[]
-  readOnly?: boolean
-}) {
-  return (
-    <label className="space-y-1">
-      <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">{label}</span>
-      <select
-        value={value || "__NONE__"}
-        onChange={(event) => onChange(event.target.value === "__NONE__" ? "" : event.target.value)}
-        disabled={readOnly}
-        className="h-10 rounded-2xl border border-slate-200 bg-white/80 px-3 text-sm text-slate-800"
-      >
-        <option value="__NONE__">Select {label.toLowerCase()}</option>
-        {options.map((option) => {
-          const line = [option.code, option.name].filter(Boolean).join(" · ")
-          return (
-            <option key={String(option.id || line)} value={String(option.code || option.name || "")}>
-              {line || option.spec_text || "Tool"}
-            </option>
-          )
-        })}
-      </select>
-    </label>
-  )
-}
+  const baselineLeft = 30
+  const baselineRight = 390
+  const baselineWidth = baselineRight - baselineLeft
+  const baselineY = 108
+  const notchX = baselineLeft + (notchDistanceMm / tubeLengthMm) * baselineWidth
+  const notchDepthPx = clamp((notchDepthMm / Math.max(tubeLengthMm * 0.08, 8)) * 54, 10, 42)
+  const notchTipY = baselineY + notchDepthPx
 
-function DiagramBadge({
-  label,
-  value,
-}: {
-  label: string
-  value: string
-}) {
-  return (
-    <div className="rounded-2xl border border-white/70 bg-white/80 px-3 py-3">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-medium text-slate-900">{value}</p>
-    </div>
-  )
-}
-
-export function NotchDiagramPanel({ value, readOnly, onChange }: NotchDiagramPanelProps) {
-  const { data: toolRows = [] } = useTools()
-
-  const tools = useMemo(() => (Array.isArray(toolRows) ? toolRows : []), [toolRows])
-  const groupedTools = useMemo(() => {
-    const group = (category: string) =>
-      tools.filter((row: ToolRecord) => String(row.category || "").toUpperCase() === category)
-
-    return {
-      holder: group("NOTCHING_HOLDER"),
-      blade: group("NOTCHING_BLADE"),
-      groove: group("GROOVE"),
-      punch: group("PUNCH"),
-      die: group("DIE"),
-      tochha: group("TOCHHA"),
-      widerTool: group("WIDER_TOOL"),
-    }
-  }, [tools])
-
-  const selectedMeta = useMemo(() => {
-    const pick = (categoryOptions: ToolRecord[], current: string) =>
-      categoryOptions.find((option) => String(option.code || option.name || "") === String(current || ""))
-
-    return {
-      holder: pick(groupedTools.holder, value.notching_holder),
-      blade: pick(groupedTools.blade, value.notching_blade),
-      groove: pick(groupedTools.groove, value.groove),
-      punch: pick(groupedTools.punch, value.punch),
-      die: pick(groupedTools.die, value.die),
-      tochha: pick(groupedTools.tochha, value.tochha),
-      widerTool: pick(groupedTools.widerTool, value.wider_tool),
-    }
-  }, [groupedTools, value.die, value.groove, value.notching_blade, value.notching_holder, value.punch, value.tochha, value.wider_tool])
-
-  const depth = Number(value.notch_depth_mm || 0)
-  const distance = Number(value.notch_distance_mm || 0)
-  const notchActive = Boolean(value.notch_required)
-  const position = String(value.notch_position || "Top").toLowerCase()
-  const isDouble = String(value.notch_type || "").toLowerCase() === "double"
-  const isSlot = String(value.notch_type || "").toLowerCase() === "slot"
-  const isPunch = String(value.notch_type || "").toLowerCase() === "punch"
-
-  const primaryNotchStyle =
-    position === "left"
-      ? { left: "18%", top: "50%", transform: "translate(-50%, -50%)" }
-      : position === "right"
-        ? { left: "82%", top: "50%", transform: "translate(-50%, -50%)" }
-        : { left: "50%", top: "18%", transform: "translate(-50%, -50%)" }
-
-  const secondaryNotchStyle =
-    position === "left"
-      ? { left: "18%", top: "30%", transform: "translate(-50%, -50%)" }
-      : position === "right"
-        ? { left: "82%", top: "30%", transform: "translate(-50%, -50%)" }
-        : { left: "64%", top: "18%", transform: "translate(-50%, -50%)" }
-
-  const selectedConnections = [
-    selectedMeta.holder?.code || value.notching_holder,
-    selectedMeta.blade?.code || value.notching_blade,
-    selectedMeta.groove?.code || value.groove,
-    selectedMeta.punch?.code || value.punch,
-    selectedMeta.tochha?.code || value.tochha,
-    selectedMeta.widerTool?.code || value.wider_tool,
-    selectedMeta.die?.code || value.die,
-  ].filter(Boolean)
+  const formatMm = (value: number) => `${value.toFixed(2)} mm`
 
   return (
-    <section className="erp-panel overflow-hidden">
-      <div className="border-b border-slate-200/70 px-5 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Notch Tooling</p>
-            <h3 className="mt-1 text-lg font-semibold text-slate-900">Diagram and setup cues</h3>
-          </div>
-          <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700">
+    <div className="rounded-2xl border border-slate-300 bg-white p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">Notch Diagram</h3>
+          <p className="mt-1 text-xs text-slate-500">{data?.title || "Reference sketch"}</p>
+        </div>
+        <div className="text-right text-[11px] text-slate-500">
+          <div>Type: {data?.notchType || "NONE"}</div>
+          <div>Direction: {data?.tubeDirection || "--"}</div>
+        </div>
+      </div>
+
+      <svg viewBox="0 0 420 190" className={`w-full ${compact ? "h-36" : "h-52"}`} role="img" aria-label="Scaled notch geometry preview">
+        <defs>
+          <marker id="notch-arrow" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="#64748b" />
+          </marker>
+          <marker id="notch-arrow-red" markerWidth="8" markerHeight="8" refX="4" refY="4" orient="auto">
+            <path d="M0,0 L8,4 L0,8 z" fill="#dc2626" />
+          </marker>
+        </defs>
+
+        <line x1={baselineLeft} y1={baselineY} x2={baselineRight} y2={baselineY} stroke="#0f172a" strokeWidth="3" />
+        <line x1={baselineLeft} y1={baselineY - 8} x2={baselineLeft} y2={baselineY + 8} stroke="#0f172a" strokeWidth="2" />
+        <line x1={baselineRight} y1={baselineY - 8} x2={baselineRight} y2={baselineY + 8} stroke="#0f172a" strokeWidth="2" />
+
+        <line x1={notchX} y1={52} x2={notchX} y2={notchTipY + 12} stroke="#0891b2" strokeWidth="1.6" strokeDasharray="5 4" />
+        <polyline
+          points={`${notchX - 18},${baselineY} ${notchX},${notchTipY} ${notchX + 18},${baselineY}`}
+          fill="none"
+          stroke="#ef4444"
+          strokeWidth="2.4"
+        />
+
+        <line
+          x1={baselineLeft}
+          y1={38}
+          x2={notchX}
+          y2={38}
+          stroke="#64748b"
+          strokeWidth="1.2"
+          markerStart="url(#notch-arrow)"
+          markerEnd="url(#notch-arrow)"
+        />
+        <line x1={baselineLeft} y1={32} x2={baselineLeft} y2={44} stroke="#64748b" strokeWidth="1.2" />
+        <line x1={notchX} y1={32} x2={notchX} y2={44} stroke="#64748b" strokeWidth="1.2" />
+        <text x={(baselineLeft + notchX) / 2} y={30} textAnchor="middle" fontSize="11" fill="#334155">
+          {formatMm(notchDistanceMm)}
+        </text>
+
+        <line
+          x1={notchX}
+          y1={152}
+          x2={baselineRight}
+          y2={152}
+          stroke="#64748b"
+          strokeWidth="1.2"
+          markerStart="url(#notch-arrow)"
+          markerEnd="url(#notch-arrow)"
+        />
+        <line x1={notchX} y1={146} x2={notchX} y2={158} stroke="#64748b" strokeWidth="1.2" />
+        <line x1={baselineRight} y1={146} x2={baselineRight} y2={158} stroke="#64748b" strokeWidth="1.2" />
+        <text x={(notchX + baselineRight) / 2} y={146} textAnchor="middle" fontSize="11" fill="#334155">
+          Remaining {formatMm(remainingLengthMm)}
+        </text>
+
+        <line
+          x1={notchX + 30}
+          y1={baselineY}
+          x2={notchX + 30}
+          y2={notchTipY}
+          stroke="#dc2626"
+          strokeWidth="1.2"
+          markerStart="url(#notch-arrow-red)"
+          markerEnd="url(#notch-arrow-red)"
+        />
+        <line x1={notchX + 24} y1={baselineY} x2={notchX + 36} y2={baselineY} stroke="#dc2626" strokeWidth="1.2" />
+        <line x1={notchX + 24} y1={notchTipY} x2={notchX + 36} y2={notchTipY} stroke="#dc2626" strokeWidth="1.2" />
+        <text x={notchX + 42} y={(baselineY + notchTipY) / 2} fontSize="11" fill="#991b1b">
+          {formatMm(notchDepthMm)}
+        </text>
+
+        <text x={baselineLeft} y={176} fontSize="11" fill="#334155">
+          Tube Length: {formatMm(tubeLengthMm)}
+        </text>
+        <text x={baselineLeft} y={92} fontSize="11" fill="#0f172a">
+          Start edge
+        </text>
+        <text x={baselineRight - 44} y={92} fontSize="11" fill="#0f172a">
+          End edge
+        </text>
+        <text x={notchX - 28} y={baselineY + 28} fontSize="11" fill="#0369a1">
+          Notch point
+        </text>
+      </svg>
+
+      {editable ? (
+        <div className="mt-4 grid gap-3 text-xs text-slate-600 md:grid-cols-2">
+          <label className="space-y-1">
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Distance</span>
             <input
-              type="checkbox"
-              checked={value.notch_required}
-              onChange={(event) => onChange?.({ notch_required: event.target.checked })}
-              disabled={readOnly}
-              className="h-4 w-4 rounded border-slate-300"
+              type="range"
+              min={0}
+              max={Math.max(tubeLengthMm, 1)}
+              step={0.1}
+              value={notchDistanceMm}
+              onChange={(event) => onNotchDistanceChange?.(asNumber(event.target.value, notchDistanceMm))}
+              className="w-full accent-cyan-700"
             />
-            Notch required
+            <span>{formatMm(notchDistanceMm)}</span>
+          </label>
+          <label className="space-y-1">
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Depth</span>
+            <input
+              type="range"
+              min={0}
+              max={Math.max(20, notchDepthMm + 4)}
+              step={0.1}
+              value={notchDepthMm}
+              onChange={(event) => onNotchDepthChange?.(asNumber(event.target.value, notchDepthMm))}
+              className="w-full accent-rose-600"
+            />
+            <span>{formatMm(notchDepthMm)}</span>
           </label>
         </div>
-      </div>
-
-      <div className="grid gap-6 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[radial-gradient(circle_at_top,rgba(15,23,42,0.05),transparent_58%),linear-gradient(135deg,#eff6ff,#f8fafc_48%,#fff7ed)] p-6">
-          <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">
-            <span>Tube Face</span>
-            <span>{value.notch_type || "Single notch"}</span>
-          </div>
-          <div className="relative mt-6 h-52 rounded-[36px] border border-dashed border-slate-300/90 bg-white/75 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-            <div className="absolute inset-4 rounded-[28px] border border-slate-300 bg-[linear-gradient(180deg,rgba(255,255,255,0.9),rgba(226,232,240,0.75))]" />
-            <div className="absolute inset-x-8 top-1/2 h-[1px] -translate-y-1/2 bg-slate-200" />
-            <div className="absolute left-1/2 top-7 h-28 w-[1px] -translate-x-1/2 bg-slate-200" />
-            <div
-              className={cn(
-                "absolute transition",
-                isSlot ? "h-7 w-16 rounded-full" : "h-10 w-10 rounded-full",
-                notchActive ? "border-2 border-cyan-600 bg-cyan-100 shadow-lg" : "border-2 border-slate-300 bg-white/80",
-                isPunch ? "ring-4 ring-cyan-100" : "",
-              )}
-              style={primaryNotchStyle}
-            />
-            {isDouble ? (
-              <div
-                className={cn(
-                  "absolute h-10 w-10 rounded-full border-2 transition",
-                  notchActive ? "border-cyan-600 bg-cyan-100 shadow-lg" : "border-slate-300 bg-white/80",
-                )}
-                style={secondaryNotchStyle}
-              />
-            ) : null}
-            <div className="absolute left-1/2 top-[22%] w-[42%] -translate-x-1/2 border-t border-dashed border-cyan-300/90" />
-            <div className="absolute left-[11%] top-1/2 w-[14%] -translate-y-1/2 border-t border-dashed border-slate-300/90" />
-            <div className="absolute right-[11%] top-1/2 w-[14%] -translate-y-1/2 border-t border-dashed border-slate-300/90" />
-            <div
-              className={cn(
-                "absolute rounded-full px-2 py-1 text-[10px] font-semibold shadow-sm",
-                notchActive ? "bg-slate-900 text-white" : "bg-white text-slate-400",
-              )}
-              style={{ left: "50%", bottom: "10%", transform: "translateX(-50%)" }}
-            >
-              {notchActive ? `${depth || 0} mm depth · ${distance || 0} mm from edge` : "No notch configured"}
-            </div>
-            {selectedConnections.length > 0 ? (
-              <div className="absolute right-4 top-4 max-w-[42%] rounded-2xl border border-cyan-100 bg-white/85 px-3 py-2 text-[11px] text-slate-600 shadow-sm">
-                <p className="font-semibold uppercase tracking-[0.18em] text-cyan-700">Linked tooling</p>
-                <p className="mt-1 leading-5">{selectedConnections.join(" · ")}</p>
-              </div>
-            ) : null}
-          </div>
-          <div className="mt-4 grid gap-3 text-sm text-slate-600 md:grid-cols-4">
-            <DiagramBadge label="Position" value={value.notch_position || "Top"} />
-            <DiagramBadge label="Tube Direction" value={value.tube_direction || "Standard"} />
-            <DiagramBadge label="Top Paper" value={value.top_paper_required ? "Required" : "Not required"} />
-            <DiagramBadge label="Tochha Type" value={value.tochha_type || "Standard"} />
-          </div>
-        </div>
-
-        <div className="grid gap-3">
-          {!notchActive ? (
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
-              Keep this off until the spec truly needs a notch. When enabled, holder, blade, groove, and die stay linked to the diagram so setup can move from sheet to job-card without retyping.
-            </div>
-          ) : null}
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <label className="space-y-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Notch Type</span>
-              <select
-                value={value.notch_type}
-                onChange={(event) => onChange?.({ notch_type: event.target.value })}
-                disabled={readOnly}
-                className="h-10 rounded-2xl border border-slate-200 bg-white/80 px-3 text-sm text-slate-800"
-              >
-                <option value="Single">Single</option>
-                <option value="Double">Double</option>
-                <option value="Slot">Slot</option>
-                <option value="Punch">Punch</option>
-              </select>
-            </label>
-
-            <label className="space-y-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Notch Position</span>
-              <select
-                value={value.notch_position}
-                onChange={(event) => onChange?.({ notch_position: event.target.value })}
-                disabled={readOnly}
-                className="h-10 rounded-2xl border border-slate-200 bg-white/80 px-3 text-sm text-slate-800"
-              >
-                <option value="Top">Top</option>
-                <option value="Left">Left</option>
-                <option value="Right">Right</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <Field
-              label="Distance From Edge"
-              value={value.notch_distance_mm}
-              onChange={(next) => onChange?.({ notch_distance_mm: next })}
-              readOnly={readOnly}
-            />
-            <Field
-              label="Notch Depth"
-              value={value.notch_depth_mm}
-              onChange={(next) => onChange?.({ notch_depth_mm: next })}
-              readOnly={readOnly}
-            />
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <ToolSelect
-              label="Holder"
-              value={value.notching_holder}
-              onChange={(next) => onChange?.({ notching_holder: next })}
-              options={groupedTools.holder}
-              readOnly={readOnly}
-            />
-            <ToolSelect
-              label="Blade"
-              value={value.notching_blade}
-              onChange={(next) => onChange?.({ notching_blade: next })}
-              options={groupedTools.blade}
-              readOnly={readOnly}
-            />
-            <ToolSelect
-              label="Groove"
-              value={value.groove}
-              onChange={(next) => onChange?.({ groove: next })}
-              options={groupedTools.groove}
-              readOnly={readOnly}
-            />
-            <ToolSelect
-              label="Punch"
-              value={value.punch}
-              onChange={(next) => onChange?.({ punch: next })}
-              options={groupedTools.punch}
-              readOnly={readOnly}
-            />
-            <ToolSelect
-              label="Tochha"
-              value={value.tochha}
-              onChange={(next) => onChange?.({ tochha: next })}
-              options={groupedTools.tochha}
-              readOnly={readOnly}
-            />
-            <ToolSelect
-              label="Wider Tool"
-              value={value.wider_tool}
-              onChange={(next) => onChange?.({ wider_tool: next })}
-              options={groupedTools.widerTool}
-              readOnly={readOnly}
-            />
-            <ToolSelect
-              label="Die"
-              value={value.die}
-              onChange={(next) => onChange?.({ die: next })}
-              options={groupedTools.die}
-              readOnly={readOnly}
-            />
-            <label className="space-y-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Tube Direction</span>
-              <select
-                value={value.tube_direction}
-                onChange={(event) => onChange?.({ tube_direction: event.target.value })}
-                disabled={readOnly}
-                className="h-10 rounded-2xl border border-slate-200 bg-white/80 px-3 text-sm text-slate-800"
-              >
-                <option value="Standard">Standard</option>
-                <option value="Reverse">Reverse</option>
-              </select>
-            </label>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <label className="space-y-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Tochha Type</span>
-              <select
-                value={value.tochha_type || "__NONE__"}
-                onChange={(event) => onChange?.({ tochha_type: event.target.value === "__NONE__" ? "" : event.target.value })}
-                disabled={readOnly}
-                className="h-10 rounded-2xl border border-slate-200 bg-white/80 px-3 text-sm text-slate-800"
-              >
-                <option value="__NONE__">Select tochha type</option>
-                <option value="Standard">Standard</option>
-                <option value="Deep">Deep</option>
-                <option value="Heavy">Heavy</option>
-              </select>
-            </label>
-            <Field
-              label="Height Gauge Go"
-              value={value.height_gauge_go}
-              onChange={(next) => onChange?.({ height_gauge_go: next })}
-              readOnly={readOnly}
-            />
-            <Field
-              label="Height Gauge No-Go"
-              value={value.height_gauge_no_go}
-              onChange={(next) => onChange?.({ height_gauge_no_go: next })}
-              readOnly={readOnly}
-            />
-            <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={value.top_paper_required}
-                onChange={(event) => onChange?.({ top_paper_required: event.target.checked })}
-                disabled={readOnly}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              Top paper required
-            </label>
-          </div>
-
-          {(selectedMeta.holder?.spec_text ||
-            selectedMeta.blade?.spec_text ||
-            selectedMeta.groove?.spec_text ||
-            selectedMeta.punch?.spec_text ||
-            selectedMeta.die?.spec_text) ? (
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-600">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master notes</p>
-              <div className="mt-3 space-y-2">
-                {[selectedMeta.holder, selectedMeta.blade, selectedMeta.groove, selectedMeta.punch, selectedMeta.die]
-                  .filter((tool): tool is ToolRecord => Boolean(tool?.spec_text))
-                  .map((tool) => (
-                    <p key={String(tool.code || tool.name)}>
-                      <span className="font-medium text-slate-900">{tool.code || tool.name}:</span> {tool.spec_text}
-                    </p>
-                  ))}
-              </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </section>
+      ) : null}
+    </div>
   )
 }

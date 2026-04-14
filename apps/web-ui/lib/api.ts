@@ -43,6 +43,15 @@ export function setStoredPlant(plantId: string | null) {
   }
 }
 
+function withPlantHeader(plantId?: string) {
+  if (!plantId) return undefined
+  return {
+    headers: {
+      "X-Plant-ID": plantId,
+    },
+  }
+}
+
 export const api = axios.create({
   baseURL: isBrowser ? browserBaseUrl : serverBaseUrl,
   withCredentials: true,
@@ -181,26 +190,37 @@ export const masterApi = {
 }
 
 export const specApi = {
-  getSpecs: (params?: any) => api.get("/api/spec/specifications", { params }),
-  createSpec: (data: any) => api.post("/api/spec/specifications", data),
+  getSpecs: (params?: any, plantId?: string) =>
+    api.get("/api/spec/specifications", { ...(withPlantHeader(plantId) || {}), params }),
+  createSpec: (data: any, plantId?: string) => api.post("/api/spec/specifications", data, withPlantHeader(plantId)),
   getSpec: (id: string) => api.get(`/api/spec/specifications/${id}`),
-  updateSpec: (id: string, data: any) => api.put(`/api/spec/specifications/${id}`, data),
-  approveSpec: (id: string, data: any) => api.post(`/api/spec/specifications/${id}/approve`, data),
-  obsoleteSpec: (id: string, data?: any) => api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}),
+  updateSpec: (id: string, data: any, plantId?: string) =>
+    api.put(`/api/spec/specifications/${id}`, data, withPlantHeader(plantId)),
+  approveSpec: (id: string, data: any, plantId?: string) =>
+    api.post(`/api/spec/specifications/${id}/approve`, data, withPlantHeader(plantId)),
+  obsoleteSpec: (id: string, data?: any, plantId?: string) =>
+    api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}, withPlantHeader(plantId)),
   getConstants: () => api.get("/api/spec/constants"),
   getSpecFields: () => api.get("/api/spec/spec-fields"),
-  createSpecField: (data: any) => api.post("/api/spec/spec-fields", data),
-  createRecipe: (specId: string, data: any) => api.post(`/api/spec/recipes/${specId}`, data),
+  createSpecField: (data: any, plantId?: string) => api.post("/api/spec/spec-fields", data, withPlantHeader(plantId)),
+  createRecipe: (specId: string, data: any, plantId?: string) =>
+    api.post(`/api/spec/recipes/${specId}`, data, withPlantHeader(plantId)),
   getRecipesForSpec: (specId: string) => api.get(`/api/spec/recipes/spec/${specId}`),
   getRecipe: (recipeId: string) => api.get(`/api/spec/recipes/${recipeId}`),
-  addRecipeLayer: (recipeId: string, data: any) => api.post(`/api/spec/recipes/${recipeId}/layers`, data),
-  createTrial: (recipeId: string, data: any) => api.post(`/api/spec/trials/${recipeId}`, data),
+  addRecipeLayer: (recipeId: string, data: any, plantId?: string) =>
+    api.post(`/api/spec/recipes/${recipeId}/layers`, data, withPlantHeader(plantId)),
+  createTrial: (recipeId: string, data: any, plantId?: string) =>
+    api.post(`/api/spec/trials/${recipeId}`, data, withPlantHeader(plantId)),
   getTrials: (recipeId: string) => api.get(`/api/spec/trials/${recipeId}`),
   calculateYield: (specId: string, tubeLengthMm: number) =>
     api.get(`/api/spec/calculate/yield/${specId}`, { params: { tube_length_mm: tubeLengthMm } }),
   calculateWeight: (recipeId: string) => api.get(`/api/spec/calculate/weight/${recipeId}`),
   calculateBom: (recipeId: string, tubeLengthMm: number, tubeOdMm: number) =>
     api.get(`/api/spec/calculate/bom/${recipeId}`, { params: { tube_length_mm: tubeLengthMm, tube_od_mm: tubeOdMm } }),
+  calculatePreview: (data: any, plantId?: string) =>
+    api.post("/api/spec/calculate/preview", data, withPlantHeader(plantId)),
+  calculateSuggestions: (data: any, plantId?: string) =>
+    api.post("/api/spec/calculate/suggestions", data, withPlantHeader(plantId)),
 }
 
 export const salesApi = {
