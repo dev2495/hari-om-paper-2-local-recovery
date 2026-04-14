@@ -177,7 +177,7 @@ export default function PlannerPage() {
                     data-testid={`planner-lane:${job.job_card_id}`}
                   >
                     <div>
-                      <Link href={`/job-cards/${job.job_card_id}`} className="inline-flex items-center gap-2 font-medium text-slate-950 hover:text-cyan-700">
+                      <Link href={`/production/job-cards/${job.job_card_id}`} className="inline-flex items-center gap-2 font-medium text-slate-950 hover:text-cyan-700">
                         {job.job_card_id}
                         <ChevronRight className="h-4 w-4 text-slate-400" />
                       </Link>

@@ -52,7 +52,7 @@ export default function PlanningTrackerPage() {
                   {jobs.map((job: any) => (
                     <tr key={job.id} className="hover:bg-gray-50" data-testid={`tracker-row:${job.id}`}>
                       <td className="px-4 py-3">
-                        <Link href={`/job-cards/${job.id}`} className="text-blue-600 hover:underline">
+                        <Link href={`/production/job-cards/${job.id}`} className="text-blue-600 hover:underline">
                           {job.job_card_no || job.id}
                         </Link>
                       </td>

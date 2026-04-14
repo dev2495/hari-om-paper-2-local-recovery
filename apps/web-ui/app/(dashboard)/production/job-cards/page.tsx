@@ -310,7 +310,7 @@ export default function JobCardsPage() {
         {latestJobId && (
           <div className="mt-4 flex flex-wrap gap-2">
             <Link
-              href={`/production/job-cards/print?jobId=${latestJobId}`}
+              href={`/production/job-cards/${latestJobId}/print`}
               className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white"
             >
               Open Printable Job Card
@@ -361,7 +361,7 @@ export default function JobCardsPage() {
                     <td className="py-2">
                       <div className="flex flex-wrap gap-2">
                         <Link
-                          href={`/production/job-cards/print?jobId=${job.id}`}
+                          href={`/production/job-cards/${job.id}/print`}
                           className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-800"
                         >
                           Print

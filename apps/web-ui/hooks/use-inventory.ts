@@ -52,3 +52,14 @@ export function useCreateItem() {
     },
   })
 }
+
+export function useReelIssues(params?: any, enabled = true) {
+  return useQuery({
+    queryKey: ["inventory-reel-issues", params],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getReelIssues(params)
+      return data
+    },
+    enabled,
+  })
+}

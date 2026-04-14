@@ -9,6 +9,7 @@ interface User {
   name: string
   role: string | null
   plant_id: string
+  allowed_plant_ids?: string[]
   roles: string[]
   permissions: string[]
   is_active?: boolean
