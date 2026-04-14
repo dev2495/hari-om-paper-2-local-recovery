@@ -3,6 +3,7 @@ export const STRICT_COMBO_PREFERRED_MIN_GSM = 350
 export const DEFAULT_DRYING_LOSS_PERCENT = 9.5
 export const DEFAULT_PARCHMENT_PERCENT = 1.5
 export const DEFAULT_ADHESIVE_PERCENT = 15
+export const DEFAULT_FIXED_DRY_MATERIAL_PERCENT = DEFAULT_ADHESIVE_PERCENT + DEFAULT_PARCHMENT_PERCENT
 export const BAMBOO_MIN_LENGTH_MM = 1390
 export const BAMBOO_MAX_LENGTH_MM = 1560
 export const BAMBOO_INCREMENT_MM = 10
@@ -104,12 +105,17 @@ export type BambooPlan = {
 }
 
 export type PreviewMetrics = {
+  manufacturing_id_mm: number
   wall_thickness_mm: number
   manufacturing_od_mm: number
+  paper_target_g: number
   paper_weight_g: number
+  paper_delta_g: number
   adhesive_weight_g: number
   parchment_weight_g: number
   wet_weight_g: number
+  wet_weight_per_mm_g: number
+  bamboo_wet_weight_g: number
   bamboo_plan: BambooPlan | null
 }
 
@@ -155,6 +161,18 @@ export function paperWeightPerPlyG(gsm: number, tubeOdMm: number, tubeIdMm: numb
   return gsm * Math.PI * effectiveDiameterM * tubeLengthM
 }
 
+export function resolvePaperTargetG(targetDryWeightG: number) {
+  const dryWeight = Math.max(Number(targetDryWeightG) || 0, 0)
+  const multiplier = Math.max(1 - DEFAULT_FIXED_DRY_MATERIAL_PERCENT / 100, 0.01)
+  return Number((dryWeight * multiplier).toFixed(2))
+}
+
+export function resolvePredictedDryWeightFromPaperG(paperWeightG: number) {
+  const paperWeight = Math.max(Number(paperWeightG) || 0, 0)
+  const divisor = Math.max(1 - DEFAULT_FIXED_DRY_MATERIAL_PERCENT / 100, 0.01)
+  return Number((paperWeight / divisor).toFixed(2))
+}
+
 function buildStrictComboLayers(
   paperMap: Record<number, any>,
   tubeLengthMm: number,
@@ -172,7 +190,6 @@ function buildStrictComboLayers(
     if (!paperMap[gsmValue]) return null
   }
 
-  const dryMultiplier = 1 + DEFAULT_ADHESIVE_PERCENT / 100 + DEFAULT_PARCHMENT_PERCENT / 100
   let baseWeightG = 0
   const baseLayers: number[] = []
 
@@ -222,7 +239,7 @@ function buildStrictComboLayers(
             baseWeightG +
             perPlyWeight[primaryGsm] * primaryCount +
             perPlyWeight[secondaryGsm] * secondaryCount
-          const predictedDryWeightG = predictedPaperWeightG * dryMultiplier
+          const predictedDryWeightG = resolvePredictedDryWeightFromPaperG(predictedPaperWeightG)
           const deltaDry = Math.abs(predictedDryWeightG - targetWeightG)
 
           const score: [number, number, number, number, number] = [
@@ -318,7 +335,6 @@ export function buildBestMixSuggestions(
     },
   ]
 
-  const dryMultiplier = 1 + DEFAULT_ADHESIVE_PERCENT / 100 + DEFAULT_PARCHMENT_PERCENT / 100
   const suggestions: Suggestion[] = []
   const seen = new Set<string>()
 
@@ -344,7 +360,7 @@ export function buildBestMixSuggestions(
         total + paperWeightPerPlyG(gsmValue, params.tubeOdMm, params.tubeIdMm, params.tubeLengthMm),
       0,
     )
-    const predictedDryWeight = predictedPaperWeight * dryMultiplier
+    const predictedDryWeight = resolvePredictedDryWeightFromPaperG(predictedPaperWeight)
     suggestions.push({
       id: recipe.id,
       label: recipe.label,
@@ -392,6 +408,8 @@ export function buildBambooPlan(tubeLengthMm: number) {
 }
 
 export function computePreviewMetrics(state: SpecEditorState, mandrel: any | null): PreviewMetrics {
+  const manufacturingIdMm = Number(mandrel?.outer_diameter_mm || state.clientIdMm || 0)
+  const paperTargetG = resolvePaperTargetG(state.targetTubeWeight)
   const paperWeightG = state.recipeRows.reduce(
     (total, row) => total + paperWeightPerPlyG(row.gsm, state.clientOdMm, state.clientIdMm, state.tubeLengthMm) * row.ply_count,
     0,
@@ -402,18 +420,27 @@ export function computePreviewMetrics(state: SpecEditorState, mandrel: any | nul
     (total, row) => total + Number(row.thickness_per_ply || 0) * Number(row.ply_count || 0),
     0,
   )
-  const manufacturingBaseId = Number(mandrel?.outer_diameter_mm || state.clientIdMm || 0)
-  const manufacturingOdMm = Number((manufacturingBaseId + wallThicknessMm * 2).toFixed(2))
+  const manufacturingOdMm = Number((manufacturingIdMm + wallThicknessMm * 2).toFixed(2))
   const wetWeightG = Number((state.targetTubeWeight / Math.max(1 - state.shrinkPercent / 100, 0.01)).toFixed(2))
+  const wetWeightPerMmG = Number((wetWeightG / Math.max(Number(state.tubeLengthMm) || 0, 1)).toFixed(4))
+  const bambooPlan = buildBambooPlan(state.tubeLengthMm)
+  const bambooWetWeightG = bambooPlan
+    ? Number((wetWeightPerMmG * bambooPlan.selected_bamboo_length_mm).toFixed(2))
+    : 0
 
   return {
+    manufacturing_id_mm: manufacturingIdMm,
     wall_thickness_mm: Number(wallThicknessMm.toFixed(3)),
     manufacturing_od_mm: manufacturingOdMm,
+    paper_target_g: paperTargetG,
     paper_weight_g: Number(paperWeightG.toFixed(2)),
+    paper_delta_g: Number((paperWeightG - paperTargetG).toFixed(2)),
     adhesive_weight_g: Number(adhesiveWeightG.toFixed(2)),
     parchment_weight_g: Number(parchmentWeightG.toFixed(2)),
     wet_weight_g: wetWeightG,
-    bamboo_plan: buildBambooPlan(state.tubeLengthMm),
+    wet_weight_per_mm_g: wetWeightPerMmG,
+    bamboo_wet_weight_g: bambooWetWeightG,
+    bamboo_plan: bambooPlan,
   }
 }
 
@@ -672,8 +699,8 @@ export function buildProfilePayload(
       },
     },
     manufacturing: {
-      client_id_mm: state.clientIdMm,
-      client_od_mm: state.clientOdMm,
+      client_id_mm: preview.manufacturing_id_mm,
+      client_od_mm: preview.manufacturing_od_mm,
       tube_length_mm: state.tubeLengthMm,
       target_tube_weight_g: state.targetTubeWeight,
       required_cs_n: state.requiredCs,
@@ -681,7 +708,12 @@ export function buildProfilePayload(
       bamboo_plan: preview.bamboo_plan,
       wall_thickness_mm: preview.wall_thickness_mm,
       manufacturing_od_mm: preview.manufacturing_od_mm,
+      paper_target_g: preview.paper_target_g,
+      paper_weight_g: preview.paper_weight_g,
+      paper_delta_g: preview.paper_delta_g,
       wet_weight_g: preview.wet_weight_g,
+      wet_weight_per_mm_g: preview.wet_weight_per_mm_g,
+      bamboo_wet_weight_g: preview.bamboo_wet_weight_g,
     },
   }
 }
@@ -690,7 +722,9 @@ export function buildSpecPayload(
   state: SpecEditorState,
   selectedCandidates: any[],
   preview: PreviewMetrics,
+  mandrel?: any | null,
 ) {
+  const manufacturingIdMm = Number(mandrel?.outer_diameter_mm || state.clientIdMm || 0)
   return {
     customer_name: state.customerName,
     customer_id: state.customerId || null,
@@ -699,10 +733,10 @@ export function buildSpecPayload(
     mandrel_id: state.mandrelId,
     required_cs: Number(state.requiredCs || 0),
     target_tube_weight: Number(state.targetTubeWeight || 0),
-    id_min_mm: Number(state.clientIdMm || 0),
-    id_max_mm: Number(state.clientIdMm || 0),
-    od_min_mm: Number(state.clientOdMm || 0),
-    od_max_mm: Number(state.clientOdMm || 0),
+    id_min_mm: manufacturingIdMm,
+    id_max_mm: manufacturingIdMm,
+    od_min_mm: Number(preview.manufacturing_od_mm || 0),
+    od_max_mm: Number(preview.manufacturing_od_mm || 0),
     length_min_mm: Number(state.tubeLengthMm || 0),
     length_max_mm: Number(state.tubeLengthMm || 0),
     weight_min_g: Number(state.targetTubeWeight || 0),

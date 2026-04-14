@@ -11,12 +11,14 @@ PLANT_ALIAS_GROUPS = (
         "PLANT-1",
         "PLANT1",
         "00000000-0000-0000-0000-0000000000A1",
+        "00000000-0000-0000-0000-0000000000a1",
     },
     {
         "PLANT_B",
         "PLANT-2",
         "PLANT2",
         "00000000-0000-0000-0000-0000000000B2",
+        "00000000-0000-0000-0000-0000000000b2",
     },
 )
 
@@ -71,8 +73,14 @@ def get_plant_aliases(plant_id: str) -> list[str]:
     uppercase = normalized.upper()
     for group in PLANT_ALIAS_GROUPS:
         if uppercase in group:
-            return sorted(group)
-    return [normalized]
+            aliases = set(group)
+            aliases.update({value.lower() for value in group})
+            aliases.update({value.upper() for value in group})
+            aliases.add(normalized)
+            aliases.add(normalized.lower())
+            aliases.add(normalized.upper())
+            return sorted(aliases)
+    return sorted({normalized, normalized.lower(), normalized.upper()})
 
 
 def require_role(required_roles: list[str]):

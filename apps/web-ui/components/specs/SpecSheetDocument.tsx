@@ -1,7 +1,7 @@
 "use client"
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react"
-import { Check, Factory, Layers, Package, Search, ScrollText, Sparkles, X } from "lucide-react"
+import { Factory, Layers, Package, Search, ScrollText, Sparkles, X } from "lucide-react"
 
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { Button } from "@/components/ui/button"
@@ -19,10 +19,6 @@ import {
 } from "@/hooks/use-master-data"
 import { cn } from "@/lib/utils"
 import {
-  BAMBOO_CUT_LOSS_MM,
-  BAMBOO_INCREMENT_MM,
-  BAMBOO_MAX_LENGTH_MM,
-  BAMBOO_MIN_LENGTH_MM,
   DEFAULT_ADHESIVE_PERCENT,
   DEFAULT_DRYING_LOSS_PERCENT,
   DEFAULT_PARCHMENT_PERCENT,
@@ -30,7 +26,6 @@ import {
   buildRecipeLayers,
   buildSpecPayload,
   computePreviewMetrics,
-  createDefaultAdhesiveRows,
   createEmptyState,
   createLocalId,
   normalizePaper,
@@ -161,8 +156,8 @@ function PreviewRail({
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Client Matrix</p>
               <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
-                <div>ID {state.clientIdMm || "-"}</div>
-                <div>OD {state.clientOdMm || "-"}</div>
+                <div>Target ID {selectedTubeSize?.inner_diameter_mm || state.clientIdMm || "-"}</div>
+                <div>Target OD {selectedTubeSize?.outer_diameter_mm || state.clientOdMm || "-"}</div>
                 <div>Len {state.tubeLengthMm || "-"}</div>
                 <div>CS {state.requiredCs || "-"}</div>
               </div>
@@ -170,10 +165,12 @@ function PreviewRail({
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Manufacturing</p>
               <div className="mt-2 grid grid-cols-2 gap-2 text-sm">
+                <div>ID {preview.manufacturing_id_mm || "-"}</div>
                 <div>Mandrel {selectedMandrel?.mandrel_code || "-"}</div>
                 <div>Wall {preview.wall_thickness_mm} mm</div>
                 <div>OD {preview.manufacturing_od_mm} mm</div>
                 <div>Wet {preview.wet_weight_g} g</div>
+                <div>Wet/mm {preview.wet_weight_per_mm_g} g</div>
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
@@ -184,6 +181,7 @@ function PreviewRail({
                   <div>Usable {preview.bamboo_plan.usable_length_mm} mm</div>
                   <div>PCS/Bamboo {preview.bamboo_plan.tubes_per_bamboo}</div>
                   <div>Trim {preview.bamboo_plan.trim_waste_mm} mm</div>
+                  <div className="col-span-2">Wet bamboo wt {preview.bamboo_wet_weight_g} g</div>
                 </div>
               ) : (
                 <p className="mt-2 text-sm text-slate-500">Tube length drives the manufacturing bamboo plan.</p>
@@ -348,6 +346,15 @@ export function SpecSheetDocument({
     [state.adhesives],
   )
 
+  const adhesiveMixRows = useMemo(
+    () =>
+      state.adhesives.map((row) => ({
+        ...row,
+        computed_weight_g: Number((preview.adhesive_weight_g * (Number(row.ratio_percent || 0) / 100)).toFixed(2)),
+      })),
+    [preview.adhesive_weight_g, state.adhesives],
+  )
+
   const setField = <K extends keyof SpecEditorState>(key: K, value: SpecEditorState[K]) => {
     setState((current) => ({ ...current, [key]: value }))
   }
@@ -420,7 +427,7 @@ export function SpecSheetDocument({
     event.preventDefault()
     if (!onSave || readOnly) return
 
-    const specPayload = buildSpecPayload(state, selectedCandidates, preview)
+    const specPayload = buildSpecPayload(state, selectedCandidates, preview, selectedMandrel)
     const recipeLayers = buildRecipeLayers(state)
     await onSave({ specPayload, recipeLayers })
   }
@@ -453,7 +460,10 @@ export function SpecSheetDocument({
             <Factory className="h-4 w-4 text-cyan-700" />
             <h3 className="text-lg font-semibold">Commercial and size basis</h3>
           </div>
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <p className="mt-2 text-sm text-slate-600">
+            Customer demand stays compact here. ID comes from the mandrel master, OD is carried from the manufacturing stack, and only the true decision inputs stay editable.
+          </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <FieldBlock label="Customer">
               <select
                 value={state.customerId}
@@ -476,23 +486,16 @@ export function SpecSheetDocument({
                 ))}
               </select>
             </FieldBlock>
-            <FieldBlock label="Customer Snapshot">
-              <Input
-                value={state.customerName}
-                onChange={(event) => setField("customerName", event.target.value)}
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
-            </FieldBlock>
             <FieldBlock label="Tube Size">
               <select
                 value={state.tubeSizeId}
                 onChange={(event) => {
                   const nextSize = (tubeSizes as any[]).find((size) => String(size.id) === event.target.value)
+                  const nextMandrel = (mandrels as any[]).find((mandrel) => String(mandrel.id) === state.mandrelId)
                   setState((current) => ({
                     ...current,
                     tubeSizeId: event.target.value,
-                    clientIdMm: Number(nextSize?.inner_diameter_mm || current.clientIdMm),
+                    clientIdMm: Number(nextMandrel?.outer_diameter_mm || nextSize?.inner_diameter_mm || current.clientIdMm),
                     clientOdMm: Number(nextSize?.outer_diameter_mm || current.clientOdMm),
                     tubeLengthMm: Number(nextSize?.length_mm || current.tubeLengthMm),
                   }))
@@ -511,44 +514,24 @@ export function SpecSheetDocument({
             <FieldBlock label="Mandrel">
               <select
                 value={state.mandrelId}
-                onChange={(event) => setField("mandrelId", event.target.value)}
+                onChange={(event) => {
+                  const nextMandrel = (mandrels as any[]).find((mandrel) => String(mandrel.id) === event.target.value)
+                  setState((current) => ({
+                    ...current,
+                    mandrelId: event.target.value,
+                    clientIdMm: Number(nextMandrel?.outer_diameter_mm || current.clientIdMm),
+                  }))
+                }}
                 disabled={readOnly}
                 className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
               >
                 <option value="">Select mandrel</option>
                 {(mandrels as any[]).map((mandrel) => (
                   <option key={mandrel.id} value={mandrel.id}>
-                    {mandrel.mandrel_code}
+                    {mandrel.mandrel_code} · {mandrel.outer_diameter_mm} mm
                   </option>
                 ))}
               </select>
-            </FieldBlock>
-            <FieldBlock label="Client ID (mm)">
-              <Input
-                type="number"
-                value={state.clientIdMm}
-                onChange={(event) => setField("clientIdMm", Number(event.target.value || 0))}
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
-            </FieldBlock>
-            <FieldBlock label="Client OD (mm)">
-              <Input
-                type="number"
-                value={state.clientOdMm}
-                onChange={(event) => setField("clientOdMm", Number(event.target.value || 0))}
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
-            </FieldBlock>
-            <FieldBlock label="Tube Length (mm)">
-              <Input
-                type="number"
-                value={state.tubeLengthMm}
-                onChange={(event) => setField("tubeLengthMm", Number(event.target.value || 0))}
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
             </FieldBlock>
             <FieldBlock label="Required CS">
               <Input
@@ -593,6 +576,24 @@ export function SpecSheetDocument({
                 className="h-11 rounded-2xl border-slate-200 bg-white"
               />
             </FieldBlock>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Commercial Snapshot</p>
+              <div className="mt-3 space-y-1.5 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">{selectedCustomer?.name || state.customerName || "-"}</p>
+                <p>{selectedCustomer?.customer_code || "Customer code pending"}</p>
+                <p>{selectedTubeSize ? `${selectedTubeSize.inner_diameter_mm} ID · ${selectedTubeSize.outer_diameter_mm} OD` : "Tube size not linked"}</p>
+                <p>{state.tubeLengthMm || "-"} mm length</p>
+              </div>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Manufacturing Matrix</p>
+              <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-slate-600">
+                <div>ID {preview.manufacturing_id_mm || "-"}</div>
+                <div>OD {preview.manufacturing_od_mm || "-"}</div>
+                <div>Wall {preview.wall_thickness_mm} mm</div>
+                <div>Wet/mm {preview.wet_weight_per_mm_g} g</div>
+              </div>
+            </div>
           </div>
         </section>
 
@@ -604,11 +605,18 @@ export function SpecSheetDocument({
           <p className="mt-2 text-sm text-slate-600">
             Live theory values stay attached to the spec so the same sheet drives manufacturing, bamboo planning, and packing handoff.
           </p>
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-7">
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Paper Target</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.paper_target_g} g</p>
+              <p className="mt-1 text-xs text-slate-500">Dry weight less adhesive + parchment</p>
+            </div>
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Paper</p>
               <p className="mt-2 text-xl font-semibold text-slate-950">{preview.paper_weight_g} g</p>
-              <p className="mt-1 text-xs text-slate-500">Recipe stack theory</p>
+              <p className={cn("mt-1 text-xs", Math.abs(preview.paper_delta_g) <= 3 ? "text-emerald-600" : "text-amber-600")}>
+                Delta {preview.paper_delta_g} g
+              </p>
             </div>
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Adhesive</p>
@@ -623,12 +631,17 @@ export function SpecSheetDocument({
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Wet Weight</p>
               <p className="mt-2 text-xl font-semibold text-slate-950">{preview.wet_weight_g} g</p>
-              <p className="mt-1 text-xs text-slate-500">After drying-loss reverse math</p>
+              <p className="mt-1 text-xs text-slate-500">Dry ÷ (1 - drying loss)</p>
             </div>
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Wall</p>
               <p className="mt-2 text-xl font-semibold text-slate-950">{preview.wall_thickness_mm} mm</p>
               <p className="mt-1 text-xs text-slate-500">Ply thickness sum</p>
+            </div>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Wet / mm</p>
+              <p className="mt-2 text-xl font-semibold text-slate-950">{preview.wet_weight_per_mm_g} g</p>
+              <p className="mt-1 text-xs text-slate-500">Premoisture run-rate for bamboo</p>
             </div>
             <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Bamboo</p>
@@ -637,7 +650,7 @@ export function SpecSheetDocument({
               </p>
               <p className="mt-1 text-xs text-slate-500">
                 {preview.bamboo_plan
-                  ? `${preview.bamboo_plan.tubes_per_bamboo} tubes · ${preview.bamboo_plan.trim_waste_mm} mm trim`
+                  ? `${preview.bamboo_plan.tubes_per_bamboo} tubes · ${preview.bamboo_wet_weight_g} g wet`
                   : "Length not set"}
               </p>
             </div>
@@ -765,9 +778,8 @@ export function SpecSheetDocument({
                   <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
                     <th className="pb-3 pr-4">Paper</th>
                     <th className="pb-3 pr-4">Ply Count</th>
-                    <th className="pb-3 pr-4">BF/Ply</th>
-                    <th className="pb-3 pr-4">Thickness</th>
-                    <th className="pb-3 pr-4">Positions</th>
+                    <th className="pb-3 pr-4">Master Truth</th>
+                    <th className="pb-3 pr-4">Contribution</th>
                     {!readOnly ? <th className="pb-3">Action</th> : null}
                   </tr>
                 </thead>
@@ -775,6 +787,7 @@ export function SpecSheetDocument({
                   {state.recipeRows.length > 0 ? (
                     state.recipeRows.map((row) => {
                       const selectedPaper = paperById[row.paper_id]
+                      const contributionLabel = `${row.ply_count} ply · ${row.gsm || selectedPaper?.gsm || 0} GSM`
                       return (
                         <tr key={row.id} className="border-b border-slate-100 align-top last:border-b-0">
                           <td className="py-3 pr-4">
@@ -817,31 +830,20 @@ export function SpecSheetDocument({
                             />
                           </td>
                           <td className="py-3 pr-4">
-                            <Input
-                              type="number"
-                              value={row.bf_per_ply}
-                              onChange={(event) => updateRecipeRow(row.id, { bf_per_ply: Number(event.target.value || 0) })}
-                              disabled={readOnly}
-                              className="h-10 w-28 rounded-2xl border-slate-200 bg-white"
-                            />
+                            <div className="min-w-[180px] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                              <p className="font-medium text-slate-900">
+                                BF {selectedPaper?.bf || row.bf_per_ply} · {selectedPaper?.category || row.category || "KRAFT"}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                {selectedPaper?.thickness_mm || row.thickness_per_ply} mm/ply · {selectedPaper?.variety || row.variety || "Paper master"}
+                              </p>
+                            </div>
                           </td>
                           <td className="py-3 pr-4">
-                            <Input
-                              type="number"
-                              step="0.001"
-                              value={row.thickness_per_ply}
-                              onChange={(event) => updateRecipeRow(row.id, { thickness_per_ply: Number(event.target.value || 0) })}
-                              disabled={readOnly}
-                              className="h-10 w-28 rounded-2xl border-slate-200 bg-white"
-                            />
-                          </td>
-                          <td className="py-3 pr-4">
-                            <Input
-                              value={row.positions_text}
-                              onChange={(event) => updateRecipeRow(row.id, { positions_text: event.target.value })}
-                              disabled={readOnly}
-                              className="h-10 min-w-[180px] rounded-2xl border-slate-200 bg-white"
-                            />
+                            <div className="min-w-[180px] rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                              <p className="font-medium text-slate-900">{contributionLabel}</p>
+                              <p className="mt-1 text-xs text-slate-500">{row.positions_text || "Manufacturing layer"}</p>
+                            </div>
                           </td>
                           {!readOnly ? (
                             <td className="py-3">
@@ -865,7 +867,7 @@ export function SpecSheetDocument({
                     })
                   ) : (
                     <tr>
-                      <td colSpan={readOnly ? 5 : 6} className="py-8 text-center text-slate-500">
+                      <td colSpan={readOnly ? 4 : 5} className="py-8 text-center text-slate-500">
                         No recipe rows saved yet.
                       </td>
                     </tr>
@@ -883,8 +885,8 @@ export function SpecSheetDocument({
           </div>
           <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
             <div className="space-y-3">
-              {state.adhesives.map((row) => (
-                <div key={row.id} className="grid gap-3 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-[minmax(0,1fr)_120px]">
+              {adhesiveMixRows.map((row) => (
+                <div key={row.id} className="grid gap-3 rounded-[24px] border border-slate-200 bg-slate-50/80 p-4 md:grid-cols-[minmax(0,1fr)_110px_140px]">
                   <div>
                     <FieldBlock label="Adhesive Master">
                       <select
@@ -919,6 +921,11 @@ export function SpecSheetDocument({
                       />
                     </FieldBlock>
                   </div>
+                  <div>
+                    <FieldBlock label="Computed g">
+                      <Input value={row.computed_weight_g} disabled className="h-10 rounded-2xl border-slate-200 bg-slate-50" />
+                    </FieldBlock>
+                  </div>
                 </div>
               ))}
               {!readOnly ? (
@@ -951,6 +958,7 @@ export function SpecSheetDocument({
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-slate-500">Adhesive fixed base</p>
                   <p className="mt-1 font-medium text-slate-900">{DEFAULT_ADHESIVE_PERCENT}% of dry tube weight</p>
+                  <p className="mt-1 text-xs text-slate-500">{preview.adhesive_weight_g} g total across all selected adhesives</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-slate-500">Ratio total</p>
@@ -961,7 +969,7 @@ export function SpecSheetDocument({
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                   <p className="text-slate-500">Parchment fixed base</p>
                   <p className="mt-1 font-medium text-slate-900">{DEFAULT_PARCHMENT_PERCENT}% of dry tube weight</p>
-                  <p className="mt-1 text-xs text-slate-500">{state.parchmentColor || "Without parchment"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{preview.parchment_weight_g} g · {state.parchmentColor || "Without parchment"}</p>
                 </div>
               </div>
             </div>
@@ -979,6 +987,9 @@ export function SpecSheetDocument({
             <Package className="h-4 w-4 text-cyan-700" />
             <h3 className="text-lg font-semibold">Packing and dispatch cues</h3>
           </div>
+          <p className="mt-2 text-sm text-slate-600">
+            Packing stays master-linked. Box, plastic, and fadda come from master data, and only quantity decisions remain editable on the sheet.
+          </p>
           <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <FieldBlock label="Box Master">
               <select
@@ -1015,53 +1026,6 @@ export function SpecSheetDocument({
                 className="h-11 rounded-2xl border-slate-200 bg-slate-50"
               />
             </FieldBlock>
-            <FieldBlock label="Bundle Type">
-              <select
-                value={state.packing.bundle_type || "__NONE__"}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    packing: {
-                      ...current.packing,
-                      bundle_type: event.target.value === "__NONE__" ? "" : event.target.value,
-                    },
-                  }))
-                }
-                disabled={readOnly}
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm text-slate-800"
-              >
-                <option value="__NONE__">Select bundle type</option>
-                <option value="BOX">BOX</option>
-                <option value="BUNDLE">BUNDLE</option>
-                <option value="LOOSE">LOOSE</option>
-              </select>
-            </FieldBlock>
-            <FieldBlock label="Bundle Code">
-              <Input
-                value={state.packing.bundle_code}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    packing: { ...current.packing, bundle_code: event.target.value },
-                  }))
-                }
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
-            </FieldBlock>
-            <FieldBlock label="Packing Ply">
-              <Input
-                value={state.packing.packing_ply}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    packing: { ...current.packing, packing_ply: event.target.value },
-                  }))
-                }
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
-            </FieldBlock>
             <FieldBlock label="Qty per Box">
               <Input
                 value={state.packing.qty_per_box}
@@ -1075,27 +1039,6 @@ export function SpecSheetDocument({
                 className="h-11 rounded-2xl border-slate-200 bg-white"
               />
             </FieldBlock>
-            <FieldBlock label="Packing PCS">
-              <Input
-                value={state.packing.packing_pcs}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    packing: { ...current.packing, packing_pcs: event.target.value },
-                  }))
-                }
-                disabled={readOnly}
-                className="h-11 rounded-2xl border-slate-200 bg-white"
-              />
-            </FieldBlock>
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master links</p>
-              <div className="mt-3 space-y-2 text-sm text-slate-600">
-                <p>Box {state.packing.box_code || "-"}</p>
-                <p>Plastic {state.packing.plastic_sku || "-"}</p>
-                <p>Fadda {state.packing.fadda_sku || "-"}</p>
-              </div>
-            </div>
             <FieldBlock label="Plastic Master">
               <select
                 value={state.packing.plastic_sku || "__NONE__"}
@@ -1168,37 +1111,15 @@ export function SpecSheetDocument({
                 className="h-11 rounded-2xl border-slate-200 bg-white"
               />
             </FieldBlock>
-          </div>
-
-          <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={state.packing.plastic_required}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    packing: { ...current.packing, plastic_required: event.target.checked },
-                  }))
-                }
-                disabled={readOnly}
-              />
-              Plastic required
-            </label>
-            <label className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700">
-              <input
-                type="checkbox"
-                checked={state.packing.bopp_required}
-                onChange={(event) =>
-                  setState((current) => ({
-                    ...current,
-                    packing: { ...current.packing, bopp_required: event.target.checked },
-                  }))
-                }
-                disabled={readOnly}
-              />
-              BOPP required
-            </label>
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Packing Snapshot</p>
+              <div className="mt-3 space-y-1.5 text-sm text-slate-600">
+                <p className="font-medium text-slate-900">{selectedBox ? packagingBoxLabel(selectedBox) : "Box pending"}</p>
+                <p>Plastic {plasticSheetLabel(selectedPlasticSheet) || "-"}</p>
+                <p>Fadda {faddaLabel(selectedFadda) || "-"}</p>
+                <p>{state.packing.qty_per_box || "-"} pcs per box</p>
+              </div>
+            </div>
           </div>
 
           <FieldBlock label="Special Instructions">

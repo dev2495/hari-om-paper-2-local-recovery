@@ -2,121 +2,147 @@
 
 ## Purpose
 
-This repository runs the Hari Om Paper ERP stack for specification design, commercial order intake, production release, planning, shop-floor execution, reconciliation, and reporting.
+This repository runs the local Hari Om Paper ERP stack that was rebuilt from surviving source, SSD backups, runtime artifacts, and Codex session history.
 
-This file is the quick pickup map for the system structure. Use it together with `SYSTEM_DESIGN.md` and `DECISIONS.md`.
+The immediate goal is stability:
 
-## Service Topology
+- keep the direct local runtime bootable on the original ports
+- keep the web UI and BFF aligned with the recovered microservices
+- keep master-driven manufacturing flows, especially the specification sheet, documented inside the repo
 
-### Frontend
+## Runtime Topology
 
-- `apps/web-ui`
-  - Next.js operational UI
-  - shared shell, master pages, specs, sales, planner, tracker, reconciliation, reports
+The local direct runtime is started by `start_all.sh` and delegates into `hariom-erp/scripts/direct/start.sh`.
 
-### Backend Gateway
+Primary ports:
 
-- `apps/bff-api`
-  - browser-facing API aggregation layer
-  - normalizes frontend contracts across services
+- web UI: `13000`
+- BFF API: `14000`
+- auth service: `18001`
+- masterdata service: `18002`
+- spec service: `18003`
+- production service: `18004`
+- inventory service: `18005`
+- analytics service: `18007`
+- sales service: `18008`
 
-### Core Services
+The browser talks to the Next.js web UI. The web UI talks to the BFF on `14000`. The BFF fans out to the individual FastAPI services.
 
-- `hariom-erp/services/auth-service`
-  - authentication and role access
-- `hariom-erp/services/masterdata-service`
-  - adhesives, papers, parchments, customers, packaging, tools, mandrels, tube sizes
-- `hariom-erp/services/spec-service`
-  - specification sheets, recipe calculations, preview math, trials, approval
-- `hariom-erp/services/sales-service`
-  - sales POs, multi-line order items, releases to production
-- `hariom-erp/services/inventory-service`
-  - inventory and reconciliation support data
-- `hariom-erp/services/production-service`
-  - release lots, job cards, planner scheduling, stage execution, tracker
-- `hariom-erp/services/analytics-service`
-  - reports, KPI dashboards, production analytics, reconciliation rollups
+## Main Apps
 
-## Browser Flow Map
+### `apps/web-ui`
 
-### Commercial to production
+Next.js App Router frontend.
 
-1. Customer PO becomes a sales order with multiple line items.
-2. Each line item can be released multiple times.
-3. Each release selects a target winder and quantity.
-4. Each release lot becomes production truth for planner and job card generation.
-5. Planner schedules stage segments across winder, oven, and process.
-6. Job cards and scan-entry capture actual stage execution.
-7. Tracker and reports read the same execution truth.
+Key responsibilities:
 
-### Specification flow
+- login and plant-aware session shell
+- dashboard, analytics, reports, planner, inventory, dispatch, job cards
+- specification sheet workspace with recipe suggestion, notch tooling, and packing handoff
 
-1. Select customer, tube size, mandrel, parchment families, papers, adhesives, and packaging from masters.
-2. Select a candidate paper pool, then apply a best-mix suggestion into the recipe rows.
-3. Split the fixed `15%` adhesive base across 2+ adhesive masters by ratio.
-4. Derive manufacturing math from mandrel plus recipe thickness through the spec preview engine.
-5. Persist bamboo plan, recipe rows, adhesive mix, notch cues, and packing into the profile snapshot.
-6. Save draft, then approve and capture trial data later.
+Key files:
 
-### Current sample-spec rule
-
-- The workbook demo specs are validated against `2 x 250gsm + 1 x 300gsm + best 350+ remainder`.
-- The current generated sample evidence is written to `reports/spec_sheet_sample_combo_report_*.md`.
-
-## Spec Sheet Runtime Map
-
+- `apps/web-ui/app/(dashboard)/layout.tsx`
 - `apps/web-ui/components/specs/SpecSheetDocument.tsx`
-  - primary spec-sheet UI
-  - master-driven candidate selection
-  - best-mix application
-  - manufacturing matrix and preview rail
 - `apps/web-ui/components/specs/NotchDiagramPanel.tsx`
-  - notch geometry preview/edit surface
-- `apps/web-ui/hooks/use-specs.ts`
-  - spec preview and suggestion hooks
-- `hariom-erp/services/spec-service/src/calculators/weight.py`
-  - canonical recipe suggestion and preview math
-- `hariom-erp/services/spec-service/src/calculators/yield_calc.py`
-  - canonical bamboo min/max/increment/cut-loss enforcement
-- `hariom-erp/services/production-service/src/routers/planning.py`
-  - consumes saved spec snapshot to generate planner and job-card manufacturing truth
+- `apps/web-ui/components/specs/spec-sheet-utils.ts`
 
-## Current UI Workspaces
+### `apps/bff-api`
 
-- `/dashboard`
-- `/sales-orders`
-- `/sales-orders/new`
-- `/specifications/new`
-- `/production/planner`
-- `/planning/tracker`
-- `/production/job-cards`
-- `/production/reconciliation`
-- `/reports`
+Python BFF layer that normalizes routes used by the frontend and proxies to the service tier.
 
-## Canonical Runtime Commands
+Key responsibility:
 
-```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/start_all.sh
-```
+- keep frontend route expectations stable while backend services remain split by domain
 
-```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/status_all.sh
-```
+## Services
 
-```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/stop_all.sh
-```
+### Auth Service
 
-## Canonical Verification Commands
+Owns users, plants, roles, and JWT issuance.
 
-```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/scripts/run_verification.sh
-```
+### Masterdata Service
 
-```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/scripts/browser_release_gate.sh
-```
+Owns:
 
-```bash
-node '/Users/devarshthakkar/Documents/Hari Om Paper 2/scripts/manual_polish_review.js'
-```
+- papers
+- adhesives
+- parchments
+- tube sizes
+- mandrels
+- customers
+- packaging masters
+- tooling masters
+
+Important recovery note:
+
+- plant scoping depends on alias resolution in `hariom-erp/services/masterdata-service/src/utils/auth.py`
+- recovered databases contain mixed plant IDs such as `PLANT-1` and lowercase UUID plant IDs
+- alias resolution must therefore include both canonical and lowercase UUID forms
+
+### Spec Service
+
+Owns:
+
+- specification records
+- recipe versions and layers
+- spec profile snapshots
+
+The spec profile is the canonical place for recovered UI-level manufacturing details that do not map cleanly to first-class columns yet.
+
+### Production Service
+
+Owns:
+
+- planning board
+- job cards
+- stage assignment and output
+- reconciliation summaries
+
+### Inventory Service
+
+Owns:
+
+- inward
+- issue
+- ledger
+- reel and lot traceability
+
+### Sales Service
+
+Owns:
+
+- sales orders
+- approvals
+- release state
+
+### Analytics Service
+
+Owns:
+
+- dashboard aggregates
+- production, inventory, loss, dispatch, and sales analytics endpoints
+
+## Data Flow
+
+Typical specification flow:
+
+1. User opens `/specifications/new`
+2. Web UI loads masters from BFF-backed endpoints
+3. User selects customer, tube size, mandrel, papers, adhesives, notch setup, and packing masters
+4. UI derives manufacturing preview values locally
+5. Save writes spec columns plus a richer `profile` snapshot
+6. Recipe layers are persisted as the trial recipe structure
+
+Typical production flow:
+
+1. Sales order is approved and released
+2. Production planner builds job cards and stage queues
+3. Job card truth drives material issue, output, reconciliation, packing, and dispatch
+
+## Current Recovery Constraints
+
+- The stack is not a verified byte-for-byte April 10 snapshot.
+- It is a source-grounded recovery from surviving local artifacts.
+- Business logic for the spec sheet is partly recovered from March Codex session prompts and partly from surviving code.
+- Some surfaces still need fidelity work to match the last polished UI exactly.

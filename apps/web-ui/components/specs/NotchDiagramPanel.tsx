@@ -168,7 +168,7 @@ export function NotchDiagramPanel({ value, readOnly, onChange }: NotchDiagramPan
         <div className="flex items-center justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Notch Tooling</p>
-            <h3 className="mt-1 text-lg font-semibold text-slate-900">Diagram, math, and setup cues</h3>
+            <h3 className="mt-1 text-lg font-semibold text-slate-900">Diagram and setup cues</h3>
           </div>
           <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-2 text-xs font-medium text-slate-700">
             <input
@@ -239,6 +239,11 @@ export function NotchDiagramPanel({ value, readOnly, onChange }: NotchDiagramPan
         </div>
 
         <div className="grid gap-3">
+          {!notchActive ? (
+            <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-4 py-4 text-sm text-slate-600">
+              Keep this off until the spec truly needs a notch. When enabled, holder, blade, groove, and die stay linked to the diagram so setup can move from sheet to job-card without retyping.
+            </div>
+          ) : null}
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <label className="space-y-1">
               <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Notch Type</span>
@@ -350,12 +355,20 @@ export function NotchDiagramPanel({ value, readOnly, onChange }: NotchDiagramPan
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
-            <Field
-              label="Tochha Type"
-              value={value.tochha_type}
-              onChange={(next) => onChange?.({ tochha_type: next })}
-              readOnly={readOnly}
-            />
+            <label className="space-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Tochha Type</span>
+              <select
+                value={value.tochha_type || "__NONE__"}
+                onChange={(event) => onChange?.({ tochha_type: event.target.value === "__NONE__" ? "" : event.target.value })}
+                disabled={readOnly}
+                className="h-10 rounded-2xl border border-slate-200 bg-white/80 px-3 text-sm text-slate-800"
+              >
+                <option value="__NONE__">Select tochha type</option>
+                <option value="Standard">Standard</option>
+                <option value="Deep">Deep</option>
+                <option value="Heavy">Heavy</option>
+              </select>
+            </label>
             <Field
               label="Height Gauge Go"
               value={value.height_gauge_go}

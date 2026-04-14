@@ -1,92 +1,108 @@
 # Hari Om ERP System Design
 
-## Canonical Business Model
+## Design Goals
 
-### Sales
+- master-driven data entry instead of free text wherever possible
+- job-card truth as the operational backbone
+- spec sheet as the bridge between sales intent, recipe logic, manufacturing setup, and dispatch handoff
+- keep formulas explicit and visible in the UI so operators do not need external spreadsheets for the main flow
 
-- A sales order is a customer PO, often covering multiple weeks or months.
-- A sales order contains multiple line items.
-- Each line item represents one product variant and carries its own `product_code`.
-- The same size can appear on multiple lines when parchment, recipe, or other product conditions differ.
-- Production does not consume the whole PO at once.
+## Specification Sheet Design
 
-### Release
+The specification sheet is intended to be a compact production workspace, not a generic CRUD form.
 
-- Production demand is created through repeated partial releases from sales order lines.
-- Every release captures:
-  - source sales-order line
-  - release quantity
-  - target winder
-- Multiple releases can exist for the same sales-order line.
+### Inputs That Should Stay User-Driven
 
-### Job cards and planning
+- customer
+- tube size
+- mandrel
+- required CS
+- dry tube weight
+- drying loss override
+- parchment selection
+- candidate paper pool
+- adhesive selection and ratio split
+- notch setup details
+- packing quantities and selected masters
 
-- One release lot becomes one job-card level production truth.
-- Scheduling uses stage-level segments so a stage can span multiple shifts or days.
-- Planner capacity is managed per machine and shift.
-- Winder and process stages can split when planned load exceeds available shift capacity.
+### Values That Should Be Derived
 
-### Execution
+- manufacturing ID from mandrel outer diameter
+- manufacturing OD from wall thickness built from recipe rows
+- paper target from dry target less fixed adhesive and parchment allowances
+- wet weight from dry weight divided by retained-weight factor
+- wet weight per mm from wet weight and tube length
+- bamboo recommendation from tube length and bamboo constraints
+- bamboo wet weight from wet weight per mm and selected bamboo length
 
-- Stage entry records actual start and end times, output, and scrap.
-- Tracker reflects current stage and segment posture.
-- Reports and analytics read the same execution truth.
+### Fixed Material Assumptions
 
-## Specification Sheet Model
+- adhesive base: `15%` of dry tube weight
+- parchment base: `1.5%` of dry tube weight
+- drying loss default: `9.5%`
 
-## Master-driven rules
+Derived paper target:
 
-- Customer, tube, mandrel, papers, parchments, adhesives, packaging, and tooling come from masters.
-- Most fields in the sheet should be select-driven unless the business rule genuinely requires numeric/manual entry.
-- Packaging selections are always sourced from packaging masters.
+- `paper_target = dry_weight * (1 - 0.15 - 0.015)`
 
-## Weight model
+Wet weight:
 
-- Dry tube target is the commercial/spec target.
-- Adhesive is global at `15%`.
-- Parchment is global at `1.5%`.
-- Drying loss is controlled once globally and defaults to `9.5%`.
-- Wet tube weight is derived from the dry target and drying divisor `1 - drying_percent / 100`, which defaults to `0.905`.
-- No separate free-edit wet-weight truth should exist outside that rule.
+- `wet_weight = dry_weight / (1 - drying_loss_percent / 100)`
 
-## Manufacturing model
+Wet weight per mm:
 
-- Mandrel defines the manufacturing ID band.
-- Recipe paper thickness is the only source for wall thickness.
-- Manufacturing OD derives from ID plus double wall thickness.
-- Best-mix suggestions are computed from paper masters and the target wet weight.
-- Suggestions use client OD until a recipe exists; after recipe application the saved preview uses manufacturing OD.
-- Applied recipe rows become the only manufacturing recipe saved into the spec.
-- Bamboo length and bamboo dry/wet math come from one manufacturing matrix flow.
-- Bamboo output should not be recalculated manually in separate sections.
-- Bamboo planning is constrained to:
-  - min length `1390 mm`
-  - max length `1560 mm`
-  - increment `10 mm`
-  - cut loss `40 mm`
+- `wet_weight_per_mm = wet_weight / tube_length_mm`
 
-## Notch and packing model
+## Bamboo Design
 
-- Notch details are a mix of master-driven tooling selectors and a small set of numeric inputs.
-- Packing uses:
-  - `box_code`
-  - `box_size` auto-filled from box master
-  - `plastic_sku`
-  - `fadda_sku`
-  - per-box quantities
+Current rule set:
 
-## Specification sheet UX direction
+- bamboo lengths scanned from `1390` to `1560`
+- increments of `10`
+- fixed cut loss of `40`
+- best candidate is the one with maximum tubes per bamboo, then minimum trim waste, then shorter bamboo if tied
 
-- One sticky preview rail for summary, recipe, and job-card handoff cues.
-- One full-width workspace for active editing.
-- Candidate paper pool and best-mix engine come before the saved recipe table.
-- The current sample-family demos prefer `2 x 250gsm + 1 x 300gsm + best 350+ remainder`.
-- Client and manufacturing matrices must both stay visible in the same editing session.
-- Avoid repeated summaries of the same math in multiple panels.
-- Heavy validation and trial capture stay outside the initial create flow.
+## Master-Driven Design
 
-## Reporting model
+Recovered packaging model:
 
-- `/reports` and `/analytics` resolve to the same reporting product.
-- Hub contains KPI rail, reconciliation posture, and downstream report entry points.
-- Production, inventory, sales, quality, scrap/loss, and plant views all consume shared service truth rather than page-local ad hoc payloads.
+- box master
+- plastic sheet master
+- fadda master
+
+Recovered notch/tooling model:
+
+- holder
+- blade
+- groove
+- punch
+- tochha
+- wider tool
+- die
+
+Recovered paper model:
+
+- GSM
+- strength type/value
+- category
+- estimated or stored thickness
+
+## UI Surface Design
+
+The intended spec-sheet layout has four persistent responsibilities:
+
+1. top workspace slab for orientation and global rules
+2. main left editing surface with limited direct inputs
+3. sticky right preview rail for commercial, manufacturing, recipe, and packing truth
+4. notch tooling and packing areas that feed downstream job-card/setup decisions
+
+The page should not duplicate the same value in multiple editable places.
+
+## Plant Scoping Design
+
+Recovered data uses mixed plant identifiers across sources:
+
+- symbolic IDs like `PLANT-1`
+- UUID-like IDs such as `00000000-0000-0000-0000-0000000000a1`
+
+Plant-aware queries therefore must resolve aliases rather than rely on one exact string match.
