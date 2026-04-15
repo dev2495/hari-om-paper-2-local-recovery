@@ -79,6 +79,11 @@ async def create_planning_job_card(request: Request, token: str = Depends(get_to
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
 
 
+@router.post("/sales-orders/{sales_order_id}/release-sync")
+async def release_sync_sales_order(sales_order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/sales-orders/{sales_order_id}/release-sync", request, token)
+
+
 @router.get("/job-cards")
 async def list_planning_job_cards(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)

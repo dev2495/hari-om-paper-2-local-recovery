@@ -218,6 +218,13 @@ export const STATUS_APPEARANCES: Record<string, StatusAppearance> = {
     dotClassName: "bg-sky-500",
     icon: ArrowRightLeft,
   },
+  PARTIALLY_RELEASED: {
+    label: "Partially Released",
+    className: "border-amber-200 bg-amber-50 text-amber-900",
+    accentClassName: "from-amber-500/20 via-amber-500/10 to-transparent",
+    dotClassName: "bg-amber-500",
+    icon: ArrowRightLeft,
+  },
   PARTIALLY_DISPATCHED: {
     label: "Partially Dispatched",
     className: "border-cyan-200 bg-cyan-50 text-cyan-900",

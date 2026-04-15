@@ -14,6 +14,6 @@ export default function LegacyPlanningBoardSectionPage({
   params: { section: string }
 }) {
   const section = String(params?.section || "").toLowerCase()
-  const stage = STAGE_MAP[section] || "WINDER"
-  redirect(`/production/planner?stage=${stage}`)
+  const normalized = Object.keys(STAGE_MAP).includes(section) ? section : "winder"
+  redirect(`/planning/board?section=${normalized}`)
 }

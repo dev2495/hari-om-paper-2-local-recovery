@@ -216,6 +216,24 @@ export function useCreatePlanningSalesOrder() {
   })
 }
 
+export function useReleaseSyncSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ salesOrderId, data }: { salesOrderId: string; data: any }) =>
+      productionApi.releaseSyncSalesOrder(salesOrderId, data),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["planning-board"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-queue"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-card"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "orders"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "order", variables.salesOrderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "timeline", variables.salesOrderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
+    },
+  })
+}
+
 export function useCreatePlanningJobCard() {
   const queryClient = useQueryClient()
   return useMutation({

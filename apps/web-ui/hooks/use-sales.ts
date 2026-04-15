@@ -1,5 +1,93 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+
 import { salesApi } from "@/lib/api"
+
+function asArray<T = any>(value: any): T[] {
+  if (Array.isArray(value)) return value
+  if (Array.isArray(value?.items)) return value.items
+  if (Array.isArray(value?.rows)) return value.rows
+  return []
+}
+
+export function normalizeSalesOrder(order: any) {
+  const normalizedLines = asArray(order?.lines).map((line: any) => {
+    const qty = Number(line?.qty ?? line?.quantity ?? 0)
+    const releasedQty = Number(line?.released_qty ?? line?.qty_released ?? line?.planned_release_qty ?? 0)
+    const fulfilledQty = Number(line?.fulfilled_qty ?? 0)
+    const remainingQty = Number(line?.remaining_qty ?? qty - fulfilledQty)
+
+    return {
+      ...line,
+      qty,
+      released_qty: releasedQty,
+      fulfilled_qty: fulfilledQty,
+      remaining_qty: remainingQty,
+      due_date: line?.due_date || null,
+      parchment_color: line?.parchment_color || line?.parchment_pattern || null,
+    }
+  })
+
+  return {
+    ...order,
+    lines: normalizedLines,
+    status: String(order?.status || "draft").toLowerCase(),
+    customer_name: order?.customer_name || order?.customer_id || "Customer",
+    line_count: normalizedLines.length,
+    total_qty: normalizedLines.reduce((sum, line) => sum + Number(line.qty || 0), 0),
+    remaining_qty: normalizedLines.reduce((sum, line) => sum + Number(line.remaining_qty || 0), 0),
+    released_qty: normalizedLines.reduce((sum, line) => sum + Number(line.released_qty || 0), 0),
+    fulfilled_qty: normalizedLines.reduce((sum, line) => sum + Number(line.fulfilled_qty || 0), 0),
+  }
+}
+
+function normalizeOrdersPayload(data: any) {
+  return asArray(data).map(normalizeSalesOrder)
+}
+
+function fallbackTimeline(order: any) {
+  if (!order) return []
+  return [
+    order.created_at
+      ? {
+          id: `${order.id}:created`,
+          event_type: "SALES_ORDER_CREATED",
+          title: "Sales order created",
+          message: "Commercial demand entered into the queue.",
+          created_at: order.created_at,
+          actor: order.created_by || "system",
+        }
+      : null,
+    order.approved_at
+      ? {
+          id: `${order.id}:approved`,
+          event_type: "SALES_ORDER_APPROVED",
+          title: "Sales order approved",
+          message: "Maker-checker approval completed.",
+          created_at: order.approved_at,
+          actor: order.approved_by || "approver",
+        }
+      : null,
+    order.released_at
+      ? {
+          id: `${order.id}:released`,
+          event_type: "SALES_ORDER_RELEASED",
+          title: "Released to production",
+          message: "Order is eligible for planning sync and job-card creation.",
+          created_at: order.released_at,
+          actor: order.released_by || "approver",
+        }
+      : null,
+  ].filter(Boolean)
+}
+
+function invalidateSalesQueries(queryClient: ReturnType<typeof useQueryClient>, orderId?: string) {
+  queryClient.invalidateQueries({ queryKey: ["sales", "orders"] })
+  queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
+  if (orderId) {
+    queryClient.invalidateQueries({ queryKey: ["sales", "order", orderId] })
+    queryClient.invalidateQueries({ queryKey: ["sales", "timeline", orderId] })
+  }
+}
 
 function normalizeReleasedLines(orders: any[]) {
   return (orders || []).flatMap((order: any) =>
@@ -14,6 +102,7 @@ function normalizeReleasedLines(orders: any[]) {
         order_id: order.id,
         order_no: order.order_no || order.sales_order_no || order.so_no || order.id,
         customer_id: order.customer_id,
+        customer_name: order.customer_name,
         status: line.status || order.status,
         qty: Number(line.qty ?? line.quantity ?? line.remaining_qty ?? 0),
         released_qty: Number(line.released_qty || line.qty_released || 0),
@@ -28,7 +117,7 @@ export function useReleasedSalesLines() {
     queryKey: ["sales", "released-lines"],
     queryFn: async () => {
       const { data } = await salesApi.getOrders()
-      return normalizeReleasedLines(Array.isArray(data) ? data : data?.items || data?.rows || [])
+      return normalizeReleasedLines(normalizeOrdersPayload(data))
     },
   })
 }
@@ -38,11 +127,35 @@ export function useSalesOrders() {
     queryKey: ["sales", "orders"],
     queryFn: async () => {
       const { data } = await salesApi.getOrders()
-      if (Array.isArray(data)) return data
-      if (Array.isArray(data?.items)) return data.items
-      if (Array.isArray(data?.rows)) return data.rows
-      return []
+      return normalizeOrdersPayload(data)
     },
+  })
+}
+
+export function useSalesOrder(orderId?: string) {
+  return useQuery({
+    queryKey: ["sales", "order", orderId],
+    queryFn: async () => {
+      const { data } = await salesApi.getOrder(String(orderId))
+      return normalizeSalesOrder(data)
+    },
+    enabled: Boolean(orderId),
+  })
+}
+
+export function useSalesOrderTimeline(orderId?: string) {
+  return useQuery({
+    queryKey: ["sales", "timeline", orderId],
+    queryFn: async () => {
+      try {
+        const { data } = await salesApi.getOrderTimeline(String(orderId))
+        return asArray(data)
+      } catch {
+        const { data } = await salesApi.getOrder(String(orderId))
+        return fallbackTimeline(normalizeSalesOrder(data))
+      }
+    },
+    enabled: Boolean(orderId),
   })
 }
 
@@ -50,9 +163,29 @@ export function useCreateSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: any) => salesApi.createOrder(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["sales", "orders"] })
-      queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
+    onSuccess: (response) => {
+      const orderId = String(response?.data?.id || "")
+      invalidateSalesQueries(queryClient, orderId || undefined)
+    },
+  })
+}
+
+export function useApproveSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (orderId: string) => salesApi.approveOrder(orderId),
+    onSuccess: (_response, orderId) => {
+      invalidateSalesQueries(queryClient, orderId)
+    },
+  })
+}
+
+export function useReleaseSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (orderId: string) => salesApi.releaseOrder(orderId),
+    onSuccess: (_response, orderId) => {
+      invalidateSalesQueries(queryClient, orderId)
     },
   })
 }

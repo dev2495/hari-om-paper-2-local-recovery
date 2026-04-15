@@ -261,6 +261,7 @@ export const salesApi = {
   getOrders: () => api.get("/api/sales/orders"),
   createOrder: (data: any) => api.post("/api/sales/orders", data),
   getOrder: (id: string) => api.get(`/api/sales/orders/${id}`),
+  getOrderTimeline: (id: string) => api.get(`/api/sales/orders/${id}/timeline`),
   updateOrder: (id: string, data: any) => api.put(`/api/sales/orders/${id}`, data),
   approveOrder: (id: string) => api.post(`/api/sales/orders/${id}/approve`, {}),
   releaseOrder: (id: string) => api.post(`/api/sales/orders/${id}/release`, {}),
@@ -279,6 +280,8 @@ export const productionApi = {
   getReels: (jobId: string) => api.get(`/api/production/jobs/${jobId}/reels`),
   getMachines: () => api.get("/api/production/machines"),
   createPlanningSalesOrder: (data: any) => api.post("/api/production/sales-orders", data),
+  releaseSyncSalesOrder: (salesOrderId: string, data: any) =>
+    api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
   getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),

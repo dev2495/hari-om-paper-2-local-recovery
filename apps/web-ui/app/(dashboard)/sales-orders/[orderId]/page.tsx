@@ -1,237 +1,187 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { salesApi } from '@/lib/api'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { useParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import Link from "next/link"
+import dayjs from "dayjs"
+import { ArrowLeft, ClipboardCheck, Factory, Layers3, ScrollText } from "lucide-react"
+import { useMemo } from "react"
+import { useParams } from "next/navigation"
+
+import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { useCustomers } from "@/hooks/use-master-data"
+import { usePlanningJobCards } from "@/hooks/use-production"
+import { useSalesOrder } from "@/hooks/use-sales"
+import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+
+function formatDate(value?: string | null) {
+  if (!value) return "-"
+  const parsed = dayjs(value)
+  return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(value)
+}
 
 export default function SalesOrderDetailPage() {
   const params = useParams()
-  const router = useRouter()
-  const queryClient = useQueryClient()
-  const orderId = params.orderId as string
-  const [showReleaseDialog, setShowReleaseDialog] = useState(false)
-  const [releaseData, setReleaseData] = useState({ quantity: 0, winder_id: '', target_date: '' })
+  const orderId = String(params?.orderId || "")
 
-  const { data: order, isLoading } = useQuery({
-    queryKey: ['sales-order', orderId],
-    queryFn: async () => {
-      const { data } = await salesApi.getOrder(orderId)
-      return data
-    },
-  })
+  const orderQuery = useSalesOrder(orderId)
+  const customersQuery = useCustomers()
+  const jobCardsQuery = usePlanningJobCards({ search: orderId, limit: 100 }, Boolean(orderId))
 
-  const approveMutation = useMutation({
-    mutationFn: () => salesApi.approveOrder(orderId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['sales-order', orderId] }),
-  })
+  const customerMap = useMemo(
+    () =>
+      new Map<string, string>(
+        (Array.isArray(customersQuery.data) ? customersQuery.data : []).map((customer: any) => [
+          String(customer.id),
+          customer.customer_code ? `${customer.customer_code} · ${customer.name}` : customer.name,
+        ]),
+      ),
+    [customersQuery.data],
+  )
 
-  const releaseMutation = useMutation({
-    mutationFn: (data: any) => salesApi.releaseOrder(orderId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['sales-order', orderId] })
-      setShowReleaseDialog(false)
-    },
-  })
+  const order = orderQuery.data
+  const orderJobs = useMemo(
+    () =>
+      (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []).filter(
+        (job: any) => String(job.sales_order_id || "") === orderId,
+      ),
+    [jobCardsQuery.data, orderId],
+  )
 
-  if (isLoading) return <div className="container mx-auto p-6">Loading...</div>
-  if (!order) return <div className="container mx-auto p-6">Order not found</div>
+  const customerLabel = useMemo(() => {
+    if (!order) return "-"
+    return customerMap.get(String(order.customer_id || "")) || order.customer_name || String(order.customer_id || "-")
+  }, [customerMap, order])
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'approved': return 'bg-green-100 text-green-800'
-      case 'released': return 'bg-blue-100 text-blue-800'
-      case 'partially_released': return 'bg-yellow-100 text-yellow-800'
-      case 'draft': return 'bg-gray-100 text-gray-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
+  if (orderQuery.isLoading) {
+    return <EmptyState label="Loading sales order..." />
+  }
+
+  if (!order) {
+    return <EmptyState label="Sales order not found." />
   }
 
   return (
-    <div className="container mx-auto p-6" data-testid="sales-orders:tracking-page">
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/sales-orders">
-          <Button variant="ghost">← Back</Button>
-        </Link>
-        <h1 className="text-2xl font-bold">Sales Order: {order.order_no || orderId}</h1>
-        <span className={`px-3 py-1 rounded ${getStatusColor(order.status)}`}>{order.status}</span>
-      </div>
-
-      <Tabs defaultValue="details">
-        <TabsList>
-          <TabsTrigger value="details">Details</TabsTrigger>
-          <TabsTrigger value="lines">Lines</TabsTrigger>
-          <TabsTrigger value="releases">Releases</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="details">
-          <Card>
-            <CardHeader>
-              <CardTitle>Order Information</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm text-gray-500">Customer</label>
-                  <p className="font-medium">{order.customer_name || order.customer_id}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-500">Order Date</label>
-                  <p className="font-medium">{order.order_date || order.created_at}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-500">Delivery Date</label>
-                  <p className="font-medium">{order.delivery_date || '-'}</p>
-                </div>
-                <div>
-                  <label className="text-sm text-gray-500">Total Value</label>
-                  <p className="font-medium">₹{order.total_amount || 0}</p>
-                </div>
-              </div>
-              {order.notes && (
-                <div className="mt-4">
-                  <label className="text-sm text-gray-500">Notes</label>
-                  <p>{order.notes}</p>
-                </div>
-              )}
-              <div className="mt-6 flex gap-4">
-                {order.status === 'draft' && (
-                  <Button onClick={() => approveMutation.mutate()} disabled={approveMutation.isPending}>
-                    Approve Order
-                  </Button>
-                )}
-                {order.status === 'approved' && (
-                  <Button onClick={() => setShowReleaseDialog(true)}>Release to Production</Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="lines">
-          <Card>
-            <CardHeader>
-              <CardTitle>Order Lines</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {order.lines?.length > 0 ? (
-                <table className="min-w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Product Code</th>
-                      <th className="px-4 py-2 text-left">Description</th>
-                      <th className="px-4 py-2 text-right">Quantity</th>
-                      <th className="px-4 py-2 text-right">Rate</th>
-                      <th className="px-4 py-2 text-right">Amount</th>
-                      <th className="px-4 py-2 text-right">Released</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.lines.map((line: any, idx: number) => (
-                      <tr key={idx} className="border-t">
-                        <td className="px-4 py-2">{line.product_code}</td>
-                        <td className="px-4 py-2">{line.description}</td>
-                        <td className="px-4 py-2 text-right">{line.quantity} {line.unit}</td>
-                        <td className="px-4 py-2 text-right">₹{line.rate}</td>
-                        <td className="px-4 py-2 text-right">₹{line.amount}</td>
-                        <td className="px-4 py-2 text-right">{line.released_qty || 0}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-gray-500">No lines</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="releases">
-          <Card>
-            <CardHeader>
-              <CardTitle>Production Releases</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {order.releases?.length > 0 ? (
-                <table className="min-w-full">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-4 py-2 text-left">Release ID</th>
-                      <th className="px-4 py-2 text-left">Line</th>
-                      <th className="px-4 py-2 text-right">Quantity</th>
-                      <th className="px-4 py-2 text-left">Winder</th>
-                      <th className="px-4 py-2 text-left">Date</th>
-                      <th className="px-4 py-2 text-left">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {order.releases.map((release: any, idx: number) => (
-                      <tr key={idx} className="border-t">
-                        <td className="px-4 py-2">{release.id || release.release_id}</td>
-                        <td className="px-4 py-2">{release.line_product_code}</td>
-                        <td className="px-4 py-2 text-right">{release.quantity}</td>
-                        <td className="px-4 py-2">{release.winder_id}</td>
-                        <td className="px-4 py-2">{release.release_date}</td>
-                        <td className="px-4 py-2">{release.status}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              ) : (
-                <p className="text-gray-500">No releases yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {showReleaseDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center">
-          <div className="bg-white p-6 rounded-lg max-w-md">
-            <h3 className="text-lg font-bold mb-4">Release to Production</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">Quantity</label>
-                <input
-                  type="number"
-                  className="w-full p-2 border rounded"
-                  value={releaseData.quantity}
-                  onChange={(e) => setReleaseData({ ...releaseData, quantity: parseFloat(e.target.value) })}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Target Winder</label>
-                <input
-                  type="text"
-                  className="w-full p-2 border rounded"
-                  value={releaseData.winder_id}
-                  onChange={(e) => setReleaseData({ ...releaseData, winder_id: e.target.value })}
-                  placeholder="Winder ID"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Target Date</label>
-                <input
-                  type="date"
-                  className="w-full p-2 border rounded"
-                  value={releaseData.target_date}
-                  onChange={(e) => setReleaseData({ ...releaseData, target_date: e.target.value })}
-                />
+    <div className="space-y-6" data-testid="sales-orders:tracking-page">
+      <ExecutiveHero
+        appearance={MODULE_APPEARANCES.sales}
+        badge="Sales Tracking"
+        title={order.order_no || `Sales order ${orderId}`}
+        description="Commercial truth, release state, and planner job-card sync stay on one tracking page."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <ArrowLeft className="h-4 w-4" />
+              Back to queue
+            </Link>
+            <Link href={`/sales-orders/${order.id}/audit`} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <ScrollText className="h-4 w-4" />
+              Audit timeline
+            </Link>
+          </div>
+        }
+        aside={
+          <div className="space-y-3">
+            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Current Status</p>
+              <div className="mt-3">
+                <StatusBadge value={order.status} className="border-white/20 bg-white/10 text-white" />
               </div>
             </div>
-            <div className="mt-6 flex gap-4">
-              <Button onClick={() => releaseMutation.mutate(releaseData)} disabled={releaseMutation.isPending}>
-                {releaseMutation.isPending ? 'Releasing...' : 'Release'}
-              </Button>
-              <Button variant="outline" onClick={() => setShowReleaseDialog(false)}>Cancel</Button>
+            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4 text-sm text-emerald-100">
+              <p>{customerLabel}</p>
+              <p className="mt-1 text-xs text-emerald-100/80">Created {formatDate(order.created_at)}</p>
             </div>
           </div>
+        }
+      />
+
+      <MetricRail>
+        <MetricCard label="Line Count" value={order.line_count} detail="Commercial buckets under this PO" icon={Layers3} tone="cyan" />
+        <MetricCard label="Open Qty" value={Number(order.remaining_qty || 0).toFixed(0)} detail="Quantity still not fulfilled" icon={Factory} tone="amber" />
+        <MetricCard label="Released Qty" value={Number(order.released_qty || 0).toFixed(0)} detail="Already moved into production" icon={ClipboardCheck} tone="emerald" />
+        <MetricCard label="Planner Cards" value={orderJobs.length} detail="Synced job cards for this order" icon={ScrollText} tone="violet" />
+      </MetricRail>
+
+      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+        <Panel title="Commercial Header" subtitle="High-signal order context for sales, planning, and dispatch.">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Customer</p>
+              <p className="mt-2 font-semibold text-slate-950">{customerLabel}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Notes</p>
+              <p className="mt-2 text-slate-700">{order.notes || "No commercial notes recorded."}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Approved</p>
+              <p className="mt-2 text-slate-700">{formatDate(order.approved_at)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Released</p>
+              <p className="mt-2 text-slate-700">{formatDate(order.released_at)}</p>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Planner Sync" subtitle="Recovered job-card truth linked back to the sales order.">
+          {orderJobs.length === 0 ? (
+            <EmptyState label="No job cards have been synced for this sales order yet." />
+          ) : (
+            <div className="space-y-3">
+              {orderJobs.slice(0, 6).map((job: any) => (
+                <Link
+                  key={job.id}
+                  href={`/production/job-cards/${job.id}`}
+                  className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white hover:shadow-md"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{job.job_card_ref || String(job.id).slice(0, 8)}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {job.current_stage} · {Number(job.planned_qty || 0).toFixed(0)} pcs · Due {formatDate(job.due_date)}
+                      </p>
+                    </div>
+                    <StatusBadge value={job.status} />
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+
+      <Panel title="Order Lines" subtitle="The exact release and fulfillment posture for every commercial line.">
+        <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
+          <table className="min-w-full">
+            <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <tr>
+                <th className="px-4 py-3 text-left">Line</th>
+                <th className="px-4 py-3 text-left">Approved Spec</th>
+                <th className="px-4 py-3 text-left">Parchment</th>
+                <th className="px-4 py-3 text-left">Due</th>
+                <th className="px-4 py-3 text-right">Qty</th>
+                <th className="px-4 py-3 text-right">Released</th>
+                <th className="px-4 py-3 text-right">Fulfilled</th>
+                <th className="px-4 py-3 text-right">Remaining</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {(order.lines || []).map((line: any, index: number) => (
+                <tr key={line.id}>
+                  <td className="px-4 py-3 text-sm font-semibold text-slate-900">Line {index + 1}</td>
+                  <td className="px-4 py-3 text-sm text-slate-700">{String(line.approved_spec_id || "-").slice(0, 8)}</td>
+                  <td className="px-4 py-3 text-sm text-slate-700">{line.parchment_color || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-slate-700">{formatDate(line.due_date)}</td>
+                  <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.qty || 0).toFixed(0)}</td>
+                  <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.released_qty || 0).toFixed(0)}</td>
+                  <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.fulfilled_qty || 0).toFixed(0)}</td>
+                  <td className="px-4 py-3 text-right text-sm font-semibold text-slate-950">{Number(line.remaining_qty || 0).toFixed(0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </Panel>
     </div>
   )
 }
