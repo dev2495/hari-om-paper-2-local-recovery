@@ -18,6 +18,9 @@ export function normalizeSalesOrder(order: any) {
 
     return {
       ...line,
+      line_no: Number(line?.line_no ?? 0),
+      product_code: line?.product_code || null,
+      rate_per_pc: line?.rate_per_pc ?? null,
       qty,
       released_qty: releasedQty,
       fulfilled_qty: fulfilledQty,
@@ -29,6 +32,8 @@ export function normalizeSalesOrder(order: any) {
 
   return {
     ...order,
+    po_number: order?.po_number || null,
+    po_date: order?.po_date || null,
     lines: normalizedLines,
     status: String(order?.status || "draft").toLowerCase(),
     customer_name: order?.customer_name || order?.customer_id || "Customer",

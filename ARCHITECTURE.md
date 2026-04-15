@@ -49,6 +49,14 @@ This file is the quick pickup map for the system structure. Use it together with
 6. Job cards and scan-entry capture actual stage execution.
 7. Tracker and reports read the same execution truth.
 
+### Master-data truth
+
+1. Paper master is the source for code, variety, gsm, bf, ply bond, bulk factor, derived thickness, and price.
+2. Adhesive master is the source for variety, internal code, solid %, viscosity, ph, color, and recipe notes.
+3. Customer master stores commercial code, address, billing/shipping addresses, PAN, GST, and dispatch contacts.
+4. Packaging master stores box, plastic-sheet, and fadda selections used in spec packing and dispatch output.
+5. Spec, sales, planner, and job-card pages should read those same master payloads instead of maintaining page-local substitutes.
+
 ### Specification flow
 
 1. Select customer, tube size, mandrel, parchment families, papers, adhesives, and packaging from masters.
@@ -87,7 +95,7 @@ This file is the quick pickup map for the system structure. Use it together with
 - `/sales-orders`
 - `/sales-orders/new`
 - `/specifications/new`
-- `/production/planner`
+- `/planning/board`
 - `/planning/tracker`
 - `/production/job-cards`
 - `/production/reconciliation`
@@ -96,27 +104,27 @@ This file is the quick pickup map for the system structure. Use it together with
 ## Canonical Runtime Commands
 
 ```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/start_all.sh
+bash '/Users/devarshthakkar/local_repos/yash hari on/Hari Om Paper 2 Local/start_all.sh'
 ```
 
 ```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/status_all.sh
+bash '/Users/devarshthakkar/local_repos/yash hari on/Hari Om Paper 2 Local/status_all.sh'
 ```
 
 ```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/stop_all.sh
+bash '/Users/devarshthakkar/local_repos/yash hari on/Hari Om Paper 2 Local/stop_all.sh'
 ```
 
 ## Canonical Verification Commands
 
 ```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/scripts/run_verification.sh
+bash '/Users/devarshthakkar/local_repos/yash hari on/Hari Om Paper 2 Local/scripts/run_verification.sh'
 ```
 
 ```bash
-bash /Users/devarshthakkar/Documents/Hari\ Om\ Paper\ 2/scripts/browser_release_gate.sh
+bash '/Users/devarshthakkar/local_repos/yash hari on/Hari Om Paper 2 Local/scripts/browser_release_gate.sh'
 ```
 
 ```bash
-node '/Users/devarshthakkar/Documents/Hari Om Paper 2/scripts/manual_polish_review.js'
+node '/Users/devarshthakkar/local_repos/yash hari on/Hari Om Paper 2 Local/scripts/manual_polish_review.js'
 ```

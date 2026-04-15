@@ -109,6 +109,11 @@ export default function SalesOrderDetailPage() {
               <p className="mt-2 font-semibold text-slate-950">{customerLabel}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">PO Context</p>
+              <p className="mt-2 font-semibold text-slate-950">{order.po_number || order.order_no || "-"}</p>
+              <p className="mt-1 text-slate-600">PO Date {formatDate(order.po_date)}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Notes</p>
               <p className="mt-2 text-slate-700">{order.notes || "No commercial notes recorded."}</p>
             </div>
@@ -156,9 +161,11 @@ export default function SalesOrderDetailPage() {
             <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-left">Line</th>
+                <th className="px-4 py-3 text-left">Product Code</th>
                 <th className="px-4 py-3 text-left">Approved Spec</th>
                 <th className="px-4 py-3 text-left">Parchment</th>
                 <th className="px-4 py-3 text-left">Due</th>
+                <th className="px-4 py-3 text-right">Rate</th>
                 <th className="px-4 py-3 text-right">Qty</th>
                 <th className="px-4 py-3 text-right">Released</th>
                 <th className="px-4 py-3 text-right">Fulfilled</th>
@@ -168,10 +175,12 @@ export default function SalesOrderDetailPage() {
             <tbody className="divide-y divide-slate-200 bg-white">
               {(order.lines || []).map((line: any, index: number) => (
                 <tr key={line.id}>
-                  <td className="px-4 py-3 text-sm font-semibold text-slate-900">Line {index + 1}</td>
+                  <td className="px-4 py-3 text-sm font-semibold text-slate-900">Line {line.line_no || index + 1}</td>
+                  <td className="px-4 py-3 text-sm text-slate-700">{line.product_code || "-"}</td>
                   <td className="px-4 py-3 text-sm text-slate-700">{String(line.approved_spec_id || "-").slice(0, 8)}</td>
                   <td className="px-4 py-3 text-sm text-slate-700">{line.parchment_color || "-"}</td>
                   <td className="px-4 py-3 text-sm text-slate-700">{formatDate(line.due_date)}</td>
+                  <td className="px-4 py-3 text-right text-sm text-slate-700">{line.rate_per_pc ? Number(line.rate_per_pc).toFixed(2) : "-"}</td>
                   <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.qty || 0).toFixed(0)}</td>
                   <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.released_qty || 0).toFixed(0)}</td>
                   <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.fulfilled_qty || 0).toFixed(0)}</td>

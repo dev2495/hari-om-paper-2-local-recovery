@@ -14,6 +14,7 @@ import { useSpecs } from "@/hooks/use-specs"
 type SalesLineForm = {
   localId: string
   approved_spec_id: string
+  product_code: string
   size_label: string
   parchment_required: boolean
   parchment_color: string
@@ -34,6 +35,7 @@ function createLine(seed = 1): SalesLineForm {
   return {
     localId: `line-${Date.now()}-${seed}`,
     approved_spec_id: "",
+    product_code: "",
     size_label: "",
     parchment_required: false,
     parchment_color: "",
@@ -53,6 +55,7 @@ const INITIAL_FORM: SalesOrderForm = {
 
 function specLabel(spec: any) {
   const parts = [
+    spec?.product_code,
     spec?.customer_name,
     spec?.size_label,
     spec?.required_cs ? `CS ${spec.required_cs}` : null,
@@ -126,6 +129,7 @@ export function SalesOrderCreateForm() {
           ? {
               ...line,
               approved_spec_id: specId,
+              product_code: line.product_code || selectedSpec?.product_code || selectedSpec?.spec_reference || "",
               size_label: derivedSize,
             }
           : line,
@@ -158,6 +162,7 @@ export function SalesOrderCreateForm() {
         lines: form.lines.map((line, index) => ({
           approved_spec_id: line.approved_spec_id,
           line_no: index + 1,
+          product_code: line.product_code || null,
           size_label: line.size_label || null,
           parchment_required: line.parchment_required,
           parchment_color: line.parchment_required ? line.parchment_color || null : null,
@@ -273,7 +278,7 @@ export function SalesOrderCreateForm() {
                     </button>
                   </div>
 
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="space-y-1 xl:col-span-2">
                       <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Approved Specification</label>
                       <select
@@ -292,6 +297,16 @@ export function SalesOrderCreateForm() {
                       </select>
                     </div>
                     <div className="space-y-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Product Code</label>
+                      <input
+                        required
+                        value={line.product_code}
+                        onChange={(event) => updateLine(line.localId, "product_code", event.target.value.toUpperCase())}
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        placeholder="Customer-facing product code"
+                      />
+                    </div>
+                    <div className="space-y-1">
                       <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Size Label</label>
                       <input
                         value={line.size_label}
@@ -300,7 +315,7 @@ export function SalesOrderCreateForm() {
                         placeholder="Auto-filled from selected spec"
                       />
                     </div>
-                    <div className="space-y-1">
+                    <div className="space-y-1 xl:col-span-2">
                       <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Rate / Pc</label>
                       <input
                         type="number"

@@ -13,7 +13,10 @@ interface MasterFormProps {
 }
 
 export function PaperForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
-  const { register, handleSubmit } = useForm({ defaultValues: initialData })
+  const { register, handleSubmit, watch } = useForm({ defaultValues: initialData })
+  const gsm = Number(watch("gsm") || 0)
+  const bulkFactor = Number(watch("bulk_factor") || 0)
+  const derivedThickness = gsm > 0 && bulkFactor > 0 ? (gsm * bulkFactor) / 1000 : 0
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -50,6 +53,10 @@ export function PaperForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
         <div className="space-y-2">
           <label className="text-sm font-medium">Price</label>
           <Input type="number" step="0.01" {...register("price")} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Derived Thickness (mm)</label>
+          <Input value={derivedThickness ? derivedThickness.toFixed(4) : ""} readOnly disabled />
         </div>
       </div>
       <DialogFooter>
@@ -94,6 +101,15 @@ export function AdhesiveForm({ initialData, onSubmit, onCancel }: MasterFormProp
         <label className="text-sm font-medium">Color</label>
         <Input {...register("color")} placeholder="Amber" />
       </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Recipe / Notes</label>
+        <textarea
+          {...register("recipe_text")}
+          rows={4}
+          className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          placeholder="Standard mix notes, dilution notes, or viscosity handling"
+        />
+      </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
@@ -115,6 +131,10 @@ export function ParchmentForm({ initialData, onSubmit, onCancel }: MasterFormPro
       <div className="space-y-2">
         <label className="text-sm font-medium">Color Name</label>
         <Input {...register("color_name", { required: true })} placeholder="Blue" />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Display Name</label>
+        <Input {...register("display_name")} placeholder="Sagar Blue" />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -143,6 +163,10 @@ export function TubeSizeForm({ initialData, onSubmit, onCancel }: MasterFormProp
           <label className="text-sm font-medium">Length (mm)</label>
           <Input type="number" {...register("length_mm", { required: true })} />
         </div>
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Description</label>
+        <Input {...register("description")} placeholder="34 x 40 x 980 sleeve" />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -202,12 +226,52 @@ export function CustomerForm({ initialData, onSubmit, onCancel }: MasterFormProp
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Contact Email</label>
-          <Input type="email" {...register("contact_email")} />
+          <label className="text-sm font-medium">Primary Contact Name</label>
+          <Input {...register("primary_contact_name")} placeholder="Dispatch coordinator" />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Contact Phone</label>
-          <Input {...register("contact_phone")} />
+          <label className="text-sm font-medium">Primary Contact Phone</label>
+          <Input {...register("primary_contact_phone")} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Primary Contact Email</label>
+          <Input type="email" {...register("primary_contact_email")} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Address</label>
+          <Input {...register("address")} placeholder="Customer address" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Billing Address</label>
+          <Input {...register("billing_address")} placeholder="Billing address" />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Shipping Address</label>
+          <Input {...register("shipping_address")} placeholder="Shipping address" />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">PAN No</label>
+          <Input {...register("pan_no")} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">GST No</label>
+          <Input {...register("gst_no")} />
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Dispatch Contact Name</label>
+          <Input {...register("dispatch_contact_name")} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Dispatch Contact Phone</label>
+          <Input {...register("dispatch_contact_phone")} />
         </div>
       </div>
       <DialogFooter>

@@ -15,7 +15,10 @@ export default function PapersPage() {
     { header: "Variety", accessorKey: "variety" },
     { header: "GSM", accessorKey: "gsm" },
     { header: "BF", accessorKey: "bf" },
+    { header: "Ply Bond", accessorKey: "ply_bond" },
+    { header: "Bulk Factor", accessorKey: "bulk_factor" },
     { header: "Thickness (mm)", accessorKey: "thickness_mm" },
+    { header: "Price", accessorKey: "price" },
   ]
 
   return (

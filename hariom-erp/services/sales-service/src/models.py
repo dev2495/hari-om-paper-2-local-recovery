@@ -24,6 +24,8 @@ class SalesOrder(Base):
     order_no = Column(String(50), unique=True, nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     customer_id = Column(UUID(as_uuid=True), nullable=False)
+    po_number = Column(String(100), nullable=True)
+    po_date = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
 
     status = Column(SQLEnum(SalesOrderStatus), nullable=False, default=SalesOrderStatus.DRAFT)
@@ -45,8 +47,11 @@ class SalesOrderLine(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     sales_order_id = Column(UUID(as_uuid=True), ForeignKey("sales_orders.id"), nullable=False)
 
+    line_no = Column(Float, nullable=False, default=1)
     approved_spec_id = Column(UUID(as_uuid=True), nullable=False)
+    product_code = Column(String(120), nullable=True)
     parchment_color = Column(String(100), nullable=True)
+    rate_per_pc = Column(Float, nullable=True)
     qty = Column(Float, nullable=False)
     due_date = Column(Date, nullable=False)
     fulfilled_qty = Column(Float, nullable=False, default=0.0)

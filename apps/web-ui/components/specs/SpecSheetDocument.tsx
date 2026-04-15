@@ -1711,7 +1711,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" data-testid="spec-sheet-preview-rail">
+      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm xl:sticky xl:top-24" data-testid="spec-sheet-preview-rail">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Preview rail</p>
@@ -2137,11 +2137,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         </div>
       </section>
 
-      {false ? (
       <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-weight-bridge">
         <SectionLabel
           title="Weight Bridge"
-          subtitle="Target dry -> pre-oven target -> predicted dry, aligned to canonical factory math."
+          subtitle="Target dry -> wet divisor 0.905 -> pre-oven target -> predicted dry."
         />
         <div className="grid gap-3 md:grid-cols-5">
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
@@ -2189,7 +2188,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           </p>
         </div>
       </section>
-      ) : null}
 
       <section className="grid gap-4 xl:grid-cols-[1.35fr_1fr]" id="sheet-notch-tooling">
         <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
@@ -2262,19 +2260,20 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           <SectionLabel title="Packing Division" subtitle="Packing references and labels that flow into the dispatch sheet." />
           <MasterLinkRow links={[{ href: "/masters/parchments", label: "Parchments" }, { href: "/masters/packaging", label: "Packaging master" }]} />
           <div className="grid gap-3 md:grid-cols-2">
-            {renderScalarField("bundle_type", "Bundle Type")}
-            {renderScalarField("bundle_code", "Bundle Code")}
-            {renderScalarField("packing_ply", "Packing Ply", "number")}
-            {renderScalarField("qty_per_box", "Qty / Box", "number")}
-            {renderScalarField("packing_pcs", "Packing Pcs", "number")}
             {renderScalarField("box_code", "Box Code")}
             {renderScalarField("box_size", "Box Size")}
+            {renderScalarField("qty_per_box", "Qty / Box", "number")}
             {renderScalarField("plastic_required", "Plastic")}
             {renderScalarField("plastic_sku", "Plastic SKU")}
             {renderScalarField("plastic_per_box", "Plastic / Box", "number")}
             {renderScalarField("fadda_sku", "Fadda SKU")}
             {renderScalarField("fadda_per_box", "Fadda / Box", "number")}
             {renderScalarField("bopp_required", "BOPP")}
+          </div>
+          <div className="grid gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600 md:grid-cols-3">
+            <p><span className="font-semibold text-slate-900">Bundle Type:</span> {optionValue(form.dynamicValues.bundle_type) || "--"}</p>
+            <p><span className="font-semibold text-slate-900">Bundle Code:</span> {optionValue(form.dynamicValues.bundle_code) || "--"}</p>
+            <p><span className="font-semibold text-slate-900">Packing Pcs:</span> {optionValue(form.dynamicValues.packing_pcs) || "--"}</p>
           </div>
           <div className="space-y-1">
             <FieldLabel>Special Instructions</FieldLabel>
@@ -2397,7 +2396,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <th className="border-b border-r border-slate-300 px-2 py-2">Weight All Ply</th>
                 <th className="border-b border-r border-slate-300 px-2 py-2">Ply</th>
                 <th className="border-b border-r border-slate-300 px-2 py-2">Ply No.</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Adhesive</th>
                 {isEditable ? <th className="border-b border-slate-300 px-2 py-2">Action</th> : null}
               </tr>
             </thead>
@@ -2495,25 +2493,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         row.positionsText || encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount))
                       )}
                     </td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">
-                      {isEditable ? (
-                        <select
-                          value={row.adhesiveLabel}
-                          onChange={(event) => updateRecipeRow(row.id, { adhesiveLabel: event.target.value })}
-                          className="h-9 w-24 rounded-lg border border-slate-300 px-2 text-xs"
-                        >
-                          <option value="TL-4">TL-4</option>
-                          <option value="Vinsol">Vinsol</option>
-                          {(adhesives || []).map((adhesive: any) => (
-                            <option key={adhesive.id} value={adhesive.name}>
-                              {adhesive.name}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        row.adhesiveLabel || "-"
-                      )}
-                    </td>
                     {isEditable ? (
                       <td className="border-t border-slate-200 px-2 py-2 text-center">
                         <button type="button" onClick={() => removeRecipeRow(row.id)} className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700">
@@ -2533,7 +2512,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalAllPlyBond.toFixed(2)}</td>
                 <td className="border-t border-slate-300 px-2 py-2 text-center">{Number(previewSummary.paper_total_g || 0).toFixed(2)}</td>
                 <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalPlyCount}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">-</td>
                 <td className="border-t border-slate-300 px-2 py-2 text-center">-</td>
                 {isEditable ? <td className="border-t border-slate-300 px-2 py-2 text-center">-</td> : null}
               </tr>
@@ -2609,26 +2587,24 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <input
               type="number"
               step="0.1"
-              value={optionValue(form.dynamicValues.glue_base_percent || "15")}
-              onChange={(event) => updateDynamicValue("glue_base_percent", event.target.value)}
-              disabled={!isEditable}
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-          <div className="space-y-1">
-            <FieldLabel>Parchment %</FieldLabel>
-            <input
-              type="number"
-              step="0.1"
-              value="1.5"
+              value="15"
               disabled
               className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
             />
           </div>
           <div className="space-y-1">
-            <FieldLabel>Parchment Selection</FieldLabel>
+            <FieldLabel>Wet Divisor</FieldLabel>
+            <input
+              type="text"
+              value={`1 - (${Number(form.shrinkPercent || 9.5).toFixed(1)} / 100) = ${(1 - Number(form.shrinkPercent || 9.5) / 100).toFixed(3)}`}
+              disabled
+              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
+            />
+          </div>
+          <div className="space-y-1">
+            <FieldLabel>Parchment %</FieldLabel>
             <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-              Sales order chooses the parchment vendor and pattern. The spec keeps only parchment % for recipe math.
+              Fixed at 1.5% for recipe math. Sales order chooses the actual parchment vendor and pattern.
             </div>
           </div>
         </div>
@@ -2671,9 +2647,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <input
                 type="number"
                 step="0.1"
-                value={optionValue(component.base_percent)}
-                onChange={(event) => updateAdhesiveComponent(index, { base_percent: Number(event.target.value || 0) })}
-                disabled={!isEditable}
+                value={optionValue(form.dynamicValues.glue_base_percent || "15")}
+                disabled
                 className="h-10 rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
               />
               <input
@@ -2730,33 +2705,46 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       </section>
 
       <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-guidance">
-        <SectionLabel title="RH / Drying / Moisture Guidance" subtitle={`Active row: ${selectedGuidance?.rh || "-"}`} />
-        <div className="overflow-x-auto rounded-2xl border border-slate-300">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-[11px] uppercase tracking-[0.14em] text-slate-500">
-              <tr>
-                <th className="border-b border-r border-slate-300 px-3 py-2 text-left">RH %</th>
-                <th className="border-b border-r border-slate-300 px-3 py-2">% Drying</th>
-                <th className="border-b border-slate-300 px-3 py-2">Moisture %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {form.processGuidance.map((row, index) => (
-                <tr key={`${row.rh}-${index}`} className={index === form.selectedGuidanceIndex ? "bg-amber-50" : ""}>
-                  <td className="border-r border-t border-slate-200 px-3 py-2 font-semibold">{row.rh}</td>
-                  <td className="border-r border-t border-slate-200 px-3 py-2 text-center">{row.dryingPercent}%</td>
-                  <td className="border-t border-slate-200 px-3 py-2 text-center">{row.moistureBand}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <SectionLabel title="Drying Reference" subtitle={`Default drying loss is 9.5%. Active guide row: ${selectedGuidance?.rh || "-"}`} />
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Drying % Used</p>
+            <p className="mt-1 text-2xl font-black text-slate-900">{Number(form.shrinkPercent || 9.5).toFixed(1)}%</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Predicted Wet</p>
+            <p className="mt-1 text-2xl font-black text-slate-900">{bridgeMetrics.predictedWetTubeG.toFixed(2)} g</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Predicted Dry</p>
+            <p className="mt-1 text-2xl font-black text-slate-900">{bridgeMetrics.predictedDryTubeG.toFixed(2)} g</p>
+          </div>
         </div>
-        {isEditable ? (
-          <p className="mt-2 text-xs text-slate-500">Changing the active guidance row updates the draft shrink / drying percentage.</p>
-        ) : null}
+        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Open RH / moisture reference table</summary>
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-300 bg-white">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-100 text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                <tr>
+                  <th className="border-b border-r border-slate-300 px-3 py-2 text-left">RH %</th>
+                  <th className="border-b border-r border-slate-300 px-3 py-2">% Drying</th>
+                  <th className="border-b border-slate-300 px-3 py-2">Moisture %</th>
+                </tr>
+              </thead>
+              <tbody>
+                {form.processGuidance.map((row, index) => (
+                  <tr key={`${row.rh}-${index}`} className={index === form.selectedGuidanceIndex ? "bg-amber-50" : ""}>
+                    <td className="border-r border-t border-slate-200 px-3 py-2 font-semibold">{row.rh}</td>
+                    <td className="border-r border-t border-slate-200 px-3 py-2 text-center">{row.dryingPercent}%</td>
+                    <td className="border-t border-slate-200 px-3 py-2 text-center">{row.moistureBand}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </details>
       </section>
 
-      {false ? (
       <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-trials">
         <SectionLabel title="Trial Calibration" subtitle="Record floor trial feedback against the predicted output." />
         <div className="grid gap-3 md:grid-cols-4">
@@ -2845,7 +2833,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           </div>
         ) : null}
       </section>
-      ) : null}
 
       <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-validation">
         <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />

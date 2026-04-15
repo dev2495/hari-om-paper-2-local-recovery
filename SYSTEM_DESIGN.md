@@ -25,6 +25,11 @@
 - Scheduling uses stage-level segments so a stage can span multiple shifts or days.
 - Planner capacity is managed per machine and shift.
 - Winder and process stages can split when planned load exceeds available shift capacity.
+- Planner board is a three-day machine-and-shift surface with:
+  - left unscheduled queue
+  - center machine cards by day and shift
+  - manual split control for exceptional breaks
+  - tracker page for completed and blocked history
 
 ### Execution
 
@@ -39,6 +44,29 @@
 - Customer, tube, mandrel, papers, parchments, adhesives, packaging, and tooling come from masters.
 - Most fields in the sheet should be select-driven unless the business rule genuinely requires numeric/manual entry.
 - Packaging selections are always sourced from packaging masters.
+- Customer master must carry the downstream commercial fields:
+  - address
+  - billing/shipping address
+  - PAN / GST
+  - primary contact
+  - dispatch contact
+- Paper master must expose:
+  - code
+  - variety
+  - gsm
+  - bf
+  - ply bond
+  - bulk factor
+  - derived thickness
+  - price
+- Adhesive master must expose:
+  - variety
+  - internal code
+  - solid %
+  - viscosity
+  - ph
+  - color
+  - recipe note
 
 ## Weight model
 
@@ -74,12 +102,14 @@
   - `plastic_sku`
   - `fadda_sku`
   - per-box quantities
+- Bundle type, bundle code, and packing pcs remain compatibility fields, but the primary visible flow is box/plastic/fadda plus per-box counts.
 
 ## Specification sheet UX direction
 
 - One sticky preview rail for summary, recipe, and job-card handoff cues.
 - One full-width workspace for active editing.
 - Candidate paper pool and best-mix engine come before the saved recipe table.
+- Global adhesive mix stays outside the paper-combination table; per-row adhesive pickers should not be the main editing path.
 - The current sample-family demos prefer `2 x 250gsm + 1 x 300gsm + best 350+ remainder`.
 - Client and manufacturing matrices must both stay visible in the same editing session.
 - Avoid repeated summaries of the same math in multiple panels.

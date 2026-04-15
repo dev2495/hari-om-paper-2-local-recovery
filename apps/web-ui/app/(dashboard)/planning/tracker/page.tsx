@@ -1,77 +1,143 @@
-'use client'
+"use client"
 
-import { productionApi } from '@/lib/api'
-import { useQuery } from '@tanstack/react-query'
-import Link from 'next/link'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import Link from "next/link"
+import dayjs from "dayjs"
+import { useMemo, useState } from "react"
+import { AlertTriangle, Clock3, Factory, Search, TimerReset, Truck } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+
+import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { usePlanningJobCards } from "@/hooks/use-production"
+import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+
+function formatDate(value?: string | null) {
+  if (!value) return "-"
+  const parsed = dayjs(value)
+  return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(value)
+}
 
 export default function PlanningTrackerPage() {
-  const { data: jobs = [], isLoading } = useQuery({
-    queryKey: ['planning-tracker-jobs'],
-    queryFn: async () => {
-      const { data } = await productionApi.getPlanningJobCards({ status: 'in_progress' })
-      return data || []
-    },
-  })
+  const searchParams = useSearchParams()
+  const section = String(searchParams?.get("section") || "winder").toLowerCase()
+  const [search, setSearch] = useState("")
+  const jobsQuery = usePlanningJobCards({ limit: 500 })
+
+  const jobs = Array.isArray(jobsQuery.data) ? jobsQuery.data : []
+  const deferredSearch = search.trim().toLowerCase()
+
+  const scopedJobs = useMemo(() => {
+    const filteredBySearch = deferredSearch
+      ? jobs.filter((job: any) =>
+          [
+            job.job_card_ref,
+            job.product_code,
+            job.customer_name,
+            job.current_stage,
+            job.status,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase()
+            .includes(deferredSearch),
+        )
+      : jobs
+
+    return filteredBySearch
+  }, [deferredSearch, jobs])
+
+  const activeJobs = scopedJobs.filter((job: any) => String(job.status || "").toUpperCase() !== "COMPLETED")
+  const completedJobs = scopedJobs.filter((job: any) => String(job.status || "").toUpperCase() === "COMPLETED")
+  const blockedJobs = activeJobs.filter((job: any) => Boolean(job.blocked_reason))
+  const dueRiskJobs = activeJobs.filter((job: any) => job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day"))
+  const dispatchJobs = activeJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() === "DISPATCH")
 
   return (
-    <div className="container mx-auto p-6">
-      <div className="flex justify-between items-center mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Planning Tracker</h1>
-          <p className="text-gray-500 text-sm">Track active job cards across all stages</p>
-        </div>
-        <Link href="/production/planner">
-          <Button variant="outline">Planner</Button>
-        </Link>
-      </div>
+    <div className="space-y-6">
+      <ExecutiveHero
+        appearance={MODULE_APPEARANCES.planning}
+        badge="Job Tracker"
+        title="Track released work across WIP, completion, and stage stalls"
+        description="Recovered tracker page for planners and supervisors. Use this to answer where every released job is standing, what is blocked, and what already cleared the floor."
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Link href={`/planning/board?section=${section}`} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              Return to planner
+            </Link>
+            <Link href="/production/job-cards" className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
+              Job card queue
+            </Link>
+          </div>
+        }
+      />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Active Jobs</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="text-center py-8">Loading...</div>
-          ) : jobs.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">No active jobs</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Job Card</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">SO</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stage</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Machine</th>
-                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Progress</th>
+      <MetricRail>
+        <MetricCard label="Active WIP" value={activeJobs.length} detail="Released jobs still moving through the plant" icon={Factory} tone="cyan" />
+        <MetricCard label="Blocked" value={blockedJobs.length} detail="Jobs carrying a blocking reason or stage hold" icon={AlertTriangle} tone="rose" />
+        <MetricCard label="Due Risk" value={dueRiskJobs.length} detail="Need intervention before the next day window" icon={TimerReset} tone="amber" />
+        <MetricCard label="Dispatch Stage" value={dispatchJobs.length} detail="Finished jobs waiting for outward truth" icon={Truck} tone="emerald" />
+        <MetricCard label="Completed" value={completedJobs.length} detail="Recovered history already closed on the floor" icon={Clock3} tone="violet" />
+      </MetricRail>
+
+      <Panel
+        title="Tracker Grid"
+        subtitle="Search by job card, product code, customer, or stage. Active rows stay on top and completed history remains in the same surface."
+        actions={
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search job card, product, customer, stage..."
+              className="w-80 bg-transparent text-sm outline-none placeholder:text-slate-400"
+            />
+          </div>
+        }
+      >
+        {jobsQuery.isLoading ? (
+          <EmptyState label="Loading recovered job tracker..." />
+        ) : scopedJobs.length === 0 ? (
+          <EmptyState label="No jobs matched this tracker filter." />
+        ) : (
+          <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
+            <table className="min-w-full">
+              <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3 text-left">Job Card</th>
+                  <th className="px-4 py-3 text-left">Product</th>
+                  <th className="px-4 py-3 text-left">Customer</th>
+                  <th className="px-4 py-3 text-left">Stage</th>
+                  <th className="px-4 py-3 text-left">Status</th>
+                  <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="px-4 py-3 text-left">Due</th>
+                  <th className="px-4 py-3 text-left">Block / Context</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {scopedJobs.map((job: any) => (
+                  <tr key={job.id}>
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-900">
+                      <Link href={`/production/job-cards/${job.id}`} className="hover:text-cyan-700">
+                        {job.job_card_ref || String(job.id).slice(0, 8)}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{job.product_code || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{job.customer_name || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{job.current_stage || "-"}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge value={job.status || "-"} />
+                    </td>
+                    <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(job.planned_qty || 0).toFixed(0)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">{formatDate(job.due_date)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {job.blocked_reason || job.current_machine_id || job.current_shift_code || "Flowing"}
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {jobs.map((job: any) => (
-                    <tr key={job.id} className="hover:bg-gray-50" data-testid={`tracker-row:${job.id}`}>
-                      <td className="px-4 py-3">
-                        <Link href={`/production/job-cards/${job.id}`} className="text-blue-600 hover:underline">
-                          {job.job_card_no || job.id}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">{job.order_no}</td>
-                      <td className="px-4 py-3">{job.current_stage}</td>
-                      <td className="px-4 py-3">{job.machine_id || '-'}</td>
-                      <td className="px-4 py-3">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div className="bg-cyan-600 h-2 rounded-full" style={{ width: `${job.progress || 0}%` }} />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Panel>
     </div>
   )
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { type FormEvent, useEffect, useMemo, useState } from "react"
 import { Pencil, Plus, Trash2, Users } from "lucide-react"
 
 import { CustomerForm } from "@/components/forms/master-forms"
@@ -88,6 +88,16 @@ export default function CustomersPage() {
       ...payload,
       customer_code: String(payload.customer_code || "").trim().toUpperCase(),
       name: String(payload.name || "").trim(),
+      address: String(payload.address || "").trim() || null,
+      billing_address: String(payload.billing_address || "").trim() || null,
+      shipping_address: String(payload.shipping_address || "").trim() || null,
+      pan_no: String(payload.pan_no || "").trim() || null,
+      gst_no: String(payload.gst_no || "").trim() || null,
+      primary_contact_name: String(payload.primary_contact_name || "").trim() || null,
+      primary_contact_phone: String(payload.primary_contact_phone || "").trim() || null,
+      primary_contact_email: String(payload.primary_contact_email || "").trim() || null,
+      dispatch_contact_name: String(payload.dispatch_contact_name || "").trim() || null,
+      dispatch_contact_phone: String(payload.dispatch_contact_phone || "").trim() || null,
     }
     try {
       if (customerId) {
@@ -116,7 +126,7 @@ export default function CustomersPage() {
     }
   }
 
-  const submitContact = async (event: React.FormEvent) => {
+  const submitContact = async (event: FormEvent) => {
     event.preventDefault()
     if (!selectedCustomerId) return
     const payload = {
@@ -218,6 +228,7 @@ export default function CustomersPage() {
                 <th className="py-2">Code</th>
                 <th className="py-2">Name</th>
                 <th className="py-2">GST</th>
+                <th className="py-2">Address</th>
                 <th className="py-2">Primary Contact</th>
                 <th className="py-2 text-right">Actions</th>
               </tr>
@@ -237,7 +248,8 @@ export default function CustomersPage() {
                     </td>
                     <td className="py-3">{row.name}</td>
                     <td className="py-3">{row.gst_no || "-"}</td>
-                    <td className="py-3">{row.primary_contact_name || row.primary_contact_phone || "-"}</td>
+                    <td className="py-3 max-w-72 truncate">{row.address || row.billing_address || "-"}</td>
+                    <td className="py-3">{row.primary_contact_name || row.primary_contact_phone || row.primary_contact_email || "-"}</td>
                     <td className="py-3">
                       <div className="flex justify-end gap-2">
                         <Button variant="ghost" size="icon" onClick={() => setEditingCustomer(row)}>
@@ -253,7 +265,7 @@ export default function CustomersPage() {
               })}
               {!customersQuery.isLoading && filteredCustomers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-6 text-center text-slate-500">
+                  <td colSpan={6} className="py-6 text-center text-slate-500">
                     No customers in this plant scope
                   </td>
                 </tr>

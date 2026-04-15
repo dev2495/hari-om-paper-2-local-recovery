@@ -55,7 +55,6 @@ export default function PackagingMasterPage() {
           },
           { header: "Weight (kg)", accessorKey: "weight_kg" },
           { header: "Rate / Piece", accessorKey: "rate_per_piece" },
-          { header: "Source", accessorKey: "source" },
         ]}
         data={boxesQuery.data || []}
         isLoading={boxesQuery.isLoading}

@@ -92,3 +92,28 @@
 
 - One release lot maps to one job-card business record.
 - Scheduling may split stage work into multiple shift/day segments.
+
+### 2026-04-15: Sales PO header and line product code are first-class
+
+- Sales order header keeps `po_number` and `po_date`.
+- Each line keeps its own `product_code`, `line_no`, and optional `rate_per_pc`.
+- Release sync consumes selected lines plus target winder and quantity per line bucket.
+
+### 2026-04-15: Planner board is the primary scheduling surface
+
+- `/planning/board` is the canonical planner screen.
+- `/production/planner` should redirect there instead of keeping a parallel stale page.
+- The board must expose unscheduled queue, machine-shift lanes for the next three days, and manual split only as an exception control.
+
+### 2026-04-15: Master-data forms must save the full downstream payload
+
+- Customer form must save commercial + tax + dispatch contact fields, not only basic name and phone.
+- Paper form must expose the fields that drive spec math and derived thickness.
+- Adhesive form must keep the recipe note alongside the physical parameters.
+
+### 2026-04-15: Spec sheet workflow favors live bridge math over hidden compatibility blocks
+
+- Weight bridge and trial calibration stay visible in the recovered sheet.
+- Global glue base remains fixed at `15%`.
+- Wet divisor remains `1 - drying_percent / 100`, default `0.905`.
+- Packing primary UI is box/plastic/fadda master selection plus per-box usage counts.

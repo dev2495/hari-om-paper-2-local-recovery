@@ -26,19 +26,26 @@ router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 class SalesOrderLineInput(BaseModel):
     approved_spec_id: uuid.UUID
+    line_no: Optional[int] = None
+    product_code: Optional[str] = None
     parchment_color: Optional[str] = None
+    rate_per_pc: Optional[float] = None
     qty: float
     due_date: date
 
 
 class SalesOrderCreate(BaseModel):
     customer_id: uuid.UUID
+    po_number: Optional[str] = None
+    po_date: Optional[date] = None
     notes: Optional[str] = None
     lines: List[SalesOrderLineInput]
 
 
 class SalesOrderUpdate(BaseModel):
     customer_id: Optional[uuid.UUID] = None
+    po_number: Optional[str] = None
+    po_date: Optional[date] = None
     notes: Optional[str] = None
     status: Optional[str] = None
     lines: Optional[List[SalesOrderLineInput]] = None
@@ -56,8 +63,11 @@ class RecordDispatchPayload(BaseModel):
 
 class SalesOrderLineResponse(BaseModel):
     id: uuid.UUID
+    line_no: int
     approved_spec_id: uuid.UUID
+    product_code: Optional[str]
     parchment_color: Optional[str]
+    rate_per_pc: Optional[float]
     qty: float
     due_date: date
     fulfilled_qty: float
@@ -69,6 +79,8 @@ class SalesOrderResponse(BaseModel):
     order_no: str
     plant_id: str
     customer_id: uuid.UUID
+    po_number: Optional[str]
+    po_date: Optional[date]
     notes: Optional[str]
     status: str
     created_by: str
@@ -98,8 +110,11 @@ class DispatchValidationResponse(BaseModel):
 def _serialize_line(line: SalesOrderLine) -> dict:
     return {
         "id": line.id,
+        "line_no": int(line.line_no or 1),
         "approved_spec_id": line.approved_spec_id,
+        "product_code": line.product_code,
         "parchment_color": line.parchment_color,
+        "rate_per_pc": line.rate_per_pc,
         "qty": line.qty,
         "due_date": line.due_date,
         "fulfilled_qty": line.fulfilled_qty,
@@ -112,6 +127,8 @@ def _serialize_order(order: SalesOrder) -> dict:
         "id": order.id,
         "order_no": order.order_no,
         "customer_id": order.customer_id,
+        "po_number": order.po_number,
+        "po_date": order.po_date,
         "notes": order.notes,
         "status": order.status.value,
         "created_by": order.created_by,
@@ -161,6 +178,8 @@ def create_sales_order(
     order = SalesOrder(
         order_no=_next_order_no(db),
         customer_id=payload.customer_id,
+        po_number=payload.po_number,
+        po_date=payload.po_date,
         notes=payload.notes,
         plant_id=plant_id,
         status=SalesOrderStatus.DRAFT,
@@ -169,12 +188,15 @@ def create_sales_order(
     db.add(order)
     db.flush()
 
-    for line in payload.lines:
+    for index, line in enumerate(payload.lines, start=1):
         db.add(
             SalesOrderLine(
                 sales_order_id=order.id,
+                line_no=line.line_no or index,
                 approved_spec_id=line.approved_spec_id,
+                product_code=(line.product_code or "").strip() or None,
                 parchment_color=line.parchment_color,
+                rate_per_pc=line.rate_per_pc,
                 qty=line.qty,
                 due_date=line.due_date,
                 fulfilled_qty=0.0,
@@ -255,6 +277,10 @@ def update_sales_order(
 
     if payload.customer_id is not None:
         order.customer_id = payload.customer_id
+    if payload.po_number is not None:
+        order.po_number = payload.po_number
+    if payload.po_date is not None:
+        order.po_date = payload.po_date
     if payload.notes is not None:
         order.notes = payload.notes
 
@@ -272,11 +298,14 @@ def update_sales_order(
             raise HTTPException(status_code=400, detail="Cannot edit lines after approval")
         order.lines.clear()
         db.flush()
-        for line in payload.lines:
+        for index, line in enumerate(payload.lines, start=1):
             order.lines.append(
                 SalesOrderLine(
+                    line_no=line.line_no or index,
                     approved_spec_id=line.approved_spec_id,
+                    product_code=(line.product_code or "").strip() or None,
                     parchment_color=line.parchment_color,
+                    rate_per_pc=line.rate_per_pc,
                     qty=line.qty,
                     due_date=line.due_date,
                     fulfilled_qty=0.0,

@@ -23,22 +23,36 @@ class CustomerCreate(BaseModel):
     customer_code: str
     name: str
     address: Optional[str] = None
+    billing_address: Optional[str] = None
+    shipping_address: Optional[str] = None
     pan_no: Optional[str] = None
     gst_no: Optional[str] = None
     primary_contact_name: Optional[str] = None
     primary_contact_phone: Optional[str] = None
     primary_contact_email: Optional[EmailStr] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    dispatch_contact_name: Optional[str] = None
+    dispatch_contact_phone: Optional[str] = None
+    tax_id: Optional[str] = None
 
 
 class CustomerUpdate(BaseModel):
     customer_code: Optional[str] = None
     name: Optional[str] = None
     address: Optional[str] = None
+    billing_address: Optional[str] = None
+    shipping_address: Optional[str] = None
     pan_no: Optional[str] = None
     gst_no: Optional[str] = None
     primary_contact_name: Optional[str] = None
     primary_contact_phone: Optional[str] = None
     primary_contact_email: Optional[EmailStr] = None
+    contact_email: Optional[EmailStr] = None
+    contact_phone: Optional[str] = None
+    dispatch_contact_name: Optional[str] = None
+    dispatch_contact_phone: Optional[str] = None
+    tax_id: Optional[str] = None
     active: Optional[bool] = None
 
 
@@ -54,6 +68,8 @@ class CustomerResponse(BaseModel):
     primary_contact_email: Optional[str]
     contact_email: Optional[str]
     contact_phone: Optional[str]
+    billing_address: Optional[str]
+    shipping_address: Optional[str]
     tax_id: Optional[str]
     dispatch_contact_name: Optional[str]
     dispatch_contact_phone: Optional[str]
@@ -118,22 +134,29 @@ def _customer_payload(data: dict) -> dict:
     primary_contact_phone = data.get("primary_contact_phone")
     primary_contact_name = data.get("primary_contact_name")
     gst_no = data.get("gst_no")
+    contact_email = data.get("contact_email") or primary_contact_email
+    contact_phone = data.get("contact_phone") or primary_contact_phone
+    billing_address = data.get("billing_address") or address
+    shipping_address = data.get("shipping_address") or address
+    tax_id = data.get("tax_id") or gst_no
+    dispatch_contact_name = data.get("dispatch_contact_name") or primary_contact_name
+    dispatch_contact_phone = data.get("dispatch_contact_phone") or primary_contact_phone
     return {
         "customer_code": _normalized_code(data.get("customer_code")),
         "name": _normalized_name(data.get("name")),
         "address": address,
+        "billing_address": billing_address,
+        "shipping_address": shipping_address,
         "pan_no": data.get("pan_no"),
         "gst_no": gst_no,
         "primary_contact_name": primary_contact_name,
         "primary_contact_phone": primary_contact_phone,
         "primary_contact_email": primary_contact_email,
-        "contact_email": primary_contact_email,
-        "contact_phone": primary_contact_phone,
-        "billing_address": address,
-        "shipping_address": address,
-        "tax_id": gst_no,
-        "dispatch_contact_name": primary_contact_name,
-        "dispatch_contact_phone": primary_contact_phone,
+        "contact_email": contact_email,
+        "contact_phone": contact_phone,
+        "tax_id": tax_id,
+        "dispatch_contact_name": dispatch_contact_name,
+        "dispatch_contact_phone": dispatch_contact_phone,
     }
 
 
@@ -148,6 +171,10 @@ def _apply_customer_update(model: models.Customer, update_data: dict) -> None:
             model.billing_address = update_data.get("address")
         if "shipping_address" not in update_data:
             model.shipping_address = update_data.get("address")
+    if "billing_address" in update_data:
+        model.billing_address = update_data.get("billing_address") or model.address
+    if "shipping_address" in update_data:
+        model.shipping_address = update_data.get("shipping_address") or model.address
     if "pan_no" in update_data:
         model.pan_no = update_data.get("pan_no")
     if "gst_no" in update_data:
@@ -163,6 +190,16 @@ def _apply_customer_update(model: models.Customer, update_data: dict) -> None:
     if "primary_contact_email" in update_data:
         model.primary_contact_email = update_data.get("primary_contact_email")
         model.contact_email = update_data.get("primary_contact_email")
+    if "contact_phone" in update_data:
+        model.contact_phone = update_data.get("contact_phone")
+    if "contact_email" in update_data:
+        model.contact_email = update_data.get("contact_email")
+    if "dispatch_contact_name" in update_data:
+        model.dispatch_contact_name = update_data.get("dispatch_contact_name")
+    if "dispatch_contact_phone" in update_data:
+        model.dispatch_contact_phone = update_data.get("dispatch_contact_phone")
+    if "tax_id" in update_data:
+        model.tax_id = update_data.get("tax_id")
     if "active" in update_data:
         model.active = bool(update_data.get("active"))
 

@@ -14,7 +14,22 @@ def _ensure_schema_compatibility():
             text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS parchment_color VARCHAR(100)")
         )
         connection.execute(
+            text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS line_no DOUBLE PRECISION DEFAULT 1")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS product_code VARCHAR(120)")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS rate_per_pc DOUBLE PRECISION")
+        )
+        connection.execute(
             text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS plant_id UUID")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS po_number VARCHAR(100)")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS po_date DATE")
         )
 
 
