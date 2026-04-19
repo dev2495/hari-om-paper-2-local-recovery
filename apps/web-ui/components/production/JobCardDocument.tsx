@@ -2202,9 +2202,10 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           }
 
           .job-one-sheet {
+            box-sizing: border-box;
             border: 2px solid #0f172a;
             background: #fff;
-            padding: 12px;
+            padding: 20px;
             min-height: 297mm;
             display: flex;
             flex-direction: column;
@@ -2281,22 +2282,21 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           .job-two-col {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 8px;
-            margin-top: 8px;
+            gap: 10px;
+            margin-top: 10px;
             align-items: stretch;
           }
 
           .job-two-col .job-block {
-            min-height: 86mm;
+            min-height: 76mm;
           }
 
           .job-lower-grid {
             grid-template-columns: 1.08fr 0.92fr;
-            flex: 1;
           }
 
           .job-lower-grid .job-block {
-            min-height: 108mm;
+            min-height: 90mm;
           }
 
           .job-block {
@@ -2353,7 +2353,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
           .job-print-table th,
           .job-print-table td {
-            height: 9mm;
+            height: 7.2mm;
             border: 1px solid #0f172a;
             border-left: 0;
             padding: 2px 4px;
@@ -2374,7 +2374,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 8px;
             margin-top: auto;
-            padding: 22mm 7px 5px;
+            padding: 12mm 7px 5px;
           }
 
           .job-signature {
@@ -2415,7 +2415,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             .job-one-sheet {
               min-height: 287mm;
               break-after: auto;
-              padding: 5mm;
+              padding: 7mm;
               box-shadow: none !important;
             }
 
@@ -2438,22 +2438,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             }
 
             .job-two-col .job-block {
-              min-height: 84mm;
+              min-height: 74mm;
             }
 
             .job-lower-grid .job-block {
-              min-height: 106mm;
+              min-height: 88mm;
             }
 
             .job-print-table th,
             .job-print-table td {
-              height: 8.5mm;
+              height: 7.2mm;
               padding: 1mm 1.4mm;
             }
 
             .job-signature-row {
               margin-top: auto;
-              padding-top: 20mm;
+              padding-top: 12mm;
               padding-bottom: 2mm;
             }
           }
