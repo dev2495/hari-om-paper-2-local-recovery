@@ -161,19 +161,18 @@ def per_ply_weight_per_mm(gsm: float, avg_dia_mm: float) -> float:
     return max(float(gsm), 0.0) * math.pi * max(float(avg_dia_mm), 0.0) / 1_000_000.0
 
 
-def wet_paper_share(
+def dry_divisor(moisture_loss_percent: float = GLOBAL_MOISTURE_LOSS_PERCENT) -> float:
+    return max(1.0 - max(float(moisture_loss_percent or 0.0), 0.0) / 100.0, 0.0001)
+
+
+def addon_share(
     adhesive_percent: float = GLOBAL_ADHESIVE_PERCENT,
     parchment_percent: float = GLOBAL_PARCHMENT_PERCENT,
     parchment_allowed: bool = True,
 ) -> float:
-    """Paper's share inside the wet tube weight.
-
-    The workbook treats adhesive and parchment as shares of wet tube weight,
-    not as markups on paper. Paper is the remaining share.
-    """
     adhesive_share = max(float(adhesive_percent), 0.0) / 100.0
     parchment_share = max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
-    return max(1.0 - adhesive_share - parchment_share, 0.0001)
+    return adhesive_share + parchment_share
 
 
 def wet_dry_breakdown(
@@ -183,12 +182,17 @@ def wet_dry_breakdown(
     parchment_percent: float = GLOBAL_PARCHMENT_PERCENT,
     moisture_loss_percent: float = GLOBAL_MOISTURE_LOSS_PERCENT,
     parchment_allowed: bool = True,
+    target_dry_g: float = 0.0,
 ) -> WeightBreakdown:
     paper_g = max(float(paper_g), 0.0)
-    wet_g = paper_g / wet_paper_share(adhesive_percent, parchment_percent, parchment_allowed)
-    adhesive_g = wet_g * max(float(adhesive_percent), 0.0) / 100.0
-    parchment_g = wet_g * max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
-    dry_g = wet_g * (1.0 - moisture_loss_percent / 100.0)
+    target_dry = max(float(target_dry_g or 0.0), 0.0)
+    divisor = dry_divisor(moisture_loss_percent)
+    addons = addon_share(adhesive_percent, parchment_percent, parchment_allowed)
+    dry_base_g = target_dry if target_dry > 0 else paper_g * divisor / max(1.0 - divisor * addons, 0.0001)
+    adhesive_g = dry_base_g * max(float(adhesive_percent), 0.0) / 100.0
+    parchment_g = dry_base_g * max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
+    wet_g = paper_g + adhesive_g + parchment_g
+    dry_g = wet_g * divisor
     return WeightBreakdown(
         paper_g=round(paper_g, 4),
         adhesive_g=round(adhesive_g, 4),
@@ -206,14 +210,14 @@ def required_paper_g(
     moisture_loss_percent: float = GLOBAL_MOISTURE_LOSS_PERCENT,
     parchment_allowed: bool = True,
 ) -> float:
-    """Reverse: grams of paper needed to end at `target_dry_g` after adhesive+parch+moisture."""
+    """Reverse: paper needed when adhesive/parchment are percentages of client dry weight."""
     if target_dry_g is None or target_dry_g <= 0:
         return 0.0
-    divisor = 1.0 - moisture_loss_percent / 100.0
-    if divisor <= 0:
-        return 0.0
-    wet_target_g = float(target_dry_g) / divisor
-    return round(wet_target_g * wet_paper_share(adhesive_percent, parchment_percent, parchment_allowed), 4)
+    target_dry = float(target_dry_g)
+    wet_target_g = target_dry / dry_divisor(moisture_loss_percent)
+    adhesive_g = target_dry * max(float(adhesive_percent), 0.0) / 100.0
+    parchment_g = target_dry * max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
+    return round(max(wet_target_g - adhesive_g - parchment_g, 0.0), 4)
 
 
 # ---------------------------------------------------------------------------
@@ -313,16 +317,19 @@ def compute_preview(
         parchment_percent=parchment_percent,
         moisture_loss_percent=moisture_loss_percent,
         parchment_allowed=parchment_allowed,
+        target_dry_g=target_dry_g,
     )
 
     plan = build_bamboo_plan(tube_len if tube_len else 1.0)
     bamboo_paper_g = paper_wpm * plan.usable_length_mm
+    bamboo_target_dry_g = float(target_dry_g or 0.0) * max(int(plan.tubes_per_bamboo or 0), 0)
     bamboo = wet_dry_breakdown(
         bamboo_paper_g,
         adhesive_percent=adhesive_percent,
         parchment_percent=parchment_percent,
         moisture_loss_percent=moisture_loss_percent,
         parchment_allowed=parchment_allowed,
+        target_dry_g=bamboo_target_dry_g,
     )
 
     required = required_paper_g(

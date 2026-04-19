@@ -70,7 +70,9 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 4.25 Visible suggestion cards now diversify by total ply count instead of showing six near-identical results from the same ply bucket
 - [x] 4.26 Material rule summary metrics now stay on one compact desktop row to reduce wasted vertical space
 - [x] 4.27 Tube weight band now uses a fixed `±3 g` rule instead of percent-based spread, and spec validation tolerance is fixed at `3 g`
-- [x] 4.28 Wet/dry formula corrected: dry target derives wet first, adhesive/parchment are wet-weight shares, and paper is the remaining wet share to match by recipe
+- [x] 4.28 Wet/dry formula corrected: target wet is dry/divisor, adhesive/parchment are fixed from client dry weight, and paper is the remaining wet target to match by recipe
+- [x] 4.29 Job-card print converted to portrait A4 one-page layout with expanded stage tables and signature area
+- [x] 4.30 Reconciliation page redesigned for month-close actuals, variance review, approval notes, and rejection flow visibility
 
 ## 5. Verification
 
@@ -90,11 +92,13 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
   - sample A: `281.33 / 256.01 g` tube, `2813.31 / 2560.11 g` bamboo
   - sample B: `341.08 / 310.39 g` tube, `3410.83 / 3103.85 g` bamboo
   - both now report `delta_tolerance_g = 3`
-- [x] 5.14 Wet-share formula verification after correction:
-  - `250 g dry -> 274.73 g wet -> 41.21 g adhesive + 4.12 g parchment + 229.40 g paper`
-  - BFF preview returns `paper_required_g = 229.4`, `pre_moisture_target_tube_g = 274.73`, and fixed `delta_tolerance_g = 3`
+- [x] 5.14 Dry-target formula verification after correction:
+  - `250 g dry -> 274.73 g wet -> 37.50 g adhesive + 3.75 g parchment + 233.48 g paper`
+  - BFF preview returns `paper_required_g = 233.48`, `pre_moisture_target_tube_g = 274.73`, and fixed `delta_tolerance_g = 3`
   - TypeScript math tests, suggestion tests, web build, status check, and login chunk check passed
-- [ ] 5.15 Browser release gate rerun after Playwright is reinstalled in this checkout
+- [x] 5.15 Job-card PDF generated at `output/pdf/sample-job-card-JC-3E2EB821.pdf` and verified as 1-page A4 portrait (`594.960 × 841.920`)
+- [x] 5.16 Reconciliation route returns `200` on the rebuilt local runtime
+- [ ] 5.17 Browser release gate rerun after Playwright is reinstalled in this checkout
 
 ## 6. Out of scope (flagged)
 

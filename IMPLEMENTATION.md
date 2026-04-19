@@ -58,25 +58,21 @@ bamboo_paper_g = paper_weight_per_mm × bamboo_length_mm
 
 **5. Wet → dry**
 
-The commercial target is the finished dry tube. Wet is derived first, then
-adhesive and parchment are taken as shares of that wet weight. Paper is the
-remaining wet share that the paper recipe must match.
+The commercial target is the finished dry tube. Wet target is derived first.
+Adhesive and parchment are fixed percentages of the client dry target, and the
+paper recipe must fill the remaining wet target.
 
 ```
-paper_share  = 1 − A/100 − (parchment_allowed ? P/100 : 0)
-wet_g        = paper_g ÷ paper_share
-adhesive_g   = wet_g × A/100
-parchment_g  = parchment_allowed ? wet_g × P/100 : 0
-dry_g        = wet_g × (1 − M/100)
+wet_target_g     = target_dry_g ÷ (1 − M/100)
+adhesive_g       = target_dry_g × A/100
+parchment_g      = parchment_allowed ? target_dry_g × P/100 : 0
+paper_required_g = wet_target_g − adhesive_g − parchment_g
+predicted_wet_g  = paper_recipe_g + adhesive_g + parchment_g
+predicted_dry_g  = predicted_wet_g × (1 − M/100)
 ```
 
 **6. Reverse (target dry → required paper)**
-```
-wet_target_g      = target_dry_g ÷ (1 − M/100)
-paper_share       = 1 − A/100 − (parchment_allowed ? P/100 : 0)
-paper_required_g  = wet_target_g × paper_share
-```
-With defaults and parchment on: `paper_share = 0.835`. Example: `250 g dry → 274.73 g wet → 41.21 g adhesive + 4.12 g parchment + 229.40 g paper`.
+With defaults and parchment on: `250 g dry → 274.73 g wet → 37.50 g adhesive + 3.75 g parchment + 233.48 g paper`.
 
 **7. Bamboo plan**
 Scan `L = MAX .. MIN` in `STEP`:
@@ -442,22 +438,21 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - bamboo wet/dry: `3410.83 / 3103.85 g`
   - this remains overweight versus the handwritten note, which means the mismatch is in the handwritten input set versus the live canonical master values, not in the current wet/dry pipeline itself
 
-### 2026-04-19 · Wet-share formula correction
-- User clarified the workbook rule: start from required dry tube weight, compute wet weight using the moisture divisor, then split that wet total into adhesive, parchment, and remaining paper.
+### 2026-04-19 · Dry-target formula correction
+- User clarified the workbook rule: start from required dry tube weight, compute wet weight using the moisture divisor, then take adhesive and parchment as percentages of the client dry target. Paper is the remaining wet target.
 - Corrected the canonical math in both mirrors:
   - `apps/web-ui/lib/spec-math.ts`
   - `hariom-erp/services/spec-service/src/spec_math.py`
-- Corrected the recipe suggestion evaluator in `apps/web-ui/lib/spec-sheet.ts` so suggestion dry deltas rank against the same wet-share formula as the preview.
-- Corrected the formula-card copy and target split in `SpecSheetDocument.tsx`; target adhesive/parchment are now shares of target wet weight, not paper-weight markups.
+- Corrected the formula-card copy and target split in `SpecSheetDocument.tsx`; target adhesive/parchment are now shares of client dry weight, not wet-weight shares or paper-weight markups.
 - Canonical example:
   - target dry: `250.00 g`
   - wet divisor: `0.91`
   - target wet: `274.73 g`
-  - adhesive at `15%` of wet: `41.21 g`
-  - parchment at `1.5%` of wet: `4.12 g`
-  - required paper: `229.40 g`
+  - adhesive at `15%` of dry: `37.50 g`
+  - parchment at `1.5%` of dry: `3.75 g`
+  - required paper: `233.48 g`
 - Focused verification:
-  - `node -r ./node_modules/sucrase/register -e "require('./__tests__/spec-math.test.ts')"` → `PASS 20/20`
+  - `node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts` → `PASS 21/21`
   - `node -r ./node_modules/sucrase/register __tests__/spec-sheet-suggestions.test.ts` → `PASS 3/3`
   - `python3 -m py_compile` passed for `spec_math.py` and `routers/calculations.py`
   - `npm run build` passed in `apps/web-ui`
@@ -467,9 +462,20 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - `bash ./status_all.sh` reports all services running
   - login-page JS chunk check returned `all-js-assets-ok`
   - BFF preview replay for sample A returned:
-    - `paper_required_g: 229.4`
+    - `paper_required_g: 233.48`
     - `pre_moisture_target_tube_g: 274.73`
     - `predicted_wet_tube_g: 289.2`
     - `predicted_dry_tube_g: 263.18`
     - `dry_delta_g: 13.18`
-  - The sample A handwritten recipe is therefore overweight under the clarified rule because its paper total is `241.49 g`, while the corrected target paper requirement is `229.40 g`.
+  - The sample A handwritten recipe is therefore overweight under the clarified rule because its paper total is `241.49 g`, while the corrected target paper requirement is `233.48 g`.
+
+### 2026-04-19 · Job card and reconciliation pass
+- `JobCardDocument.tsx` now prints the scheduled release job card as a portrait A4 one-page document with a larger execution grid, stage-wise rejection fields, QR lookup, and operator/QC/supervisor sign-off area.
+- `production/reconciliation/page.tsx` now provides a month-close workspace: theoretical consumption, actual master-data input, variance/cost columns, approval notes, and an explicit rejection tracking flow across winder, oven, process, and month close.
+- Month-end bridge formula in the UI:
+  - `final_output = (paper + adhesive + parchment) × (1 - moisture%) × (1 - wastage%)`
+  - example `107 + 15 + 1.5`, moisture `9%`, wastage `12%` gives `98.90`; exact `100` with those constants needs `108.38` paper.
+- Generated sample PDF:
+  - `output/pdf/sample-job-card-JC-3E2EB821.pdf`
+  - verified by `file` as `PDF document, version 1.4, 1 pages`
+  - verified by `sips` as `594.960 × 841.920` portrait pixels

@@ -1197,8 +1197,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const liveDryDelta = Number(previewSummary.dry_delta_g || 0)
   const targetDryTube = Number(form.averages.weight || 0)
   const targetWetTube = Number(bridgeMetrics.preMoistureTargetTubeG || 0)
-  const targetAdhesiveWeight = targetWetTube * (Number(form.dynamicValues.glue_base_percent || 15) / 100)
-  const targetParchmentWeight = form.parchmentAllowed ? targetWetTube * (Number(form.parchmentPercent || 1.5) / 100) : 0
+  const targetAdhesiveWeight = targetDryTube * (Number(form.dynamicValues.glue_base_percent || 15) / 100)
+  const targetParchmentWeight = form.parchmentAllowed ? targetDryTube * (Number(form.parchmentPercent || 1.5) / 100) : 0
   const targetPaperWeight = Math.max(targetWetTube - targetAdhesiveWeight - targetParchmentWeight, 0)
   const writePlantLabel =
     activePlant === "ALL"
@@ -2040,8 +2040,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Material rule sheet</p>
                   <h3 className="mt-2 text-xl font-semibold text-slate-950">One formula, one parchment gate, one adhesive split.</h3>
                   <p className="mt-2 text-sm text-slate-600">
-                    Wet = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are wet-weight shares; paper is the remaining wet share.
-                    Glue stays at {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% and parchment stays at {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"} until validation changes it.
+                    Wet target = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are percentages of client dry weight; paper is the remaining wet target.
+                    Glue stays at {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% of dry weight and parchment stays at {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}% of dry weight` : "off"} until validation changes it.
                   </p>
                 </div>
 
@@ -2218,7 +2218,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </span>
                   </div>
                   <p className="mt-3 text-sm text-slate-300">
-                    Target wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Current recipe wet is paper ÷ remaining wet share.
+                    Target wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are fixed from client dry weight; paper fills the remaining wet target.
                   </p>
                   <div className="mt-5 grid gap-3 md:grid-cols-3">
                     <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">

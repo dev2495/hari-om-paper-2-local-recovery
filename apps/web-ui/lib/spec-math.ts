@@ -101,8 +101,9 @@ const round4 = (n: number) => Math.round(n * 10_000) / 10_000
 const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000
 const clamp0 = (n: number | null | undefined) =>
   typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0
-const wetPaperShare = (adhesivePercent: number, parchmentPercent: number, parchmentAllowed: boolean) =>
-  Math.max(1 - Math.max(adhesivePercent, 0) / 100 - (parchmentAllowed ? Math.max(parchmentPercent, 0) / 100 : 0), 0.0001)
+const dryDivisor = (moistureLossPercent: number) => Math.max(1 - Math.max(moistureLossPercent, 0) / 100, 0.0001)
+const addOnShare = (adhesivePercent: number, parchmentPercent: number, parchmentAllowed: boolean) =>
+  Math.max(adhesivePercent, 0) / 100 + (parchmentAllowed ? Math.max(parchmentPercent, 0) / 100 : 0)
 
 export function thicknessMm(gsm: number, bulk: number): number {
   return (clamp0(gsm) * clamp0(bulk)) / 1000
@@ -154,6 +155,7 @@ export function wetDryBreakdown(
     parchment_percent?: number
     moisture_loss_percent?: number
     parchment_allowed?: boolean
+    target_dry_g?: number
   },
 ): WeightBreakdown {
   const paper = clamp0(paperG)
@@ -161,11 +163,14 @@ export function wetDryBreakdown(
   const P = opts?.parchment_percent ?? GLOBAL_PARCHMENT_PERCENT
   const M = opts?.moisture_loss_percent ?? GLOBAL_MOISTURE_LOSS_PERCENT
   const parchmentAllowed = opts?.parchment_allowed ?? true
-  const paperShare = wetPaperShare(A, P, parchmentAllowed)
-  const wet = paper / paperShare
-  const adhesive = (wet * Math.max(A, 0)) / 100
-  const parchment = parchmentAllowed ? (wet * Math.max(P, 0)) / 100 : 0
-  const dry = wet * (1 - M / 100)
+  const targetDry = clamp0(opts?.target_dry_g)
+  const divisor = dryDivisor(M)
+  const addon = addOnShare(A, P, parchmentAllowed)
+  const dryBase = targetDry > 0 ? targetDry : (paper * divisor) / Math.max(1 - divisor * addon, 0.0001)
+  const adhesive = (dryBase * Math.max(A, 0)) / 100
+  const parchment = parchmentAllowed ? (dryBase * Math.max(P, 0)) / 100 : 0
+  const wet = paper + adhesive + parchment
+  const dry = wet * divisor
   return {
     paper_g: round4(paper),
     adhesive_g: round4(adhesive),
@@ -189,9 +194,11 @@ export function requiredPaperG(
   const P = opts?.parchment_percent ?? GLOBAL_PARCHMENT_PERCENT
   const M = opts?.moisture_loss_percent ?? GLOBAL_MOISTURE_LOSS_PERCENT
   const parchmentAllowed = opts?.parchment_allowed ?? true
-  const divisor = 1 - M / 100
-  if (divisor <= 0) return 0
-  return round4((targetDryG / divisor) * wetPaperShare(A, P, parchmentAllowed))
+  const divisor = dryDivisor(M)
+  const targetWet = targetDryG / divisor
+  const adhesive = (targetDryG * Math.max(A, 0)) / 100
+  const parchment = parchmentAllowed ? (targetDryG * Math.max(P, 0)) / 100 : 0
+  return round4(Math.max(targetWet - adhesive - parchment, 0))
 }
 
 // ---------------------------------------------------------------------------
@@ -294,15 +301,18 @@ export function computePreview(opts: PreviewOptions): PreviewResult {
     parchment_percent,
     moisture_loss_percent,
     parchment_allowed,
+    target_dry_g: opts.target_dry_g,
   })
 
   const plan = buildBambooPlan(tube_length_mm || 1)
   const bamboo_paper_g = paper_wpm * plan.usable_length_mm
+  const bambooTargetDryG = (opts.target_dry_g || 0) * Math.max(plan.tubes_per_bamboo || 0, 0)
   const bamboo = wetDryBreakdown(bamboo_paper_g, {
     adhesive_percent,
     parchment_percent,
     moisture_loss_percent,
     parchment_allowed,
+    target_dry_g: bambooTargetDryG,
   })
 
   const required = requiredPaperG(opts.target_dry_g, {

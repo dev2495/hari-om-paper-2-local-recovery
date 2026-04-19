@@ -317,8 +317,10 @@ export const productionApi = {
   getMonthlyMaterialSummary: (params?: any) => api.get("/api/production/monthly-material-summary", { params }),
   getMonthlyCloseState: (params?: any) => api.get("/api/production/monthly-close-state", { params }),
   createShiftMaterialLedger: (data: any) => api.post("/api/production/shift-material-ledger", data),
-  importMonthlyActuals: (payload: any, plantId?: string) => api.post("/api/production/import-monthly-actuals", { payload, plant_id: plantId }),
-  approveMonthlyClose: (payload: any, plantId?: string) => api.post("/api/production/approve-monthly-close", { payload, plant_id: plantId }),
+  importMonthlyActuals: (payload: any, plantId?: string) =>
+    api.post("/api/production/import-monthly-actuals", payload, withPlantHeader(plantId)),
+  approveMonthlyClose: (payload: any, plantId?: string) =>
+    api.post("/api/production/approve-monthly-close", payload, withPlantHeader(plantId)),
 }
 
 export const inventoryApi = {

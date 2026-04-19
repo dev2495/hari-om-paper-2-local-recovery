@@ -134,28 +134,41 @@ test('perPlyWeightPerMm matches GSM circumference identity', () => {
 
 // ----- wet/dry ---------------------------------------------------------------
 
-test('wetDryBreakdown defaults match workbook photo', () => {
-  const b = wetDryBreakdown(100)
-  approx(b.adhesive_g, 17.9641, 1e-4)
-  approx(b.parchment_g, 1.7964, 1e-4)
-  approx(b.wet_g, 119.7605, 1e-4)
-  approx(b.dry_g, 119.7605 * 0.91, 1e-4)
+test('wetDryBreakdown defaults use dry-weight adhesive and parchment', () => {
+  const b = wetDryBreakdown(233.4753, { target_dry_g: 250 })
+  approx(b.adhesive_g, 37.5, 1e-4)
+  approx(b.parchment_g, 3.75, 1e-4)
+  approx(b.wet_g, 274.7253, 1e-4)
+  approx(b.dry_g, 250, 1e-3)
+})
+
+test('wetDryBreakdown keeps additives fixed to client dry target when recipe is off', () => {
+  const b = wetDryBreakdown(247.69, { target_dry_g: 250 })
+  approx(b.adhesive_g, 37.5, 1e-4)
+  approx(b.parchment_g, 3.75, 1e-4)
+  approx(b.wet_g, 288.94, 1e-4)
+  approx(b.dry_g, 262.9354, 1e-4)
 })
 
 test('wetDryBreakdown parchment disallowed', () => {
-  const b = wetDryBreakdown(100, { parchment_allowed: false })
+  const b = wetDryBreakdown(94.8901, { parchment_allowed: false, target_dry_g: 100 })
   assert.equal(b.parchment_g, 0)
-  approx(b.wet_g, 117.6471, 1e-4)
+  approx(b.adhesive_g, 15, 1e-4)
+  approx(b.wet_g, 109.8901, 1e-4)
+  approx(b.dry_g, 100, 1e-3)
 })
 
 test('wetDryBreakdown custom overrides', () => {
-  const b = wetDryBreakdown(200, {
+  const b = wetDryBreakdown(91.1111, {
+    target_dry_g: 100,
     adhesive_percent: 18,
     parchment_percent: 2,
     moisture_loss_percent: 10,
   })
-  approx(b.wet_g, 250)
-  approx(b.dry_g, 225)
+  approx(b.adhesive_g, 18)
+  approx(b.parchment_g, 2)
+  approx(b.wet_g, 111.1111, 1e-4)
+  approx(b.dry_g, 100, 1e-3)
 })
 
 // ----- required paper reverse -----------------------------------------------
@@ -163,8 +176,8 @@ test('wetDryBreakdown custom overrides', () => {
 test('requiredPaperG round-trip defaults', () => {
   const target = 250
   const req = requiredPaperG(target)
-  approx(req, (target / 0.91) * 0.835, 1e-4)
-  const back = wetDryBreakdown(req)
+  approx(req, target / 0.91 - target * 0.15 - target * 0.015, 1e-4)
+  const back = wetDryBreakdown(req, { target_dry_g: target })
   approx(back.dry_g, target, 1e-3)
 })
 
@@ -267,7 +280,7 @@ test('computePreview reverse matches wet/dry', () => {
     ],
     target_dry_g: target,
   })
-  const back = wetDryBreakdown(p.paper_required_g)
+  const back = wetDryBreakdown(p.paper_required_g, { target_dry_g: target })
   approx(back.dry_g, target, 1e-3)
 })
 
@@ -288,7 +301,7 @@ test('computePreview respects parchment toggle', () => {
     parchment_allowed: false,
   })
   assert.equal(no.tube.parchment_g, 0)
-  assert.ok(no.tube.wet_g < base.tube.wet_g)
+  assert.ok(no.paper_required_g > base.paper_required_g)
 })
 
 test('computePreview respects custom globals', () => {
@@ -301,8 +314,8 @@ test('computePreview respects custom globals', () => {
     parchment_percent: 2,
     moisture_loss_percent: 10,
   })
-  approx(p.tube.adhesive_g, p.tube.wet_g * 0.18, 1e-3)
-  approx(p.tube.parchment_g, p.tube.wet_g * 0.02, 1e-3)
+  approx(p.tube.adhesive_g, 18, 1e-3)
+  approx(p.tube.parchment_g, 2, 1e-3)
   approx(p.tube.dry_g, p.tube.wet_g * 0.9, 1e-3)
 })
 
