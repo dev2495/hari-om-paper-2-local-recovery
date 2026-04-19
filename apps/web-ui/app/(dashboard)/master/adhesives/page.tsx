@@ -25,8 +25,8 @@ export default function AdhesivesPage() {
             columns={columns}
             data={data}
             isLoading={isLoading}
-            onAdd={(data) => createMutation.mutate(data)}
-            onEdit={(id, data) => updateMutation.mutate({ id, data })}
+            onAdd={(data) => createMutation.mutateAsync(data)}
+            onEdit={(id, data) => updateMutation.mutateAsync({ id, data })}
             onDelete={(id) => deleteMutation.mutate(id)}
             FormComponent={AdhesiveForm}
         />

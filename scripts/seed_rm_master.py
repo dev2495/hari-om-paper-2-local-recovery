@@ -11,17 +11,15 @@ ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@hariom.com")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
 
 PAPERS = [
-    {"gsm": 230, "bf": 18, "label": "18BF", "code": "KRAFT-230-18BF"},
-    {"gsm": 250, "bf": 18, "label": "18BF", "code": "KRAFT-250-18BF", "thickness_mm": 0.22, "bulk_factor": 1.0},
-    {"gsm": 300, "bf": 18, "label": "18BF", "code": "KRAFT-300-18BF", "thickness_mm": 0.24, "bulk_factor": 1.0},
-    {"gsm": 301, "bf": 400, "label": "400PB", "code": "KRAFT-301-400PB"},
-    {"gsm": 350, "bf": 300, "label": "300PB", "code": "KRAFT-350-300PB"},
-    {"gsm": 355, "bf": 350, "label": "350PB", "code": "KRAFT-355-350PB"},
-    {"gsm": 351, "bf": 400, "label": "400PB", "code": "KRAFT-351-400PB"},
-    {"gsm": 352, "bf": 500, "label": "500PB", "code": "KRAFT-352-500PB"},
-    {"gsm": 353, "bf": 600, "label": "600PB", "code": "KRAFT-353-600PB"},
-    {"gsm": 354, "bf": 700, "label": "700PB", "code": "KRAFT-354-700PB"},
-    {"gsm": 401, "bf": 400, "label": "400PB", "code": "KRAFT-401-400PB"},
+    {"gsm": 220, "bf": 20, "label": "20BF", "code": "221", "bulk_factor": 1.50, "thickness_mm": 0.33, "ply_bond": 400.0},
+    {"gsm": 230, "bf": 28, "label": "28BF", "code": "231", "bulk_factor": 1.50, "thickness_mm": 0.345, "ply_bond": 400.0},
+    {"gsm": 300, "bf": 20, "label": "20BF", "code": "301", "bulk_factor": 1.50, "thickness_mm": 0.45, "ply_bond": 400.0},
+    {"gsm": 350, "bf": 16, "label": "16BF", "code": "350", "bulk_factor": 1.55, "thickness_mm": 0.5425, "ply_bond": 300.0},
+    {"gsm": 350, "bf": 18, "label": "18BF", "code": "355", "bulk_factor": 1.55, "thickness_mm": 0.5425, "ply_bond": 350.0},
+    {"gsm": 350, "bf": 20, "label": "20BF", "code": "351", "bulk_factor": 1.50, "thickness_mm": 0.525, "ply_bond": 400.0},
+    {"gsm": 350, "bf": 24, "label": "24BF", "code": "352", "bulk_factor": 1.45, "thickness_mm": 0.5075, "ply_bond": 500.0},
+    {"gsm": 350, "bf": 28, "label": "28BF", "code": "353", "bulk_factor": 1.40, "thickness_mm": 0.49, "ply_bond": 600.0},
+    {"gsm": 350, "bf": 32, "label": "32BF", "code": "354", "bulk_factor": 1.40, "thickness_mm": 0.49, "ply_bond": 700.0},
 ]
 
 ADHESIVES = [
@@ -83,7 +81,13 @@ def concrete_plant_ids(token: str) -> list[str]:
     resp = requests.get(f"{BFF_URL}/api/auth/plants", headers=headers(token), timeout=20)
     _raise_for_status(resp)
     rows = resp.json() or []
-    return [str(row.get("id")) for row in rows if row.get("id")]
+    plant_ids: list[str] = []
+    for row in rows:
+        value = str(row.get("id") or row.get("code") or "").strip()
+        if not value or value.upper() == "ALL":
+            continue
+        plant_ids.append(value)
+    return plant_ids
 
 
 def upsert_papers(token: str, plant_ids: list[str]) -> None:
@@ -95,18 +99,24 @@ def upsert_papers(token: str, plant_ids: list[str]) -> None:
         by_code = {str(row.get("code") or "").upper(): row for row in existing}
 
         for paper in PAPERS:
+            thickness_mm = paper.get("thickness_mm")
+            resolved_bulk_factor = (
+                round((float(thickness_mm) * 1000.0) / float(paper["gsm"]), 4)
+                if thickness_mm not in (None, "")
+                else paper.get("bulk_factor", 1.0)
+            )
             payload = {
                 "code": paper["code"],
                 "variety": "KRAFT PAPER",
                 "gsm": paper["gsm"],
                 "bf": paper["bf"],
-                "thickness_mm": paper.get("thickness_mm"),
-                "ply_bond": paper["bf"],
+                "thickness_mm": thickness_mm,
+                "ply_bond": paper.get("ply_bond", 0.0),
                 "strength_type": "BF",
                 "strength_value": int(round(float(paper["bf"]))),
                 "category": "KRAFT",
                 "price": None,
-                "bulk_factor": paper.get("bulk_factor", 1.4),
+                "bulk_factor": resolved_bulk_factor,
                 "active": True,
             }
             row = by_code.get(paper["code"].upper())
@@ -207,7 +217,7 @@ def upsert_tools(token: str, plant_ids: list[str]) -> None:
         existing_keys = {
             (
                 str(row.get("category") or "").strip().upper(),
-                str(row.get("name") or "").strip().upper(),
+                str(row.get("name") or "").strip(),
             ): row
             for row in existing
         }
@@ -221,7 +231,7 @@ def upsert_tools(token: str, plant_ids: list[str]) -> None:
                 "spec_text": tool.get("spec_text", "Seeded from Sanathan Polycoat P workbook"),
                 "department": tool.get("department", "COMMON"),
             }
-            key = (tool["category"].strip().upper(), tool["name"].strip().upper())
+            key = (tool["category"].strip().upper(), tool["name"].strip())
             row = existing_keys.get(key)
             if row:
                 resp = requests.put(f"{BFF_URL}/api/master/tools/{row['id']}", json={**payload, "active": True}, headers=h, timeout=20)

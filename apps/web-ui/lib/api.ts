@@ -175,6 +175,8 @@ export const masterApi = {
   createParchment: (data: any) => api.post("/api/master/parchments", data),
   updateParchment: (id: string, data: any) => api.put(`/api/master/parchments/${id}`, data),
   deleteParchment: (id: string) => api.delete(`/api/master/parchments/${id}`),
+  getParchmentVendors: () => api.get("/api/master/parchment/vendors"),
+  createParchmentVendor: (data: any) => api.post("/api/master/parchment/vendors", data),
 
   getTubeSizes: () => api.get("/api/master/tube-sizes"),
   createTubeSize: (data: any) => api.post("/api/master/tube-sizes", data),

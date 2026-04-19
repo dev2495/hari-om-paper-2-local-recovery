@@ -44,6 +44,57 @@ def ensure_runtime_schema() -> None:
                 "ALTER COLUMN value TYPE TEXT"
             )
         )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS recipe_layers "
+                "ALTER COLUMN gsm_snapshot TYPE DOUBLE PRECISION USING gsm_snapshot::double precision"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS recipe_layers "
+                "ALTER COLUMN bf_snapshot TYPE DOUBLE PRECISION USING bf_snapshot::double precision"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS specification_sheet "
+                "ADD COLUMN IF NOT EXISTS adhesive_percent DOUBLE PRECISION DEFAULT 15.0"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS specification_sheet "
+                "ADD COLUMN IF NOT EXISTS moisture_loss_percent DOUBLE PRECISION DEFAULT 9.0"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS specification_sheet "
+                "ADD COLUMN IF NOT EXISTS parchment_allowed BOOLEAN DEFAULT TRUE"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE specification_sheet SET adhesive_percent = 15.0 WHERE adhesive_percent IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE specification_sheet SET moisture_loss_percent = 9.0 WHERE moisture_loss_percent IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE specification_sheet SET parchment_allowed = TRUE WHERE parchment_allowed IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS recipe_layers "
+                "ADD COLUMN IF NOT EXISTS bulk_snapshot DOUBLE PRECISION"
+            )
+        )
 
 
 ensure_runtime_schema()

@@ -19,6 +19,7 @@ type DocumentMode = "view" | "print" | "supervisor"
 type StageName = "SLITTING" | "WINDER" | "OVEN" | "PROCESS" | "PACKING" | "QC" | "DISPATCH"
 
 const STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
+const PLANNER_GATED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
 
 type Props = {
   jobCardId?: string
@@ -447,6 +448,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     (mandrelId ? mandrelLabelMap.get(mandrelId) : null) ||
     "-"
   const currentStage = (card?.current_stage || "WINDER") as StageName
+  const plannerGateReady = Boolean(card?.planner_gate_ready ?? true)
+  const plannerGateReason = card?.planner_gate_reason || ""
   const currentStageSegments = stageSegments.filter((segment: any) => segment.stage_type === currentStage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
   const selectedSegmentId = stageForms[currentStage]?.segment_id || card?.active_segment_id || currentStageSegments[0]?.id || null
   const activeSegment = currentStageSegments.find((segment: any) => segment.id === selectedSegmentId) || currentStageSegments[0] || null
@@ -591,7 +594,13 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   function stageEditable(stage: StageName) {
     const row = stageRow(stage)
     if (stage === "DISPATCH") return false
-    return mode === "supervisor" && row?.status !== "COMPLETED" && !stageAssignment(stage).missingRequiredAssignment
+    if (mode !== "supervisor" || row?.status === "COMPLETED" || stageAssignment(stage).missingRequiredAssignment) {
+      return false
+    }
+    if (stage === currentStage && PLANNER_GATED_STAGES.includes(stage) && !plannerGateReady) {
+      return false
+    }
+    return true
   }
 
   function draftPayload(stage: StageName) {
@@ -846,6 +855,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Pcs / Bamboo</div><div className="mt-1 text-sm font-semibold">{formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)}</div></div>
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Bamboo Length</div><div className="mt-1 text-sm font-semibold">{formatNumber(selectedBambooLength, 0)} mm</div></div>
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Parchment</div><div className="mt-1 text-sm font-semibold">{parchmentPattern}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Release Lot</div><div className="mt-1 text-sm font-semibold">{card?.release_lot_id ? String(card.release_lot_id).slice(0, 8) : "-"}</div></div>
+                <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Sales Line</div><div className="mt-1 text-sm font-semibold">{card?.sales_order_line_id ? String(card.sales_order_line_id).slice(0, 8) : "-"}</div></div>
               </div>
             </div>
             <div className="grid gap-3 bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] px-6 py-6">
@@ -855,6 +866,19 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Current Machine</div><div className="mt-1 text-sm font-semibold text-slate-900">{currentMachineLabel}</div></div>
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Shift Slot</div><div className="mt-1 text-sm font-semibold text-slate-900">{currentShiftLabel}</div></div>
               </div>
+              {PLANNER_GATED_STAGES.includes(currentStage) ? (
+                <div className={`rounded-2xl border px-4 py-3 ${plannerGateReady ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Planner Gate</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                    {plannerGateReady ? "Ready for floor entry" : "Blocked until planner slot is valid"}
+                  </div>
+                  <div className="mt-1 text-xs text-slate-600">
+                    {plannerGateReady
+                      ? `Scheduled ${card?.active_segment_plan_date || activeSegment?.plan_date || "-"} · ${currentMachineLabel}`
+                      : plannerGateReason || "Planner must place this stage in the next 3 days before supervisor entry."}
+                  </div>
+                </div>
+              ) : null}
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -1090,10 +1114,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
   function renderAssignmentWarning(stage: StageName) {
     const assignment = stageAssignment(stage)
-    if (!assignment.missingRequiredAssignment) return null
+    const shouldShowPlannerGateWarning =
+      stage === currentStage && PLANNER_GATED_STAGES.includes(stage) && !plannerGateReady
+    if (!assignment.missingRequiredAssignment && !shouldShowPlannerGateWarning) return null
     return (
       <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-900 no-print">
-        Planner assignment is missing for this stage. Assign machine and shift on the planning board before supervisor entry.
+        {assignment.missingRequiredAssignment
+          ? "Planner assignment is missing for this stage. Assign machine and shift on the planning board before supervisor entry."
+          : plannerGateReason || "This stage is not yet scheduled inside the next-three-day planner window."}
       </div>
     )
   }

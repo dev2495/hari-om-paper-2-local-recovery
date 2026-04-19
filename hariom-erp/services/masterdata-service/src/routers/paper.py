@@ -28,7 +28,7 @@ def _derived_thickness(gsm: Optional[float], bulk_factor: Optional[float]) -> Op
 class PaperCreate(BaseModel):
     code: str
     variety: str
-    gsm: int
+    gsm: float
     bf: Optional[float] = None
     ply_bond: Optional[float] = None
     bulk_factor: Optional[float] = None
@@ -39,7 +39,7 @@ class PaperCreate(BaseModel):
 class PaperUpdate(BaseModel):
     code: Optional[str] = None
     variety: Optional[str] = None
-    gsm: Optional[int] = None
+    gsm: Optional[float] = None
     bf: Optional[float] = None
     ply_bond: Optional[float] = None
     bulk_factor: Optional[float] = None
@@ -52,7 +52,7 @@ class PaperResponse(BaseModel):
     id: uuid.UUID
     code: str
     variety: str
-    gsm: int
+    gsm: float
     bf: Optional[float]
     thickness_mm: Optional[float]
     ply_bond: Optional[float]
@@ -71,7 +71,7 @@ def _serialize_paper(model: models.PaperMaster) -> PaperResponse:
         "id": model.id,
         "code": model.code or "",
         "variety": model.variety or "",
-        "gsm": model.gsm,
+        "gsm": float(model.gsm) if model.gsm is not None else 0.0,
         "bf": model.bf,
         "thickness_mm": _derived_thickness(model.gsm, model.bulk_factor),
         "ply_bond": model.ply_bond,
@@ -183,7 +183,7 @@ def update_paper(
     if "variety" in update_data and update_data["variety"] is not None:
         db_paper.variety = str(update_data["variety"]).strip()
     if "gsm" in update_data and update_data["gsm"] is not None:
-        db_paper.gsm = int(update_data["gsm"])
+        db_paper.gsm = float(update_data["gsm"])
     if "bf" in update_data:
         db_paper.bf = update_data["bf"]
     if "ply_bond" in update_data:

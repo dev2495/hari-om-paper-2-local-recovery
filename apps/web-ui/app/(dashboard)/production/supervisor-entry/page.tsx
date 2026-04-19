@@ -157,7 +157,7 @@ function SupervisorEntryPageContent() {
               Supervisors should only fill actual times, counts, measurements, reject reasons, and signatures.
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-              If planner assignment is missing, the stage stays blocked until machine and shift are scheduled.
+              A released job becomes floor-executable only after planner schedules its active stage into the next three days with a machine and shift.
             </div>
           </div>
         </div>

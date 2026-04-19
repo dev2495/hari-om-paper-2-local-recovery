@@ -229,7 +229,7 @@ async def list_roles(request: Request):
     token = extract_token(request)
     try:
         response = await http_client.get(
-            f"{AUTH_SERVICE_URL}/roles",
+            f"{AUTH_SERVICE_URL}/roles/",
             headers={"Authorization": f"Bearer {token}"},
         )
     except httpx.RequestError:

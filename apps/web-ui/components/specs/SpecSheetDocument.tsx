@@ -31,7 +31,6 @@ import {
   useSpecSheetSuggestions,
   useSpecSheetDocument,
   useUpdateSpecSheet,
-  useRecordTrial,
 } from "@/hooks/use-specs"
 import {
   AdhesiveComponent,
@@ -47,6 +46,7 @@ import {
   deriveRanges,
   DynamicFieldValue,
   encodePlyPositions,
+  formatRecipeRowsTitle,
   GroupedRecipeRow,
   midpoint,
   parseAdhesiveComponents,
@@ -107,6 +107,7 @@ type FormState = {
   variantTemplateKey: string
   tubeSizeId: string
   mandrelId: string
+  parchmentAllowed: boolean
   averages: AverageValues
   shrinkPercent: string
   parchmentPercent: string
@@ -170,6 +171,7 @@ function defaultFormState(): FormState {
     variantTemplateKey: CANONICAL_VARIANT_KEY,
     tubeSizeId: "",
     mandrelId: "",
+    parchmentAllowed: true,
     averages: {
       id: 0,
       od: 0,
@@ -178,14 +180,14 @@ function defaultFormState(): FormState {
       cs: 0,
       moisture: DEFAULT_MOISTURE_AVG,
     },
-    shrinkPercent: "9.5",
+    shrinkPercent: "9.0",
     parchmentPercent: "1.5",
     parchmentColor: "",
     adhesive20100: "30",
-    adhesive30100: "80",
+    adhesive30100: "70",
     adhesiveComponents: [
-      { name: "TL-4 (20100)", base_percent: 12, ratio_percent: 30 },
-      { name: "Vinsol (30100)", base_percent: 12, ratio_percent: 80 },
+      { name: "TL-4 (20100)", base_percent: 15, ratio_percent: 30 },
+      { name: "Vinsol (30100)", base_percent: 15, ratio_percent: 70 },
     ],
     notes: "",
     recipeRows: [blankRecipeRow(nextRecipeRowSeed())],
@@ -230,17 +232,6 @@ function defaultFormState(): FormState {
   }
 }
 
-const WIZARD_STEPS = [
-  { key: "base", label: "Client + Spec Base", target: "sheet-client" },
-  { key: "dimensions", label: "Dimensions + Tolerances", target: "sheet-client" },
-  { key: "recipe", label: "Recipe + Glue", target: "sheet-recipe" },
-  { key: "tooling", label: "Notch + Tooling", target: "sheet-notch-tooling" },
-  { key: "guidance", label: "Process + Packing", target: "sheet-packing" },
-  { key: "preview", label: "Validation + Print", target: "sheet-validation" },
-] as const
-
-type WizardStepKey = (typeof WIZARD_STEPS)[number]["key"]
-
 function SectionLabel({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-slate-300 pb-2">
@@ -268,6 +259,62 @@ function MasterLinkRow({ links }: { links: Array<{ href: string; label: string }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{children}</label>
+}
+
+function SummaryMetric({
+  label,
+  value,
+  detail,
+  tone = "default",
+}: {
+  label: string
+  value: string
+  detail?: string
+  tone?: "default" | "accent" | "success"
+}) {
+  const toneClass =
+    tone === "accent"
+      ? "border-[#d8cfbf] bg-[#f8f1e3]"
+      : tone === "success"
+        ? "border-emerald-200 bg-emerald-50"
+        : "border-[#dfe7f1] bg-white"
+
+  return (
+    <div className={`rounded-[24px] border p-4 ${toneClass}`}>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+      <p className="mt-3 text-2xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
+      {detail ? <p className="mt-2 text-sm text-slate-500">{detail}</p> : null}
+    </div>
+  )
+}
+
+function FoldSection({
+  id,
+  title,
+  subtitle,
+  forceOpen = false,
+  children,
+}: {
+  id: string
+  title: string
+  subtitle?: string
+  forceOpen?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <details id={id} open={forceOpen} className="rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</p>
+          {subtitle ? <p className="mt-2 text-sm text-slate-600">{subtitle}</p> : null}
+        </div>
+        <span className="rounded-full border border-[#d9e2ef] bg-[#f8fafc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+          Expand when needed
+        </span>
+      </summary>
+      <div className="border-t border-[#e4ebf3] px-5 py-5">{children}</div>
+    </details>
+  )
 }
 
 function boolFromString(value: string | undefined) {
@@ -419,16 +466,73 @@ function SpecMatrixTable({
   )
 }
 
+function ParameterTableCard({
+  title,
+  subtitle,
+  columns,
+  rows,
+}: {
+  title: string
+  subtitle?: string
+  columns: string[]
+  rows: Array<{ label: string; values: Array<string | number> }>
+}) {
+  return (
+    <div className="overflow-hidden rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+      <div className="border-b border-[#d9e2ef] px-6 py-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">{title}</p>
+        {subtitle ? <p className="mt-2 text-sm text-slate-600">{subtitle}</p> : null}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="bg-[#d8dde6] text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+            <tr>
+              <th className="border-b border-[#d9e2ef] px-6 py-4 text-left">Parameter</th>
+              {columns.map((column) => (
+                <th key={column} className="border-b border-[#d9e2ef] px-6 py-4 text-right">
+                  {column}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.label} className="border-b border-[#edf2f7] last:border-b-0">
+                <td className="px-6 py-4 font-semibold text-slate-900">{row.label}</td>
+                {row.values.map((value, index) => (
+                  <td
+                    key={`${row.label}-${index}`}
+                    className={`px-6 py-4 text-right text-slate-700 ${index === 1 ? "font-black text-slate-950" : ""}`}
+                  >
+                    {value}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const router = useRouter()
   const { showToast } = useApp()
   const { user, activePlant } = useAuth()
   const isCreate = mode === "create"
-  const isEditable = mode === "create" || mode === "edit"
+  const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean)), [user?.role, user?.roles])
+  const canManageSpec = userRoles.has("Owner") || userRoles.has("Admin")
+  const hasConcreteWritePlant = Boolean(activePlant && activePlant !== "ALL")
+  const editBlockReason = !canManageSpec
+    ? "Only Owner and Admin can edit specification sheets."
+    : !hasConcreteWritePlant
+      ? "Pick one plant in the top switcher before creating or editing a specification."
+      : null
+  const isEditable = (mode === "create" || mode === "edit") && !editBlockReason
   const isPrint = mode === "print"
 
   const [form, setForm] = useState<FormState>(() => defaultFormState())
-  const [activeStep, setActiveStep] = useState<WizardStepKey>("base")
   const [loadedSpecId, setLoadedSpecId] = useState<string | null>(null)
   const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
   const [todayLabel, setTodayLabel] = useState("--/--/----")
@@ -453,7 +557,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const approveSpec = useApproveSpec()
   const obsoleteSpec = useObsoleteSpec()
   const cloneSpec = useCloneSpecSheet()
-  const recordTrial = useRecordTrial()
 
   const customerMap = useMemo<Map<string, any>>(
     () => new Map<string, any>(((customers || []) as any[]).map((item) => [String(item.id), item])),
@@ -567,18 +670,33 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const clientRanges = useMemo(() => deriveRanges(form.averages, DEFAULT_TOLERANCE_BANDS), [form.averages])
   const clientRows = useMemo(() => buildMatrixRows(form.averages, clientRanges), [form.averages, clientRanges])
 
+  const recipeTotalWallThickness = useMemo(
+    () =>
+      form.recipeRows.reduce(
+        (sum, row) =>
+          sum +
+          Number(row.thicknessPerPly || 0) *
+            Math.max(1, parsePlyPositions(row.positionsText, Number(row.plyCount || 1)).length),
+        0,
+      ),
+    [form.recipeRows],
+  )
+
   const manufacturingAverages = useMemo(() => {
     const mandrelOd = Number(selectedMandrel?.outer_diameter_mm || 0)
-    const mandrelAverageId = mandrelOd > 0 ? roundValue(mandrelOd + 0.1, 2) : roundValue(Number(form.averages.id || 0), 2)
+    const mandrelAverageId =
+      mandrelOd > 0 ? roundValue(mandrelOd, 2) : roundValue(Number(form.averages.id || 0), 2)
     const usableLength = Number(specConstants?.bamboo_max_length_mm || 1560) - Number(specConstants?.cut_loss_mm || 40)
     const recoveryFactor = 1 - Number(form.shrinkPercent || 0) / 100
-    const totalWall = form.recipeRows.reduce((sum, row) => sum + Number(row.thicknessPerPly || 0) * Math.max(1, Number(row.plyCount || 1)), 0)
     const tubeLength = Number(selectedTube?.length_mm || 0) || 1
     const targetWeight = Number(form.averages.weight || 0)
 
     return {
       id: mandrelAverageId,
-      od: mandrelOd > 0 ? roundValue(mandrelAverageId + totalWall * 2, 2) : roundValue(Number(form.averages.od || 0), 2),
+      od:
+        mandrelOd > 0
+          ? roundValue(mandrelAverageId + recipeTotalWallThickness * 2, 2)
+          : roundValue(Number(form.averages.od || 0), 2),
       length: roundValue(usableLength, 2),
       weight:
         targetWeight > 0
@@ -587,21 +705,24 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       cs: Number(specDocument?.spec?.approved_cs || form.averages.cs || 0),
       moisture: Number(form.averages.moisture || 0),
     }
-  }, [form.averages, form.recipeRows, form.shrinkPercent, selectedMandrel, selectedTube, specConstants, specDocument?.spec?.approved_cs])
+  }, [form.averages, form.shrinkPercent, recipeTotalWallThickness, selectedMandrel, selectedTube, specConstants, specDocument?.spec?.approved_cs])
 
   const manufacturingRows = useMemo(() => {
     const avg = manufacturingAverages
+    const mandrelOd = Number(selectedMandrel?.outer_diameter_mm || 0)
+    const minId = mandrelOd > 0 ? roundValue(Math.max(mandrelOd - 0.1, 0), 2) : roundValue(Math.max(avg.id - 0.1, 0), 2)
+    const maxId = mandrelOd > 0 ? roundValue(mandrelOd + 0.1, 2) : roundValue(avg.id + 0.1, 2)
     const max = {
-      id: roundValue(avg.id + 0.1, 2),
-      od: roundValue(avg.od + DEFAULT_TOLERANCE_BANDS.od, 2),
+      id: maxId,
+      od: roundValue(maxId + recipeTotalWallThickness * 2, 2),
       length: roundValue(avg.length + 20, 2),
       weight: roundValue(avg.weight + 20, 2),
       cs: roundValue(avg.cs * 1.07, 2),
       moisture: roundValue(clamp(avg.moisture + DEFAULT_TOLERANCE_BANDS.moisture, 0, 100), 2),
     }
     const min = {
-      id: roundValue(Math.max(avg.id - 0.1, 0), 2),
-      od: roundValue(Math.max(avg.od - DEFAULT_TOLERANCE_BANDS.od, 0), 2),
+      id: minId,
+      od: roundValue(minId + recipeTotalWallThickness * 2, 2),
       length: roundValue(Math.max(avg.length - 20, 0), 2),
       weight: roundValue(Math.max(avg.weight - 20, 0), 2),
       cs: roundValue(avg.cs * 0.93, 2),
@@ -613,17 +734,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       { label: "MAX", id: max.id, od: max.od, thick: thicknessFrom(max.id, max.od), length: max.length, weight: max.weight, cs: max.cs, moisture: max.moisture },
       { label: "MIN", id: min.id, od: min.od, thick: thicknessFrom(min.id, min.od), length: min.length, weight: min.weight, cs: min.cs, moisture: min.moisture },
     ]
-  }, [manufacturingAverages, selectedMandrel])
+  }, [manufacturingAverages, recipeTotalWallThickness, selectedMandrel])
 
   const recipePreview = useMemo(() => {
     const usableLength = Math.max(0, Number(specConstants?.bamboo_max_length_mm || 1560) - Number(specConstants?.cut_loss_mm || 40))
     const tubeLength = Number(selectedTube?.length_mm || 0)
-    const thicknessAvg = thicknessFrom(Number(form.averages.id || 0), Number(form.averages.od || 0))
-    const circumferenceDiameter = Math.max(Number(form.averages.id || 0) + Number(thicknessAvg || 0), 1)
+    const thicknessAvg = thicknessFrom(Number(manufacturingAverages.id || 0), Number(manufacturingAverages.od || 0))
+    const circumferenceDiameter = Math.max(Number(manufacturingAverages.id || 0) + Number(thicknessAvg || 0), 1)
     const circumference = 3.14 * circumferenceDiameter
     const glueMode = "workbook"
     const glueBasePct = Number(form.dynamicValues.glue_base_percent || 15)
-    const dryingLossPercent = Number(form.shrinkPercent || 9.5)
+    const dryingLossPercent = Number(form.shrinkPercent || 9.0)
     const dryingDivisor = Math.max(0.01, 1 - dryingLossPercent / 100)
     const dryingPct = roundValue((1 - dryingDivisor) * 100, 2)
 
@@ -670,7 +791,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const vinsolWeightG = componentWeights
       .filter((component) => component.name.toLowerCase().includes("vinsol") || component.name.toLowerCase().includes("30100"))
       .reduce((sum, component) => sum + Number(component.weightG || 0), 0)
-    const parchmentWeightG = totalPaperWeightG * (Number(form.parchmentPercent || 0) / 100)
+    const parchmentWeightG = form.parchmentAllowed ? totalPaperWeightG * (Number(form.parchmentPercent || 0) / 100) : 0
     const wetWeightG = totalPaperWeightG + adhesiveWeightG + parchmentWeightG
     const dryWeightG = wetWeightG * dryingDivisor
     const tubesPerBamboo = tubeLength > 0 ? Math.floor(usableLength / tubeLength) : 0
@@ -715,13 +836,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     form.adhesiveComponents,
     form.adhesive20100,
     form.adhesive30100,
-    form.averages.id,
-    form.averages.od,
     form.averages.weight,
     form.shrinkPercent,
     form.dynamicValues.glue_base_percent,
     form.parchmentPercent,
     form.recipeRows,
+    manufacturingAverages.id,
+    manufacturingAverages.od,
     paperMap,
     selectedTube,
     specConstants,
@@ -737,9 +858,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const previewQuery = useSpecSheetPreview({
     tubeLengthMm: Number(selectedTube?.length_mm || form.averages.length || 0),
-    tubeOdMm: Number(selectedTube?.outer_diameter_mm || form.averages.od || 0),
-    tubeIdMm: Number(form.averages.id || selectedTube?.inner_diameter_mm || 0),
+    tubeOdMm: Number(manufacturingAverages.od || selectedTube?.outer_diameter_mm || form.averages.od || 0),
+    tubeIdMm: Number(manufacturingAverages.id || form.averages.id || selectedTube?.inner_diameter_mm || 0),
     targetDryWeightG: Number(form.averages.weight || 0),
+    dryingPercent: Number(form.shrinkPercent || 9.0),
+    parchmentPercent: Number(form.parchmentPercent || 1.5),
+    parchmentAllowed: form.parchmentAllowed,
+    adhesivePercent: Number(form.dynamicValues.glue_base_percent || 15),
     recipeRows: form.recipeRows.map((row) => ({
       paper_id: row.paper_id || "",
       code: row.code || "",
@@ -777,9 +902,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const suggestionsQuery = useSpecSheetSuggestions({
     recipeId: specDocument?.latestRecipe?.id || undefined,
     tubeLengthMm: Number(selectedTube?.length_mm || form.averages.length || 0),
-    tubeOdMm: Number(selectedTube?.outer_diameter_mm || form.averages.od || 0),
-    tubeIdMm: Number(form.averages.id || selectedTube?.inner_diameter_mm || 0),
-    targetWetWeightG: Number(form.averages.weight || 0) / Math.max(0.01, 1 - Number(form.shrinkPercent || 9.5) / 100),
+    tubeOdMm: Number(manufacturingAverages.od || selectedTube?.outer_diameter_mm || form.averages.od || 0),
+    tubeIdMm: Number(manufacturingAverages.id || form.averages.id || selectedTube?.inner_diameter_mm || 0),
+    targetWetWeightG: Number(form.averages.weight || 0) / Math.max(0.01, 1 - Number(form.shrinkPercent || 9.0) / 100),
+    dryingPercent: Number(form.shrinkPercent || 9.0),
+    parchmentPercent: Number(form.parchmentPercent || 1.5),
     paperCandidates: papers || [],
   })
   const recipeSuggestions = useMemo(
@@ -959,6 +1086,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       variantTemplateKey: CANONICAL_VARIANT_KEY,
       tubeSizeId: spec.tube_size_id,
       mandrelId: spec.mandrel_id,
+      parchmentAllowed: spec.parchment_allowed ?? true,
       averages: {
         id: midpoint(spec.id_min_mm, spec.id_max_mm),
         od: midpoint(spec.od_min_mm, spec.od_max_mm),
@@ -967,8 +1095,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         cs: midpoint(spec.cs_min_n, spec.cs_max_n),
         moisture: midpoint(spec.moisture_min_pct, spec.moisture_max_pct),
       },
-      shrinkPercent: optionValue(spec.shrink_percent),
-      parchmentPercent: "1.5",
+      shrinkPercent: optionValue(spec.moisture_loss_percent ?? spec.shrink_percent ?? 9),
+      parchmentPercent: optionValue(spec.parchment_percent ?? 1.5),
       parchmentColor: "",
       adhesive20100: optionValue(spec.adhesive_20100_percent ?? 0),
       adhesive30100: optionValue(spec.adhesive_30100_percent ?? 0),
@@ -1019,6 +1147,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const canSubmit = isEditable && form.customerId && form.tubeSizeId && form.mandrelId
   const canApprove =
     !isCreate &&
+    canManageSpec &&
+    hasConcreteWritePlant &&
     specDocument?.spec?.status === "draft" &&
     Boolean(specDocument?.latestRecipe?.id) &&
     Boolean(effectiveBalance.withinBand) &&
@@ -1051,24 +1181,122 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           : `Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
 
   const previewMetrics = [
-    { label: "Paper Weight", value: `${Number(previewSummary.paper_total_g || 0).toFixed(2)} g` },
-    { label: "Adhesive Weight", value: `${bridgeMetrics.adhesiveTotalG.toFixed(2)} g` },
-    { label: "Parchment Weight", value: `${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g` },
+    { label: "Paper", value: `${Number(previewSummary.paper_total_g || 0).toFixed(2)} g` },
+    { label: "Glue", value: `${bridgeMetrics.adhesiveTotalG.toFixed(2)} g` },
+    { label: "Parchment", value: `${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g` },
     { label: "Wet / Tube", value: `${bridgeMetrics.predictedWetTubeG.toFixed(2)} g` },
     { label: "Dry / Tube", value: `${bridgeMetrics.predictedDryTubeG.toFixed(2)} g` },
-    { label: "Wet Delta", value: `${bridgeMetrics.wetDeltaG.toFixed(2)} g` },
-    { label: "Dry Delta", value: `${bridgeMetrics.dryDeltaG.toFixed(2)} g` },
-    { label: "Bamboo Wet", value: `${bridgeMetrics.bambooRequiredWetG.toFixed(2)} g` },
-    { label: "Bamboo Dry", value: `${manufacturingAverages.weight.toFixed(2)} g` },
-    { label: "Weight / mm", value: `${bridgeMetrics.weightPerMmG.toFixed(4)} g/mm` },
     { label: "Bamboo Length", value: `${Number(previewSummary.selected_bamboo_length_mm || 0).toFixed(0)} mm` },
+    { label: "Bamboo Wet", value: `${bridgeMetrics.bambooRequiredWetG.toFixed(2)} g` },
     { label: "Tubes / Bamboo", value: `${Number(previewSummary.tubes_per_bamboo || 0)}` },
   ]
-  const activeSuggestion = recipeSuggestions[0] || null
-  const livePaperTotal = Number(previewSummary.paper_total_g || activeSuggestion?.predictedPaperWeightG || 0)
-  const liveDryTube = Number(previewSummary.predicted_dry_tube_g || activeSuggestion?.predictedDryTubeG || 0)
-  const liveWetTube = Number(previewSummary.predicted_wet_tube_g || activeSuggestion?.predictedWetTubeG || 0)
-  const liveDryDelta = Number(previewSummary.dry_delta_g || activeSuggestion?.deltaDryG || 0)
+  const hasRecipeSelection = form.recipeRows.some((row) => String(row.paper_id || "").trim().length > 0 && Number(row.plyCount || 0) > 0)
+  const livePaperTotal = Number(previewSummary.paper_total_g || 0)
+  const liveDryTube = Number(previewSummary.predicted_dry_tube_g || 0)
+  const liveWetTube = Number(previewSummary.predicted_wet_tube_g || 0)
+  const liveDryDelta = Number(previewSummary.dry_delta_g || 0)
+  const targetDryTube = Number(form.averages.weight || 0)
+  const targetWetTube = Number(bridgeMetrics.preMoistureTargetTubeG || 0)
+  const targetAdhesiveWeight = targetWetTube * (Number(form.dynamicValues.glue_base_percent || 15) / 100)
+  const targetParchmentWeight = form.parchmentAllowed ? targetWetTube * (Number(form.parchmentPercent || 1.5) / 100) : 0
+  const targetPaperWeight = Math.max(targetWetTube - targetAdhesiveWeight - targetParchmentWeight, 0)
+  const writePlantLabel =
+    activePlant === "ALL"
+      ? "Pick one plant before writing."
+      : activePlant || user?.plant_id || "No plant selected"
+  const writePlantAlertMessage =
+    activePlant === "ALL"
+      ? "Global scope is read-only here. Specification create, edit, and approval only work on one selected plant."
+      : "This plant is the only write scope used for save, approval, recipe truth, and downstream job-card handoff."
+  const manufacturingIdBand = {
+    min: manufacturingRows.find((row) => row.label === "MIN")?.id || 0,
+    avg: manufacturingRows.find((row) => row.label === "AVG")?.id || 0,
+    max: manufacturingRows.find((row) => row.label === "MAX")?.id || 0,
+  }
+  const adhesiveRatioTotal = form.adhesiveComponents.reduce(
+    (sum, component) => sum + Number(component?.ratio_percent || 0),
+    0,
+  )
+  const selectedBambooLengthMm = Number(previewSummary.selected_bamboo_length_mm || 0)
+  const usableBambooLengthMm = Number(previewSummary.usable_length_mm || recipePreview.usableLength || 0)
+  const tubesPerBamboo = Number(previewSummary.tubes_per_bamboo || 0)
+  const bambooDryWeightG =
+    Number(previewSummary.bamboo_required_dry_g || 0) ||
+    liveDryTube * tubesPerBamboo
+  const bambooWetWeightG =
+    Number(previewSummary.bamboo_required_wet_g || 0) ||
+    liveWetTube * tubesPerBamboo
+  const sheetReference =
+    selectedMandrel?.mandrel_code && selectedTube
+      ? `${selectedMandrel.mandrel_code}-${Number(selectedTube.inner_diameter_mm || 0).toFixed(0)}X${Number(selectedTube.outer_diameter_mm || 0).toFixed(0)}X${Number(selectedTube.length_mm || 0).toFixed(0)}`
+      : selectedMandrel?.mandrel_code || "Sheet reference pending"
+  const currentRecipeRuleTitle = formatRecipeRowsTitle(form.recipeRows)
+  const comboRuleTitle =
+    currentRecipeRuleTitle ||
+    "Build a live recipe or apply one of the closest-delta suggestions."
+  const clientSpecRows = [
+    { label: "I.D", values: [`${Number(selectedTube?.inner_diameter_mm || 0).toFixed(2)} mm`] },
+    { label: "O.D", values: [`${Number(selectedTube?.outer_diameter_mm || 0).toFixed(2)} mm`] },
+    { label: "Thickness", values: [`${thicknessFrom(Number(selectedTube?.inner_diameter_mm || 0), Number(selectedTube?.outer_diameter_mm || 0)).toFixed(2)} mm`] },
+    { label: "Length", values: [`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm`] },
+    { label: "Weight", values: [`${Number(form.averages.weight || 0).toFixed(2)} g`] },
+    { label: "CS", values: [`${Number(form.averages.cs || 0).toFixed(2)} kgf`] },
+  ]
+  const weightTolerance = Math.max(
+    Number(form.averages.weight || 0) - Number(weightBand.min || 0),
+    Number(weightBand.max || 0) - Number(form.averages.weight || 0),
+    0,
+  )
+  const manufacturingSpecRows = [
+    {
+      label: "I.D",
+      values: [
+        `${manufacturingIdBand.min.toFixed(2)} mm`,
+        `${manufacturingIdBand.avg.toFixed(2)} mm`,
+        `${manufacturingIdBand.max.toFixed(2)} mm`,
+      ],
+    },
+    {
+      label: "O.D",
+      values: [
+        `${Number(manufacturingRows.find((row) => row.label === "MIN")?.od || 0).toFixed(2)} mm`,
+        `${Number(manufacturingRows.find((row) => row.label === "AVG")?.od || 0).toFixed(2)} mm`,
+        `${Number(manufacturingRows.find((row) => row.label === "MAX")?.od || 0).toFixed(2)} mm`,
+      ],
+    },
+    {
+      label: "Thickness",
+      values: [
+        `${Number(manufacturingRows.find((row) => row.label === "MIN")?.thick || 0).toFixed(2)} mm`,
+        `${Number(manufacturingRows.find((row) => row.label === "AVG")?.thick || 0).toFixed(2)} mm`,
+        `${Number(manufacturingRows.find((row) => row.label === "MAX")?.thick || 0).toFixed(2)} mm`,
+      ],
+    },
+    {
+      label: "Bamboo LT",
+      values: [
+        `${Math.max(selectedBambooLengthMm - 10, 0).toFixed(0)} mm`,
+        `${selectedBambooLengthMm.toFixed(0)} mm`,
+        `${(selectedBambooLengthMm + 10).toFixed(0)} mm`,
+      ],
+    },
+    {
+      label: "Tube Dry",
+      values: [
+        `${Math.max(Number(form.averages.weight || 0) - weightTolerance, 0).toFixed(0)} g`,
+        `${Number(form.averages.weight || 0).toFixed(0)} g`,
+        `${(Number(form.averages.weight || 0) + weightTolerance).toFixed(0)} g`,
+      ],
+    },
+    {
+      label: "Tube Wet",
+      values: [
+        `${(Math.max(Number(form.averages.weight || 0) - weightTolerance, 0) / Math.max(0.01, 1 - Number(form.shrinkPercent || 9.0) / 100)).toFixed(0)} g`,
+        `${bridgeMetrics.preMoistureTargetTubeG.toFixed(0)} g`,
+        `${((Number(form.averages.weight || 0) + weightTolerance) / Math.max(0.01, 1 - Number(form.shrinkPercent || 9.0) / 100)).toFixed(0)} g`,
+      ],
+    },
+  ]
 
   const updateDynamicValue = (key: string, value: string) => {
     setForm((current) => ({
@@ -1245,7 +1473,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         approved_cs: specDocument?.spec?.approved_cs ?? null,
       },
       recipe: {
-        parchment_percent: 1.5,
+        parchment_percent: Number(form.parchmentPercent || 1.5),
         parchment_groups: selectedParchmentGroups,
         shrink_percent: Number(form.shrinkPercent || 0),
         adhesive_components: adhesiveComponentsPayload,
@@ -1314,7 +1542,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       cs_max_n: Number(ranges.cs_max_n),
       moisture_min_pct: Number(ranges.moisture_min_pct),
       moisture_max_pct: Number(ranges.moisture_max_pct),
-      parchment_percent: 1.5,
+      parchment_percent: Number(form.parchmentPercent || 1.5),
+      parchment_allowed: form.parchmentAllowed,
+      adhesive_percent: Number(form.dynamicValues.glue_base_percent || 15),
+      moisture_loss_percent: Number(form.shrinkPercent || 9),
       adhesive_20100_percent: Number(legacyTl4Ratio || form.adhesive20100 || 0),
       adhesive_30100_percent: Number(legacyVinsolRatio || form.adhesive30100 || 0),
       shrink_percent: Number(form.shrinkPercent || 0),
@@ -1376,6 +1607,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }
 
   const handleSave = async () => {
+    if (editBlockReason) {
+      showToast(editBlockReason, "error")
+      return
+    }
     if (!canSubmit) {
       showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
       return
@@ -1414,6 +1649,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }
 
   const handleApprove = async () => {
+    if (editBlockReason) {
+      showToast(editBlockReason, "error")
+      return
+    }
     if (!specId || !canApprove) {
       showToast("This draft cannot be approved until the recipe is balanced and the current validations pass.", "error")
       return
@@ -1449,27 +1688,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       router.push(`/specifications/${result.spec.id}/edit`)
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to clone specification."
-      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
-    }
-  }
-
-  const handleRecordTrial = async () => {
-    if (!specDocument?.latestRecipe?.id) {
-      showToast("Save the sheet first so a recipe version exists before recording a trial.", "error")
-      return
-    }
-
-    try {
-      const trialData = buildTrialPayload()
-      if (!trialData) {
-        showToast("Enter trial data before saving a trial record.", "error")
-        return
-      }
-      await recordTrial.mutateAsync({ recipeId: specDocument.latestRecipe.id, data: trialData })
-      showToast("Trial result recorded.", "success")
-      router.refresh()
-    } catch (error: any) {
-      const message = error?.response?.data?.detail || error?.message || "Failed to record trial."
       showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
     }
   }
@@ -1591,1251 +1809,906 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         `}</style>
       ) : null}
       <div className="min-w-0 space-y-6" data-testid="spec-sheet-page">
-      <section className="page-hero" data-print-hidden="true" id="sheet-header">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-cyan-100">Factory Specification Control</p>
-            <h1 className="mt-2 page-title">{headerTitle}</h1>
-            <p className="page-subtitle">
-              Canonical factory specification control with master-linked tooling, recipe calibration, and print-ready output.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {isEditable ? (
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!canSubmit || createSpecSheet.isPending || updateSpecSheet.isPending}
-                className="rounded-lg bg-cyan-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-              >
-                {isCreate ? "Save Draft" : "Save Draft + Recipe"}
-              </button>
-            ) : null}
-            {!isCreate && currentStatus === "draft" ? (
-              <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-                Edit Draft
-              </Link>
-            ) : null}
-            {!isCreate && currentStatus === "draft" ? (
-              <button
-                type="button"
-                onClick={handleApprove}
-                disabled={!canApprove || approveSpec.isPending}
-                className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60"
-              >
-                Approve
-              </button>
-            ) : null}
-            {!isCreate && currentStatus === "approved" ? (
-              <button
-                type="button"
-                onClick={handleObsolete}
-                disabled={obsoleteSpec.isPending}
-                className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60"
-              >
-                Mark Obsolete
-              </button>
-            ) : null}
-            {!isCreate ? (
-              <button
-                type="button"
-                onClick={handleClone}
-                disabled={cloneSpec.isPending}
-                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
-              >
-                Clone Draft
-              </button>
-            ) : null}
-            {!isPrint && specId ? (
-              <Link href={`/specifications/${specId}/print`} className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-                Print View
-              </Link>
-            ) : null}
-          </div>
-        </div>
-      </section>
-
-      {false ? (
-        <div />
-      ) : null}
-
-      <section
-        className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm"
-        data-print-hidden="true"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Guided Flow</p>
-            <h2 className="mt-1 text-xl font-semibold text-slate-900">Build the canonical sheet in six steps</h2>
-          </div>
-          <p className="text-sm text-slate-500">
-            Active step:{" "}
-            <span className="font-semibold text-slate-900">
-              {WIZARD_STEPS.find((step) => step.key === activeStep)?.label || WIZARD_STEPS[0].label}
-            </span>
-          </p>
-        </div>
-        <div className="mt-4 grid gap-3 lg:grid-cols-6">
-          {WIZARD_STEPS.map((step, index) => (
-            <button
-              key={step.key}
-              type="button"
-              onClick={() => {
-                setActiveStep(step.key)
-                document.getElementById(step.target)?.scrollIntoView({ behavior: "smooth", block: "start" })
-              }}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${
-                activeStep === step.key
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-              }`}
-            >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">Step {index + 1}</p>
-              <p className="mt-1 text-sm font-semibold">{step.label}</p>
-            </button>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" data-print-hidden="true">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Selected plant for write</p>
-            <p className="mt-2 text-sm font-semibold text-slate-900">
-              {activePlant === "ALL" ? "All visible plants selected. Pick one concrete plant before saving." : activePlant || user?.plant_id || "No plant selected"}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-            Preview math and paper suggestions stay live even before you save the draft.
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm xl:sticky xl:top-24" data-testid="spec-sheet-preview-rail">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-slate-500">Preview rail</p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-900">Live paper total, wet bridge, and bamboo yield</h2>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600">
-            One bamboo yield: {Number(previewSummary.tubes_per_bamboo || 0)} pcs
-          </div>
-        </div>
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {previewMetrics.map((metric) => (
-            <div key={metric.label} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{metric.label}</p>
-              <p className="mt-2 font-semibold text-slate-950">{metric.value}</p>
-            </div>
-          ))}
-          <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-700">Live paper total</p>
-            <p className="mt-2 font-semibold text-cyan-950">{livePaperTotal.toFixed(2)} g</p>
-          </div>
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700">One bamboo yield</p>
-            <p className="mt-2 font-semibold text-emerald-950">{Number(previewSummary.tubes_per_bamboo || 0)} pcs</p>
-          </div>
-          <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-violet-700">Suggested wet / dry</p>
-            <p className="mt-2 font-semibold text-violet-950">{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</p>
-          </div>
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700">Suggested dry delta</p>
-            <p className="mt-2 font-semibold text-amber-950">{liveDryDelta.toFixed(2)} g dry delta</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-lg shadow-slate-900/5" id="sheet-client">
-        <div className="space-y-4">
-          <div className="grid gap-4 border-b border-slate-300 pb-4 md:grid-cols-[1fr_auto]">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">
-                {user?.name || "Hari Om Paper"}
+      <div className="space-y-6">
+        <section
+          className="rounded-[30px] border border-[#e6dccd] bg-[linear-gradient(180deg,#faf6ee_0%,#f6eedf_100%)] px-6 py-5 shadow-[0_20px_60px_rgba(15,23,42,0.07)]"
+          data-print-hidden="true"
+          id="sheet-header"
+        >
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">{headerTitle}</p>
+              <h2 className="mt-2 text-[2rem] font-semibold tracking-[-0.05em] text-slate-950">Client requirement first. Everything else derives from it.</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Pick customer, mandrel, tube, target weight, and CS first. Then build the paper mix and the manufacturing outputs will follow from one workbook rule.
               </p>
-              <h2 className="mt-2 text-center text-xl font-black uppercase tracking-[0.18em] text-slate-900">
-                Specification Sheet
-              </h2>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                  Glue {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}%
+                </span>
+                <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                  Parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "Off"}
+                </span>
+                <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
+                  Wet divisor {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}
+                </span>
+              </div>
+              {editBlockReason ? (
+                <div className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  {editBlockReason}
+                </div>
+              ) : null}
             </div>
-            <div className="grid gap-2 text-sm md:min-w-56">
-              <div className="grid grid-cols-[90px_1fr] gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="font-semibold text-slate-500">Date</span>
-                <span>{todayLabel}</span>
-              </div>
-              <div className="grid grid-cols-[90px_1fr] gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="font-semibold text-slate-500">Status</span>
-                <span className="font-semibold uppercase">{currentStatus || "draft"}</span>
-              </div>
+            <div className="flex flex-wrap gap-2 xl:max-w-[520px] xl:justify-end">
+              {isEditable ? (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!canSubmit || createSpecSheet.isPending || updateSpecSheet.isPending}
+                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                >
+                  {isCreate ? "Save Draft" : "Save Draft + Recipe"}
+                </button>
+              ) : null}
+              {!isCreate && currentStatus === "draft" ? (
+                <Link href={`/specifications/${specId}/edit`} className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                  Edit Draft
+                </Link>
+              ) : null}
+              {!isCreate && currentStatus === "draft" ? (
+                <button
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={!canApprove || approveSpec.isPending}
+                  className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60"
+                >
+                  Approve
+                </button>
+              ) : null}
+              {!isCreate && currentStatus === "approved" ? (
+                <button
+                  type="button"
+                  onClick={handleObsolete}
+                  disabled={obsoleteSpec.isPending}
+                  className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60"
+                >
+                  Mark Obsolete
+                </button>
+              ) : null}
+              {!isCreate ? (
+                <button
+                  type="button"
+                  onClick={handleClone}
+                  disabled={cloneSpec.isPending}
+                  className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                >
+                  Clone Draft
+                </button>
+              ) : null}
+              {!isPrint && specId ? (
+                <Link href={`/specifications/${specId}/print`} className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                  Print View
+                </Link>
+              ) : null}
             </div>
           </div>
+        </section>
 
-          <div className="grid gap-3 md:grid-cols-[1fr_220px]">
-            <div className="grid gap-3 md:grid-cols-4">
-              <div className="md:col-span-2 space-y-1">
-                <FieldLabel>Client / Party Name</FieldLabel>
-                {isEditable ? (
-                  <select
-                    value={form.customerId}
-                    onChange={(event) => {
-                      const nextCustomer = customerMap.get(event.target.value)
-                      setForm((current) => ({ ...current, customerId: event.target.value, dynamicValues: current.dynamicValues }))
-                      if (nextCustomer) {
-                        setForm((current) => ({ ...current, customerId: event.target.value }))
-                      }
-                    }}
-                    className="h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                  >
-                    <option value="">Select customer</option>
-                    {(customers || []).map((customer: any) => (
-                      <option key={customer.id} value={customer.id}>
-                        {customer.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
-                    {selectedCustomer?.name || specDocument?.spec?.customer_name || "-"}
+        <div className="space-y-6">
+          <section id="sheet-client" className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-5">
+                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Client requirement</p>
+                    <h3 className="mt-2 text-xl font-semibold text-slate-950">Start with the commercial ask. The whole sheet derives from this block.</h3>
                   </div>
-                )}
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Version</FieldLabel>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
-                  v{specDocument?.spec?.version || 1}
+                  <MasterLinkRow
+                    links={[
+                      { href: "/masters/customers", label: "Customer master" },
+                      { href: "/masters/tube-sizes", label: "Tube sizes" },
+                      { href: "/masters/mandrels", label: "Mandrels" },
+                    ]}
+                  />
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="space-y-1 xl:col-span-2">
+                    <FieldLabel>Client / Party Name</FieldLabel>
+                    {isEditable ? (
+                      <select
+                        value={form.customerId}
+                        onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}
+                        className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                      >
+                        <option value="">Select customer</option>
+                        {(customers || []).map((customer: any) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="rounded-2xl border border-[#cfd9e6] bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
+                        {selectedCustomer?.name || specDocument?.spec?.customer_name || "-"}
+                      </div>
+                    )}
+                  </div>
+                  <div className="space-y-1">
+                    <FieldLabel>Mandrel</FieldLabel>
+                    <select
+                      data-testid="spec-sheet-mandrel"
+                      value={form.mandrelId}
+                      onChange={(event) => setForm((current) => ({ ...current, mandrelId: event.target.value }))}
+                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                    >
+                      <option value="">Select mandrel</option>
+                      {(mandrels || []).map((mandrel: any) => (
+                        <option key={mandrel.id} value={mandrel.id}>
+                          {mandrel.mandrel_code} | OD {mandrel.outer_diameter_mm}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <FieldLabel>Parchment Allowed</FieldLabel>
+                    <select
+                      value={form.parchmentAllowed ? "true" : "false"}
+                      onChange={(event) => setForm((current) => ({ ...current, parchmentAllowed: event.target.value === "true" }))}
+                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                    >
+                      <option value="true">Yes</option>
+                      <option value="false">No</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1 xl:col-span-2">
+                    <FieldLabel>Tube Size</FieldLabel>
+                    <select
+                      data-testid="spec-sheet-tube-size"
+                      value={form.tubeSizeId}
+                      onChange={(event) => setForm((current) => ({ ...current, tubeSizeId: event.target.value }))}
+                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                    >
+                      <option value="">Select tube size</option>
+                      {(tubeSizes || []).map((tube: any) => (
+                        <option key={tube.id} value={tube.id}>
+                          {tube.inner_diameter_mm} × {tube.outer_diameter_mm} × {tube.length_mm}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <FieldLabel>Target Dry Weight</FieldLabel>
+                    <input
+                      data-testid="spec-sheet-target-weight"
+                      type="number"
+                      step="0.01"
+                      value={inputNumberValue(form.averages.weight)}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          averages: { ...current.averages, weight: safeNumber(event.target.value || 0) },
+                        }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <FieldLabel>Required CS</FieldLabel>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={inputNumberValue(form.averages.cs)}
+                      onChange={(event) =>
+                        setForm((current) => ({
+                          ...current,
+                          averages: { ...current.averages, cs: safeNumber(event.target.value || 0) },
+                        }))
+                      }
+                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-4">
+                  <SummaryMetric
+                    label="Sheet reference"
+                    value={sheetReference}
+                    detail={selectedCustomer?.name || "Pick customer + tube + mandrel"}
+                    tone="accent"
+                  />
+                  <SummaryMetric
+                    label="Mandrel ID band"
+                    value={`${manufacturingIdBand.avg.toFixed(2)} mm`}
+                    detail={`Min ${manufacturingIdBand.min.toFixed(2)} · Max ${manufacturingIdBand.max.toFixed(2)}`}
+                  />
+                  <SummaryMetric
+                    label="Recipe-led OD"
+                    value={`${manufacturingRows.find((row) => row.label === "AVG")?.od.toFixed(2)} mm`}
+                    detail={`Wall ${recipePreview.totalAllPlyThickness.toFixed(4)} mm`}
+                  />
+                  <SummaryMetric
+                    label="Wet divisor"
+                    value={(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}
+                    detail="Default 0.91 from 9% moisture loss"
+                  />
                 </div>
               </div>
-              <div className="space-y-1">
-                <FieldLabel>Sheet Logic</FieldLabel>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
-                  Canonical factory sheet
-                </div>
-              </div>
-            </div>
-            <div className="rounded-2xl border border-slate-300 bg-slate-50 p-3 text-xs text-slate-600">
-              <p className="font-bold uppercase tracking-[0.14em] text-slate-500">Balance State</p>
-              <p className="mt-2 text-sm font-semibold text-slate-900">{effectiveBalance.status}</p>
-              <p className="mt-1">Per-tube dry weight: {Number(effectiveBalance.perTubeWeightG || 0).toFixed(2)} g</p>
-              <p>Allowed band: {weightBand.min.toFixed(2)} - {weightBand.max.toFixed(2)} g</p>
-            </div>
-          </div>
 
-          <MasterLinkRow
-            links={[
-              { href: "/masters/customers", label: "Customer master" },
-              { href: "/masters/tube-sizes", label: "Tube sizes" },
-              { href: "/masters/mandrels", label: "Mandrels" },
-              { href: "/masters/parchments", label: "Parchments" },
-            ]}
-          />
-
-          <div className="grid gap-2 md:grid-cols-8">
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm md:col-span-2">
-              <FieldLabel>Size</FieldLabel>
-              <div className="mt-1 font-semibold">
-                {selectedTube ? `${selectedTube.inner_diameter_mm} × ${selectedTube.outer_diameter_mm} × ${selectedTube.length_mm}` : "Select tube size"}
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-              <FieldLabel>ID</FieldLabel>
-              <div className="mt-1 font-semibold">{form.averages.id.toFixed(2)}</div>
-            </div>
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-              <FieldLabel>OD</FieldLabel>
-              <div className="mt-1 font-semibold">{form.averages.od.toFixed(2)}</div>
-            </div>
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-              <FieldLabel>LT</FieldLabel>
-              <div className="mt-1 font-semibold">{form.averages.length.toFixed(2)}</div>
-            </div>
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-              <FieldLabel>Weight (Gms)</FieldLabel>
-              <div className="mt-1 font-semibold">{form.averages.weight.toFixed(2)}</div>
-            </div>
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-              <FieldLabel>C.S (KGF)</FieldLabel>
-              <div className="mt-1 font-semibold">{form.averages.cs.toFixed(2)}</div>
-            </div>
-            <div className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-              <FieldLabel>Notch / Top Paper</FieldLabel>
-              <div className="mt-1 font-semibold">
-                {boolFromString(form.dynamicValues.notch_required) ? "Yes" : "No"} / {boolFromString(form.dynamicValues.top_paper_required) ? "Yes" : "No"}
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-2">
-        <div className="space-y-3 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
-          <SectionLabel title="Client Specifications" subtitle="AVG / MAX / MIN rows mirror the factory sheet." />
-          <MasterLinkRow links={[{ href: "/masters/tube-sizes", label: "Open tube sizes" }]} />
-          {isEditable ? (
-            <div className="flex flex-wrap gap-2">
-              {((tubeSizes || []) as any[]).slice(0, 8).map((tube: any) => {
-                const label = `${tube.inner_diameter_mm} × ${tube.outer_diameter_mm} × ${tube.length_mm}`
-                return (
-                  <button
-                    key={tube.id}
-                    type="button"
-                    onClick={() => setForm((current) => ({ ...current, tubeSizeId: tube.id }))}
-                    className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
-                      form.tubeSizeId === tube.id
-                        ? "border-slate-900 bg-slate-900 text-white"
-                        : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                )
-              })}
-            </div>
-          ) : null}
-          {isEditable ? (
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1">
-                <FieldLabel>Tube Size</FieldLabel>
-                <select
-                  data-testid="spec-sheet-tube-size"
-                  value={form.tubeSizeId}
-                  onChange={(event) => setForm((current) => ({ ...current, tubeSizeId: event.target.value }))}
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                >
-                  <option value="">Select tube size</option>
-                  {(tubeSizes || []).map((tube: any) => (
-                    <option key={tube.id} value={tube.id}>
-                      {tube.inner_diameter_mm} × {tube.outer_diameter_mm} × {tube.length_mm}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Target Weight</FieldLabel>
-                <input
-                  data-testid="spec-sheet-target-weight"
-                  type="number"
-                  step="0.01"
-                  value={inputNumberValue(form.averages.weight)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      averages: { ...current.averages, weight: safeNumber(event.target.value || 0) },
-                    }))
-                  }
-                  placeholder="Expected 230 g"
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Required CS</FieldLabel>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={inputNumberValue(form.averages.cs)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      averages: { ...current.averages, cs: safeNumber(event.target.value || 0) },
-                    }))
-                  }
-                  placeholder="Expected 500+"
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>ID Avg</FieldLabel>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={inputNumberValue(form.averages.id)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      averages: { ...current.averages, id: safeNumber(event.target.value || 0) },
-                    }))
-                  }
-                  placeholder="Expected ID mm"
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>OD Avg</FieldLabel>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={inputNumberValue(form.averages.od)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      averages: { ...current.averages, od: safeNumber(event.target.value || 0) },
-                    }))
-                  }
-                  placeholder="Expected OD mm"
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Length Avg</FieldLabel>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={inputNumberValue(form.averages.length)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      averages: { ...current.averages, length: safeNumber(event.target.value || 0) },
-                    }))
-                  }
-                  placeholder="Expected length mm"
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Moisture Avg</FieldLabel>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={inputNumberValue(form.averages.moisture)}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      averages: { ...current.averages, moisture: clamp(safeNumber(event.target.value || 0), 0, 100) },
-                    }))
-                  }
-                  placeholder="Expected moisture %"
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-            </div>
-          ) : null}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Client specification</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <div>
-                <p className="text-xs text-slate-500">Asked ID / OD / LT</p>
-                <p className="mt-1 font-semibold text-slate-900">
-                  {form.averages.id.toFixed(2)} / {form.averages.od.toFixed(2)} / {form.averages.length.toFixed(2)}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Asked Weight</p>
-                <p className="mt-1 font-semibold text-slate-900">{form.averages.weight.toFixed(2)} g</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Asked CS</p>
-                <p className="mt-1 font-semibold text-slate-900">{form.averages.cs.toFixed(2)}</p>
-              </div>
-            </div>
-          </div>
-          <SpecMatrixTable title="Client Specification Matrix" rows={clientRows} />
-        </div>
-
-        <div className="space-y-3 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-manufacturing">
-          <SectionLabel title="Manufacturing / Production & Consumption" subtitle="Mandrel-driven ID, recipe-driven OD, and bamboo planning from the canonical sheet." />
-          <MasterLinkRow links={[{ href: "/masters/mandrels", label: "Open mandrels" }]} />
-          {isEditable ? (
-            <div className="grid gap-3 md:grid-cols-3">
-              <div className="space-y-1">
-                <FieldLabel>Mandrel</FieldLabel>
-                <select
-                  data-testid="spec-sheet-mandrel"
-                  value={form.mandrelId}
-                  onChange={(event) => setForm((current) => ({ ...current, mandrelId: event.target.value }))}
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                >
-                  <option value="">Select mandrel</option>
-                  {(mandrels || []).map((mandrel: any) => (
-                    <option key={mandrel.id} value={mandrel.id}>
-                      {mandrel.mandrel_code} | OD {mandrel.outer_diameter_mm}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Shrink / Drying %</FieldLabel>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={form.shrinkPercent}
-                  onChange={(event) => setForm((current) => ({ ...current, shrinkPercent: event.target.value }))}
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="space-y-1">
-                <FieldLabel>Guidance Row</FieldLabel>
-                <select
-                  value={String(form.selectedGuidanceIndex)}
-                  onChange={(event) => {
-                    const nextIndex = Number(event.target.value || 0)
-                    const row = form.processGuidance[nextIndex]
-                    setForm((current) => ({
-                      ...current,
-                      selectedGuidanceIndex: nextIndex,
-                      shrinkPercent: optionValue(row?.dryingPercent ?? current.shrinkPercent),
-                    }))
-                  }}
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                >
-                  {form.processGuidance.map((row, index) => (
-                    <option key={`${row.rh}-${index}`} value={index}>
-                      {row.rh} | Dry {row.dryingPercent}% | Moist {row.moistureBand}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ) : null}
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Manufacturing specification</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <div>
-                <p className="text-xs text-slate-500">Bamboo LT</p>
-                <p className="mt-1 font-semibold text-slate-900">{Number(previewSummary.selected_bamboo_length_mm || 0).toFixed(0)} mm</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Mandrel driven ID</p>
-                <p className="mt-1 font-semibold text-slate-900">{manufacturingAverages.id.toFixed(2)} mm</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">One bamboo yield</p>
-                <p className="mt-1 font-semibold text-slate-900">{Number(previewSummary.tubes_per_bamboo || 0)} pcs</p>
-              </div>
-            </div>
-          </div>
-          <SpecMatrixTable
-            title="Manufacturing Matrix"
-            rows={manufacturingRows}
-            emphasizeWeight
-            rightPanel={
-              <div className="grid gap-3 text-sm text-slate-700">
-                <div className="rounded-xl border border-slate-300 bg-white px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">W / Mandrel</p>
-                  <p className="mt-1 text-2xl font-black text-slate-900">{manufacturingAverages.id.toFixed(2)}</p>
-                </div>
-                <div className="rounded-xl border border-slate-300 bg-white px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Oven Dry Wt</p>
-                  <p className="mt-1 text-2xl font-black text-slate-900">
-                    {Number(bridgeMetrics.predictedDryTubeG || 0).toFixed(2)}
+              <div className="space-y-5 rounded-[30px] border border-[#d9e2ef] bg-[linear-gradient(180deg,#fbfdff_0%,#f6f8fb_100%)] p-5">
+                <div className="border-b border-[#e4ebf3] pb-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Material rule sheet</p>
+                  <h3 className="mt-2 text-xl font-semibold text-slate-950">One formula, one parchment gate, one adhesive split.</h3>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Wet = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are wet-weight shares; paper is the remaining wet share.
+                    Glue stays at {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% and parchment stays at {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"} until validation changes it.
                   </p>
                 </div>
-                <div className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs">
-                  <p>Bamboo max: {specConstants?.bamboo_max_length_mm || 1560} mm</p>
-                  <p>Cut loss: {specConstants?.cut_loss_mm || 40} mm</p>
-                  <p>Selected bamboo: {Number(previewSummary.selected_bamboo_length_mm || 0).toFixed(0)} mm</p>
-                  <p>Usable length: {Number(previewSummary.usable_length_mm || 0).toFixed(0)} mm</p>
-                  <p>Guidance band: 1390 - 1560 mm</p>
-                  <p>
-                    Yield: floor(({Number(previewSummary.usable_length_mm || 0).toFixed(0)}) / {Number(previewSummary.tube_length_mm || 1).toFixed(0)}) ={" "}
-                    {Number(previewSummary.tubes_per_bamboo || 0)}
-                  </p>
-                  <p>Pre-moisture target: {bridgeMetrics.preMoistureTargetTubeG.toFixed(2)} g</p>
-                  <p>Wet delta: {bridgeMetrics.wetDeltaG.toFixed(2)} g</p>
-                </div>
-              </div>
-            }
-          />
-        </div>
-      </section>
 
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-weight-bridge">
-        <SectionLabel
-          title="Weight Bridge"
-          subtitle="Target dry -> wet divisor 0.905 -> pre-oven target -> predicted dry."
-        />
-        <div className="grid gap-3 md:grid-cols-5">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Target Dry / Tube</p>
-            <p className="mt-1 text-xl font-bold text-slate-900">{Number(form.averages.weight || 0).toFixed(2)} g</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Drying % Used</p>
-            <p className="mt-1 text-xl font-bold text-slate-900">{Number(previewSummary.drying_percent_used || 0).toFixed(2)}%</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Pre-Oven Divisor</p>
-            <p className="mt-1 text-xl font-bold text-slate-900">{Number(previewSummary.pre_oven_divisor || 0).toFixed(4)}</p>
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Pre-Oven Target</p>
-            <p className="mt-1 text-xl font-bold text-slate-900">{Number(previewSummary.pre_moisture_target_tube_g || 0).toFixed(2)} g</p>
-          </div>
-          <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-3 py-3 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-cyan-700">Predicted Dry / Tube</p>
-            <p className="mt-1 text-xl font-bold text-cyan-900">{Number(previewSummary.predicted_dry_tube_g || 0).toFixed(2)} g</p>
-          </div>
-        </div>
-        <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm md:grid-cols-4">
-          <p>
-            <span className="font-semibold">Delta vs target:</span>{" "}
-            {(Number(previewSummary.predicted_dry_tube_g || 0) - Number(form.averages.weight || 0)).toFixed(2)} g
-          </p>
-          <p>
-            <span className="font-semibold">Weight band:</span>{" "}
-            {weightBand.min.toFixed(2)} - {weightBand.max.toFixed(2)} g
-          </p>
-          <p>
-            <span className="font-semibold">Backend verified:</span>{" "}
-            {Number(previewSummary.predicted_dry_tube_g || 0).toFixed(2)} g
-          </p>
-          <p>
-            <span className="font-semibold">Bamboo yield:</span> {Number(previewSummary.tubes_per_bamboo || 0)} / bamboo
-          </p>
-        </div>
-        <div className="mt-3 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm md:grid-cols-2">
-          <p className="font-semibold text-slate-800">{weightStatusMessage}</p>
-          <p className={csGateFailed ? "font-semibold text-rose-700" : "font-semibold text-emerald-700"}>
-            {csGateFailed ? "CS gate failed: latest approved trial CS is below required." : "CS gate: pass (or no approved trial recorded)."}
-          </p>
-        </div>
-      </section>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <SummaryMetric
+                    label="Target wet / dry"
+                    value={`${targetWetTube.toFixed(2)} / ${targetDryTube.toFixed(2)} g`}
+                    detail={`Dry target ${targetDryTube.toFixed(2)} g with divisor ${(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}`}
+                  />
+                  <SummaryMetric
+                    label="Target formula split"
+                    value={`${targetAdhesiveWeight.toFixed(2)} g glue · ${targetParchmentWeight.toFixed(2)} g parchment`}
+                    detail={`${targetPaperWeight.toFixed(2)} g required paper`}
+                  />
+                  <SummaryMetric
+                    label="Predicted wet / dry"
+                    value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
+                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g paper in live recipe` : "No recipe applied yet"}
+                  />
+                  <SummaryMetric
+                    label="Dry delta"
+                    value={`${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g`}
+                    detail={hasRecipeSelection ? `${Math.abs(liveDryDelta) <= 3 ? "Inside" : "Outside"} tolerance` : "Apply a recipe to compare against the target"}
+                    tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
+                  />
+                </div>
 
-      <section className="grid gap-4 xl:grid-cols-[1.35fr_1fr]" id="sheet-notch-tooling">
-        <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
-          <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
-          <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
-          <div className="grid gap-3 md:grid-cols-3">
-            {renderScalarField("tube_direction", "Tube Direction")}
-            {renderScalarField("notch_type", "Notch Type")}
-            {renderScalarField("notch_position", "Notch Position")}
-            {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Expected notch distance mm")}
-            {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Expected notch depth mm")}
-            {renderScalarField("tochha", "Tochha")}
-            {renderScalarField("tochha_type", "Tochha Type")}
-            {renderScalarField("notching_holder", "Notching Holder")}
-            {renderScalarField("notching_blade", "Notching Blade")}
-            {renderScalarField("groove", "Groove")}
-            {renderScalarField("punch", "Punch")}
-            {renderScalarField("die", "Die")}
-            {renderScalarField("wider_tool", "WIDER TOOL")}
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {renderScalarField("height_gauge_go", "Height Gauge GO", "number")}
-            {renderScalarField("height_gauge_no_go", "Height Gauge NO GO", "number")}
-          </div>
-        </div>
-        <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
-          <NotchDiagramPanel
-            data={computedNotchDiagram}
-            editable={isEditable}
-            onNotchDistanceChange={(value) => updateDynamicValue("notch_distance_mm", String(roundValue(value, 2)))}
-            onNotchDepthChange={(value) => updateDynamicValue("notch_depth_mm", String(roundValue(value, 2)))}
-          />
-          {isEditable ? (
-            <div className="space-y-3" data-print-hidden="true">
-              <div className="space-y-1">
-                <FieldLabel>Diagram Title</FieldLabel>
-                <input
-                  type="text"
-                  value={form.notchDiagram.title}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      notchDiagram: { ...current.notchDiagram, title: event.target.value },
-                    }))
-                  }
-                  className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                />
-              </div>
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Tube Length</p>
-                  <p className="mt-1 font-semibold text-slate-900">{tubeLengthMm.toFixed(2)} mm</p>
+                <div className="rounded-[24px] border border-[#dfe7f1] bg-white p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Allowed parchment families</p>
+                      <p className="mt-1 text-sm text-slate-600">Choose the family pool once. Vendor and color stay downstream.</p>
+                    </div>
+                    <span className="rounded-full border border-[#dfe7f1] bg-[#f8fafc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      {form.parchmentAllowed ? `${selectedParchmentGroups.length || 0} selected` : "Disabled"}
+                    </span>
+                  </div>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {!form.parchmentAllowed ? (
+                      <p className="text-sm text-slate-500">Parchment is off for this sheet, so no family is applied.</p>
+                    ) : parchmentFamilies.length === 0 ? (
+                      <p className="text-sm text-slate-500">No parchment families found in master data.</p>
+                    ) : (
+                      parchmentFamilies.map((group) => {
+                        const active = selectedParchmentGroups.includes(group)
+                        return (
+                          <button
+                            key={group}
+                            type="button"
+                            onClick={() => toggleParchmentGroup(group)}
+                            disabled={!isEditable}
+                            className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
+                              active
+                                ? "border-[#f0ca74] bg-[#f8ebc7] text-[#83512d]"
+                                : "border-[#d6dfeb] bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
+                            }`}
+                          >
+                            {group}
+                          </button>
+                        )
+                      })
+                    )}
+                  </div>
                 </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Distance</p>
-                  <p className="mt-1 font-semibold text-slate-900">{computedNotchDiagram.notchDistanceMm.toFixed(2)} mm</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Depth</p>
-                  <p className="mt-1 font-semibold text-slate-900">{computedNotchDiagram.notchDepthMm.toFixed(2)} mm</p>
+
+                <div className="rounded-[24px] border border-[#dfe7f1] bg-white p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Adhesive breakdown</p>
+                      <p className="mt-1 text-sm text-slate-600">Pick 2-3 masters. Ratios must total 100% of the fixed glue band.</p>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
+                        Math.abs(adhesiveRatioTotal - 100) < 0.01
+                          ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border border-amber-200 bg-amber-50 text-amber-700"
+                      }`}
+                    >
+                      Ratio {adhesiveRatioTotal.toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="mt-4 space-y-3">
+                    {form.adhesiveComponents.map((component, index) => {
+                      const previewComponent = bridgeMetrics.adhesiveComponents[index]
+                      return (
+                        <div
+                          key={`${component.name}-${index}`}
+                          className="grid gap-3 rounded-[20px] border border-[#e4ebf3] bg-[#f8fafc] p-3 md:grid-cols-[1.4fr_0.65fr_0.8fr_auto]"
+                        >
+                          <select
+                            value={component.name}
+                            onChange={(event) => updateAdhesiveComponent(index, { name: event.target.value })}
+                            className="h-11 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                          >
+                            <option value="">Select adhesive</option>
+                            {Array.from(
+                              new Set(
+                                [
+                                  ...form.adhesiveComponents.map((row) => row.name).filter(Boolean),
+                                  ...((adhesives || []) as any[]).map((adhesive) =>
+                                    adhesive.internal_code ? `${adhesive.name} (${adhesive.internal_code})` : adhesive.name,
+                                  ),
+                                ].filter(Boolean),
+                              ),
+                            ).map((option) => (
+                              <option key={option} value={option}>
+                                {option}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="number"
+                            step="0.1"
+                            value={optionValue(component.ratio_percent)}
+                            onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
+                            className="h-11 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                          />
+                          <div className="flex h-11 items-center rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm font-semibold text-slate-950">
+                            {Number(previewComponent?.weight_g || 0).toFixed(2)} g
+                          </div>
+                          <div className="flex items-center justify-end">
+                            {isEditable ? (
+                              <button
+                                type="button"
+                                onClick={() => removeAdhesiveComponent(index)}
+                                disabled={form.adhesiveComponents.length <= 2}
+                                className="rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {isEditable ? (
+                    <div className="mt-4 flex items-center justify-between gap-3">
+                      <p className="text-xs text-slate-500">Adhesive weight updates from the live paper total only.</p>
+                      <button
+                        type="button"
+                        onClick={addAdhesiveComponent}
+                        disabled={form.adhesiveComponents.length >= 3}
+                        className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                      >
+                        Add Component
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>
-          ) : null}
-        </div>
-      </section>
+          </section>
 
-      <section className="grid gap-4 lg:grid-cols-[1.2fr_1fr]" id="sheet-packing">
-        <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
-          <SectionLabel title="Packing Division" subtitle="Packing references and labels that flow into the dispatch sheet." />
-          <MasterLinkRow links={[{ href: "/masters/parchments", label: "Parchments" }, { href: "/masters/packaging", label: "Packaging master" }]} />
+          <section className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]" id="sheet-recipe">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Recipe mix</p>
+                <h3 className="mt-2 text-xl font-semibold text-slate-950">Use three to five papers, stay under eighteen plies, and let the live mix drive the weights.</h3>
+              </div>
+              <MasterLinkRow links={[{ href: "/masters/papers", label: "Papers" }]} />
+            </div>
+
+            <div className="mt-5 grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
+              <div className="space-y-4">
+                <div className="rounded-[28px] bg-[#071224] p-5 text-white" data-testid="spec-sheet-live-builder">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200/80">Applied combo rule</p>
+                      <p className="mt-3 text-2xl font-semibold leading-tight tracking-[-0.03em]">{comboRuleTitle}</p>
+                    </div>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+                      3-5 papers · 18 ply max
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm text-slate-300">
+                    Target wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Current recipe wet is paper ÷ remaining wet share.
+                  </p>
+                  <div className="mt-5 grid gap-3 md:grid-cols-3">
+                    <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Paper total</p>
+                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">{livePaperTotal.toFixed(2)} g</p>
+                    </div>
+                    <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Current recipe wet / dry</p>
+                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">
+                        {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">Target wet {targetWetTube.toFixed(2)} g</p>
+                    </div>
+                    <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Dry delta</p>
+                      <p className={`mt-2 text-3xl font-black tracking-[-0.04em] ${Math.abs(liveDryDelta) <= 3 ? "text-emerald-300" : "text-amber-300"}`}>
+                        {liveDryDelta > 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto rounded-[28px] border border-[#d9e2ef]">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-[#d8dde6] text-[11px] uppercase tracking-[0.14em] text-slate-600">
+                      <tr>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3 text-left">Code</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3 text-left">Variety</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">GSM</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">BF / Ply</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Thick / Ply</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Weight</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Ply</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Ply No.</th>
+                        {isEditable ? <th className="border-b border-[#d9e2ef] px-3 py-3">Action</th> : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {form.recipeRows.map((row, rowIndex) => {
+                        const previewRow = Array.isArray(previewSummary.ply_details)
+                          ? previewSummary.ply_details.find((item: any) => item.paper_id === row.paper_id && Number(item.gsm || 0) === Number(paperMap.get(row.paper_id)?.gsm || 0))
+                          : null
+                        return (
+                          <tr key={row.id} className="border-b border-[#edf2f7] last:border-b-0">
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-xs font-semibold text-slate-900">{row.code || "-"}</td>
+                            <td className="min-w-52 border-r border-[#edf2f7] px-3 py-3">
+                              <select
+                                value={row.paper_id}
+                                onChange={(event) => updateRecipeRow(row.id, { paper_id: event.target.value })}
+                                className="h-10 w-full rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                              >
+                                <option value="">Select paper</option>
+                                {(papers || []).map((paper: any) => (
+                                  <option key={paper.id} value={paper.id}>
+                                    {paper.code || "NO-CODE"} | {paper.variety || paper.category} | {paper.gsm} GSM
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">{previewRow?.gsm || 0}</td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
+                              <input
+                                type="number"
+                                step="0.01"
+                                value={optionValue(row.bfPerPly)}
+                                onChange={(event) => updateRecipeRow(row.id, { bfPerPly: Number(event.target.value || 0) })}
+                                className="h-10 w-20 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                              />
+                            </td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
+                              <input
+                                type="number"
+                                step="0.0001"
+                                value={optionValue(row.thicknessPerPly)}
+                                onChange={(event) => updateRecipeRow(row.id, { thicknessPerPly: Number(event.target.value || 0) })}
+                                className="h-10 w-20 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                              />
+                            </td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-slate-950">
+                              {Number(previewRow?.weightG || 0).toFixed(2)}
+                            </td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
+                              <input
+                                data-testid={rowIndex === 0 ? "spec-sheet-recipe-ply-1" : undefined}
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={optionValue(row.plyCount)}
+                                onChange={(event) => updateRecipeRow(row.id, { plyCount: Math.max(1, Number(event.target.value || 1)) })}
+                                className="h-10 w-16 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                              />
+                            </td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
+                              <input
+                                type="text"
+                                value={row.positionsText}
+                                onChange={(event) => updateRecipeRow(row.id, { positionsText: event.target.value })}
+                                placeholder={encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount))}
+                                className="h-10 w-24 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                              />
+                            </td>
+                            {isEditable ? (
+                              <td className="px-3 py-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeRecipeRow(row.id)}
+                                  className="rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
+                                >
+                                  Remove
+                                </button>
+                              </td>
+                            ) : null}
+                          </tr>
+                        )
+                      })}
+                      <tr className="bg-[#f8fafc] font-semibold text-slate-800">
+                        <td className="px-3 py-3" colSpan={2}>
+                          TOTAL-ALL-PLY
+                        </td>
+                        <td className="px-3 py-3 text-center">{recipePreview.totalAllPlyGsm}</td>
+                        <td className="px-3 py-3 text-center">{recipePreview.totalAllPlyBf.toFixed(2)}</td>
+                        <td className="px-3 py-3 text-center">{recipePreview.totalAllPlyThickness.toFixed(4)}</td>
+                        <td className="px-3 py-3 text-center">{Number(previewSummary.paper_total_g || 0).toFixed(2)}</td>
+                        <td className="px-3 py-3 text-center">{recipePreview.totalPlyCount}</td>
+                        <td className="px-3 py-3 text-center">-</td>
+                        {isEditable ? <td className="px-3 py-3 text-center">-</td> : null}
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                {isEditable ? (
+                  <div className="flex justify-between gap-3">
+                    <p className="text-sm text-slate-500">Paper rows drive wall thickness, tube paper weight, and the best-mix suggestions.</p>
+                    <button
+                      type="button"
+                      onClick={addRecipeRow}
+                      className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                    >
+                      Add recipe row
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="space-y-4">
+                <section className="overflow-hidden rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]" data-testid="spec-sheet-preview-rail">
+                  <div className="border-b border-[#e4ebf3] px-5 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#0f5d7a]">Live recipe summary</p>
+                    <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{selectedCustomer?.name || "Select customer"}</h3>
+                    <p className="mt-2 text-sm text-slate-500">
+                      {selectedTube ? `${selectedTube.inner_diameter_mm} × ${selectedTube.outer_diameter_mm} × ${selectedTube.length_mm}` : "Pick tube size to activate the preview"}
+                    </p>
+                  </div>
+                  <div className="grid gap-3 px-5 py-5 md:grid-cols-2 xl:grid-cols-1">
+                    <SummaryMetric label="One bamboo yield" value={`${Number(previewSummary.tubes_per_bamboo || 0)} pcs`} detail={`${selectedBambooLengthMm.toFixed(0)} mm selected · ${usableBambooLengthMm.toFixed(0)} mm usable`} />
+                    <SummaryMetric label="Required paper" value={`${targetPaperWeight.toFixed(2)} g`} detail={`${targetWetTube.toFixed(2)} g wet target`} />
+                    <SummaryMetric
+                      label="Recipe status"
+                      value={`${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g`}
+                      detail={
+                        hasRecipeSelection
+                          ? `${livePaperTotal.toFixed(2)} g paper + ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g glue + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g parchment`
+                          : "No live recipe yet. Suggestions below are ranked against the target."
+                      }
+                      tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
+                    />
+                  </div>
+                </section>
+
+                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
+                  {recipeSuggestions.length === 0 ? (
+                    <div className="rounded-[26px] border border-[#dfe7f1] bg-[#f8fafc] p-5 text-sm text-slate-600 md:col-span-2 2xl:col-span-3">
+                      Add customer weight, tube size, mandrel, and papers to unlock the 3-5 paper combination set.
+                    </div>
+                  ) : (
+                    recipeSuggestions.slice(0, 6).map((suggestion) => (
+                      <div
+                        key={suggestion.id}
+                        data-testid={`spec-sheet-suggestion-${suggestion.id}`}
+                        className="flex h-full flex-col rounded-[24px] border border-[#dfe7f1] bg-[#f8fafc] p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">{suggestion.title}</p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              Paper {safeNumber(suggestion.predictedPaperWeightG).toFixed(2)} g · Wet {safeNumber(suggestion.predictedWetTubeG).toFixed(2)} g · Dry {safeNumber(suggestion.predictedDryTubeG).toFixed(2)} g
+                            </p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400">{safeNumber(suggestion.totalPlyCount || 0)} ply total</p>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-sm font-semibold ${Math.abs(safeNumber(suggestion.deltaG)) <= 3 ? "text-emerald-700" : "text-amber-700"}`}>
+                              {safeNumber(suggestion.deltaG) > 0 ? "+" : ""}{safeNumber(suggestion.deltaG).toFixed(2)} g
+                            </p>
+                            {isEditable ? (
+                              <button
+                                type="button"
+                                onClick={() => applyRecipeSuggestion(suggestion)}
+                                className="mt-2 rounded-full border border-[#d6dfeb] bg-white px-3 py-2 text-xs font-semibold text-slate-700"
+                              >
+                                Apply mix
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-4 text-xs leading-5 text-slate-500">
+                          {suggestion.rows.map((row) => `${row.code} × ${row.plyCount}`).join(" + ")}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="sheet-manufacturing" className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Manufacturing matrix</p>
+                <h3 className="mt-2 text-xl font-semibold text-slate-950">ID comes from mandrel, OD comes from wall, and bamboo output follows the live recipe.</h3>
+              </div>
+              <p className="text-sm text-slate-500">Bamboo weight is now the predicted recipe output for the usable cut length after trim loss.</p>
+            </div>
+            <div className="mt-5 space-y-5">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <SummaryMetric
+                  label="Mandrel ID band"
+                  value={`${manufacturingIdBand.avg.toFixed(2)} mm`}
+                  detail={`Min ${manufacturingIdBand.min.toFixed(2)} · Max ${manufacturingIdBand.max.toFixed(2)}`}
+                />
+                <SummaryMetric
+                  label="Wall / OD"
+                  value={`${recipePreview.totalAllPlyThickness.toFixed(4)} / ${manufacturingRows.find((row) => row.label === "AVG")?.od.toFixed(2)} mm`}
+                  detail="OD = ID + 2 × wall"
+                />
+                <SummaryMetric
+                  label="Current recipe tube"
+                  value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
+                  detail={`Target wet ${targetWetTube.toFixed(2)} g · Paper ${livePaperTotal.toFixed(2)} g · Glue ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g`}
+                />
+                <SummaryMetric
+                  label="Bamboo wet / dry"
+                  value={`${bambooWetWeightG.toFixed(2)} / ${bambooDryWeightG.toFixed(2)} g`}
+                  detail={`${tubesPerBamboo} pcs from ${usableBambooLengthMm.toFixed(0)} mm usable`}
+                />
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
+                <div className="overflow-hidden rounded-[28px] border border-[#dfe7f1] bg-[#fbfdff]">
+                  <div className="border-b border-[#e4ebf3] px-5 py-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Manufacturing specification</p>
+                    <p className="mt-2 text-sm text-slate-600">Average is the live working size. Min/max stay tied to mandrel tolerance and recipe wall.</p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="min-w-full text-sm">
+                      <thead className="bg-[#e8edf4] text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                        <tr>
+                          <th className="px-4 py-3 text-left">Parameter</th>
+                          <th className="px-4 py-3 text-right">Min</th>
+                          <th className="px-4 py-3 text-right">Avg</th>
+                          <th className="px-4 py-3 text-right">Max</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {manufacturingSpecRows.map((row) => (
+                          <tr key={row.label} className="border-t border-[#e4ebf3]">
+                            <td className="px-4 py-3 font-semibold text-slate-700">{row.label}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{row.values[0]}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-slate-950">{row.values[1]}</td>
+                            <td className="px-4 py-3 text-right text-slate-700">{row.values[2]}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="space-y-4 rounded-[28px] border border-[#dfe7f1] bg-[#f8fafc] p-5">
+                  <SectionLabel title="Bamboo and output logic" subtitle="This block is what moves downstream into the job card." />
+                  <SummaryMetric label="Selected bamboo" value={`${selectedBambooLengthMm.toFixed(0)} mm`} detail={`${usableBambooLengthMm.toFixed(0)} mm usable after trim`} />
+                  <SummaryMetric label="Tubes / bamboo" value={`${tubesPerBamboo} pcs`} detail={`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm tube length`} />
+                  <SummaryMetric label="Paper / mm" value={`${Number(previewSummary.weight_per_mm_g || 0).toFixed(4)} g`} detail={`${Number(previewSummary.paper_required_g || 0).toFixed(2)} g required paper`} />
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <FoldSection
+        id="sheet-notch-tooling"
+        title="Notch + Tooling"
+        subtitle="Only the downstream tooling fields that still matter to the job card and print sheet."
+        forceOpen={isPrint}
+      >
+        <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+          <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
+            <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
+            <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
+            <div className="grid gap-3 md:grid-cols-3">
+              {renderScalarField("tube_direction", "Tube Direction")}
+              {renderScalarField("notch_type", "Notch Type")}
+              {renderScalarField("notch_position", "Notch Position")}
+              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Expected notch distance mm")}
+              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Expected notch depth mm")}
+              {renderScalarField("tochha", "Tochha")}
+              {renderScalarField("tochha_type", "Tochha Type")}
+              {renderScalarField("notching_holder", "Notching Holder")}
+              {renderScalarField("notching_blade", "Notching Blade")}
+              {renderScalarField("groove", "Groove")}
+              {renderScalarField("punch", "Punch")}
+              {renderScalarField("die", "Die")}
+              {renderScalarField("wider_tool", "WIDER TOOL")}
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {renderScalarField("height_gauge_go", "Height Gauge GO", "number")}
+              {renderScalarField("height_gauge_no_go", "Height Gauge NO GO", "number")}
+            </div>
+          </div>
+          <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
+            <NotchDiagramPanel
+              data={computedNotchDiagram}
+              editable={isEditable}
+              onNotchDistanceChange={(value) => updateDynamicValue("notch_distance_mm", String(roundValue(value, 2)))}
+              onNotchDepthChange={(value) => updateDynamicValue("notch_depth_mm", String(roundValue(value, 2)))}
+            />
+            {isEditable ? (
+              <div className="space-y-3" data-print-hidden="true">
+                <div className="space-y-1">
+                  <FieldLabel>Diagram Title</FieldLabel>
+                  <input
+                    type="text"
+                    value={form.notchDiagram.title}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        notchDiagram: { ...current.notchDiagram, title: event.target.value },
+                      }))
+                    }
+                    className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                  />
+                </div>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Tube Length</p>
+                    <p className="mt-1 font-semibold text-slate-900">{tubeLengthMm.toFixed(2)} mm</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Distance</p>
+                    <p className="mt-1 font-semibold text-slate-900">{computedNotchDiagram.notchDistanceMm.toFixed(2)} mm</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Depth</p>
+                    <p className="mt-1 font-semibold text-slate-900">{computedNotchDiagram.notchDepthMm.toFixed(2)} mm</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </FoldSection>
+
+      <FoldSection
+        id="sheet-packing"
+        title="Packing"
+        subtitle="Compact packing handoff only: box, plastic, fadda, and per-box counts."
+        forceOpen={isPrint}
+      >
+        <SectionLabel title="Packing" subtitle="Primary packing inputs only: box, plastic, fadda, and per-box counts." />
+        <MasterLinkRow links={[{ href: "/masters/packaging", label: "Packaging master" }]} />
+        <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="grid gap-3 md:grid-cols-2">
             {renderScalarField("box_code", "Box Code")}
             {renderScalarField("box_size", "Box Size")}
             {renderScalarField("qty_per_box", "Qty / Box", "number")}
-            {renderScalarField("plastic_required", "Plastic")}
             {renderScalarField("plastic_sku", "Plastic SKU")}
             {renderScalarField("plastic_per_box", "Plastic / Box", "number")}
             {renderScalarField("fadda_sku", "Fadda SKU")}
             {renderScalarField("fadda_per_box", "Fadda / Box", "number")}
             {renderScalarField("bopp_required", "BOPP")}
           </div>
-          <div className="grid gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-sm text-slate-600 md:grid-cols-3">
-            <p><span className="font-semibold text-slate-900">Bundle Type:</span> {optionValue(form.dynamicValues.bundle_type) || "--"}</p>
-            <p><span className="font-semibold text-slate-900">Bundle Code:</span> {optionValue(form.dynamicValues.bundle_code) || "--"}</p>
-            <p><span className="font-semibold text-slate-900">Packing Pcs:</span> {optionValue(form.dynamicValues.packing_pcs) || "--"}</p>
-          </div>
-          <div className="space-y-1">
-            <FieldLabel>Special Instructions</FieldLabel>
-            <textarea
-              value={optionValue(form.dynamicValues.special_instructions)}
-              onChange={(event) => updateDynamicValue("special_instructions", event.target.value)}
-              disabled={!isEditable}
-              rows={4}
-              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
-          <SectionLabel title="Packing Snapshot" subtitle="Workbook fields only; execution detail is captured in job card entry." />
-          <div className="space-y-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-            <p>
-              <span className="font-semibold">Bundle Type:</span> {optionValue(form.dynamicValues.bundle_type) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Bundle Code:</span> {optionValue(form.dynamicValues.bundle_code) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Packing Ply:</span> {optionValue(form.dynamicValues.packing_ply) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Qty / Box:</span> {optionValue(form.dynamicValues.qty_per_box) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Packing Pcs:</span> {optionValue(form.dynamicValues.packing_pcs) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Box Code:</span> {optionValue(form.dynamicValues.box_code || form.dynamicValues.box) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Box Size:</span> {optionValue(form.dynamicValues.box_size) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Plastic:</span> {boolFromString(form.dynamicValues.plastic_required) ? "Yes" : "No"}
-            </p>
-            <p>
-              <span className="font-semibold">Plastic SKU:</span> {optionValue(form.dynamicValues.plastic_sku) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Plastic / Box:</span> {optionValue(form.dynamicValues.plastic_per_box) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Fadda SKU:</span> {optionValue(form.dynamicValues.fadda_sku) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">Fadda / Box:</span> {optionValue(form.dynamicValues.fadda_per_box) || "--"}
-            </p>
-            <p>
-              <span className="font-semibold">BOPP:</span> {boolFromString(form.dynamicValues.bopp_required) ? "Yes" : "No"}
-            </p>
-          </div>
-          <div className="space-y-1">
-            <FieldLabel>Packing Remarks / Notes</FieldLabel>
-            <textarea
-              value={optionValue(form.dynamicValues.special_instructions)}
-              onChange={(event) => updateDynamicValue("special_instructions", event.target.value)}
-              disabled={!isEditable}
-              rows={3}
-              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-        </div>
-      </section>
-
-      <section className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-recipe">
-        <SectionLabel title="Best Combination" subtitle="Recipe calibration workbench; rows expand into actual backend layers." />
-        <MasterLinkRow links={[{ href: "/masters/papers", label: "Open papers" }, { href: "/masters/adhesives", label: "Open adhesives" }]} />
-        <section className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Recipe to follow</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <div>
-                <p className="text-xs text-slate-500">Weight / Tube</p>
-                <p className="mt-1 font-semibold text-slate-900">{liveDryTube.toFixed(2)} g dry</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Wet / Dry</p>
-                <p className="mt-1 font-semibold text-slate-900">
-                  {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
-                </p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500">Dry Delta</p>
-                <p className="mt-1 font-semibold text-slate-900">{liveDryDelta.toFixed(2)} g</p>
+          <div className="space-y-4">
+            <div className="rounded-[26px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Packing handoff</p>
+              <div className="mt-4 grid gap-2">
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                  <span>Box</span>
+                  <span className="font-semibold">{optionValue(form.dynamicValues.box_code || form.dynamicValues.box) || "--"}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                  <span>Box size</span>
+                  <span className="font-semibold">{optionValue(form.dynamicValues.box_size) || "--"}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                  <span>Plastic / box</span>
+                  <span className="font-semibold">{optionValue(form.dynamicValues.plastic_per_box) || "--"}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                  <span>Fadda / box</span>
+                  <span className="font-semibold">{optionValue(form.dynamicValues.fadda_per_box) || "--"}</span>
+                </div>
               </div>
             </div>
-            <p className="mt-4 text-sm text-slate-600">No recipe applied yet. Apply a suggestion or build a fresh recipe here.</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4" data-testid="spec-sheet-live-builder">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Live builder</p>
-            <p className="mt-2 text-sm text-slate-600">Apply a suggestion or build a fresh recipe here.</p>
-            <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                <p className="text-xs text-slate-500">Live paper total</p>
-                <p className="mt-1 font-semibold text-slate-900">{livePaperTotal.toFixed(2)} g</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                <p className="text-xs text-slate-500">One bamboo yield</p>
-                <p className="mt-1 font-semibold text-slate-900">{Number(previewSummary.tubes_per_bamboo || 0)} pcs</p>
-              </div>
-            </div>
-          </div>
-        </section>
-        <div className="overflow-x-auto rounded-2xl border border-slate-300">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-100 text-[11px] uppercase tracking-[0.14em] text-slate-500">
-              <tr>
-                <th className="border-b border-r border-slate-300 px-2 py-2 text-left">Code</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2 text-left">Variety</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">GSM</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Category</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">BF / Ply</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Thick / Ply</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Ply Bond</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Weight All Ply</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Ply</th>
-                <th className="border-b border-r border-slate-300 px-2 py-2">Ply No.</th>
-                {isEditable ? <th className="border-b border-slate-300 px-2 py-2">Action</th> : null}
-              </tr>
-            </thead>
-            <tbody>
-              {form.recipeRows.map((row, rowIndex) => {
-                const previewRow = Array.isArray(previewSummary.ply_details) ? previewSummary.ply_details.find((item: any) => item.paper_id === row.paper_id && Number(item.gsm || 0) === Number(paperMap.get(row.paper_id)?.gsm || 0)) : null
-                return (
-                  <tr key={row.id}>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-xs font-semibold">{row.code || "-"}</td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 min-w-48">
-                      {isEditable ? (
-                        <select
-                          value={row.paper_id}
-                          onChange={(event) => updateRecipeRow(row.id, { paper_id: event.target.value })}
-                          className="h-9 w-full rounded-lg border border-slate-300 px-2 text-xs"
-                        >
-                          <option value="">Select paper</option>
-                          {(papers || []).map((paper: any) => (
-                            <option key={paper.id} value={paper.id}>
-                              {paper.code || "NO-CODE"} | {paper.variety || paper.category} | {paper.gsm} GSM | BF {paper.bf ?? paper.strength_value ?? 0}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span>{row.variety || "-"}</span>
-                      )}
-                    </td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">{previewRow?.gsm || 0}</td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">{row.category || "-"}</td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">
-                      {isEditable ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={optionValue(row.bfPerPly)}
-                          onChange={(event) => updateRecipeRow(row.id, { bfPerPly: Number(event.target.value || 0) })}
-                          className="h-9 w-20 rounded-lg border border-slate-300 px-2 text-xs"
-                        />
-                      ) : (
-                        row.bfPerPly.toFixed(2)
-                      )}
-                    </td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">
-                      {isEditable ? (
-                        <input
-                          type="number"
-                          step="0.0001"
-                          value={optionValue(row.thicknessPerPly)}
-                          onChange={(event) => updateRecipeRow(row.id, { thicknessPerPly: Number(event.target.value || 0) })}
-                          className="h-9 w-20 rounded-lg border border-slate-300 px-2 text-xs"
-                        />
-                      ) : (
-                        row.thicknessPerPly.toFixed(4)
-                      )}
-                    </td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">
-                      {isEditable ? (
-                        <input
-                          type="number"
-                          step="0.01"
-                          value={optionValue(row.plyBond)}
-                          onChange={(event) => updateRecipeRow(row.id, { plyBond: Number(event.target.value || 0) })}
-                          className="h-9 w-20 rounded-lg border border-slate-300 px-2 text-xs"
-                        />
-                      ) : (
-                        row.plyBond.toFixed(2)
-                      )}
-                    </td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center font-semibold">{Number(previewRow?.weightG || 0).toFixed(2)}</td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">
-                      {isEditable ? (
-                        <input
-                          data-testid={rowIndex === 0 ? "spec-sheet-recipe-ply-1" : undefined}
-                          type="number"
-                          min="1"
-                          step="1"
-                          value={optionValue(row.plyCount)}
-                          onChange={(event) => updateRecipeRow(row.id, { plyCount: Math.max(1, Number(event.target.value || 1)) })}
-                          className="h-9 w-16 rounded-lg border border-slate-300 px-2 text-xs"
-                        />
-                      ) : (
-                        row.plyCount
-                      )}
-                    </td>
-                    <td className="border-r border-t border-slate-200 px-2 py-2 text-center">
-                      {isEditable ? (
-                        <input
-                          type="text"
-                          value={row.positionsText}
-                          onChange={(event) => updateRecipeRow(row.id, { positionsText: event.target.value })}
-                          placeholder={encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount))}
-                          className="h-9 w-24 rounded-lg border border-slate-300 px-2 text-xs"
-                        />
-                      ) : (
-                        row.positionsText || encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount))
-                      )}
-                    </td>
-                    {isEditable ? (
-                      <td className="border-t border-slate-200 px-2 py-2 text-center">
-                        <button type="button" onClick={() => removeRecipeRow(row.id)} className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700">
-                          Remove
-                        </button>
-                      </td>
-                    ) : null}
-                  </tr>
-                )
-              })}
-              <tr className="bg-slate-50 font-semibold text-slate-800">
-                <td className="border-t border-slate-300 px-2 py-2" colSpan={2}>TOTAL-ALL-PLY</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalAllPlyGsm}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">-</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalAllPlyBf.toFixed(2)}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalAllPlyThickness.toFixed(4)}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalAllPlyBond.toFixed(2)}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">{Number(previewSummary.paper_total_g || 0).toFixed(2)}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">{recipePreview.totalPlyCount}</td>
-                <td className="border-t border-slate-300 px-2 py-2 text-center">-</td>
-                {isEditable ? <td className="border-t border-slate-300 px-2 py-2 text-center">-</td> : null}
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        {isEditable ? (
-          <div className="flex justify-end" data-print-hidden="true">
-            <button type="button" onClick={addRecipeRow} className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800">
-              Add Recipe Row
-            </button>
-          </div>
-        ) : null}
-        <div className="grid gap-4 lg:grid-cols-[1fr_340px]">
-          <div className="space-y-1">
-            <FieldLabel>Recipe Notes</FieldLabel>
-            <textarea
-              value={form.notes}
-              onChange={(event) => setForm((current) => ({ ...current, notes: event.target.value }))}
-              disabled={!isEditable}
-              rows={3}
-              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-          <div className="space-y-2 rounded-2xl border border-slate-300 bg-slate-50 p-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Paper Suggestions</p>
-            <p className="text-xs text-slate-600">
-              Suggestions are non-blocking. They use current paper master plus target wet weight math.
-            </p>
-            <div className="space-y-2">
-              {recipeSuggestions.length === 0 ? (
-                <p className="text-xs text-slate-500">Add tube dimensions and paper master data to generate suggestions.</p>
-              ) : (
-                recipeSuggestions.map((suggestion) => (
-                  <div
-                    key={suggestion.id}
-                    data-testid={`spec-sheet-suggestion-${suggestion.id}`}
-                    className="rounded-xl border border-slate-200 bg-white p-3 text-xs"
-                  >
-                    <p className="font-semibold text-slate-800">{suggestion.title}</p>
-                    <p className="mt-1 text-slate-600">
-                      Paper target: {safeNumber(suggestion.predictedPaperWeightG).toFixed(2)} g
-                    </p>
-                    <p className={Math.abs(safeNumber(suggestion.deltaG)) <= 3 ? "text-emerald-700" : "text-amber-700"}>
-                      Delta: {safeNumber(suggestion.deltaG) > 0 ? "+" : ""}
-                      {safeNumber(suggestion.deltaG).toFixed(2)} g
-                    </p>
-                    <p className="text-slate-500">
-                      Dry/Wet: {safeNumber(suggestion.predictedDryTubeG).toFixed(2)} g / {safeNumber(suggestion.predictedWetTubeG).toFixed(2)} g
-                    </p>
-                    {isEditable ? (
-                      <button
-                        type="button"
-                        onClick={() => applyRecipeSuggestion(suggestion)}
-                        className="mt-2 rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-[11px] font-semibold text-cyan-800"
-                      >
-                        Apply Mix
-                      </button>
-                    ) : null}
-                  </div>
-                ))
-              )}
+            <div className="space-y-1">
+              <FieldLabel>Special Instructions</FieldLabel>
+              <textarea
+                value={optionValue(form.dynamicValues.special_instructions)}
+                onChange={(event) => updateDynamicValue("special_instructions", event.target.value)}
+                disabled={!isEditable}
+                rows={5}
+                className="w-full rounded-[24px] border border-slate-300 px-4 py-4 text-sm disabled:bg-slate-100"
+              />
             </div>
           </div>
         </div>
-      </section>
+      </FoldSection>
 
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-glue">
-        <SectionLabel title="Glue / Adhesive Mix" subtitle="2-3 components. Each component = paper × (base % / 100) × (ratio % / 100)." />
-        <div className="grid gap-3 md:grid-cols-3">
+      <FoldSection
+        id="sheet-validation"
+        title="Validation"
+        subtitle="Final footer and release checks only. Keep this out of the way until the sheet is ready."
+        forceOpen={isPrint}
+      >
+        <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
+        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
           <div className="space-y-1">
-            <FieldLabel>Glue Base % (Default)</FieldLabel>
+            <FieldLabel>Global Adhesive %</FieldLabel>
             <input
               type="number"
               step="0.1"
-              value="15"
-              disabled
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
+              value={optionValue(form.dynamicValues.glue_base_percent || "15")}
+              onChange={(event) =>
+                setForm((current) => ({
+                  ...current,
+                  dynamicValues: { ...current.dynamicValues, glue_base_percent: event.target.value },
+                  adhesiveComponents: current.adhesiveComponents.map((component) => ({
+                    ...component,
+                    base_percent: Number(event.target.value || 0),
+                  })),
+                }))
+              }
+              disabled={!isEditable}
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
             />
           </div>
           <div className="space-y-1">
-            <FieldLabel>Wet Divisor</FieldLabel>
+            <FieldLabel>Global Parchment %</FieldLabel>
             <input
-              type="text"
-              value={`1 - (${Number(form.shrinkPercent || 9.5).toFixed(1)} / 100) = ${(1 - Number(form.shrinkPercent || 9.5) / 100).toFixed(3)}`}
-              disabled
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
+              type="number"
+              step="0.1"
+              value={optionValue(form.parchmentPercent || "1.5")}
+              onChange={(event) => setForm((current) => ({ ...current, parchmentPercent: event.target.value }))}
+              disabled={!isEditable}
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
             />
           </div>
           <div className="space-y-1">
-            <FieldLabel>Parchment %</FieldLabel>
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-3 py-3 text-sm text-slate-600">
-              Fixed at 1.5% for recipe math. Sales order chooses the actual parchment vendor and pattern.
-            </div>
+            <FieldLabel>Moisture Loss %</FieldLabel>
+            <input
+              type="number"
+              step="0.1"
+              value={form.shrinkPercent}
+              onChange={(event) => setForm((current) => ({ ...current, shrinkPercent: event.target.value }))}
+              disabled={!isEditable}
+              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+            />
           </div>
-        </div>
-        <div className="mt-4 space-y-2">
-          <div className="grid grid-cols-[1.3fr_0.7fr_0.7fr_auto] gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-            <p>Name</p>
-            <p>Base %</p>
-            <p>Ratio %</p>
-            <p className="text-right">Action</p>
-          </div>
-          {form.adhesiveComponents.map((component, index) => (
-            <div key={`${component.name}-${index}`} className="grid grid-cols-[1.3fr_0.7fr_0.7fr_auto] gap-2">
-              {isEditable ? (
-                <select
-                  value={component.name}
-                  onChange={(event) => updateAdhesiveComponent(index, { name: event.target.value })}
-                  className="h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm"
-                >
-                  <option value="">Select adhesive</option>
-                  {Array.from(
-                    new Set(
-                      [
-                        ...form.adhesiveComponents.map((row) => row.name).filter(Boolean),
-                        ...((adhesives || []) as any[]).map((adhesive) =>
-                          adhesive.internal_code ? `${adhesive.name} (${adhesive.internal_code})` : adhesive.name,
-                        ),
-                      ].filter(Boolean),
-                    ),
-                  ).map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex h-10 items-center rounded-lg border border-slate-300 bg-slate-50 px-3 text-sm text-slate-800">
-                  {component.name || "-"}
-                </div>
-              )}
-              <input
-                type="number"
-                step="0.1"
-                value={optionValue(form.dynamicValues.glue_base_percent || "15")}
-                disabled
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
-              />
-              <input
-                type="number"
-                step="0.1"
-                value={optionValue(component.ratio_percent)}
-                onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
-                disabled={!isEditable}
-                className="h-10 rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
-              />
-              <div className="flex items-center justify-end gap-2">
-                {isEditable ? (
-                  <button
-                    type="button"
-                    onClick={() => removeAdhesiveComponent(index)}
-                    disabled={form.adhesiveComponents.length <= 2}
-                    className="rounded-lg border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 disabled:opacity-50"
-                  >
-                    Remove
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ))}
-          {isEditable ? (
-            <div className="flex justify-end">
+          <div className="flex items-end">
+            {isEditable ? (
               <button
                 type="button"
-                onClick={addAdhesiveComponent}
-                disabled={form.adhesiveComponents.length >= 3}
-                className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs font-semibold text-cyan-800 disabled:opacity-50"
+                onClick={() =>
+                  setForm((current) => ({
+                    ...current,
+                    parchmentPercent: "1.5",
+                    shrinkPercent: "9.0",
+                    dynamicValues: { ...current.dynamicValues, glue_base_percent: "15" },
+                    adhesiveComponents: current.adhesiveComponents.map((component) => ({
+                      ...component,
+                      base_percent: 15,
+                    })),
+                  }))
+                }
+                className="h-10 rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
               >
-                Add Component
-              </button>
-            </div>
-          ) : null}
-        </div>
-        <div className="mt-3 grid gap-3 rounded-2xl border border-slate-300 bg-slate-50 p-4 md:grid-cols-3">
-          <p><span className="font-semibold">Paper Weight:</span> {Number(previewSummary.paper_total_g || 0).toFixed(2)} g</p>
-          <p><span className="font-semibold">Total Adhesive:</span> {bridgeMetrics.adhesiveTotalG.toFixed(2)} g</p>
-          <p><span className="font-semibold">Parchment Weight:</span> {Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g</p>
-          {bridgeMetrics.adhesiveComponents.map((component: any, index: number) => (
-            <p key={`${component.name || "component"}-${index}`}>
-              <span className="font-semibold">{component.name || `Adhesive ${index + 1}`}:</span> {Number(component.weight_g || 0).toFixed(2)} g
-            </p>
-          ))}
-          <p><span className="font-semibold">Predicted Wet / Tube:</span> {bridgeMetrics.predictedWetTubeG.toFixed(2)} g</p>
-          <p><span className="font-semibold">Predicted Dry / Tube:</span> {bridgeMetrics.predictedDryTubeG.toFixed(2)} g</p>
-          <p><span className="font-semibold">Weight / mm:</span> {bridgeMetrics.weightPerMmG.toFixed(4)} g/mm</p>
-          <p><span className="font-semibold">Bamboo Wet Target:</span> {bridgeMetrics.bambooRequiredWetG.toFixed(2)} g</p>
-          <p><span className="font-semibold">Wet Delta:</span> {bridgeMetrics.wetDeltaG.toFixed(2)} g</p>
-          <p><span className="font-semibold">Dry Delta:</span> {bridgeMetrics.dryDeltaG.toFixed(2)} g</p>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-guidance">
-        <SectionLabel title="Drying Reference" subtitle={`Default drying loss is 9.5%. Active guide row: ${selectedGuidance?.rh || "-"}`} />
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Drying % Used</p>
-            <p className="mt-1 text-2xl font-black text-slate-900">{Number(form.shrinkPercent || 9.5).toFixed(1)}%</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Predicted Wet</p>
-            <p className="mt-1 text-2xl font-black text-slate-900">{bridgeMetrics.predictedWetTubeG.toFixed(2)} g</p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Predicted Dry</p>
-            <p className="mt-1 text-2xl font-black text-slate-900">{bridgeMetrics.predictedDryTubeG.toFixed(2)} g</p>
-          </div>
-        </div>
-        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-          <summary className="cursor-pointer text-sm font-semibold text-slate-900">Open RH / moisture reference table</summary>
-          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-300 bg-white">
-            <table className="min-w-full text-sm">
-              <thead className="bg-slate-100 text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                <tr>
-                  <th className="border-b border-r border-slate-300 px-3 py-2 text-left">RH %</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">% Drying</th>
-                  <th className="border-b border-slate-300 px-3 py-2">Moisture %</th>
-                </tr>
-              </thead>
-              <tbody>
-                {form.processGuidance.map((row, index) => (
-                  <tr key={`${row.rh}-${index}`} className={index === form.selectedGuidanceIndex ? "bg-amber-50" : ""}>
-                    <td className="border-r border-t border-slate-200 px-3 py-2 font-semibold">{row.rh}</td>
-                    <td className="border-r border-t border-slate-200 px-3 py-2 text-center">{row.dryingPercent}%</td>
-                    <td className="border-t border-slate-200 px-3 py-2 text-center">{row.moistureBand}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
-      </section>
-
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-trials">
-        <SectionLabel title="Trial Calibration" subtitle="Record floor trial feedback against the predicted output." />
-        <div className="grid gap-3 md:grid-cols-4">
-          <div className="space-y-1">
-            <FieldLabel>Actual Weight</FieldLabel>
-            <input
-              type="number"
-              step="0.01"
-              value={form.trial.actualWeight}
-              onChange={(event) => setForm((current) => ({ ...current, trial: { ...current.trial, actualWeight: event.target.value } }))}
-              disabled={!isEditable}
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-          <div className="space-y-1">
-            <FieldLabel>Actual CS</FieldLabel>
-            <input
-              type="number"
-              step="0.01"
-              value={form.trial.actualCs}
-              onChange={(event) => setForm((current) => ({ ...current, trial: { ...current.trial, actualCs: event.target.value } }))}
-              disabled={!isEditable}
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-          <div className="space-y-1">
-            <FieldLabel>Actual Shrink</FieldLabel>
-            <input
-              type="number"
-              step="0.01"
-              value={form.trial.actualShrink}
-              onChange={(event) => setForm((current) => ({ ...current, trial: { ...current.trial, actualShrink: event.target.value } }))}
-              disabled={!isEditable}
-              className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100"
-            />
-          </div>
-          <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">
-            <input
-              type="checkbox"
-              checked={form.trial.approved}
-              onChange={(event) => setForm((current) => ({ ...current, trial: { ...current.trial, approved: event.target.checked } }))}
-              disabled={!isEditable}
-              className="h-4 w-4 rounded border-slate-300"
-            />
-            Trial Approved
-          </label>
-        </div>
-        <div className="mt-3 space-y-1">
-          <FieldLabel>Remarks</FieldLabel>
-          <textarea
-            value={form.trial.remarks}
-            onChange={(event) => setForm((current) => ({ ...current, trial: { ...current.trial, remarks: event.target.value } }))}
-            disabled={!isEditable}
-            rows={3}
-            className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100"
-          />
-        </div>
-        {isEditable ? (
-          <div className="mt-3 flex flex-wrap gap-2" data-print-hidden="true">
-            <button
-              type="button"
-              onClick={handleRecordTrial}
-              disabled={recordTrial.isPending || !specDocument?.latestRecipe?.id}
-              className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-sm font-semibold text-cyan-800 disabled:opacity-60"
-            >
-              Record Trial
-            </button>
-            {form.trial.actualShrink ? (
-              <button
-                type="button"
-                onClick={() => setForm((current) => ({ ...current, shrinkPercent: current.trial.actualShrink }))}
-                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-              >
-                Use Latest Trial Shrink
+                Reset Defaults
               </button>
             ) : null}
           </div>
-        ) : null}
-        {latestApprovedTrial ? (
-          <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-            <p className="font-semibold">Latest Trial</p>
-            <p className="mt-1">Weight: {Number(latestApprovedTrial.actual_weight || 0).toFixed(2)} g</p>
-            <p>CS: {Number(latestApprovedTrial.actual_cs || 0).toFixed(2)}</p>
-            <p>Shrink: {Number(latestApprovedTrial.actual_shrink || 0).toFixed(2)}%</p>
-            <p className="mt-1 text-xs text-slate-500">{new Date(latestApprovedTrial.tested_at).toLocaleString()}</p>
-          </div>
-        ) : null}
-      </section>
-
-      <section className="rounded-3xl border border-slate-300 bg-white p-5 shadow-sm" id="sheet-validation">
-        <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
+        </div>
         <div className="grid gap-3 md:grid-cols-5">
           {renderScalarField("valid_upto", "Valid Upto")}
           {renderScalarField("prepared_by", "Prepared By")}
@@ -2875,8 +2748,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             </div>
           </div>
         </div>
-      </section>
+      </FoldSection>
+      </div>
     </div>
-    </div>
-  )
-}
+	  )
+	}

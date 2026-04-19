@@ -11,11 +11,25 @@ class SpecificationSheet(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     customer_name = Column(String(200), nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    customer_id = Column(UUID(as_uuid=True), nullable=True)
+    customer_name_snapshot = Column(String(200), nullable=True)
     
     # Foreign Keys to masterdata (stored as UUIDs, no actual FK constraint)
     tube_size_id = Column(UUID(as_uuid=True), nullable=False)
     mandrel_id = Column(UUID(as_uuid=True), nullable=False)
     target_tube_weight = Column(Float, nullable=False, default=0.0)
+    id_min_mm = Column(Float, nullable=True)
+    id_max_mm = Column(Float, nullable=True)
+    od_min_mm = Column(Float, nullable=True)
+    od_max_mm = Column(Float, nullable=True)
+    length_min_mm = Column(Float, nullable=True)
+    length_max_mm = Column(Float, nullable=True)
+    weight_min_g = Column(Float, nullable=True)
+    weight_max_g = Column(Float, nullable=True)
+    cs_min_n = Column(Float, nullable=True)
+    cs_max_n = Column(Float, nullable=True)
+    moisture_min_pct = Column(Float, nullable=True)
+    moisture_max_pct = Column(Float, nullable=True)
     
     # Crush Strength
     required_cs = Column(Float, nullable=False)
@@ -24,11 +38,16 @@ class SpecificationSheet(Base):
     # Parchment (1.5% weight addition only)
     parchment_percent = Column(Float, default=1.5)
     parchment_color = Column(String(100), nullable=True)
-    
+    parchment_allowed = Column(Boolean, default=True)
+
+    # Global adhesive & moisture (overridable per spec)
+    adhesive_percent = Column(Float, default=15.0)
+    moisture_loss_percent = Column(Float, default=9.0)
+
     # Adhesives (ratio split, not weight-based)
     adhesive_20100_percent = Column(Float, nullable=True)
     adhesive_30100_percent = Column(Float, nullable=True)
-    
+
     # Manufacturing parameters
     shrink_percent = Column(Float, default=10)
     bamboo_max_length = Column(Integer, default=1560)
@@ -80,8 +99,9 @@ class RecipeLayer(Base):
     paper_id = Column(UUID(as_uuid=True), nullable=False)
     
     # SNAPSHOT values (critical for historical accuracy)
-    gsm_snapshot = Column(Integer, nullable=False)
-    bf_snapshot = Column(Integer, nullable=False)
+    gsm_snapshot = Column(Float, nullable=False)
+    bf_snapshot = Column(Float, nullable=False)
+    bulk_snapshot = Column(Float, nullable=True)
     
     # Relationships
     recipe = relationship("RecipeHeader", back_populates="layers")
@@ -123,6 +143,17 @@ class SpecDynamicField(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     values = relationship("SpecDynamicFieldValue", back_populates="field", cascade="all, delete-orphan")
+
+
+class GlobalSpecDefaults(Base):
+    __tablename__ = "global_spec_defaults"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, unique=True, default="PLANT_A")
+    adhesive_percent = Column(Float, nullable=False, default=15.0)
+    parchment_percent = Column(Float, nullable=False, default=1.5)
+    moisture_loss_percent = Column(Float, nullable=False, default=9.0)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
 
 class SpecDynamicFieldValue(Base):

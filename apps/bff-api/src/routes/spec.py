@@ -89,12 +89,12 @@ async def obsolete_specification(spec_id: str, request: Request, token: str = De
 
 @router.get("/spec-fields")
 async def get_spec_fields(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, "/spec-fields", request, token)
+    return await proxy_to_service(SPEC_SERVICE_URL, "/spec-fields/", request, token)
 
 
 @router.post("/spec-fields")
 async def create_spec_field(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, "/spec-fields", request, token)
+    return await proxy_to_service(SPEC_SERVICE_URL, "/spec-fields/", request, token)
 
 
 @router.put("/spec-fields/{field_id}")

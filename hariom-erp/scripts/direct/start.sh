@@ -37,6 +37,7 @@ LOG_DIR="${RUNTIME_DIR}/logs"
 PORTS_FILE="${RUNTIME_DIR}/ports.env"
 VENV_DIR="$(resolve_runtime_venv_dir "${ROOT_DIR}")"
 VENV_BIN="${VENV_DIR}/bin"
+VENV_PYTHON="${VENV_BIN}/python"
 VENV_MARKER="${VENV_DIR}/.erp_runtime_ok"
 
 mkdir -p "$PID_DIR" "$LOG_DIR"
@@ -118,7 +119,7 @@ check_port_free() {
 }
 
 ensure_venv() {
-  if [[ ! -x "${VENV_BIN}/uvicorn" || ! -f "${VENV_MARKER}" ]]; then
+  if [[ ! -x "${VENV_PYTHON}" || ! -f "${VENV_MARKER}" ]]; then
     echo "Shared runtime is missing. Bootstrapping first..."
     "${ROOT_DIR}/scripts/direct/bootstrap.sh" --skip-ui
   fi
@@ -174,7 +175,7 @@ start_uvicorn_service() {
       BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
       BOOTSTRAP_ADMIN_NAME="$BOOTSTRAP_ADMIN_NAME" \
       BOOTSTRAP_ADMIN_PLANT_ID="$BOOTSTRAP_ADMIN_PLANT_ID" \
-      "${VENV_BIN}/uvicorn" src.main:app --host "$HOST" --port "$port" \
+      "${VENV_PYTHON}" -m uvicorn src.main:app --host "$HOST" --port "$port" \
       >"$logfile" 2>&1 &
     echo $! > "$pidfile"
   )
@@ -205,7 +206,7 @@ start_bff() {
       PRODUCTION_SERVICE_URL="$PRODUCTION_SERVICE_URL" \
       INVENTORY_SERVICE_URL="$INVENTORY_SERVICE_URL" \
       ANALYTICS_SERVICE_URL="$ANALYTICS_SERVICE_URL" \
-      "${VENV_BIN}/uvicorn" src.main:app --host "$HOST" --port "$BFF_PORT" \
+      "${VENV_PYTHON}" -m uvicorn src.main:app --host "$HOST" --port "$BFF_PORT" \
       >"$logfile" 2>&1 &
     echo $! > "$pidfile"
   )

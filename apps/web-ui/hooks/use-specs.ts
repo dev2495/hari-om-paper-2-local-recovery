@@ -11,12 +11,13 @@ import {
   roundValue,
   suggestRecipeRowsFromPapers,
 } from "@/lib/spec-sheet"
+import { computePreview } from "@/lib/spec-math"
 
 function getLatestRecipe(recipes: RecipeSummary[]) {
   return [...(recipes || [])].sort((left, right) => right.version - left.version)[0] || null
 }
 
-const DEFAULT_DRYING_PERCENT = 9.5
+const DEFAULT_DRYING_PERCENT = 9.0
 const DEFAULT_PARCHMENT_PERCENT = 1.5
 const DEFAULT_GLUE_BASE_PERCENT = 15
 const BAMBOO_MIN_LENGTH_MM = 1390
@@ -75,6 +76,8 @@ function buildPreviewSummaryFallback(payload: {
   targetDryWeightG?: number
   dryingPercent?: number
   parchmentPercent?: number
+  parchmentAllowed?: boolean
+  adhesivePercent?: number
   recipeRows?: any[]
   adhesiveComponents?: any[]
 }) {
@@ -84,6 +87,7 @@ function buildPreviewSummaryFallback(payload: {
   const targetDryWeightG = Number(payload.targetDryWeightG || 0)
   const dryingPercent = Number(payload.dryingPercent ?? DEFAULT_DRYING_PERCENT)
   const parchmentPercent = Number(payload.parchmentPercent ?? DEFAULT_PARCHMENT_PERCENT)
+  const parchmentAllowed = payload.parchmentAllowed ?? true
 
   const recipeRows = (payload.recipeRows || []).map((row: any) => ({
     paper_id: String(row?.paper_id || row?.paperId || ""),
@@ -97,40 +101,53 @@ function buildPreviewSummaryFallback(payload: {
     ply_bond: Number(row?.ply_bond ?? row?.plyBond ?? 0),
     positions_text: String(row?.positions_text ?? row?.positionsText ?? ""),
   }))
+  const components = Array.isArray(payload.adhesiveComponents) ? payload.adhesiveComponents : []
+  const glueBasePercent =
+    Number(payload.adhesivePercent ?? components?.[0]?.base_percent ?? components?.[0]?.basePercent ?? DEFAULT_GLUE_BASE_PERCENT)
 
+  const preview = computePreview({
+    mandrel_od_mm: tubeIdMm,
+    tube_length_mm: tubeLengthMm,
+    papers: recipeRows.map((row: any) => {
+      const gsm = Number(row.gsm || 0)
+      const thicknessPerPly = Number(row.thickness_per_ply || 0)
+      const bulk = gsm > 0 ? (thicknessPerPly * 1000) / gsm : 0
+      return {
+        paper_id: row.paper_id,
+        gsm,
+        bulk,
+        ply_count: Math.max(1, Number(row.ply_count || 1)),
+        code: row.code,
+      }
+    }),
+    target_dry_g: targetDryWeightG,
+    adhesive_percent: glueBasePercent,
+    parchment_percent: parchmentPercent,
+    moisture_loss_percent: dryingPercent,
+    parchment_allowed: parchmentAllowed,
+  })
+
+  let plyCursor = 0
   const plyDetails = recipeRows.map((row: any) => {
-    const weightG = roundValue(perPlyWeightG(row.gsm, tubeLengthMm, tubeIdMm, tubeOdMm) * row.ply_count, 2)
+    const rowPlyCount = Math.max(1, Number(row.ply_count || 1))
+    const rowWeightPerMm = preview.per_ply_weight_per_mm_g
+      .slice(plyCursor, plyCursor + rowPlyCount)
+      .reduce((sum, value) => sum + Number(value || 0), 0)
+    plyCursor += rowPlyCount
     return {
       paper_id: row.paper_id,
       code: row.code,
       variety: row.variety,
       gsm: row.gsm,
-      ply_count: row.ply_count,
-      weightG,
+      ply_count: rowPlyCount,
+      weightG: roundValue(rowWeightPerMm * tubeLengthMm, 2),
     }
   })
 
-  const paperTotalG = roundValue(plyDetails.reduce((sum: number, row: any) => sum + Number(row.weightG || 0), 0), 2)
-  const glueBasePercent =
-    Number(payload.adhesiveComponents?.[0]?.base_percent ?? payload.adhesiveComponents?.[0]?.basePercent ?? DEFAULT_GLUE_BASE_PERCENT)
-  const adhesiveTotalG = roundValue((paperTotalG * glueBasePercent) / 100, 2)
-  const parchmentWeightG = roundValue((paperTotalG * parchmentPercent) / 100, 2)
-  const predictedDryTubeG = roundValue(paperTotalG + adhesiveTotalG + parchmentWeightG, 2)
-
-  const divisor = Math.max(1 - dryingPercent / 100, 0.01)
-  const predictedWetTubeG = roundValue(predictedDryTubeG / divisor, 2)
-  const preMoistureTargetTubeG = roundValue(targetDryWeightG / divisor, 2)
-  const dryDeltaG = roundValue(predictedDryTubeG - targetDryWeightG, 2)
-  const wetDeltaG = roundValue(predictedWetTubeG - preMoistureTargetTubeG, 2)
-  const weightPerMmG = roundValue(predictedWetTubeG / Math.max(tubeLengthMm, 1), 4)
-  const bambooPlan = pickBambooPlan(Math.max(tubeLengthMm, 0))
-  const bambooRequiredWetG = roundValue(weightPerMmG * Number(bambooPlan.selected_bamboo_length_mm || 0), 2)
-
-  const components = Array.isArray(payload.adhesiveComponents) ? payload.adhesiveComponents : []
   const ratioTotal = components.reduce((sum: number, row: any) => sum + Number(row?.ratio_percent ?? row?.ratioPercent ?? 0), 0)
   const adhesiveComponents = components.map((row: any, index: number) => {
     const ratio = Number(row?.ratio_percent ?? row?.ratioPercent ?? 0)
-    const weight = ratioTotal > 0 ? (adhesiveTotalG * ratio) / ratioTotal : 0
+    const weight = ratioTotal > 0 ? (preview.tube.adhesive_g * ratio) / ratioTotal : 0
     return {
       id: String(row?.adhesive_id || row?.id || index + 1),
       name: String(row?.name || row?.label || `Adhesive ${index + 1}`),
@@ -141,23 +158,26 @@ function buildPreviewSummaryFallback(payload: {
   })
 
   return {
-    paper_total_g: paperTotalG,
-    parchment_weight_g: parchmentWeightG,
-    adhesive_total_g: adhesiveTotalG,
+    paper_total_g: roundValue(preview.tube.paper_g, 2),
+    parchment_weight_g: roundValue(preview.tube.parchment_g, 2),
+    adhesive_total_g: roundValue(preview.tube.adhesive_g, 2),
     adhesive_components: adhesiveComponents,
     drying_percent_used: dryingPercent,
-    pre_oven_divisor: roundValue(divisor, 4),
-    pre_moisture_target_tube_g: preMoistureTargetTubeG,
-    predicted_dry_tube_g: predictedDryTubeG,
-    predicted_wet_tube_g: predictedWetTubeG,
-    dry_delta_g: dryDeltaG,
-    wet_delta_g: wetDeltaG,
-    weight_per_mm_g: weightPerMmG,
-    bamboo_required_wet_g: bambooRequiredWetG,
-    selected_bamboo_length_mm: Number(bambooPlan.selected_bamboo_length_mm || 0),
-    usable_length_mm: Number(bambooPlan.usable_length_mm || 0),
+    pre_oven_divisor: roundValue(Math.max(1 - dryingPercent / 100, 0.01), 4),
+    pre_moisture_target_tube_g: roundValue(targetDryWeightG / Math.max(1 - dryingPercent / 100, 0.01), 2),
+    predicted_dry_tube_g: roundValue(preview.tube.dry_g, 2),
+    predicted_wet_tube_g: roundValue(preview.tube.wet_g, 2),
+    dry_delta_g: roundValue(preview.validation.delta_g, 2),
+    wet_delta_g: roundValue(preview.tube.wet_g - targetDryWeightG / Math.max(1 - dryingPercent / 100, 0.01), 2),
+    weight_per_mm_g: roundValue(preview.tube.wet_g / Math.max(tubeLengthMm, 1), 4),
+    paper_required_g: roundValue(preview.paper_required_g, 2),
+    bamboo_required_wet_g: roundValue(preview.bamboo.wet_g, 2),
+    bamboo_required_dry_g: roundValue(preview.bamboo.dry_g, 2),
+    bamboo_required_paper_g: roundValue(preview.bamboo.paper_g, 2),
+    selected_bamboo_length_mm: Number(preview.bamboo_plan.bamboo_length_mm || 0),
+    usable_length_mm: Number(preview.bamboo_plan.usable_length_mm || 0),
     tube_length_mm: tubeLengthMm,
-    tubes_per_bamboo: Number(bambooPlan.tubes_per_bamboo || 0),
+    tubes_per_bamboo: Number(preview.bamboo_plan.tubes_per_bamboo || 0),
     ply_details: plyDetails,
   }
 }
@@ -622,6 +642,8 @@ export function useSpecSheetPreview(
     targetDryWeightG?: number
     dryingPercent?: number
     parchmentPercent?: number
+    parchmentAllowed?: boolean
+    adhesivePercent?: number
     recipeRows?: any[]
     adhesiveComponents?: any[]
   },
@@ -633,6 +655,8 @@ export function useSpecSheetPreview(
     targetDryWeightG,
     dryingPercent,
     parchmentPercent,
+    parchmentAllowed,
+    adhesivePercent,
     recipeRows,
     adhesiveComponents,
   } = payload || {}
@@ -646,6 +670,8 @@ export function useSpecSheetPreview(
       Number(targetDryWeightG || 0),
       Number(dryingPercent || 0),
       Number(parchmentPercent || 0),
+      Boolean(parchmentAllowed),
+      Number(adhesivePercent || 0),
       JSON.stringify(recipeRows || []),
       JSON.stringify(adhesiveComponents || []),
     ],
@@ -671,6 +697,8 @@ export function useSpecSheetPreview(
           target_dry_weight_g: Number(targetDryWeightG || 0),
           drying_percent: Number(dryingPercent || 0),
           parchment_percent: Number(parchmentPercent || 0),
+          parchment_allowed: Boolean(parchmentAllowed ?? true),
+          adhesive_percent: Number(adhesivePercent || DEFAULT_GLUE_BASE_PERCENT),
           recipe_rows: normalizedRecipeRows,
           adhesive_components: adhesiveComponents || [],
         })
@@ -684,6 +712,8 @@ export function useSpecSheetPreview(
             targetDryWeightG: Number(targetDryWeightG || 0),
             dryingPercent: Number(dryingPercent || DEFAULT_DRYING_PERCENT),
             parchmentPercent: Number(parchmentPercent || DEFAULT_PARCHMENT_PERCENT),
+            parchmentAllowed: Boolean(parchmentAllowed ?? true),
+            adhesivePercent: Number(adhesivePercent || DEFAULT_GLUE_BASE_PERCENT),
             recipeRows: normalizedRecipeRows,
             adhesiveComponents: adhesiveComponents || [],
           }),
@@ -746,29 +776,18 @@ export function useSpecSheetSuggestions(
       ),
     ],
     queryFn: async () => {
-      let data: any = null
-      try {
-        const response = await specApi.calculateSuggestions({
-          recipe_id: recipeId || undefined,
-          tube_length_mm: tubeLengthMm || undefined,
-          tube_od_mm: tubeOdMm || undefined,
-          tube_id_mm: tubeIdMm || undefined,
-          target_wet_weight_g: Number(targetWetWeightG || 0),
-          drying_percent: Number(dryingPercent || 0),
-          parchment_percent: Number(parchmentPercent || 0),
-          paper_candidates: paperCandidates || [],
-        })
-        data = response?.data
-      } catch {
-        data = {
-          suggestions: suggestRecipeRowsFromPapers(
-            paperCandidates || [],
-            Number(targetWetWeightG || 0),
-            Number(tubeLengthMm || 0),
-            Number(tubeIdMm || 0),
-            Number(tubeOdMm || 0),
-          ),
-        }
+      const data = {
+        suggestions: suggestRecipeRowsFromPapers(
+          paperCandidates || [],
+          Number(targetWetWeightG || 0),
+          Number(tubeLengthMm || 0),
+          Number(tubeIdMm || 0),
+          Number(tubeOdMm || 0),
+          {
+            dryingPercent: Number(dryingPercent || DEFAULT_DRYING_PERCENT),
+            parchmentPercent: Number(parchmentPercent || DEFAULT_PARCHMENT_PERCENT),
+          },
+        ),
       }
       const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : []
       const normalized = suggestions.map((row: any, index: number) => {

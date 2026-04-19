@@ -3,7 +3,7 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import { useMemo, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import {
   ArrowRight,
   CalendarClock,
@@ -13,18 +13,10 @@ import {
   Layers3,
   MoveHorizontal,
   Scissors,
-  Sparkles,
   TimerReset,
 } from "lucide-react"
 
-import {
-  EmptyState,
-  ExecutiveHero,
-  MetricCard,
-  MetricRail,
-  Panel,
-  StatusBadge,
-} from "@/components/erp/shell"
+import { EmptyState, StatusBadge } from "@/components/erp/shell"
 import {
   Dialog,
   DialogContent,
@@ -39,9 +31,9 @@ import {
   usePlanningBoard,
   usePlanningBoardMove,
   usePlanningJobCards,
+  useMachines,
   useSplitPlanningSegment,
 } from "@/hooks/use-production"
-import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
 const SECTION_STAGE_MAP: Record<string, string> = {
   winder: "WINDER",
@@ -76,6 +68,61 @@ const SECTION_META: Record<
   },
 }
 
+const STAGE_THEME: Record<
+  string,
+  {
+    tint: string
+    border: string
+    fill: string
+    text: string
+    pill: string
+    accentBar: string
+    dropRing: string
+    header: string
+  }
+> = {
+  winder: {
+    tint: "from-cyan-50 via-white to-sky-50",
+    border: "border-cyan-200",
+    fill: "bg-cyan-600",
+    text: "text-cyan-900",
+    pill: "bg-cyan-50 text-cyan-900 border-cyan-200",
+    accentBar: "from-cyan-500 to-sky-500",
+    dropRing: "shadow-[0_0_0_1px_rgba(8,145,178,0.18),0_18px_40px_rgba(8,145,178,0.10)]",
+    header: "text-cyan-700",
+  },
+  oven: {
+    tint: "from-amber-50 via-white to-orange-50",
+    border: "border-amber-200",
+    fill: "bg-amber-500",
+    text: "text-amber-900",
+    pill: "bg-amber-50 text-amber-900 border-amber-200",
+    accentBar: "from-amber-500 to-orange-500",
+    dropRing: "shadow-[0_0_0_1px_rgba(245,158,11,0.18),0_18px_40px_rgba(245,158,11,0.10)]",
+    header: "text-amber-700",
+  },
+  process: {
+    tint: "from-indigo-50 via-white to-violet-50",
+    border: "border-indigo-200",
+    fill: "bg-indigo-600",
+    text: "text-indigo-900",
+    pill: "bg-indigo-50 text-indigo-900 border-indigo-200",
+    accentBar: "from-indigo-500 to-violet-500",
+    dropRing: "shadow-[0_0_0_1px_rgba(79,70,229,0.18),0_18px_40px_rgba(79,70,229,0.10)]",
+    header: "text-indigo-700",
+  },
+  slitting: {
+    tint: "from-slate-100 via-white to-slate-50",
+    border: "border-slate-200",
+    fill: "bg-slate-600",
+    text: "text-slate-900",
+    pill: "bg-slate-50 text-slate-900 border-slate-200",
+    accentBar: "from-slate-500 to-slate-700",
+    dropRing: "shadow-[0_0_0_1px_rgba(71,85,105,0.18),0_18px_40px_rgba(71,85,105,0.10)]",
+    header: "text-slate-700",
+  },
+}
+
 function formatDate(value?: string | null, template = "DD MMM") {
   if (!value) return "-"
   const parsed = dayjs(value)
@@ -85,6 +132,42 @@ function formatDate(value?: string | null, template = "DD MMM") {
 function formatLoad(value?: number | null) {
   const numeric = Number(value || 0)
   return Number.isFinite(numeric) ? numeric.toFixed(1) : "0.0"
+}
+
+function formatWhole(value?: number | string | null) {
+  const numeric = Number(value || 0)
+  return Number.isFinite(numeric) ? numeric.toFixed(0) : "0"
+}
+
+function formatOne(value?: number | string | null) {
+  const numeric = Number(value || 0)
+  return Number.isFinite(numeric) ? numeric.toFixed(1) : "0.0"
+}
+
+function plannerSize(job: any) {
+  return job?.product_size_label && job.product_size_label !== "-"
+    ? job.product_size_label
+    : job?.spec_reference || job?.product_code || "Spec pending"
+}
+
+function capacityNeedFor(section: string, job: any) {
+  if (section === "winder") return Number(job?.target_bamboo_count ?? job?.required_capacity ?? 0)
+  return Number(job?.required_capacity ?? 0)
+}
+
+function capacityUnitFor(section: string) {
+  if (section === "winder") return "bamboo"
+  if (section === "oven") return "batch"
+  return "tubes"
+}
+
+function formatCapacityUnit(value?: string | null) {
+  const normalized = String(value || "").toUpperCase()
+  if (normalized === "BAMBOOS_PER_DAY") return "bamboo/day"
+  if (normalized === "BATCHES_PER_DAY") return "batches/day"
+  if (normalized === "TUBES_PER_DAY") return "tubes/day"
+  if (normalized === "REELS_PER_DAY") return "reels/day"
+  return normalized ? normalized.toLowerCase().replace(/_/g, " ") : ""
 }
 
 function loadRatio(currentLoad?: number | null, capacityValue?: number | null) {
@@ -98,6 +181,16 @@ function dayKey(value: string) {
   return dayjs(value).format("ddd DD MMM")
 }
 
+function matchesPlannerFocus(job: any, focusedOrderId?: string, focusedJobCardId?: string) {
+  if (focusedJobCardId && String(job?.job_card_id || job?.id || "") !== focusedJobCardId) {
+    return false
+  }
+  if (focusedOrderId && String(job?.sales_order_id || "") !== focusedOrderId) {
+    return false
+  }
+  return true
+}
+
 type DropTarget = {
   machine_id: string | null
   plan_date: string | null
@@ -106,7 +199,6 @@ type DropTarget = {
 }
 
 export default function PlanningBoardPage() {
-  const router = useRouter()
   const searchParams = useSearchParams()
   const { showToast } = useApp()
   const { activePlant, user, isLoading: authLoading } = useAuth()
@@ -117,6 +209,8 @@ export default function PlanningBoardPage() {
   const section = String(searchParams?.get("section") || "winder").toLowerCase()
   const stage = SECTION_STAGE_MAP[section] || "WINDER"
   const startDate = searchParams?.get("plan_date") || dayjs().format("YYYY-MM-DD")
+  const focusedOrderId = String(searchParams?.get("order_id") || "")
+  const focusedJobCardId = String(searchParams?.get("job_card_id") || "")
   const scopedPlantId = activePlant === "ALL" ? undefined : activePlant || undefined
   const canQuery = !authLoading && Boolean(user)
 
@@ -128,10 +222,12 @@ export default function PlanningBoardPage() {
   const board1 = usePlanningBoard(stage, day1, true, scopedPlantId, canQuery)
   const board2 = usePlanningBoard(stage, day2, true, scopedPlantId, canQuery)
   const jobsQuery = usePlanningJobCards({ limit: 400 }, canQuery)
+  const machinesQuery = useMachines()
   const moveCard = usePlanningBoardMove()
   const splitSegment = useSplitPlanningSegment()
 
   const meta = SECTION_META[section] || SECTION_META.winder
+  const stageTheme = STAGE_THEME[section] || STAGE_THEME.winder
   const boards = [
     { date: day0, response: board0.data as any },
     { date: day1, response: board1.data as any },
@@ -147,7 +243,6 @@ export default function PlanningBoardPage() {
         return {
           date: entry.date,
           stageView: view,
-          suggestions: Array.isArray(entry.response?.suggestions) ? entry.response.suggestions : [],
         }
       }),
     [boards, stage],
@@ -158,15 +253,29 @@ export default function PlanningBoardPage() {
     return lanes.find((lane: any) => !lane.machine_id && !lane.shift_code) || null
   }, [stageViews])
 
+  const machineLabelMap = useMemo(
+    () =>
+      new Map(
+        (Array.isArray(machinesQuery.data) ? machinesQuery.data : []).map((machine: any) => [
+          String(machine.id),
+          machine.code || machine.name || String(machine.id).slice(0, 8),
+        ]),
+      ),
+    [machinesQuery.data],
+  )
+
   const scheduledDays = useMemo(
     () =>
       stageViews.map((entry) => {
         const lanes = Array.isArray(entry.stageView?.lanes) ? entry.stageView.lanes : []
         return {
           date: entry.date,
-          suggestions: entry.suggestions,
           lanes: lanes
             .filter((lane: any) => lane.machine_id || lane.shift_code)
+            .map((lane: any) => ({
+              ...lane,
+              jobs: (lane.jobs || []).filter((job: any) => matchesPlannerFocus(job, focusedOrderId, focusedJobCardId)),
+            }))
             .sort((left: any, right: any) =>
               `${left.machine_code || left.machine_name}-${left.shift_code || ""}`.localeCompare(
                 `${right.machine_code || right.machine_name}-${right.shift_code || ""}`,
@@ -174,8 +283,51 @@ export default function PlanningBoardPage() {
             ),
         }
       }),
-    [stageViews],
+    [focusedJobCardId, focusedOrderId, stageViews],
   )
+
+  const queuedJobs = useMemo(
+    () => (unscheduledLane?.jobs || []).filter((job: any) => matchesPlannerFocus(job, focusedOrderId, focusedJobCardId)),
+    [focusedJobCardId, focusedOrderId, unscheduledLane],
+  )
+
+  const queueGroups = useMemo(() => {
+    if (section !== "winder") {
+      const readyNow = queuedJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() === stage)
+      const waitingOnUpstream = queuedJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() !== stage)
+      return [
+        {
+          key: "ready",
+          title: "Ready to schedule",
+          subtitle: "Current-stage cards that can be planned immediately.",
+          jobs: readyNow,
+        },
+        {
+          key: "upstream",
+          title: "Waiting on previous step",
+          subtitle: "Plan ahead here even before the previous stage entry is completed.",
+          jobs: waitingOnUpstream,
+        },
+      ].filter((group) => group.jobs.length > 0)
+    }
+    const grouped = new Map<string, { key: string; title: string; subtitle: string; jobs: any[] }>()
+    for (const job of queuedJobs) {
+      const machineId = String(job?.assigned_winder_machine_id || "unassigned")
+      const title =
+        machineId === "unassigned"
+          ? "Winder not selected"
+          : machineLabelMap.get(machineId) || String(machineId).slice(0, 8)
+      const bucket = grouped.get(machineId) || {
+        key: machineId,
+        title,
+        subtitle: machineId === "unassigned" ? "Needs release-side machine choice" : "Released to this winder",
+        jobs: [],
+      }
+      bucket.jobs.push(job)
+      grouped.set(machineId, bucket)
+    }
+    return Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title))
+  }, [machineLabelMap, queuedJobs, section])
 
   const allVisibleJobs = useMemo(
     () => scheduledDays.flatMap((entry) => entry.lanes.flatMap((lane: any) => lane.jobs || [])),
@@ -198,11 +350,6 @@ export default function PlanningBoardPage() {
     () => scheduledDays.flatMap((entry) => entry.lanes).filter((lane: any) => Boolean(lane.warning)).length,
     [scheduledDays],
   )
-  const suggestionCount = useMemo(
-    () => scheduledDays.reduce((sum, entry) => sum + entry.suggestions.length, 0),
-    [scheduledDays],
-  )
-
   const loading = board0.isLoading || board1.isLoading || board2.isLoading || jobsQuery.isLoading
   const requiresExplicitPlant = boards.some((entry) => entry.response?.requires_explicit_plant)
 
@@ -211,8 +358,133 @@ export default function PlanningBoardPage() {
     .map(([key, value]) => ({
       key,
       value,
-      href: `/planning/board?section=${key}&plan_date=${startDate}`,
+      href: `/planning/board?section=${key}&plan_date=${startDate}${focusedOrderId ? `&order_id=${focusedOrderId}` : ""}${focusedJobCardId ? `&job_card_id=${focusedJobCardId}` : ""}`,
     }))
+
+  const stageCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    const jobs = Array.isArray(jobsQuery.data) ? jobsQuery.data : []
+
+    for (const tab of tabs) {
+      counts.set(tab.key, 0)
+    }
+
+    for (const job of jobs) {
+      const jobStage = String(job.current_stage || "").toUpperCase()
+      if (String(job.status || "").toUpperCase() === "COMPLETED") continue
+      const key = Object.entries(SECTION_STAGE_MAP).find(([, value]) => value === jobStage)?.[0]
+      if (!key) continue
+      counts.set(key, (counts.get(key) || 0) + 1)
+    }
+
+    counts.set(section, Math.max(counts.get(section) || 0, queuedJobs.length + allVisibleJobs.length))
+    return counts
+  }, [allVisibleJobs.length, jobsQuery.data, queuedJobs.length, section, tabs])
+
+  const plannerShifts = useMemo(() => {
+    const buckets = new Map<string, any>()
+    for (const board of boards) {
+      for (const shift of Array.isArray(board.response?.shifts) ? board.response.shifts : []) {
+        const code = String(shift.code || "")
+        if (!code) continue
+        if (!buckets.has(code)) {
+          buckets.set(code, shift)
+        }
+      }
+    }
+    if (buckets.size === 0) {
+      return [
+        { code: "SHIFT_A", label: "Shift A", capacity_share: 0.5 },
+        { code: "SHIFT_B", label: "Shift B", capacity_share: 0.5 },
+      ]
+    }
+    const order = ["SHIFT_A", "SHIFT_B", "SHIFT_C"]
+    return Array.from(buckets.values()).sort(
+      (left: any, right: any) => order.indexOf(String(left.code || "")) - order.indexOf(String(right.code || "")),
+    )
+  }, [boards])
+
+  const machineRows = useMemo(() => {
+    const catalog = new Map<string, any>()
+    const liveMachines = Array.isArray(machinesQuery.data) ? machinesQuery.data : []
+
+    for (const machine of liveMachines) {
+      const department = String(machine?.department || machine?.machine_department || "").toUpperCase()
+      if (department !== stage) continue
+      catalog.set(String(machine.id), {
+        id: String(machine.id),
+        code: machine.code || machine.name || String(machine.id).slice(0, 8),
+        name: machine.name || machine.code || String(machine.id).slice(0, 8),
+        status: String(machine.status || "UP").toUpperCase(),
+        capacity_value: machine.capacity_value || null,
+        capacity_unit: formatCapacityUnit(machine.capacity_unit || machine.capacity_type),
+      })
+    }
+
+    for (const entry of scheduledDays) {
+      for (const lane of entry.lanes) {
+        if (!lane.machine_id) continue
+        if (!catalog.has(String(lane.machine_id))) {
+          catalog.set(String(lane.machine_id), {
+            id: String(lane.machine_id),
+            code: lane.machine_code || lane.machine_name || String(lane.machine_id).slice(0, 8),
+            name: lane.machine_name || lane.machine_code || String(lane.machine_id).slice(0, 8),
+            status: "UP",
+            capacity_value: lane.capacity_value || null,
+            capacity_unit: lane.capacity_unit || null,
+          })
+        }
+      }
+    }
+
+    return Array.from(catalog.values())
+      .sort((left, right) => String(left.code || "").localeCompare(String(right.code || "")))
+      .map((machine) => ({
+        ...machine,
+        dayColumns: scheduledDays.map((entry) => {
+          const machineLanes = entry.lanes.filter((lane: any) => String(lane.machine_id || "") === machine.id)
+          const byShift = new Map(machineLanes.map((lane: any) => [String(lane.shift_code || ""), lane]))
+          return {
+            date: entry.date,
+            shifts: plannerShifts.map((shift: any) => {
+              const lane = byShift.get(String(shift.code || ""))
+              return (
+                lane || {
+                  lane_id: `${machine.id}-${entry.date}-${shift.code}`,
+                  machine_id: machine.id,
+                  machine_code: machine.code,
+                  machine_name: machine.name,
+                  shift_code: shift.code,
+                  shift_label: shift.label,
+                  capacity_value: machine.capacity_value,
+                  capacity_unit: machine.capacity_unit,
+                  current_load: 0,
+                  warning: null,
+                  jobs: [],
+                }
+              )
+            }),
+          }
+        }),
+      }))
+  }, [machinesQuery.data, plannerShifts, scheduledDays, stage])
+
+  const shiftHeaders = useMemo(
+    () =>
+      scheduledDays.flatMap((entry) =>
+        plannerShifts.map((shift: any) => ({
+          date: entry.date,
+          shift_code: shift.code,
+          shift_label: shift.label || String(shift.code || "").replace(/_/g, " "),
+        })),
+      ),
+    [plannerShifts, scheduledDays],
+  )
+
+  const machineStatsMap = useMemo(
+    () => new Map(machineRows.map((machine) => [String(machine.id), machine])),
+    [machineRows],
+  )
 
   async function handleDrop(target: DropTarget) {
     if (!draggedJob) return
@@ -266,260 +538,217 @@ export default function PlanningBoardPage() {
 
   return (
     <>
-      <div className="space-y-6" data-testid="planner-page">
-        <ExecutiveHero
-          appearance={MODULE_APPEARANCES.planning}
-          badge="Planner Workspace"
-          title={meta.title}
-          description={meta.subtitle}
-          aside={
-            <div className="space-y-3">
-              <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">Window</p>
-                <p className="mt-2 text-2xl font-semibold">{formatDate(day0)} - {formatDate(day2)}</p>
-                <p className="mt-1 text-xs text-cyan-100/80">{meta.accent}</p>
+      <div className="space-y-4 pb-4" data-testid="planner-page">
+        <section
+          className={`overflow-hidden rounded-[1.55rem] border bg-gradient-to-br ${stageTheme.tint} px-4 py-3 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}
+        >
+          <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${stageTheme.pill}`}>
+                  <Layers3 className="h-3.5 w-3.5" />
+                  Planning board
+                </div>
+                <div className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                  {formatDate(day0, "DD MMM")} - {formatDate(day2, "DD MMM")}
+                </div>
+                <div className="rounded-full border border-white/80 bg-white/80 px-3 py-1 text-[11px] font-semibold text-slate-700">
+                  {plannerShifts.map((shift: any) => shift.label || shift.code).join(" · ")}
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Link
-                  href={`/planning/tracker?section=${section}`}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900"
-                >
-                  Open job tracker
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
+              <div className="mt-2 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">{meta.title}</p>
+                  <h1 className="mt-1 text-[1.65rem] font-semibold tracking-tight text-slate-950">
+                    Machine scheduling across 3 days
+                  </h1>
+                </div>
+                <p className="max-w-2xl text-xs leading-5 text-slate-600">{meta.subtitle}</p>
               </div>
             </div>
-          }
-        />
 
-        <div className="flex flex-wrap items-center gap-3">
-          {tabs.map((tab) => (
-            <Link
-              key={tab.key}
-              href={tab.href}
-              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-                tab.key === section
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
-              }`}
-            >
-              {tab.value}
-            </Link>
-          ))}
-          <Link
-            href={`/planning?section=${section}`}
-            className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Planner landing
-          </Link>
-        </div>
+            <div className="grid gap-2 sm:grid-cols-5 2xl:w-[42rem]">
+              {[
+                ["Open", queuedJobs.length, section === "winder" ? "By winder" : "Stage queue"],
+                ["Scheduled", allVisibleJobs.length, "3-day slots"],
+                ["Machines", machineRows.length, "Visible rows"],
+                ["Alerts", overloadedLaneCount + dueRiskCount, "Capacity/due"],
+                ["Done", completedJobs.length, "History"],
+              ].map(([label, value, hint]) => (
+                <div key={String(label)} className="rounded-[1rem] border border-white/80 bg-white/82 px-3 py-2 shadow-sm">
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+                  <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+                  <p className="text-[10px] text-slate-500">{hint}</p>
+                </div>
+              ))}
+            </div>
+          </div>
 
-        <MetricRail>
-          <MetricCard
-            label="Open Queue"
-            value={(unscheduledLane?.jobs || []).length}
-            detail="Unscheduled cards waiting for assignment"
-            icon={Layers3}
-            tone="cyan"
-          />
-          <MetricCard
-            label="Live Cards"
-            value={allVisibleJobs.length}
-            detail="Visible machine-shift allocations across 3 days"
-            icon={Factory}
-            tone="violet"
-          />
-          <MetricCard
-            label="Due Risk"
-            value={dueRiskCount}
-            detail="Cards due today or tomorrow"
-            icon={TimerReset}
-            tone="amber"
-          />
-          <MetricCard
-            label="Lane Alerts"
-            value={overloadedLaneCount}
-            detail="Capacity or constraint warnings"
-            icon={CalendarClock}
-            tone="rose"
-          />
-          <MetricCard
-            label="Completed"
-            value={completedJobs.length}
-            detail="Recovered completion history available in tracker"
-            icon={CheckCircle2}
-            tone="emerald"
-          />
-        </MetricRail>
+          <div className="mt-3 flex flex-col gap-2 border-t border-white/70 pt-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {tabs.map((tab) => {
+                const active = tab.key === section
+                const count = stageCounts.get(tab.key) || 0
+                return (
+                  <Link
+                    key={tab.key}
+                    href={tab.href}
+                    className={`inline-flex items-center gap-2 rounded-[0.95rem] border px-3 py-2 text-xs font-semibold transition-all duration-200 ${
+                      active
+                        ? `border-transparent bg-slate-950 text-white shadow-[0_16px_32px_rgba(15,23,42,0.16)]`
+                        : "border-white/80 bg-white/85 text-slate-700 hover:-translate-y-0.5 hover:bg-white"
+                    }`}
+                  >
+                    <span>{tab.value}</span>
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+                        active ? "bg-white/15 text-white" : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </Link>
+                )
+              })}
+              <Link
+                href={`/planning/tracker?section=${section}`}
+                className="inline-flex items-center gap-2 rounded-[0.95rem] border border-white/80 bg-white/85 px-3 py-2 text-xs font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-white"
+              >
+                Open tracker
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+              {focusedOrderId || focusedJobCardId ? (
+                <div className={`rounded-full border px-3 py-2 text-xs font-semibold ${stageTheme.pill}`}>
+                  Focused on {focusedJobCardId ? `job ${focusedJobCardId.slice(0, 8)}` : `order ${focusedOrderId.slice(0, 8)}`}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </section>
 
-        <div className="grid gap-6 xl:grid-cols-[340px_minmax(0,1fr)]">
-          <div className="space-y-6">
-            <Panel
-              title="Open Queue"
-              subtitle="Drag from here to a machine shift. Winder and process auto-split when the shift capacity is exceeded."
-            >
+        <div className="grid gap-4 xl:grid-cols-[350px_minmax(0,1fr)]">
+          <aside className="space-y-4 xl:sticky xl:top-[5.6rem] xl:self-start">
+            <section className="rounded-[1.9rem] border border-slate-200 bg-white p-4 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Open queue</p>
+                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                    {section === "winder" ? "Grouped by target winder" : "Shared stage backlog"}
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {section === "winder"
+                      ? "Released cards stay attached to the chosen winder. Drag them into the exact machine-shift slot once production is ready."
+                      : "Plan ahead for this stage even if the previous stage has not yet been entered. Cards leave this queue only after they are pinned to a machine slot."}
+                  </p>
+                </div>
+                <div className={`rounded-full border px-3 py-2 text-xs font-semibold ${stageTheme.pill}`}>
+                  {queuedJobs.length} open
+                </div>
+              </div>
+
               <div
-                className="space-y-3"
+                className={`mt-4 rounded-[1.3rem] border border-dashed bg-slate-50/80 px-4 py-4 text-sm text-slate-600 transition-all ${
+                  draggedJob ? `${stageTheme.border} ${stageTheme.dropRing}` : "border-slate-200"
+                }`}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={() => handleDrop({ machine_id: null, plan_date: null, shift_code: null, sequence_no: 1 })}
               >
-                {(unscheduledLane?.jobs || []).length === 0 ? (
+                Drag a planned slot back here to unschedule it and return it to the queue.
+              </div>
+
+              <div className="mt-4 space-y-4">
+                {queueGroups.length === 0 || queueGroups.every((group) => group.jobs.length === 0) ? (
                   <EmptyState label="No unscheduled cards in this stage." />
                 ) : (
-                  (unscheduledLane?.jobs || []).map((job: any) => (
-                    <article
-                      key={job.segment_id}
-                      draggable
-                      onDragStart={() => setDraggedJob(job)}
-                      onDragEnd={() => setDraggedJob(null)}
-                      className="rounded-[1.2rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-                    >
+                  queueGroups.map((group) => (
+                    <div key={group.key} className="rounded-[1.4rem] border border-slate-200 bg-slate-50/75 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            {job.product_code || job.spec_reference || "Pending product"}
-                          </p>
-                          <p className="mt-1 text-sm font-semibold text-slate-950">
-                            {job.job_card_ref || String(job.job_card_id).slice(0, 8)}
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            {job.customer_name || "-"} · Due {formatDate(job.due_date)}
-                          </p>
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{group.title}</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-500">{group.subtitle}</p>
                         </div>
-                        <GripVertical className="h-4 w-4 text-slate-400" />
-                      </div>
-                      <div className="mt-3 grid gap-2 text-xs text-slate-600">
-                        <p>Qty {Number(job.segment_planned_qty || 0).toFixed(0)} pcs</p>
-                        <p>Bamboo {Number(job.target_bamboo_count || 0).toFixed(0)} · {Number(job.pcs_per_bamboo || 0)} pcs / bamboo</p>
-                        <p>Capacity need {formatLoad(job.required_capacity)}</p>
-                      </div>
-                      {(stage === "WINDER" || stage === "PROCESS") && Number(job.segment_planned_qty || 0) > 1 ? (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSplitDialogJob(job)
-                            setSplitQty(String(Math.floor(Number(job.segment_planned_qty || 0) / 2)))
-                          }}
-                          className="mt-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          <Scissors className="h-3.5 w-3.5" />
-                          Manual split
-                        </button>
-                      ) : null}
-                    </article>
-                  ))
-                )}
-              </div>
-            </Panel>
-
-            <Panel title="Planner Suggestions" subtitle="Suggested placements recovered from the live planning service.">
-              <div className="space-y-3">
-                {suggestionCount === 0 ? (
-                  <EmptyState label="No placement suggestions for this three-day window." />
-                ) : (
-                  scheduledDays.flatMap((entry) =>
-                    entry.suggestions.slice(0, 3).map((suggestion: any) => (
-                      <div key={`${entry.date}-${suggestion.job_card_id}`} className="rounded-[1.1rem] border border-slate-200 bg-slate-50 p-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-4 w-4 text-cyan-700" />
-                          <p className="font-semibold text-slate-900">{suggestion.machine_name || suggestion.machine_code || "Suggested lane"}</p>
+                        <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+                          {group.jobs.length}
                         </div>
-                        <p className="mt-2 text-xs text-slate-600">
-                          {formatDate(entry.date)} · {suggestion.shift_code || "Unscheduled"} · seq {suggestion.sequence_no}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">{String(suggestion.job_card_id).slice(0, 8)}</p>
                       </div>
-                    )),
-                  )
-                )}
-              </div>
-            </Panel>
-          </div>
 
-          <Panel
-            title="Three-Day Machine Board"
-            subtitle="Drop cards into machine-shift lanes. Machine cards show stage load in bamboo or tube capacity units."
-          >
-            <div className="grid gap-5 xl:grid-cols-3">
-              {scheduledDays.map((entry) => (
-                <section key={entry.date} className="space-y-4">
-                  <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Plan Day</p>
-                    <h3 className="mt-1 text-lg font-semibold text-slate-950">{dayKey(entry.date)}</h3>
-                  </div>
+                      <div className="mt-3 space-y-3">
+                        {group.jobs.map((job: any) => {
+                          const assignedMachine = machineStatsMap.get(String(job.assigned_winder_machine_id || ""))
+                          const preferredCapacity = Number(
+                            assignedMachine?.capacity_value || job.machine_capacity_value || 0,
+                          )
+                          const capacityNeed = Number(
+                            section === "winder" ? job.target_bamboo_count || job.required_capacity || 0 : job.required_capacity || 0,
+                          )
+                          const mustSplit = preferredCapacity > 0 && capacityNeed > preferredCapacity
+                          const dueSoon = job.due_date ? dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day") : false
 
-                  <div className="space-y-4">
-                    {entry.lanes.length === 0 ? (
-                      <EmptyState label="No machine lanes for this date." />
-                    ) : (
-                      entry.lanes.map((lane: any) => (
-                        <div
-                          key={lane.lane_id}
-                          className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm"
-                          onDragOver={(event) => event.preventDefault()}
-                          onDrop={() =>
-                            handleDrop({
-                              machine_id: lane.machine_id || null,
-                              plan_date: entry.date,
-                              shift_code: lane.shift_code || null,
-                              sequence_no: (lane.jobs || []).length + 1,
-                            })
-                          }
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                                {lane.shift_label || lane.shift_code || "Unscheduled"}
-                              </p>
-                              <h4 className="mt-1 text-base font-semibold text-slate-950">
-                                {lane.machine_code || lane.machine_name || "Open lane"}
-                              </h4>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {formatLoad(lane.current_load)} / {formatLoad(lane.capacity_value)} {lane.capacity_unit || ""}
-                              </p>
-                            </div>
-                            {lane.warning ? <StatusBadge value="BLOCKED" label={lane.warning} /> : <StatusBadge value="READY" label="On plan" />}
-                          </div>
-
-                          <div className="mt-3 h-2 rounded-full bg-slate-100">
-                            <div
-                              className={`h-2 rounded-full ${lane.warning ? "bg-amber-500" : "bg-cyan-700"}`}
-                              style={{ width: `${loadRatio(lane.current_load, lane.capacity_value)}%` }}
-                            />
-                          </div>
-
-                          <div className="mt-4 space-y-3">
-                            {(lane.jobs || []).map((job: any) => (
-                              <article
-                                key={job.segment_id}
-                                draggable
-                                onDragStart={() => setDraggedJob(job)}
-                                onDragEnd={() => setDraggedJob(null)}
-                                className={`rounded-[1.1rem] border p-3 text-sm transition ${
-                                  draggedJob?.segment_id === job.segment_id
-                                    ? "border-cyan-300 bg-cyan-50 shadow-md"
-                                    : "border-slate-200 bg-slate-50 hover:bg-white"
-                                }`}
-                              >
+                          return (
+                            <article
+                              key={job.segment_id}
+                              draggable
+                              onDragStart={() => setDraggedJob(job)}
+                              onDragEnd={() => setDraggedJob(null)}
+                              className={`group relative overflow-visible rounded-[1.35rem] border bg-white p-4 transition-all duration-200 ${
+                                draggedJob?.segment_id === job.segment_id
+                                  ? `${stageTheme.border} ${stageTheme.dropRing}`
+                                  : "border-slate-200 shadow-sm hover:-translate-y-0.5 hover:shadow-md"
+                              }`}
+                            >
+                              <div className={`absolute inset-y-3 left-3 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
+                              <div className="pl-4">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
-                                    <p className="font-semibold text-slate-950">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      {job.product_code || job.spec_reference || "Pending product"}
+                                    </p>
+                                    <p className="mt-1 text-base font-semibold text-slate-950">
                                       {job.job_card_ref || String(job.job_card_id).slice(0, 8)}
                                     </p>
                                     <p className="mt-1 text-xs text-slate-500">
-                                      {job.product_code || "No product code"} · {job.customer_name || "-"}
+                                      {job.customer_name || "-"} · Due {formatDate(job.due_date)}
                                     </p>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <StatusBadge value={job.segment_status || job.status} />
-                                    <MoveHorizontal className="h-4 w-4 text-slate-400" />
-                                  </div>
+                                  <GripVertical className="h-4 w-4 text-slate-400" />
                                 </div>
+
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                    {Number(job.segment_planned_qty || 0).toFixed(0)} pcs
+                                  </span>
+                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                    {Number(job.target_bamboo_count || 0).toFixed(0)} bamboo
+                                  </span>
+                                  {mustSplit ? (
+                                    <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
+                                      Must split
+                                    </span>
+                                  ) : null}
+                                  {dueSoon ? (
+                                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                                      Due in 24h
+                                    </span>
+                                  ) : null}
+                                </div>
+
                                 <div className="mt-3 grid gap-2 text-xs text-slate-600">
-                                  <p>Qty {Number(job.segment_planned_qty || 0).toFixed(0)} pcs</p>
-                                  <p>Bamboo {Number(job.target_bamboo_count || 0).toFixed(0)} · {Number(job.pcs_per_bamboo || 0)} pcs / bamboo</p>
-                                  <p>Capacity need {formatLoad(job.required_capacity)} · Due {formatDate(job.due_date)}</p>
+                                  <p>
+                                    {job.sales_order_id ? `SO ${String(job.sales_order_id).slice(0, 8)}` : "No sales order link"} · Release{" "}
+                                    {Number(job.segment_planned_qty || 0).toFixed(0)} pcs
+                                  </p>
+                                  <p>
+                                    Capacity need {formatLoad(job.required_capacity)} {job.capacity_unit || ""}
+                                  </p>
+                                  <p>
+                                    {assignedMachine
+                                      ? `Preferred machine ${assignedMachine.code}`
+                                      : section === "winder"
+                                        ? "No winder assigned on release"
+                                        : "Free assignment at this stage"}
+                                  </p>
                                 </div>
+
                                 {(stage === "WINDER" || stage === "PROCESS") && Number(job.segment_planned_qty || 0) > 1 ? (
                                   <button
                                     type="button"
@@ -527,29 +756,300 @@ export default function PlanningBoardPage() {
                                       setSplitDialogJob(job)
                                       setSplitQty(String(Math.floor(Number(job.segment_planned_qty || 0) / 2)))
                                     }}
-                                    className="mt-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-white"
+                                    className="mt-3 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:bg-slate-50"
                                   >
                                     <Scissors className="h-3.5 w-3.5" />
-                                    Split card
+                                    Manual split
                                   </button>
                                 ) : null}
-                              </article>
-                            ))}
-
-                            {(lane.jobs || []).length === 0 ? (
-                              <div className="rounded-[1rem] border border-dashed border-slate-300 bg-slate-50 px-3 py-6 text-center text-xs text-slate-500">
-                                Drop planner cards here
                               </div>
-                            ) : null}
+
+                              <div className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-0 z-20 hidden w-72 rounded-[1.3rem] border border-slate-800 bg-slate-950/95 p-4 text-white shadow-2xl xl:group-hover:block">
+                                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">Job detail</p>
+                                <p className="mt-2 text-lg font-semibold">{job.job_card_ref || String(job.job_card_id).slice(0, 8)}</p>
+                                <div className="mt-3 space-y-2 text-xs leading-5 text-slate-300">
+                                  <p>Customer: {job.customer_name || "-"}</p>
+                                  <p>Spec: {job.product_code || job.spec_reference || "-"}</p>
+                                  <p>Tube qty: {Number(job.segment_planned_qty || 0).toFixed(0)} pcs</p>
+                                  <p>Bamboo: {Number(job.target_bamboo_count || 0).toFixed(0)} pcs</p>
+                                  <p>Due: {formatDate(job.due_date)}</p>
+                                  <p>Stage now: {String(job.current_stage || stage).toUpperCase()}</p>
+                                </div>
+                              </div>
+                            </article>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+
+          </aside>
+
+          <section className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+            <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4">
+              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Schedule canvas</p>
+                  <h2 className="mt-2 text-[1.45rem] font-semibold tracking-tight text-slate-950">
+                    Machine rows across {scheduledDays.length} days and {plannerShifts.length} shifts
+                  </h2>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Every machine is visible whether scheduled or empty. Capacity bars update per slot, and manual split stays available when a card needs to break across shifts.
+                  </p>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-2 xl:flex">
+                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <Factory className="h-4 w-4" />
+                      <span>Machines</span>
+                    </div>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">{machineRows.length}</p>
+                  </div>
+                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <TimerReset className="h-4 w-4" />
+                      <span>Due risk</span>
+                    </div>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">{dueRiskCount}</p>
+                  </div>
+                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <CalendarClock className="h-4 w-4" />
+                      <span>Lane alerts</span>
+                    </div>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">{overloadedLaneCount}</p>
+                  </div>
+                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span>Completion</span>
+                    </div>
+                    <p className="mt-2 text-xl font-semibold text-slate-950">{completedJobs.length}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <div className="min-w-[1720px] px-4 py-4">
+                <div
+                  className="grid gap-3"
+                  style={{ gridTemplateColumns: `240px repeat(${Math.max(shiftHeaders.length, 1)}, minmax(170px, 1fr))` }}
+                >
+                  <div />
+                  {scheduledDays.map((entry) => (
+                    <div
+                      key={`day-header-${entry.date}`}
+                      style={{ gridColumn: `span ${plannerShifts.length}` }}
+                      className="rounded-[1.2rem] border border-slate-200 bg-slate-50 px-4 py-3"
+                    >
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Plan day</p>
+                      <p className="mt-1 text-base font-semibold text-slate-950">{dayKey(entry.date)}</p>
+                    </div>
+                  ))}
+
+                  <div className="rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700">
+                    Machine lane
+                  </div>
+                  {shiftHeaders.map((header, index) => (
+                    <div key={`${header.date}-${header.shift_code}-${index}`} className="rounded-[1.15rem] border border-slate-200 bg-slate-50 px-3 py-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        {formatDate(header.date, "ddd DD MMM")}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-slate-950">{header.shift_label}</p>
+                    </div>
+                  ))}
+
+                  {machineRows.length === 0 ? (
+                    <div
+                      className="rounded-[1.4rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500"
+                      style={{ gridColumn: `span ${Math.max(shiftHeaders.length + 1, 2)}` }}
+                    >
+                      No machine rows are available for this stage yet.
+                    </div>
+                  ) : (
+                    machineRows.map((machine) => (
+                      <div key={machine.id} className="contents">
+                        <div className="rounded-[1.4rem] border border-slate-200 bg-slate-50/85 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Machine</p>
+                              <h3 className="mt-1 text-lg font-semibold text-slate-950">{machine.code}</h3>
+                              <p className="mt-1 text-xs text-slate-500">{machine.name}</p>
+                            </div>
+                            <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700">
+                              {machine.status}
+                            </div>
+                          </div>
+                          <div className="mt-4 space-y-2 text-xs text-slate-600">
+                            <p>
+                              Capacity {formatLoad(machine.capacity_value)} {machine.capacity_unit || ""}
+                            </p>
+                            <p>
+                              {machine.status === "UP"
+                                ? "Available for scheduling"
+                                : machine.status === "MAINT"
+                                  ? "Maintenance state"
+                                  : "Unavailable until machine is restored"}
+                            </p>
                           </div>
                         </div>
-                      ))
-                    )}
-                  </div>
-                </section>
-              ))}
+
+                        {machine.dayColumns.flatMap((dayColumn) =>
+                          dayColumn.shifts.map((lane: any, slotIndex: number) => {
+                            const isBlockedMachine = machine.status === "DOWN" || machine.status === "MAINT"
+                            const ratio = loadRatio(lane.current_load, lane.capacity_value)
+                            const flatIndex = `${machine.id}-${dayColumn.date}-${lane.shift_code}-${slotIndex}`
+
+                            return (
+                              <div
+                                key={flatIndex}
+                                className={`rounded-[1.35rem] border p-3 transition-all duration-200 ${
+                                  draggedJob
+                                    ? `${stageTheme.border} ${stageTheme.dropRing}`
+                                    : "border-slate-200 bg-white"
+                                } ${isBlockedMachine ? "bg-slate-100/80" : "bg-white"}`}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={() => {
+                                  if (isBlockedMachine) {
+                                    setDraggedJob(null)
+                                    showToast(`Cannot schedule on ${machine.code} while it is ${machine.status}.`, "error")
+                                    return
+                                  }
+                                  void handleDrop({
+                                    machine_id: lane.machine_id || machine.id,
+                                    plan_date: dayColumn.date,
+                                    shift_code: lane.shift_code || null,
+                                    sequence_no: (lane.jobs || []).length + 1,
+                                  })
+                                }}
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div>
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                                      {lane.shift_label || lane.shift_code || "Shift"}
+                                    </p>
+                                    <p className="mt-1 text-xs text-slate-500">{dayjs(dayColumn.date).format("DD MMM")}</p>
+                                  </div>
+                                  {lane.warning ? <StatusBadge value="BLOCKED" label={lane.warning} /> : null}
+                                </div>
+
+                                <div className="mt-3 rounded-full bg-slate-100">
+                                  <div
+                                    className={`h-2 rounded-full ${
+                                      ratio >= 100 ? "bg-rose-500" : ratio >= 85 ? "bg-amber-500" : stageTheme.fill
+                                    }`}
+                                    style={{ width: `${ratio}%` }}
+                                  />
+                                </div>
+
+                                <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                                  <span>
+                                    {formatLoad(lane.current_load)} / {formatLoad(lane.capacity_value)} {lane.capacity_unit || ""}
+                                  </span>
+                                  <span>{Math.round(ratio)}%</span>
+                                </div>
+
+                                <div className="mt-3 space-y-2">
+                                  {(lane.jobs || []).map((job: any) => (
+                                    <article
+                                      key={job.segment_id}
+                                      draggable
+                                      onDragStart={() => setDraggedJob(job)}
+                                      onDragEnd={() => setDraggedJob(null)}
+                                      className={`group relative overflow-visible rounded-[1.1rem] border p-3 text-sm transition-all duration-200 ${
+                                        draggedJob?.segment_id === job.segment_id
+                                          ? `${stageTheme.border} bg-white ${stageTheme.dropRing}`
+                                          : "border-slate-200 bg-slate-50 hover:-translate-y-0.5 hover:bg-white"
+                                      }`}
+                                    >
+                                      <div className={`absolute inset-y-2 left-2 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
+                                      <div className="pl-4">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div>
+                                            <p className="font-semibold text-slate-950">
+                                              {job.job_card_ref || String(job.job_card_id).slice(0, 8)}
+                                            </p>
+                                            <p className="mt-1 text-[11px] text-slate-500">
+                                              {job.product_code || "No product code"} · {job.customer_name || "-"}
+                                            </p>
+                                          </div>
+                                          <MoveHorizontal className="h-4 w-4 text-slate-400" />
+                                        </div>
+
+                                        <div className="mt-2 flex flex-wrap gap-2">
+                                          <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
+                                            {Number(job.target_bamboo_count || 0).toFixed(0)} bmb
+                                          </span>
+                                          <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
+                                            {Number(job.segment_planned_qty || 0).toFixed(0)} pcs
+                                          </span>
+                                        </div>
+
+                                        <div className="mt-2 grid gap-1 text-[11px] text-slate-600">
+                                          <p>Need {formatLoad(job.required_capacity)} capacity</p>
+                                          <p>Due {formatDate(job.due_date)}</p>
+                                        </div>
+
+                                        {(stage === "WINDER" || stage === "PROCESS") && Number(job.segment_planned_qty || 0) > 1 ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSplitDialogJob(job)
+                                              setSplitQty(String(Math.floor(Number(job.segment_planned_qty || 0) / 2)))
+                                            }}
+                                            className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-white"
+                                          >
+                                            <Scissors className="h-3 w-3" />
+                                            Split
+                                          </button>
+                                        ) : null}
+                                      </div>
+
+                                      <div className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-0 z-20 hidden w-72 rounded-[1.3rem] border border-slate-800 bg-slate-950/95 p-4 text-white shadow-2xl xl:group-hover:block">
+                                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">Pinned card</p>
+                                        <p className="mt-2 text-lg font-semibold">
+                                          {job.job_card_ref || String(job.job_card_id).slice(0, 8)}
+                                        </p>
+                                        <div className="mt-3 space-y-2 text-xs leading-5 text-slate-300">
+                                          <p>Customer: {job.customer_name || "-"}</p>
+                                          <p>Spec: {job.product_code || job.spec_reference || "-"}</p>
+                                          <p>Tube qty: {Number(job.segment_planned_qty || 0).toFixed(0)} pcs</p>
+                                          <p>Bamboo: {Number(job.target_bamboo_count || 0).toFixed(0)} pcs</p>
+                                          <p>Due: {formatDate(job.due_date)}</p>
+                                          <p>Status: {job.segment_status || job.status || "PLANNED"}</p>
+                                        </div>
+                                      </div>
+                                    </article>
+                                  ))}
+
+                                  {(lane.jobs || []).length === 0 ? (
+                                    <div
+                                      className={`rounded-[1.05rem] border border-dashed px-3 py-6 text-center text-xs text-slate-500 ${
+                                        isBlockedMachine
+                                          ? "border-slate-300 bg-slate-100"
+                                          : `${stageTheme.border} bg-slate-50/70`
+                                      }`}
+                                    >
+                                      {isBlockedMachine ? `${machine.status} machine` : "Drop planner cards here"}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            )
+                          }),
+                        )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
-          </Panel>
+          </section>
         </div>
       </div>
 

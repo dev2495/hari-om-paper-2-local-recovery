@@ -1,112 +1,225 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
-import { Plus, Shield, User as UserIcon } from "lucide-react"
-import { authApi } from "@/lib/api"
-import { useApp } from "@/context/AppContext"
 import Link from "next/link"
+import { Building2, ChevronRight, Factory, Plus, Shield, User as UserIcon, Users2 } from "lucide-react"
+
+import { useAuth } from "@/context/AuthContext"
+import { usePlants, useUsers } from "@/hooks/use-system"
+
+const PLANT_SCOPE_ALIASES: Record<string, string> = {
+  "00000000-0000-0000-0000-0000000000a1": "Plant A",
+  "00000000-0000-0000-0000-0000000000b2": "Plant B",
+  PLANT_A: "Plant A",
+  PLANT_B: "Plant B",
+}
+
+function formatCreated(value: string | undefined | null) {
+  if (!value) return "Legacy user"
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return "Legacy user"
+  return timestamp.toLocaleDateString("en-GB")
+}
 
 export default function UsersPage() {
-    const [users, setUsers] = useState<any[]>([])
-    const [isLoading, setIsLoading] = useState(true)
-    const { showToast } = useApp()
+  const { user, activePlant } = useAuth()
+  const { data: users = [], isLoading: usersLoading } = useUsers()
+  const { data: plants = [] } = usePlants()
 
-    const fetchUsers = async () => {
-        try {
-            const response = await authApi.users()
-            setUsers(response.data)
-        } catch (err) {
-            showToast("Failed to fetch users", "error")
-        } finally {
-            setIsLoading(false)
-        }
+  const plantMap = new Map<string, string>()
+  ;(Array.isArray(plants) ? plants : []).forEach((plant: any) => {
+    const label = plant?.name || plant?.code || plant?.id || "Unknown plant"
+    ;[plant?.id, plant?.code].filter(Boolean).forEach((value) => {
+      plantMap.set(String(value), label)
+    })
+  })
+  Object.entries(PLANT_SCOPE_ALIASES).forEach(([key, value]) => {
+    if (!plantMap.has(key)) {
+      plantMap.set(key, value)
     }
+  })
 
-    useEffect(() => {
-        fetchUsers()
-    }, [])
+  const scopedUsers = (Array.isArray(users) ? users : []).filter((entry: any) => {
+    if (!activePlant || activePlant === "ALL") return true
+    const allowedPlants = [...(entry?.allowed_plant_ids || []), ...(entry?.allowed_plants || []), entry?.plant_id]
+      .map((value) => String(value || ""))
+      .filter(Boolean)
+    return allowedPlants.includes(activePlant)
+  })
 
-    return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-semibold text-slate-900">User Management</h1>
-                    <p className="text-sm text-slate-500">Manage system users, roles and plant assignments</p>
-                </div>
-                <Link
-                    href="/system/users/new"
-                    className="inline-flex items-center gap-2 rounded-xl bg-cyan-900 px-4 py-2.5 text-sm font-medium text-white shadow-lg shadow-cyan-900/20 transition hover:bg-cyan-800"
-                >
-                    <Plus className="h-4 w-4" />
-                    Add New User
-                </Link>
-            </div>
+  const globalUsers = scopedUsers.filter((entry: any) => {
+    const allowedPlants = [...(entry?.allowed_plant_ids || []), ...(entry?.allowed_plants || [])].filter(Boolean)
+    return entry?.is_owner_all_plants || allowedPlants.length === 0
+  }).length
 
-            <div className="glass overflow-hidden rounded-2xl border border-white/60 bg-white/50 shadow-xl">
-                <table className="w-full text-left">
-                    <thead>
-                        <tr className="border-b border-slate-200/60 bg-slate-50/50 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                            <th className="px-6 py-4">User</th>
-                            <th className="px-6 py-4">Role</th>
-                            <th className="px-6 py-4">Plant</th>
-                            <th className="px-6 py-4">Status</th>
-                            <th className="px-6 py-4">Created</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200/60">
-                        {isLoading ? (
-                            [...Array(3)].map((_, i) => (
-                                <tr key={i} className="animate-pulse">
-                                    <td colSpan={5} className="px-6 py-4 h-16 bg-slate-100/20"></td>
-                                </tr>
-                            ))
-                        ) : users.length === 0 ? (
-                            <tr>
-                                <td colSpan={5} className="px-6 py-12 text-center text-slate-500">
-                                    No users found
-                                </td>
-                            </tr>
-                        ) : (
-                            users.map((user) => (
-                                <tr key={user.id} className="transition hover:bg-white/40">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-cyan-100 text-cyan-900">
-                                                <UserIcon className="h-5 w-5" />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-slate-900">{user.name}</p>
-                                                <p className="text-xs text-slate-500">{user.email}</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex flex-wrap gap-1">
-                                            {user.roles.map((r: any) => (
-                                                <span key={r.id} className="inline-flex items-center gap-1 rounded-md bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 border border-slate-200">
-                                                    <Shield className="h-2.5 w-2.5" />
-                                                    {r.name}
-                                                </span>
-                                            ))}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-sm text-slate-600 font-medium">
-                                        {user.plant_id || "Global"}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-[10px] font-bold text-emerald-800 uppercase">
-                                            Active
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-xs text-slate-500">
-                                        {new Date(user.created_at).toLocaleDateString()}
-                                    </td>
-                                </tr>
-                            ))
-                        )}
-                    </tbody>
-                </table>
-            </div>
+  const scopeLabel =
+    activePlant === "ALL"
+      ? "All visible plants"
+      : plantMap.get(String(activePlant || "")) || activePlant || user?.plant_id || "Global"
+
+  return (
+    <div className="space-y-6">
+      <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl shadow-slate-900/15">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">System Admin</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.05em] md:text-4xl">Users, plants, and machine governance</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-cyan-50/78">
+              Resolve user access, plant scope, and machine setup from one workspace. This surface now reads the actual auth payload instead of legacy placeholders.
+            </p>
+          </div>
+          <Link
+            href="/system/users/new"
+            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-50"
+          >
+            <Plus className="h-4 w-4" />
+            Add New User
+          </Link>
         </div>
-    )
+
+        <div className="mt-6 grid gap-3 md:grid-cols-3">
+          {[
+            { label: "Visible users", value: `${scopedUsers.length}`, note: "Current plant scope" },
+            { label: "Global access", value: `${globalUsers}`, note: "Users spanning all plants" },
+            { label: "Current scope", value: scopeLabel, note: "Top plant switcher governs this list" },
+          ].map((item) => (
+            <div key={item.label} className="rounded-3xl border border-white/15 bg-white/10 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-100/70">{item.label}</p>
+              <p className="mt-2 text-lg font-semibold">{item.value}</p>
+              <p className="mt-1 text-xs text-cyan-50/65">{item.note}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
+        {[
+          { href: "/system/users", label: "Users", icon: Users2, active: true },
+          { href: "/system/plants", label: "Plants", icon: Building2, active: false },
+          { href: "/system/machines", label: "Machines", icon: Factory, active: false },
+        ].map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+              item.active ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+            }`}
+          >
+            <item.icon className="h-4 w-4" />
+            {item.label}
+          </Link>
+        ))}
+      </section>
+
+      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white/92 shadow-xl shadow-slate-900/5">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">User management</h2>
+            <p className="text-sm text-slate-500">Roles are rendered from the real auth-service payload and plant IDs are resolved back to plant names.</p>
+          </div>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {scopeLabel}
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left">
+            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <tr>
+                <th className="px-6 py-4">User</th>
+                <th className="px-6 py-4">Roles</th>
+                <th className="px-6 py-4">Plant scope</th>
+                <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Created</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {usersLoading ? (
+                [...Array(5)].map((_, index) => (
+                  <tr key={index} className="animate-pulse">
+                    <td colSpan={5} className="px-6 py-5">
+                      <div className="h-12 rounded-2xl bg-slate-100" />
+                    </td>
+                  </tr>
+                ))
+              ) : scopedUsers.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
+                    No users found for this scope.
+                  </td>
+                </tr>
+              ) : (
+                scopedUsers.map((entry: any) => {
+                  const roles = Array.isArray(entry?.roles) ? entry.roles.filter(Boolean) : []
+                  const allowedPlants = Array.from(
+                    new Set([...(entry?.allowed_plant_ids || []), ...(entry?.allowed_plants || []), entry?.plant_id].filter(Boolean)),
+                  )
+                  const scopeItems = entry?.is_owner_all_plants
+                    ? ["All plants"]
+                    : allowedPlants.length > 0
+                      ? allowedPlants.map((plantId: string) => plantMap.get(String(plantId)) || String(plantId))
+                      : ["Global"]
+
+                  return (
+                    <tr key={entry.id} className="transition hover:bg-slate-50/80">
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-900">
+                            <UserIcon className="h-5 w-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">{entry.name || entry.email}</p>
+                            <p className="text-xs text-slate-500">{entry.email}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          {roles.length > 0 ? (
+                            roles.map((role: string) => (
+                              <span
+                                key={`${entry.id}-${role}`}
+                                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700"
+                              >
+                                <Shield className="h-3 w-3" />
+                                {role}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="text-sm text-slate-400">No role mapped</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <div className="flex flex-wrap gap-2">
+                          {scopeItems.map((scope: string) => (
+                            <span
+                              key={`${entry.id}-${scope}`}
+                              className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-900"
+                            >
+                              <ChevronRight className="h-3 w-3" />
+                              {scope}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${
+                            entry?.is_active === false ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                          }`}
+                        >
+                          {entry?.is_active === false ? "Inactive" : "Active"}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 text-xs text-slate-500">{formatCreated(entry?.created_at)}</td>
+                    </tr>
+                  )
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  )
 }

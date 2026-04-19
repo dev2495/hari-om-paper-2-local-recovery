@@ -31,8 +31,8 @@ export default function PlantsPage() {
             columns={columns}
             data={data}
             isLoading={isLoading}
-            onAdd={(payload) => createMutation.mutate(payload)}
-            onEdit={(id, payload) => updateMutation.mutate({ id, data: payload })}
+            onAdd={(payload) => createMutation.mutateAsync(payload)}
+            onEdit={(id, payload) => updateMutation.mutateAsync({ id, data: payload })}
             onDelete={(id) => deleteMutation.mutate(id)}
             FormComponent={PlantForm}
         />

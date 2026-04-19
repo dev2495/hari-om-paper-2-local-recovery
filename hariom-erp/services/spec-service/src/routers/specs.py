@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..models import (
+    GlobalSpecDefaults,
     RecipeHeader,
     SpecDynamicField,
     SpecDynamicFieldValue,
     SpecificationSheet,
 )
+from .. import spec_math
 from ..services.approval import ApprovalService
 from ..utils.auth import (
     apply_plant_scope,
@@ -117,6 +119,9 @@ class SpecCreate(BaseModel):
     moisture_max_pct: Optional[float] = None
     parchment_percent: Optional[float] = settings.DEFAULT_PARCHMENT_PERCENT
     parchment_color: Optional[str] = None
+    parchment_allowed: Optional[bool] = True
+    adhesive_percent: Optional[float] = 15.0
+    moisture_loss_percent: Optional[float] = 9.0
     adhesive_20100_percent: Optional[float] = None
     adhesive_30100_percent: Optional[float] = None
     shrink_percent: Optional[float] = settings.DEFAULT_SHRINK_PERCENT
@@ -146,6 +151,9 @@ class SpecUpdate(BaseModel):
     moisture_max_pct: Optional[float] = None
     parchment_percent: Optional[float] = None
     parchment_color: Optional[str] = None
+    parchment_allowed: Optional[bool] = None
+    adhesive_percent: Optional[float] = None
+    moisture_loss_percent: Optional[float] = None
     adhesive_20100_percent: Optional[float] = None
     adhesive_30100_percent: Optional[float] = None
     shrink_percent: Optional[float] = None
@@ -177,6 +185,9 @@ class SpecResponse(BaseModel):
     moisture_max_pct: Optional[float] = None
     parchment_percent: float
     parchment_color: Optional[str]
+    parchment_allowed: bool = True
+    adhesive_percent: float = 15.0
+    moisture_loss_percent: float = 9.0
     adhesive_20100_percent: Optional[float]
     adhesive_30100_percent: Optional[float]
     shrink_percent: float
@@ -469,20 +480,23 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
         "required_cs": spec.required_cs,
         "approved_cs": spec.approved_cs,
         "target_tube_weight": spec.target_tube_weight,
-        "id_min_mm": _float_or_none(dynamic_map.get("id_min_mm")),
-        "id_max_mm": _float_or_none(dynamic_map.get("id_max_mm")),
-        "od_min_mm": _float_or_none(dynamic_map.get("od_min_mm")),
-        "od_max_mm": _float_or_none(dynamic_map.get("od_max_mm")),
-        "length_min_mm": _float_or_none(dynamic_map.get("length_min_mm")),
-        "length_max_mm": _float_or_none(dynamic_map.get("length_max_mm")),
-        "weight_min_g": _float_or_none(dynamic_map.get("weight_min_g")),
-        "weight_max_g": _float_or_none(dynamic_map.get("weight_max_g")),
-        "cs_min_n": _float_or_none(dynamic_map.get("cs_min_n")),
-        "cs_max_n": _float_or_none(dynamic_map.get("cs_max_n")),
-        "moisture_min_pct": _float_or_none(dynamic_map.get("moisture_min_pct")),
-        "moisture_max_pct": _float_or_none(dynamic_map.get("moisture_max_pct")),
+        "id_min_mm": _float_or_none(dynamic_map.get("id_min_mm")) or spec.id_min_mm,
+        "id_max_mm": _float_or_none(dynamic_map.get("id_max_mm")) or spec.id_max_mm,
+        "od_min_mm": _float_or_none(dynamic_map.get("od_min_mm")) or spec.od_min_mm,
+        "od_max_mm": _float_or_none(dynamic_map.get("od_max_mm")) or spec.od_max_mm,
+        "length_min_mm": _float_or_none(dynamic_map.get("length_min_mm")) or spec.length_min_mm,
+        "length_max_mm": _float_or_none(dynamic_map.get("length_max_mm")) or spec.length_max_mm,
+        "weight_min_g": _float_or_none(dynamic_map.get("weight_min_g")) or spec.weight_min_g,
+        "weight_max_g": _float_or_none(dynamic_map.get("weight_max_g")) or spec.weight_max_g,
+        "cs_min_n": _float_or_none(dynamic_map.get("cs_min_n")) or spec.cs_min_n,
+        "cs_max_n": _float_or_none(dynamic_map.get("cs_max_n")) or spec.cs_max_n,
+        "moisture_min_pct": _float_or_none(dynamic_map.get("moisture_min_pct")) or spec.moisture_min_pct,
+        "moisture_max_pct": _float_or_none(dynamic_map.get("moisture_max_pct")) or spec.moisture_max_pct,
         "parchment_percent": spec.parchment_percent,
         "parchment_color": spec.parchment_color,
+        "parchment_allowed": bool(spec.parchment_allowed) if spec.parchment_allowed is not None else True,
+        "adhesive_percent": float(spec.adhesive_percent) if spec.adhesive_percent is not None else 15.0,
+        "moisture_loss_percent": float(spec.moisture_loss_percent) if spec.moisture_loss_percent is not None else 9.0,
         "adhesive_20100_percent": spec.adhesive_20100_percent,
         "adhesive_30100_percent": spec.adhesive_30100_percent,
         "shrink_percent": spec.shrink_percent,
@@ -589,7 +603,7 @@ def create_spec(
     spec: SpecCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecMaker"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     customer_name = str(spec.customer_name or spec.customer_name_snapshot or "").strip()
     if not customer_name:
@@ -670,7 +684,7 @@ def update_spec(
     payload: SpecUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecMaker"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
@@ -713,7 +727,7 @@ def approve_spec(
     payload: ApproveSpecPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecApprover"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
@@ -765,7 +779,7 @@ def obsolete_spec(
     spec_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecApprover"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,

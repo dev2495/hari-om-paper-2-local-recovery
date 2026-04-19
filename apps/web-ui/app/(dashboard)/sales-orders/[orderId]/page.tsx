@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import dayjs from "dayjs"
-import { ArrowLeft, ClipboardCheck, Factory, Layers3, ScrollText } from "lucide-react"
+import { ArrowLeft, ArrowRight, ClipboardCheck, Factory, Layers3, ScrollText } from "lucide-react"
 import { useMemo } from "react"
 import { useParams } from "next/navigation"
 
@@ -51,6 +51,15 @@ export default function SalesOrderDetailPage() {
     return customerMap.get(String(order.customer_id || "")) || order.customer_name || String(order.customer_id || "-")
   }, [customerMap, order])
 
+  const earliestDue = useMemo(
+    () =>
+      [...(order?.lines || [])]
+        .map((line: any) => line.due_date)
+        .filter(Boolean)
+        .sort()[0] || null,
+    [order?.lines],
+  )
+
   if (orderQuery.isLoading) {
     return <EmptyState label="Loading sales order..." />
   }
@@ -64,17 +73,17 @@ export default function SalesOrderDetailPage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.sales}
         badge="Sales Tracking"
-        title={order.order_no || `Sales order ${orderId}`}
-        description="Commercial truth, release state, and planner job-card sync stay on one tracking page."
+        title={order.po_number || order.order_no || `Sales order ${orderId}`}
+        description="One PO, many release moments. Use this page to read commercial truth, line posture, and current planner handoff together."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
               <ArrowLeft className="h-4 w-4" />
               Back to queue
             </Link>
-            <Link href={`/sales-orders/${order.id}/audit`} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-              <ScrollText className="h-4 w-4" />
-              Audit timeline
+            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg">
+              Open planner handoff
+              <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
         }
@@ -95,14 +104,14 @@ export default function SalesOrderDetailPage() {
       />
 
       <MetricRail>
-        <MetricCard label="Line Count" value={order.line_count} detail="Commercial buckets under this PO" icon={Layers3} tone="cyan" />
-        <MetricCard label="Open Qty" value={Number(order.remaining_qty || 0).toFixed(0)} detail="Quantity still not fulfilled" icon={Factory} tone="amber" />
-        <MetricCard label="Released Qty" value={Number(order.released_qty || 0).toFixed(0)} detail="Already moved into production" icon={ClipboardCheck} tone="emerald" />
-        <MetricCard label="Planner Cards" value={orderJobs.length} detail="Synced job cards for this order" icon={ScrollText} tone="violet" />
+        <MetricCard label="Line Count" value={order.line_count} detail="Commercial product buckets under this PO" icon={Layers3} tone="cyan" />
+        <MetricCard label="Open Qty" value={Number(order.remaining_qty || 0).toFixed(0)} detail="Quantity still waiting for dispatch closure" icon={Factory} tone="amber" />
+        <MetricCard label="Released Qty" value={Number(order.released_qty || 0).toFixed(0)} detail="Already cut into production demand" icon={ClipboardCheck} tone="emerald" />
+        <MetricCard label="Planner Cards" value={orderJobs.length} detail="Job cards already synced from this PO" icon={ScrollText} tone="violet" />
       </MetricRail>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <Panel title="Commercial Header" subtitle="High-signal order context for sales, planning, and dispatch.">
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <Panel title="Commercial Header" subtitle="The sales truth that planning and dispatch should read, not reinterpret.">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Customer</p>
@@ -114,8 +123,13 @@ export default function SalesOrderDetailPage() {
               <p className="mt-1 text-slate-600">PO Date {formatDate(order.po_date)}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Notes</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Commercial Notes</p>
               <p className="mt-2 text-slate-700">{order.notes || "No commercial notes recorded."}</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Earliest Due</p>
+              <p className="mt-2 text-slate-700">{formatDate(earliestDue)}</p>
+              <p className="mt-1 text-xs text-slate-500">Use this to prioritize release planning.</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Approved</p>
@@ -128,67 +142,95 @@ export default function SalesOrderDetailPage() {
           </div>
         </Panel>
 
-        <Panel title="Planner Sync" subtitle="Recovered job-card truth linked back to the sales order.">
-          {orderJobs.length === 0 ? (
-            <EmptyState label="No job cards have been synced for this sales order yet." />
-          ) : (
-            <div className="space-y-3">
-              {orderJobs.slice(0, 6).map((job: any) => (
-                <Link
-                  key={job.id}
-                  href={`/production/job-cards/${job.id}`}
-                  className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:bg-white hover:shadow-md"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-slate-950">{job.job_card_ref || String(job.id).slice(0, 8)}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {job.current_stage} · {Number(job.planned_qty || 0).toFixed(0)} pcs · Due {formatDate(job.due_date)}
-                      </p>
-                    </div>
-                    <StatusBadge value={job.status} />
-                  </div>
-                </Link>
-              ))}
+        <Panel title="Flow Next" subtitle="What this PO should do next in the sales -> planning -> production path.">
+          <div className="space-y-4">
+            <div className="rounded-[1.25rem] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ecfeff_100%)] p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Planner Handoff</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">Release exact line quantities and schedule them into the next 3 days.</p>
+              <p className="mt-2 text-sm text-slate-600">Each job becomes floor-executable only after the planner assigns a valid machine, shift, and plan date.</p>
             </div>
-          )}
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Link
+                href={`/planning/board?section=winder&order_id=${order.id}`}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm font-semibold text-slate-900 transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                Open winder board
+              </Link>
+              <Link
+                href={`/planning/tracker?section=winder`}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm font-semibold text-slate-900 transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                Open tracker
+              </Link>
+            </div>
+            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              {orderJobs.length === 0
+                ? "No job cards are synced from this PO yet."
+                : `${orderJobs.length} planner-linked job card(s) already exist for this PO.`}
+            </div>
+          </div>
         </Panel>
       </div>
 
-      <Panel title="Order Lines" subtitle="The exact release and fulfillment posture for every commercial line.">
-        <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
-          <table className="min-w-full">
-            <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
-              <tr>
-                <th className="px-4 py-3 text-left">Line</th>
-                <th className="px-4 py-3 text-left">Product Code</th>
-                <th className="px-4 py-3 text-left">Approved Spec</th>
-                <th className="px-4 py-3 text-left">Parchment</th>
-                <th className="px-4 py-3 text-left">Due</th>
-                <th className="px-4 py-3 text-right">Rate</th>
-                <th className="px-4 py-3 text-right">Qty</th>
-                <th className="px-4 py-3 text-right">Released</th>
-                <th className="px-4 py-3 text-right">Fulfilled</th>
-                <th className="px-4 py-3 text-right">Remaining</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
-              {(order.lines || []).map((line: any, index: number) => (
-                <tr key={line.id}>
-                  <td className="px-4 py-3 text-sm font-semibold text-slate-900">Line {line.line_no || index + 1}</td>
-                  <td className="px-4 py-3 text-sm text-slate-700">{line.product_code || "-"}</td>
-                  <td className="px-4 py-3 text-sm text-slate-700">{String(line.approved_spec_id || "-").slice(0, 8)}</td>
-                  <td className="px-4 py-3 text-sm text-slate-700">{line.parchment_color || "-"}</td>
-                  <td className="px-4 py-3 text-sm text-slate-700">{formatDate(line.due_date)}</td>
-                  <td className="px-4 py-3 text-right text-sm text-slate-700">{line.rate_per_pc ? Number(line.rate_per_pc).toFixed(2) : "-"}</td>
-                  <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.qty || 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.released_qty || 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(line.fulfilled_qty || 0).toFixed(0)}</td>
-                  <td className="px-4 py-3 text-right text-sm font-semibold text-slate-950">{Number(line.remaining_qty || 0).toFixed(0)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <Panel title="Planner Sync" subtitle="Released job-card truth linked back to this customer PO.">
+        {orderJobs.length === 0 ? (
+          <EmptyState label="No job cards have been synced for this sales order yet." />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-2">
+            {orderJobs.slice(0, 8).map((job: any) => (
+              <Link
+                key={job.id}
+                href={`/production/job-cards/${job.id}`}
+                className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">{job.job_card_ref || String(job.id).slice(0, 8)}</p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {job.product_code || "No product code"} · {job.current_stage} · {Number(job.planned_qty || 0).toFixed(0)} pcs
+                    </p>
+                  </div>
+                  <StatusBadge value={job.status} />
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Panel>
+
+      <Panel title="Order Lines" subtitle="Every line stays visible as its own long-running release bucket under the same PO.">
+        <div className="grid gap-4">
+          {(order.lines || []).map((line: any, index: number) => (
+            <div key={line.id} className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+              <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line {line.line_no || index + 1}</p>
+                  <h3 className="mt-2 text-lg font-semibold text-slate-950">{line.product_code || "No product code"}</h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Spec {String(line.approved_spec_id || "-").slice(0, 8)} · Parchment {line.parchment_color || "-"} · Due {formatDate(line.due_date)}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Qty</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.qty || 0).toFixed(0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Released</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.released_qty || 0).toFixed(0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Fulfilled</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.fulfilled_qty || 0).toFixed(0)}</p>
+                  </div>
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Remaining</p>
+                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.remaining_qty || 0).toFixed(0)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
         </div>
       </Panel>
     </div>

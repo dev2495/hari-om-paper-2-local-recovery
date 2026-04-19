@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import uuid
 from ..database import get_db
 from .. import models
-from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
+from ..utils.auth import accepted_persisted_plant_ids, apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/master/tube-sizes", tags=["tube-sizes"])
 
@@ -81,9 +81,10 @@ def update_tube_size(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin"]))
 ):
+    plant_values = accepted_persisted_plant_ids(plant_id)
     db_size = db.query(models.TubeSize).filter(
         models.TubeSize.id == size_id,
-        models.TubeSize.plant_id == plant_id
+        models.TubeSize.plant_id.in_(plant_values)
     ).first()
     if not db_size:
         raise HTTPException(status_code=404, detail="Tube size not found")
@@ -103,9 +104,10 @@ def delete_tube_size(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin"]))
 ):
+    plant_values = accepted_persisted_plant_ids(plant_id)
     db_size = db.query(models.TubeSize).filter(
         models.TubeSize.id == size_id,
-        models.TubeSize.plant_id == plant_id
+        models.TubeSize.plant_id.in_(plant_values)
     ).first()
     if not db_size:
         raise HTTPException(status_code=404, detail="Tube size not found")

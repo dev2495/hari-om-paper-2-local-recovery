@@ -37,7 +37,7 @@ def create_trial(
     trial: TrialCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     """Record trial results"""
     # Verify recipe exists and belongs to plant

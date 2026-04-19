@@ -49,10 +49,10 @@ function normalizeUser(rawUser: any): User {
 
 function resolveActivePlant(user: User, preferredPlant: string | null) {
   if (preferredPlant) {
+    if (preferredPlant.toUpperCase() === "ALL" && user.is_owner_all_plants) {
+      return "ALL"
+    }
     return preferredPlant
-  }
-  if (user.is_owner_all_plants) {
-    return "ALL"
   }
   const allowedPlantIds = normalizeAllowedPlants(user)
   if (allowedPlantIds.length > 0) {

@@ -70,6 +70,20 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("DROP INDEX IF EXISTS uq_paper_plant_code"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_paper_plant_code ON paper_master (plant_id, code) WHERE code IS NOT NULL"))
 
+        # Paper master: allow decimal GSM (previously Integer). Safe if already DOUBLE PRECISION.
+        connection.execute(
+            text("ALTER TABLE paper_master ALTER COLUMN gsm TYPE DOUBLE PRECISION USING gsm::double precision")
+        )
+
+        # Mandrel OD tolerance (±0.1 mm default) — needed by spec-sheet ID readout.
+        connection.execute(text("ALTER TABLE mandrel ADD COLUMN IF NOT EXISTS od_tolerance_mm DOUBLE PRECISION DEFAULT 0.1"))
+        connection.execute(text("UPDATE mandrel SET od_tolerance_mm = 0.1 WHERE od_tolerance_mm IS NULL"))
+        connection.execute(text("ALTER TABLE mandrel ALTER COLUMN od_tolerance_mm SET NOT NULL"))
+        connection.execute(text("ALTER TABLE mandrel DROP CONSTRAINT IF EXISTS mandrel_mandrel_code_key"))
+        connection.execute(text("ALTER TABLE mandrel DROP CONSTRAINT IF EXISTS uq_mandrel_plant_code"))
+        connection.execute(text("DROP INDEX IF EXISTS uq_mandrel_plant_code"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_mandrel_plant_code ON mandrel (plant_id, mandrel_code)"))
+
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS code VARCHAR(50)"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS capacity_type VARCHAR(40)"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS capacity_value DOUBLE PRECISION"))

@@ -13,6 +13,7 @@ export default function MandrelsPage() {
     const columns = [
         { header: "Mandrel Code", accessorKey: "mandrel_code" },
         { header: "OD (mm)", accessorKey: "outer_diameter_mm" },
+        { header: "Tolerance", accessorKey: "od_tolerance_mm", render: (value: any) => `±${Number(value || 0.1).toFixed(2)} mm` },
         { header: "Length (mm)", accessorKey: "length_mm" },
         { header: "Material", accessorKey: "material" },
     ]
@@ -23,8 +24,8 @@ export default function MandrelsPage() {
             columns={columns}
             data={data}
             isLoading={isLoading}
-            onAdd={(data) => createMutation.mutate(data)}
-            onEdit={(id, data) => updateMutation.mutate({ id, data })}
+            onAdd={(data) => createMutation.mutateAsync(data)}
+            onEdit={(id, data) => updateMutation.mutateAsync({ id, data })}
             onDelete={(id) => deleteMutation.mutate(id)}
             FormComponent={MandrelForm}
         />

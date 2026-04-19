@@ -6,7 +6,7 @@ import { ClipboardCheck, Factory, Search, TimerReset, Truck } from "lucide-react
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
-import { usePlanningJobCards } from "@/hooks/use-production"
+import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
 function formatDate(value?: string | null) {
@@ -19,6 +19,7 @@ export default function JobCardsPage() {
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("ALL")
   const deferredSearch = useDeferredValue(search.trim())
+  const machinesQuery = useMachines()
 
   const jobCardsQuery = usePlanningJobCards(
     {
@@ -30,6 +31,16 @@ export default function JobCardsPage() {
   )
 
   const jobCards = useMemo(() => (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []), [jobCardsQuery.data])
+  const machineLabelMap = useMemo(
+    () =>
+      new Map(
+        (Array.isArray(machinesQuery.data) ? machinesQuery.data : []).map((machine: any) => [
+          String(machine.id),
+          machine.code || machine.name || String(machine.id).slice(0, 8),
+        ]),
+      ),
+    [machinesQuery.data],
+  )
 
   const metrics = useMemo(() => {
     const openCards = jobCards.filter((job: any) => String(job.status || "").toUpperCase() !== "COMPLETED")
@@ -110,6 +121,7 @@ export default function JobCardsPage() {
                 <tr>
                   <th className="px-4 py-3 text-left">Job Card</th>
                   <th className="px-4 py-3 text-left">Order / Customer</th>
+                  <th className="px-4 py-3 text-left">Release / Winder</th>
                   <th className="px-4 py-3 text-left">Current Stage</th>
                   <th className="px-4 py-3 text-right">Planned Qty</th>
                   <th className="px-4 py-3 text-left">Machine / Shift</th>
@@ -135,10 +147,19 @@ export default function JobCardsPage() {
                         SO {job.sales_order_id ? String(job.sales_order_id).slice(0, 8) : "-"} · Spec {job.spec_reference || String(job.spec_id || "").slice(0, 8)}
                       </div>
                     </td>
+                    <td className="px-4 py-4 text-sm text-slate-700">
+                      <div>{job.release_lot_id ? `Lot ${String(job.release_lot_id).slice(0, 8)}` : "-"}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        {job.assigned_winder_machine_id
+                          ? machineLabelMap.get(String(job.assigned_winder_machine_id)) || String(job.assigned_winder_machine_id).slice(0, 8)
+                          : "No target winder"}
+                      </div>
+                    </td>
                     <td className="px-4 py-4">
                       <div className="space-y-2">
                         <StatusBadge value={job.current_stage} />
                         <StatusBadge value={job.status} />
+                        <StatusBadge value={job.planner_gate_ready ? "READY" : "BLOCKED"} label={job.planner_gate_ready ? "Planner ready" : "Planner gate"} />
                       </div>
                     </td>
                     <td className="px-4 py-4 text-right text-sm font-semibold text-slate-950">
@@ -153,7 +174,7 @@ export default function JobCardsPage() {
                     <td className="px-4 py-4 text-sm text-slate-700">
                       <div>Due {formatDate(job.due_date)}</div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {job.blocked_reason || `${job.open_segment_count || 0} open segment(s)`}
+                        {job.blocked_reason || job.planner_gate_reason || `${job.open_segment_count || 0} open segment(s)`}
                       </div>
                     </td>
                   </tr>

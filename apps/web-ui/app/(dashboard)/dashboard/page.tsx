@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { BarChart3, ClipboardList, Factory, Gauge, Package, ScrollText, Truck } from "lucide-react"
+import { BarChart3, ClipboardList, Factory, Gauge, Package, ScrollText, Shield, ShieldCheck, Truck } from "lucide-react"
 
 import { useAuth } from "@/context/AuthContext"
 
@@ -12,6 +12,9 @@ const workspaces = [
   { title: "Production", href: "/production/job-cards", icon: Gauge, copy: "Job cards, EOD entry, reconciliation, and loss controls." },
   { title: "Inventory", href: "/inventory", icon: Package, copy: "Raw inward, production issue, reservations, and valuation." },
   { title: "Dispatch", href: "/logistics/dispatch", icon: Truck, copy: "Packing handoff, challans, and finished goods movement." },
+  { title: "Analytics", href: "/analytics", icon: BarChart3, copy: "Charts, plant variance, quality drift, and board-pack trend views." },
+  { title: "Masters", href: "/masters", icon: ShieldCheck, copy: "Paper, mandrel, parchment, customer, and packaging truth tables." },
+  { title: "System", href: "/system/users", icon: Shield, copy: "Users, plants, machines, and platform governance surfaces." },
 ]
 
 export default function DashboardPage() {

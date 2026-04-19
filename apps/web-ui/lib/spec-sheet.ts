@@ -108,6 +108,9 @@ export type SpecRecord = {
   moisture_min_pct: number
   moisture_max_pct: number
   parchment_percent: number
+  parchment_allowed?: boolean
+  adhesive_percent?: number
+  moisture_loss_percent?: number
   shrink_percent: number
   bamboo_max_length: number
   cut_loss_mm: number
@@ -174,7 +177,7 @@ export type ToleranceBands = {
   id: number
   od: number
   length: number
-  weightPct: number
+  weightG: number
   csPct: number
   moisture: number
 }
@@ -216,6 +219,55 @@ export type RecipeSuggestion = {
   effectiveDiameterMm?: number
 }
 
+export function formatRecipeRowsTitle(
+  rows: GroupedRecipeRow[],
+  options?: { includeCounts?: boolean },
+) {
+  const includeCounts = options?.includeCounts ?? true
+  const activeRows = (rows || []).filter((row) => {
+    const plyCount = Math.max(1, Math.floor(Number(row?.plyCount || 0) || 0))
+    const hasPaper = String(row?.paper_id || "").trim().length > 0 || String(row?.code || "").trim().length > 0
+    return hasPaper && plyCount > 0
+  })
+
+  if (!activeRows.length) return ""
+
+  return activeRows
+    .map((row) => {
+      const code = String(row.code || row.variety || row.category || row.paper_id || "PAPER").trim()
+      const plyCount = Math.max(1, Math.floor(Number(row.plyCount || 1)))
+      if (!includeCounts || plyCount === 1) return code
+      return `${code} x ${plyCount}`
+    })
+    .join(" + ")
+}
+
+export function pickVisibleRecipeSuggestions(suggestions: RecipeSuggestion[], limit = 6) {
+  const ranked = [...(suggestions || [])]
+  if (ranked.length <= limit) return ranked
+
+  const picked: RecipeSuggestion[] = []
+  const usedIds = new Set<string>()
+  const usedPlyCounts = new Set<number>()
+
+  for (const suggestion of ranked) {
+    const plyCount = Number(suggestion.totalPlyCount || 0)
+    if (usedPlyCounts.has(plyCount)) continue
+    picked.push(suggestion)
+    usedIds.add(suggestion.id)
+    usedPlyCounts.add(plyCount)
+    if (picked.length >= limit) return picked
+  }
+
+  for (const suggestion of ranked) {
+    if (usedIds.has(suggestion.id)) continue
+    picked.push(suggestion)
+    if (picked.length >= limit) break
+  }
+
+  return picked
+}
+
 export type ProcessGuidanceRow = {
   rh: string
   dryingPercent: number
@@ -228,7 +280,7 @@ export const DEFAULT_TOLERANCE_BANDS: ToleranceBands = {
   id: 0.5,
   od: 0.5,
   length: 2,
-  weightPct: 3,
+  weightG: 3,
   csPct: 7,
   moisture: 1,
 }
@@ -311,8 +363,8 @@ export function deriveRanges(avg: AverageValues, bands: ToleranceBands) {
   const od_max_mm = roundValue(avg.od + bands.od, 2)
   const length_min_mm = roundValue(avg.length - bands.length, 2)
   const length_max_mm = roundValue(avg.length + bands.length, 2)
-  const weight_min_g = roundValue(avg.weight * (1 - bands.weightPct / 100), 2)
-  const weight_max_g = roundValue(avg.weight * (1 + bands.weightPct / 100), 2)
+  const weight_min_g = roundValue(Math.max(avg.weight - bands.weightG, 0), 2)
+  const weight_max_g = roundValue(avg.weight + bands.weightG, 2)
   const cs_min_n = roundValue(avg.cs * (1 - bands.csPct / 100), 2)
   const cs_max_n = roundValue(avg.cs * (1 + bands.csPct / 100), 2)
   const moisture_min_pct = roundValue(clamp(avg.moisture - bands.moisture, 0, 100), 2)
@@ -426,15 +478,25 @@ function comboEffectiveDiameterMm(idMm: number, rows: GroupedRecipeRow[], fallba
   return Math.max((Number(idMm || 0) + Number(fallbackOdMm || 0)) / 2, 1)
 }
 
-function evaluateRecipeSuggestion(rows: GroupedRecipeRow[], tubeLengthMm: number, idMm: number, odMm: number, targetWetWeightG: number) {
+function evaluateRecipeSuggestion(
+  rows: GroupedRecipeRow[],
+  tubeLengthMm: number,
+  idMm: number,
+  odMm: number,
+  targetWetWeightG: number,
+  options?: { wetDivisor?: number; parchmentPercent?: number },
+) {
   const effectiveDiameterMm = comboEffectiveDiameterMm(idMm, rows, odMm)
   const predictedPaperWeightG = rows.reduce((sum, row) => {
     const gsm = Number((row as any).gsm || 0)
     return sum + paperWeightPerPlyG({ gsm }, tubeLengthMm, effectiveDiameterMm, effectiveDiameterMm) * Number(row.plyCount || 0)
   }, 0)
-  const predictedDryTubeG = predictedPaperWeightG * (1 + 0.15 + 0.015)
-  const predictedWetTubeG = predictedDryTubeG / DEFAULT_WET_DIVISOR
-  const targetDryWeightG = targetWetWeightG * DEFAULT_WET_DIVISOR
+  const wetDivisor = Math.max(Number(options?.wetDivisor ?? DEFAULT_WET_DIVISOR), 0.01)
+  const parchmentFactor = Math.max(Number(options?.parchmentPercent ?? 1.5), 0) / 100
+  const paperWetShare = Math.max(1 - 0.15 - parchmentFactor, 0.0001)
+  const predictedWetTubeG = predictedPaperWeightG / paperWetShare
+  const predictedDryTubeG = predictedWetTubeG * wetDivisor
+  const targetDryWeightG = targetWetWeightG * wetDivisor
   return {
     recipeThicknessMm: roundValue(comboRecipeThicknessMm(rows), 4),
     effectiveDiameterMm: roundValue(effectiveDiameterMm, 4),
@@ -444,15 +506,6 @@ function evaluateRecipeSuggestion(rows: GroupedRecipeRow[], tubeLengthMm: number
     deltaDryG: roundValue(predictedDryTubeG - targetDryWeightG, 2),
     deltaWetG: roundValue(predictedWetTubeG - targetWetWeightG, 2),
   }
-}
-
-function isGsmBand(paper: any, min: number, max: number) {
-  const gsm = Number(paper?.gsm || 0)
-  return gsm >= min && gsm <= max
-}
-
-function paperPriority(paper: any) {
-  return Number(paper?.bf || paper?.ply_bond || 0)
 }
 
 function rowFromPaper(paper: any, plyCount: number, seed: string): GroupedRecipeRow {
@@ -518,12 +571,20 @@ export function suggestRecipeRowsFromPapers(
   tubeLengthMm: number,
   idMm: number,
   odMm: number,
+  options?: { dryingPercent?: number; parchmentPercent?: number },
 ): RecipeSuggestion[] {
-  const activePapers = (papers || []).filter((paper) => Number(paper?.gsm || 0) > 0)
+  const uniquePapers = new Map<string, any>()
+  for (const paper of papers || []) {
+    const code = String(paper?.code || "").trim().toUpperCase()
+    const key = code || String(paper?.id || "").trim()
+    if (!key || uniquePapers.has(key)) continue
+    uniquePapers.set(key, paper)
+  }
+
+  const activePapers = Array.from(uniquePapers.values()).filter((paper) => Number(paper?.gsm || 0) > 0)
   if (!activePapers.length || targetWetWeightG <= 0 || tubeLengthMm <= 0) return []
 
-  const targetDryWeightG = targetWetWeightG * DEFAULT_WET_DIVISOR
-  const targetPaperWeightG = targetDryWeightG / (1 + 0.15 + 0.015)
+  const wetDivisor = Math.max(1 - Number(options?.dryingPercent ?? 9.0) / 100, 0.01)
   const candidates = activePapers
     .map((paper) => {
       const roughEffectiveDiameterMm = Math.max((Number(idMm || 0) + Number(odMm || 0)) / 2, Number(idMm || 0) + paperThicknessMm(paper), 1)
@@ -533,40 +594,46 @@ export function suggestRecipeRowsFromPapers(
       }
     })
     .filter((item) => item.roughPerPly > 0)
-    .sort((a, b) => a.roughPerPly - b.roughPerPly)
+    .sort((a, b) => Number(a.paper?.gsm || 0) - Number(b.paper?.gsm || 0) || Number(a.paper?.bf || 0) - Number(b.paper?.bf || 0))
 
   const suggestions = new Map<string, RecipeSuggestion>()
 
-  function registerSuggestion(id: string, title: string, rows: GroupedRecipeRow[], preferredRule?: string) {
-    const evaluation = evaluateRecipeSuggestion(rows, tubeLengthMm, idMm, odMm, targetWetWeightG)
-    const normalizedTitle = preferredRule ? `${preferredRule === "2x250 + 1x300 + best remainder" ? "250/300 locked · " : ""}${title}` : title
+  function registerSuggestion(id: string, title: string, rows: GroupedRecipeRow[]) {
+    const distinctPaperCount = rows.filter((row) => row.paper_id).length
+    const totalPlyCount = rows.reduce((sum, row) => sum + Number(row.plyCount || 0), 0)
+    if (distinctPaperCount < 3 || distinctPaperCount > 5 || totalPlyCount < 4 || totalPlyCount > 18) {
+      return
+    }
+    const evaluation = evaluateRecipeSuggestion(rows, tubeLengthMm, idMm, odMm, targetWetWeightG, {
+      wetDivisor,
+      parchmentPercent: Number(options?.parchmentPercent ?? 1.5),
+    })
     const suggestion: RecipeSuggestion = {
       id,
-      title: normalizedTitle,
+      title,
       rows,
-      preferredRule,
       predictedPaperWeightG: evaluation.predictedPaperWeightG,
       predictedDryTubeG: evaluation.predictedDryTubeG,
       predictedWetTubeG: evaluation.predictedWetTubeG,
       deltaDryG: evaluation.deltaDryG,
       deltaWetG: evaluation.deltaWetG,
       deltaG: evaluation.deltaDryG,
-      totalPlyCount: rows.reduce((sum, row) => sum + Number(row.plyCount || 0), 0),
+      totalPlyCount,
       recipeThicknessMm: evaluation.recipeThicknessMm,
       effectiveDiameterMm: evaluation.effectiveDiameterMm,
     }
     const signature = rows
       .slice()
-      .sort((left, right) => `${left.paper_id}:${left.plyCount}`.localeCompare(`${right.paper_id}:${right.plyCount}`))
-      .map((row) => `${row.paper_id}:${row.plyCount}`)
+      .sort((left, right) => `${left.code}:${left.plyCount}`.localeCompare(`${right.code}:${right.plyCount}`))
+      .map((row) => `${row.code}:${row.plyCount}`)
       .join("|")
     const existing = suggestions.get(signature)
     if (!existing) {
       suggestions.set(signature, suggestion)
       return
     }
-    const existingScore = [existing.preferredRule ? 0 : 1, Math.abs(existing.deltaDryG || 0), Math.abs(existing.deltaWetG || 0), existing.totalPlyCount || 999]
-    const nextScore = [suggestion.preferredRule ? 0 : 1, Math.abs(suggestion.deltaDryG || 0), Math.abs(suggestion.deltaWetG || 0), suggestion.totalPlyCount || 999]
+    const existingScore = [Math.abs(existing.deltaDryG || 0), existing.totalPlyCount || 999, Math.abs(existing.deltaWetG || 0)]
+    const nextScore = [Math.abs(suggestion.deltaDryG || 0), suggestion.totalPlyCount || 999, Math.abs(suggestion.deltaWetG || 0)]
     for (let index = 0; index < nextScore.length; index += 1) {
       if (nextScore[index] < existingScore[index]) {
         suggestions.set(signature, suggestion)
@@ -576,86 +643,62 @@ export function suggestRecipeRowsFromPapers(
     }
   }
 
-  const preferred250 = candidates
-    .filter((item) => isGsmBand(item.paper, 245, 255))
-    .sort((left, right) => paperPriority(right.paper) - paperPriority(left.paper))
-  const preferred300 = candidates
-    .filter((item) => isGsmBand(item.paper, 295, 310))
-    .sort((left, right) => paperPriority(right.paper) - paperPriority(left.paper))
-  const preferredRemainder = candidates
-    .filter((item) => Number(item.paper?.gsm || 0) >= 340)
-    .sort((left, right) => paperPriority(right.paper) - paperPriority(left.paper))
+  function walkPlyDistributions(
+    combo: typeof candidates,
+    totalPlyCount: number,
+    cursor: number,
+    remainingPlies: number,
+    counts: number[],
+  ) {
+    const remainingSlots = combo.length - cursor
+    if (remainingSlots <= 0) return
 
-  if (preferred250.length && preferred300.length) {
-    for (const locked250 of preferred250.slice(0, 2)) {
-      for (const locked300 of preferred300.slice(0, 2)) {
-        const lockedRows = [
-          rowFromPaper(locked250.paper, 2, `locked-250-${locked250.paper.id}`),
-          rowFromPaper(locked300.paper, 1, `locked-300-${locked300.paper.id}`),
-        ]
-        const lockedWeight = locked250.roughPerPly * 2 + locked300.roughPerPly
-        const fallbackPool = preferredRemainder.length ? preferredRemainder : candidates.filter((item) => item.paper?.id !== locked250.paper?.id && item.paper?.id !== locked300.paper?.id)
+    if (remainingSlots === 1) {
+      counts[cursor] = remainingPlies
+      const rows = combo.map((item, index) =>
+        rowFromPaper(item.paper, counts[index], `${item.paper.id}-${totalPlyCount}-${counts.join("-")}-${index}`),
+      )
+      registerSuggestion(
+        `combo-${combo.map((item) => item.paper.id).join("-")}-${counts.join("-")}`,
+        formatRecipeRowsTitle(rows),
+        rows,
+      )
+      return
+    }
 
-        if (!fallbackPool.length) {
-          registerSuggestion(
-            `locked-${locked250.paper.id}-${locked300.paper.id}`,
-            lockedRows.map((row) => `${row.code} x ${row.plyCount}`).join(" + "),
-            lockedRows,
-            "2x250 + 1x300",
-          )
-          continue
-        }
+    const minForCurrent = 1
+    const maxForCurrent = remainingPlies - (remainingSlots - 1)
+    for (let current = minForCurrent; current <= maxForCurrent; current += 1) {
+      counts[cursor] = current
+      walkPlyDistributions(combo, totalPlyCount, cursor + 1, remainingPlies - current, counts)
+    }
+  }
 
-        for (const extra of fallbackPool.slice(0, 3)) {
-          const estExtra = Math.max(0, Math.round((targetPaperWeightG - lockedWeight) / Math.max(extra.roughPerPly, 0.0001)))
-          for (let extraPly = Math.max(0, estExtra - 1); extraPly <= estExtra + 2; extraPly += 1) {
-            const rows = [
-              ...lockedRows,
-              ...(extraPly > 0 ? [rowFromPaper(extra.paper, extraPly, `locked-extra-${extra.paper.id}`)] : []),
-            ]
-            registerSuggestion(
-              `locked-${locked250.paper.id}-${locked300.paper.id}-${extra.paper.id}-${extraPly}`,
-              rows.map((row) => `${row.code} x ${row.plyCount}`).join(" + "),
-              rows,
-              "2x250 + 1x300 + best remainder",
-            )
-          }
-        }
+  function walkCombos(start: number, size: number, picked: typeof candidates) {
+    if (picked.length === size) {
+      for (let totalPlyCount = Math.max(4, size); totalPlyCount <= 18; totalPlyCount += 1) {
+        walkPlyDistributions(picked, totalPlyCount, 0, totalPlyCount, Array.from({ length: picked.length }, () => 1))
       }
+      return
+    }
+
+    for (let index = start; index <= candidates.length - (size - picked.length); index += 1) {
+      walkCombos(index + 1, size, [...picked, candidates[index]])
     }
   }
 
-  // Single-paper suggestions.
-  for (const candidate of candidates.slice(0, 5)) {
-    const plyCount = Math.max(1, Math.round(targetPaperWeightG / candidate.roughPerPly))
-    const row = rowFromPaper(candidate.paper, plyCount, `single-${candidate.paper.id}`)
-    registerSuggestion(`single-${candidate.paper.id}`, `${row.variety} x ${plyCount} ply`, [row])
+  const maxDistinctPapers = Math.min(5, candidates.length)
+  for (let size = 3; size <= maxDistinctPapers; size += 1) {
+    walkCombos(0, size, [])
   }
 
-  // Two-paper blended suggestions.
-  for (let i = 0; i < Math.min(candidates.length, 4); i++) {
-    for (let j = i + 1; j < Math.min(candidates.length, 6); j++) {
-      const left = candidates[i]
-      const right = candidates[j]
-      const approxPly = Math.max(2, Math.round(targetPaperWeightG / ((left.roughPerPly + right.roughPerPly) / 2)))
-      const leftPly = Math.max(1, Math.floor(approxPly / 2))
-      const rightPly = Math.max(1, approxPly - leftPly)
-      const rows = [
-        rowFromPaper(left.paper, leftPly, `mix-a-${left.paper.id}-${right.paper.id}`),
-        rowFromPaper(right.paper, rightPly, `mix-b-${left.paper.id}-${right.paper.id}`),
-      ]
-      registerSuggestion(`mix-${left.paper.id}-${right.paper.id}`, `${rows[0].variety} + ${rows[1].variety}`, rows)
-    }
-  }
-
-  return Array.from(suggestions.values())
+  const ranked = Array.from(suggestions.values())
     .sort((a, b) => {
-      const leftPreferred = a.preferredRule ? 0 : 1
-      const rightPreferred = b.preferredRule ? 0 : 1
-      if (leftPreferred !== rightPreferred) return leftPreferred - rightPreferred
       if (Math.abs(a.deltaDryG || 0) !== Math.abs(b.deltaDryG || 0)) return Math.abs(a.deltaDryG || 0) - Math.abs(b.deltaDryG || 0)
+      if ((a.totalPlyCount || 999) !== (b.totalPlyCount || 999)) return (a.totalPlyCount || 999) - (b.totalPlyCount || 999)
       if (Math.abs(a.deltaWetG || 0) !== Math.abs(b.deltaWetG || 0)) return Math.abs(a.deltaWetG || 0) - Math.abs(b.deltaWetG || 0)
-      return (a.totalPlyCount || 999) - (b.totalPlyCount || 999)
+      return a.title.localeCompare(b.title)
     })
-    .slice(0, 6)
+
+  return pickVisibleRecipeSuggestions(ranked, 6)
 }

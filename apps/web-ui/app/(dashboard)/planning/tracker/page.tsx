@@ -7,7 +7,7 @@ import { AlertTriangle, Clock3, Factory, Search, TimerReset, Truck } from "lucid
 import { useSearchParams } from "next/navigation"
 
 import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
-import { usePlanningJobCards } from "@/hooks/use-production"
+import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
 function formatDate(value?: string | null) {
@@ -21,9 +21,20 @@ export default function PlanningTrackerPage() {
   const section = String(searchParams?.get("section") || "winder").toLowerCase()
   const [search, setSearch] = useState("")
   const jobsQuery = usePlanningJobCards({ limit: 500 })
+  const machinesQuery = useMachines()
 
   const jobs = Array.isArray(jobsQuery.data) ? jobsQuery.data : []
   const deferredSearch = search.trim().toLowerCase()
+  const machineLabelMap = useMemo(
+    () =>
+      new Map(
+        (Array.isArray(machinesQuery.data) ? machinesQuery.data : []).map((machine: any) => [
+          String(machine.id),
+          machine.code || machine.name || String(machine.id).slice(0, 8),
+        ]),
+      ),
+    [machinesQuery.data],
+  )
 
   const scopedJobs = useMemo(() => {
     const filteredBySearch = deferredSearch
@@ -105,9 +116,12 @@ export default function PlanningTrackerPage() {
                   <th className="px-4 py-3 text-left">Job Card</th>
                   <th className="px-4 py-3 text-left">Product</th>
                   <th className="px-4 py-3 text-left">Customer</th>
+                  <th className="px-4 py-3 text-left">Release</th>
+                  <th className="px-4 py-3 text-left">Target Winder</th>
                   <th className="px-4 py-3 text-left">Stage</th>
                   <th className="px-4 py-3 text-left">Status</th>
                   <th className="px-4 py-3 text-right">Qty</th>
+                  <th className="px-4 py-3 text-left">Plan Slot</th>
                   <th className="px-4 py-3 text-left">Due</th>
                   <th className="px-4 py-3 text-left">Block / Context</th>
                 </tr>
@@ -122,14 +136,36 @@ export default function PlanningTrackerPage() {
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-700">{job.product_code || "-"}</td>
                     <td className="px-4 py-3 text-sm text-slate-700">{job.customer_name || "-"}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      <div>{job.release_lot_id ? `Lot ${String(job.release_lot_id).slice(0, 8)}` : "-"}</div>
+                      <div className="mt-1 text-xs text-slate-500">
+                        Line {job.sales_order_line_id ? String(job.sales_order_line_id).slice(0, 8) : "-"}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      {job.assigned_winder_machine_id
+                        ? machineLabelMap.get(String(job.assigned_winder_machine_id)) || String(job.assigned_winder_machine_id).slice(0, 8)
+                        : "-"}
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-700">{job.current_stage || "-"}</td>
                     <td className="px-4 py-3">
-                      <StatusBadge value={job.status || "-"} />
+                      <div className="space-y-2">
+                        <StatusBadge value={job.status || "-"} />
+                        <StatusBadge value={job.planner_gate_ready ? "READY" : "BLOCKED"} label={job.planner_gate_ready ? "Planner ready" : "Planner gate"} />
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right text-sm text-slate-700">{Number(job.planned_qty || 0).toFixed(0)}</td>
+                    <td className="px-4 py-3 text-sm text-slate-700">
+                      {job.active_segment_plan_date ? formatDate(job.active_segment_plan_date) : "-"}
+                      <div className="mt-1 text-xs text-slate-500">
+                        {job.active_segment_machine_id
+                          ? machineLabelMap.get(String(job.active_segment_machine_id)) || String(job.active_segment_machine_id).slice(0, 8)
+                          : "No active machine"}
+                      </div>
+                    </td>
                     <td className="px-4 py-3 text-sm text-slate-700">{formatDate(job.due_date)}</td>
                     <td className="px-4 py-3 text-sm text-slate-600">
-                      {job.blocked_reason || job.current_machine_id || job.current_shift_code || "Flowing"}
+                      {job.blocked_reason || job.planner_gate_reason || job.current_machine_id || job.current_shift_code || "Flowing"}
                     </td>
                   </tr>
                 ))}

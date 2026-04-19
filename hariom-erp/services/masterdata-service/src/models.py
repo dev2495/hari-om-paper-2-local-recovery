@@ -14,7 +14,7 @@ class PaperMaster(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     code = Column(String(50), nullable=True, index=True)
     variety = Column(String(120), nullable=True)
-    gsm = Column(Integer, nullable=False, index=True)
+    gsm = Column(Float, nullable=False, index=True)
     bf = Column(Float, nullable=True)
     thickness_mm = Column(Float, nullable=True)
     ply_bond = Column(Float, nullable=True)
@@ -100,8 +100,9 @@ class Mandrel(Base):
     __tablename__ = "mandrel"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    mandrel_code = Column(String(50), nullable=False, unique=True, index=True)
+    mandrel_code = Column(String(50), nullable=False, index=True)
     outer_diameter_mm = Column(Float, nullable=False)
+    od_tolerance_mm = Column(Float, nullable=False, default=0.1)
     length_mm = Column(Float, nullable=False)
     material = Column(String(100))
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
@@ -109,6 +110,10 @@ class Mandrel(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     machine_links = relationship("MachineSupportedMandrel", back_populates="mandrel", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "mandrel_code", name="uq_mandrel_plant_code"),
+    )
 
 
 class Machine(Base):

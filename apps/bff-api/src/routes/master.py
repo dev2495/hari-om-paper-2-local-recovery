@@ -101,6 +101,20 @@ async def get_parchments(request: Request, token: str = Depends(get_token)):
         )
         merged_by_key[key] = row
 
+    for vendor in vendors.values():
+        vendor_name = vendor.get("name")
+        key = (str(vendor_name or "").strip().lower(), "")
+        if key not in merged_by_key and vendor_name:
+            merged_by_key[key] = {
+                "id": f"vendor:{vendor.get('id')}",
+                "vendor_id": vendor.get("id"),
+                "vendor_name": vendor_name,
+                "vendor_family": vendor_name,
+                "color_name": "",
+                "display_name": vendor_name,
+                "active": vendor.get("active", True),
+            }
+
     merged = sorted(
         merged_by_key.values(),
         key=lambda item: (
@@ -114,35 +128,36 @@ async def get_parchments(request: Request, token: str = Depends(get_token)):
 @router.post("/parchments")
 async def create_parchment_color(request: Request, token: str = Depends(get_token)):
     body = await request.json()
+    vendor_id = body.get("vendor_id")
     vendor_name = body.get("vendor_family") or body.get("vendor_name")
     color_name = body.get("color_name")
-    if not vendor_name or not color_name:
-        return JSONResponse(status_code=400, content={"detail": "vendor_name and color_name are required"})
+    if (not vendor_id and not vendor_name) or not color_name:
+        return JSONResponse(status_code=400, content={"detail": "vendor selection and color_name are required"})
 
     headers = _master_headers(token, request)
 
-    vendors_resp = await http_client.get(
-        f"{MASTER_SERVICE_URL}/master/parchment/vendors",
-        headers=headers,
-    )
-    if vendors_resp.status_code != 200:
-        return JSONResponse(status_code=vendors_resp.status_code, content=vendors_resp.json())
-
-    vendor_id = None
-    for vendor in vendors_resp.json():
-        if vendor.get("name", "").strip().lower() == vendor_name.strip().lower():
-            vendor_id = vendor.get("id")
-            break
-
     if not vendor_id:
-        create_vendor_resp = await http_client.post(
+        vendors_resp = await http_client.get(
             f"{MASTER_SERVICE_URL}/master/parchment/vendors",
-            json={"name": vendor_name},
             headers=headers,
         )
-        if create_vendor_resp.status_code != 200:
-            return JSONResponse(status_code=create_vendor_resp.status_code, content=create_vendor_resp.json())
-        vendor_id = create_vendor_resp.json().get("id")
+        if vendors_resp.status_code != 200:
+            return JSONResponse(status_code=vendors_resp.status_code, content=vendors_resp.json())
+
+        for vendor in vendors_resp.json():
+            if vendor.get("name", "").strip().lower() == vendor_name.strip().lower():
+                vendor_id = vendor.get("id")
+                break
+
+        if not vendor_id:
+            create_vendor_resp = await http_client.post(
+                f"{MASTER_SERVICE_URL}/master/parchment/vendors",
+                json={"name": vendor_name},
+                headers=headers,
+            )
+            if create_vendor_resp.status_code != 200:
+                return JSONResponse(status_code=create_vendor_resp.status_code, content=create_vendor_resp.json())
+            vendor_id = create_vendor_resp.json().get("id")
 
     create_color_resp = await http_client.post(
         f"{MASTER_SERVICE_URL}/master/parchment/colors",
@@ -162,8 +177,11 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
     if color_name:
         payload["color_name"] = color_name
 
+    vendor_id = body.get("vendor_id")
     vendor_name = body.get("vendor_family") or body.get("vendor_name")
-    if vendor_name:
+    if vendor_id:
+        payload["vendor_id"] = vendor_id
+    elif vendor_name:
         vendors_resp = await http_client.get(
             f"{MASTER_SERVICE_URL}/master/parchment/vendors",
             headers=headers,
@@ -171,13 +189,13 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
         if vendors_resp.status_code != 200:
             return JSONResponse(status_code=vendors_resp.status_code, content=vendors_resp.json())
 
-        vendor_id = None
+        matched_vendor_id = None
         for vendor in vendors_resp.json():
             if vendor.get("name", "").strip().lower() == vendor_name.strip().lower():
-                vendor_id = vendor.get("id")
+                matched_vendor_id = vendor.get("id")
                 break
 
-        if not vendor_id:
+        if not matched_vendor_id:
             create_vendor_resp = await http_client.post(
                 f"{MASTER_SERVICE_URL}/master/parchment/vendors",
                 json={"name": vendor_name},
@@ -185,9 +203,9 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
             )
             if create_vendor_resp.status_code != 200:
                 return JSONResponse(status_code=create_vendor_resp.status_code, content=create_vendor_resp.json())
-            vendor_id = create_vendor_resp.json().get("id")
+            matched_vendor_id = create_vendor_resp.json().get("id")
 
-        payload["vendor_id"] = vendor_id
+        payload["vendor_id"] = matched_vendor_id
 
     update_color_resp = await http_client.put(
         f"{MASTER_SERVICE_URL}/master/parchment/colors/{color_id}",
@@ -200,6 +218,21 @@ async def update_parchment_color(color_id: str, request: Request, token: str = D
 @router.delete("/parchments/{color_id}")
 async def delete_parchment_color(color_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/parchment/colors/{color_id}", request, token)
+
+
+@router.get("/parchment/vendors")
+async def get_parchment_vendors(request: Request, token: str = Depends(get_token)):
+    headers = _master_headers(token, request)
+    response = await http_client.get(f"{MASTER_SERVICE_URL}/master/parchment/vendors", headers=headers)
+    return JSONResponse(status_code=response.status_code, content=response.json())
+
+
+@router.post("/parchment/vendors")
+async def create_parchment_vendor(request: Request, token: str = Depends(get_token)):
+    headers = _master_headers(token, request)
+    body = await request.json()
+    response = await http_client.post(f"{MASTER_SERVICE_URL}/master/parchment/vendors", json=body, headers=headers)
+    return JSONResponse(status_code=response.status_code, content=response.json())
 
 
 @router.get("/tube-sizes")

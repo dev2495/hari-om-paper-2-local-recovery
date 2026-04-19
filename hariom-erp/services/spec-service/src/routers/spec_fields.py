@@ -47,7 +47,7 @@ def create_field(
     payload: FieldCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecMaker"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     existing = db.query(SpecDynamicField).filter(
         SpecDynamicField.key == payload.key,
@@ -81,7 +81,7 @@ def update_field(
     payload: FieldUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecMaker"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     field = db.query(SpecDynamicField).filter(
         SpecDynamicField.id == field_id,
@@ -101,7 +101,7 @@ def delete_field(
     field_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     field = db.query(SpecDynamicField).filter(
         SpecDynamicField.id == field_id,

@@ -155,6 +155,7 @@ class QueueJobCardItem(BaseModel):
     priority: Optional[str]
     current_stage: str
     product_code: Optional[str] = None
+    product_size_label: Optional[str] = None
     parchment_color: Optional[str] = None
     released_qty: Optional[float] = None
     assigned_winder_machine_id: Optional[str] = None
@@ -166,6 +167,9 @@ class QueueJobCardItem(BaseModel):
     spec_version: Optional[int] = None
     required_cs: Optional[float] = None
     target_tube_weight: Optional[float] = None
+    tube_weight_g: Optional[float] = None
+    planned_weight_kg: Optional[float] = None
+    bamboo_weight_kg: Optional[float] = None
     pcs_per_bamboo: Optional[int] = None
     target_bamboo_count: Optional[int] = None
     selected_bamboo_length_mm: Optional[float] = None
@@ -378,11 +382,16 @@ class JobCardPlannerSummary(BaseModel):
     released_qty: float = 0.0
     assigned_winder_machine_id: Optional[str] = None
     product_code: Optional[str] = None
+    product_size_label: Optional[str] = None
     parchment_color: Optional[str] = None
     active_segment_id: Optional[str] = None
     active_segment_status: Optional[str] = None
+    active_segment_machine_id: Optional[str] = None
+    active_segment_plan_date: Optional[date] = None
     open_segment_count: int = 0
     blocked_reason: Optional[str] = None
+    planner_gate_ready: bool = False
+    planner_gate_reason: Optional[str] = None
     current_machine_id: Optional[str] = None
     current_plan_date: Optional[date] = None
     current_shift_code: Optional[str] = None
@@ -397,6 +406,9 @@ class JobCardPlannerSummary(BaseModel):
     spec_version: Optional[int] = None
     required_cs: Optional[float] = None
     target_tube_weight: Optional[float] = None
+    tube_weight_g: Optional[float] = None
+    planned_weight_kg: Optional[float] = None
+    bamboo_weight_kg: Optional[float] = None
     pcs_per_bamboo: Optional[int] = None
     target_bamboo_count: Optional[int] = None
     selected_bamboo_length_mm: Optional[float] = None
@@ -490,8 +502,12 @@ class JobCardPlanningDetail(BaseModel):
     sales_order: dict[str, Any]
     active_segment_id: Optional[str] = None
     active_segment_status: Optional[str] = None
+    active_segment_machine_id: Optional[str] = None
+    active_segment_plan_date: Optional[date] = None
     open_segment_count: int = 0
     blocked_reason: Optional[str] = None
+    planner_gate_ready: bool = False
+    planner_gate_reason: Optional[str] = None
     carry_forward_suggestion: CarryForwardSuggestion = Field(default_factory=CarryForwardSuggestion)
     stages: list[JobCardPlanningStage]
     stage_segments: list[JobCardStageSegmentResponse] = Field(default_factory=list)

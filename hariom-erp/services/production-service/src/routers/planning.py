@@ -2584,6 +2584,45 @@ def _create_or_sync_job_card_for_line(
         plant_id=plant_id,
     )
 
+    def _reset_winder_to_release_queue(job_card: JobCard) -> None:
+        winder_stage = next((stage for stage in job_card.stages if stage.stage_type == "WINDER"), None)
+        if not winder_stage:
+            return
+        queue_anchor_date = datetime.now(PLANT_TIMEZONE).date()
+        winder_stage.machine_id = None
+        winder_stage.plan_date = queue_anchor_date
+        winder_stage.shift_code = None
+        winder_stage.required_capacity = _required_capacity_for_job(
+            stage="WINDER",
+            planned_qty=float(job_card.planned_qty or 0.0),
+            spec_snapshot=job_card.spec_snapshot or {},
+        )
+        if winder_stage.status != "COMPLETED":
+            winder_stage.status = "QUEUED"
+
+        open_winder_segments = _open_stage_segments(db, job_card.id, "WINDER")
+        target_segment = open_winder_segments[0] if open_winder_segments else _append_stage_segment(
+            db=db,
+            job_card=job_card,
+            stage_row=winder_stage,
+            machine_id=None,
+            plan_date=winder_stage.plan_date,
+            shift_code=None,
+            planned_qty=float(job_card.planned_qty or 0.0),
+            required_capacity=float(winder_stage.required_capacity or 0.0),
+            split_source="NONE",
+            split_parent_segment_id=None,
+            status="QUEUED",
+        )
+        target_segment.machine_id = None
+        target_segment.plan_date = winder_stage.plan_date
+        target_segment.shift_code = None
+        target_segment.required_capacity = round(float(winder_stage.required_capacity or 0.0), 2)
+        target_segment.planned_qty = round(float(job_card.planned_qty or 0.0), 2)
+        target_segment.status = "QUEUED"
+        target_segment.sequence_no = 1
+        _sync_stage_row_from_segments(winder_stage, _all_stage_segments(db, job_card.id, "WINDER"))
+
     if existing:
         before_payload = {
             "planned_qty": float(existing.planned_qty or 0.0),
@@ -2632,54 +2671,7 @@ def _create_or_sync_job_card_for_line(
                 "status": existing.status,
             },
         )
-        winder_stage = next((stage for stage in existing.stages if stage.stage_type == "WINDER"), None)
-        if winder_stage:
-            winder_stage.machine_id = winder_machine_id
-            winder_stage.plan_date = winder_stage.plan_date or _default_plan_date_from_snapshot(existing.spec_snapshot or {})
-            winder_stage.shift_code = winder_stage.shift_code or "SHIFT_A"
-            winder_stage.required_capacity = _required_capacity_for_job(
-                stage="WINDER",
-                planned_qty=float(existing.planned_qty or 0.0),
-                spec_snapshot=existing.spec_snapshot or {},
-            )
-            if winder_stage.status != "COMPLETED":
-                winder_stage.status = "ASSIGNED"
-            open_winder_segments = _open_stage_segments(db, existing.id, "WINDER")
-            target_segment = open_winder_segments[0] if open_winder_segments else _append_stage_segment(
-                db=db,
-                job_card=existing,
-                stage_row=winder_stage,
-                machine_id=winder_machine_id,
-                plan_date=winder_stage.plan_date,
-                shift_code=winder_stage.shift_code,
-                planned_qty=float(existing.planned_qty or 0.0),
-                required_capacity=float(winder_stage.required_capacity or 0.0),
-                split_source="NONE",
-                split_parent_segment_id=None,
-                status="ASSIGNED",
-            )
-            target_segment.machine_id = winder_machine_id
-            target_segment.plan_date = winder_stage.plan_date
-            target_segment.shift_code = winder_stage.shift_code
-            target_segment.required_capacity = round(float(winder_stage.required_capacity or 0.0), 2)
-            target_segment.planned_qty = round(float(existing.planned_qty or 0.0), 2)
-            target_segment.status = "ASSIGNED"
-            _place_stage_segment(
-                db=db,
-                segment=target_segment,
-                desired_sequence=_next_segment_sequence_for_bucket(
-                    db,
-                    existing.plant_id,
-                    "WINDER",
-                    machine_id=winder_machine_id,
-                    plan_date=winder_stage.plan_date,
-                    shift_code=winder_stage.shift_code,
-                ),
-                machine_id=winder_machine_id,
-                plan_date=winder_stage.plan_date,
-                shift_code=winder_stage.shift_code,
-            )
-            _sync_stage_row_from_segments(winder_stage, _all_stage_segments(db, existing.id, "WINDER"))
+        _reset_winder_to_release_queue(existing)
         return existing, queue_created
 
     job_card = JobCard(
@@ -2730,54 +2722,7 @@ def _create_or_sync_job_card_for_line(
             "status": job_card.status,
         },
     )
-    winder_stage = next((stage for stage in job_card.stages if stage.stage_type == "WINDER"), None)
-    if winder_stage:
-        winder_stage.machine_id = winder_machine_id
-        winder_stage.plan_date = winder_stage.plan_date or _default_plan_date_from_snapshot(job_card.spec_snapshot or {})
-        winder_stage.shift_code = winder_stage.shift_code or "SHIFT_A"
-        winder_stage.required_capacity = _required_capacity_for_job(
-            stage="WINDER",
-            planned_qty=float(job_card.planned_qty or 0.0),
-            spec_snapshot=job_card.spec_snapshot or {},
-        )
-        if winder_stage.status != "COMPLETED":
-            winder_stage.status = "ASSIGNED"
-        open_winder_segments = _open_stage_segments(db, job_card.id, "WINDER")
-        target_segment = open_winder_segments[0] if open_winder_segments else _append_stage_segment(
-            db=db,
-            job_card=job_card,
-            stage_row=winder_stage,
-            machine_id=winder_machine_id,
-            plan_date=winder_stage.plan_date,
-            shift_code=winder_stage.shift_code,
-            planned_qty=float(job_card.planned_qty or 0.0),
-            required_capacity=float(winder_stage.required_capacity or 0.0),
-            split_source="NONE",
-            split_parent_segment_id=None,
-            status="ASSIGNED",
-        )
-        target_segment.machine_id = winder_machine_id
-        target_segment.plan_date = winder_stage.plan_date
-        target_segment.shift_code = winder_stage.shift_code
-        target_segment.required_capacity = round(float(winder_stage.required_capacity or 0.0), 2)
-        target_segment.planned_qty = round(float(job_card.planned_qty or 0.0), 2)
-        target_segment.status = "ASSIGNED"
-        _place_stage_segment(
-            db=db,
-            segment=target_segment,
-            desired_sequence=_next_segment_sequence_for_bucket(
-                db,
-                job_card.plant_id,
-                "WINDER",
-                machine_id=winder_machine_id,
-                plan_date=winder_stage.plan_date,
-                shift_code=winder_stage.shift_code,
-            ),
-            machine_id=winder_machine_id,
-            plan_date=winder_stage.plan_date,
-            shift_code=winder_stage.shift_code,
-        )
-        _sync_stage_row_from_segments(winder_stage, _all_stage_segments(db, job_card.id, "WINDER"))
+    _reset_winder_to_release_queue(job_card)
     return job_card, queue_created
 
 
@@ -3158,6 +3103,63 @@ def _derive_job_current_stage_and_status(stages: list[JobCardStage]) -> tuple[st
     return "DONE", "COMPLETED"
 
 
+def _planner_gate_context(
+    *,
+    current_stage: str,
+    active_stage: Optional[JobCardStage] = None,
+    active_segment: Optional[JobCardStageSegment] = None,
+    today: Optional[date] = None,
+) -> dict[str, Any]:
+    selected_stage = str(current_stage or "WINDER").upper()
+    reference = active_segment or active_stage
+    machine_id = str(getattr(reference, "machine_id", None)) if getattr(reference, "machine_id", None) else None
+    plan_date = getattr(reference, "plan_date", None)
+    shift_code = str(getattr(reference, "shift_code", "") or "").upper() or None
+    status = str(getattr(reference, "status", "") or "").upper()
+    scheduled_stages = {"SLITTING", "WINDER", "OVEN", "PROCESS"}
+
+    context = {
+        "planner_gate_ready": True,
+        "planner_gate_reason": None,
+        "active_segment_machine_id": machine_id,
+        "active_segment_plan_date": plan_date,
+    }
+
+    if selected_stage == "DONE" or selected_stage not in scheduled_stages:
+        return context
+
+    if reference is None or status in {"COMPLETED", "CANCELLED"}:
+        context["planner_gate_ready"] = False
+        context["planner_gate_reason"] = (
+            "Schedule this stage in the planner for the next 3 days before floor entry."
+        )
+        return context
+
+    if not machine_id or not shift_code or plan_date is None:
+        context["planner_gate_ready"] = False
+        context["planner_gate_reason"] = (
+            "Schedule machine, shift, and a planner date in the next 3 days before floor entry."
+        )
+        return context
+
+    normalized_today = today or datetime.now(PLANT_TIMEZONE).date()
+    window_end = normalized_today + timedelta(days=2)
+    if plan_date < normalized_today:
+        context["planner_gate_ready"] = False
+        context["planner_gate_reason"] = (
+            "Current planner slot is stale. Move this stage into the next 3 days before floor entry."
+        )
+        return context
+    if plan_date > window_end:
+        context["planner_gate_ready"] = False
+        context["planner_gate_reason"] = (
+            "Current planner slot is outside the next 3 days. Move it into the next 3 days before floor entry."
+        )
+        return context
+
+    return context
+
+
 def _update_sales_order_completion(db: Session, sales_order: SalesOrder) -> None:
     packed_qty = (
         db.query(func.coalesce(func.sum(JobCardStage.output_qty), 0.0))
@@ -3446,6 +3448,10 @@ def _query_stage_queue_rows(
                 or_(
                     JobCardStageSegment.plan_date == plan_date,
                     JobCardStageSegment.plan_date.is_(None),
+                    and_(
+                        JobCardStageSegment.machine_id.is_(None),
+                        JobCardStageSegment.shift_code.is_(None),
+                    ),
                 )
             )
         else:
@@ -3461,6 +3467,46 @@ def _query_stage_queue_rows(
     ).all()
 
 
+def _planner_job_math(
+    *,
+    job_card: JobCard,
+    planned_qty: float,
+    spec_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    pcs_per_bamboo = _pcs_per_bamboo_from_snapshot(spec_snapshot)
+    qty = max(float(planned_qty or 0.0), 0.0)
+    material_snapshot = job_card.material_plan_snapshot or {}
+
+    target_bamboo_count = None
+    if pcs_per_bamboo and pcs_per_bamboo > 0:
+        target_bamboo_count = int(math.ceil(qty / pcs_per_bamboo))
+    elif material_snapshot.get("target_bamboo_count") is not None:
+        try:
+            target_bamboo_count = int(math.ceil(float(material_snapshot.get("target_bamboo_count"))))
+        except (TypeError, ValueError):
+            target_bamboo_count = None
+
+    tube_weight_g = (
+        _snapshot_float(spec_snapshot.get("target_tube_weight"))
+        or _snapshot_midpoint(spec_snapshot.get("weight_min_g"), spec_snapshot.get("weight_max_g"))
+    )
+    planned_weight_kg = round((tube_weight_g * qty) / 1000.0, 3) if tube_weight_g is not None else None
+    bamboo_weight_kg = (
+        round((tube_weight_g * pcs_per_bamboo) / 1000.0, 3)
+        if tube_weight_g is not None and pcs_per_bamboo
+        else None
+    )
+
+    return {
+        "pcs_per_bamboo": pcs_per_bamboo,
+        "target_bamboo_count": target_bamboo_count,
+        "tube_weight_g": tube_weight_g,
+        "planned_weight_kg": planned_weight_kg,
+        "bamboo_weight_kg": bamboo_weight_kg,
+        "product_size_label": _size_label(spec_snapshot),
+    }
+
+
 def _queue_item_from_stage_row(
     queue_entry: JobCardStageSegment,
     job_card: JobCard,
@@ -3469,9 +3515,12 @@ def _queue_item_from_stage_row(
     remaining_segments: int = 1,
 ) -> QueueJobCardItem:
     spec_snapshot = job_card.spec_snapshot or {}
-    pcs_per_bamboo = _pcs_per_bamboo_from_snapshot(spec_snapshot)
-    order_qty = float(sales_order.order_qty) if sales_order else float(job_card.planned_qty or 0.0)
-    target_bamboo_count = int(math.ceil(order_qty / pcs_per_bamboo)) if pcs_per_bamboo and pcs_per_bamboo > 0 else None
+    segment_qty = float(queue_entry.planned_qty or job_card.planned_qty or 0.0)
+    math_context = _planner_job_math(
+        job_card=job_card,
+        planned_qty=segment_qty,
+        spec_snapshot=spec_snapshot,
+    )
     return QueueJobCardItem(
         queue_id=queue_entry.id,
         segment_id=queue_entry.id,
@@ -3493,12 +3542,13 @@ def _queue_item_from_stage_row(
         plan_date=queue_entry.plan_date,
         shift_code=queue_entry.shift_code,
         required_capacity=float(queue_entry.required_capacity or 0.0) if queue_entry.required_capacity is not None else None,
-        segment_planned_qty=float(queue_entry.planned_qty or 0.0),
+        segment_planned_qty=segment_qty,
         remaining_segments=max(int(remaining_segments or 1), 1),
-        planned_qty=float(queue_entry.planned_qty or 0.0),
+        planned_qty=segment_qty,
         priority=spec_snapshot.get("priority"),
         current_stage=job_card.current_stage,
         product_code=job_card.product_code or spec_snapshot.get("product_code"),
+        product_size_label=math_context["product_size_label"],
         parchment_color=spec_snapshot.get("sales_order_line_parchment_color") or spec_snapshot.get("parchment_color"),
         released_qty=float(job_card.released_qty or 0.0),
         assigned_winder_machine_id=str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
@@ -3510,8 +3560,11 @@ def _queue_item_from_stage_row(
         spec_version=spec_snapshot.get("version"),
         required_cs=spec_snapshot.get("required_cs"),
         target_tube_weight=spec_snapshot.get("target_tube_weight"),
-        pcs_per_bamboo=pcs_per_bamboo,
-        target_bamboo_count=target_bamboo_count,
+        tube_weight_g=math_context["tube_weight_g"],
+        planned_weight_kg=math_context["planned_weight_kg"],
+        bamboo_weight_kg=math_context["bamboo_weight_kg"],
+        pcs_per_bamboo=math_context["pcs_per_bamboo"],
+        target_bamboo_count=math_context["target_bamboo_count"],
         selected_bamboo_length_mm=_snapshot_float(spec_snapshot.get("selected_bamboo_length_mm")),
         usable_length_mm=_snapshot_float(spec_snapshot.get("usable_length_mm")),
         due_date=_snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or (
@@ -4200,9 +4253,18 @@ def list_planning_job_cards(
             active_segment = open_segments[0] if open_segments else None
             if open_segment_count > 1:
                 blocked_reason = f"{open_segment_count} open segments still need stage completion"
-        pcs_per_bamboo = _pcs_per_bamboo_from_snapshot(spec_snapshot)
-        order_qty = float(sales_order.order_qty) if sales_order else float(job_card.planned_qty or 0.0)
-        target_bamboo_count = int(math.ceil(order_qty / pcs_per_bamboo)) if pcs_per_bamboo and pcs_per_bamboo > 0 else None
+        planner_gate = _planner_gate_context(
+            current_stage=job_card.current_stage,
+            active_stage=active_stage,
+            active_segment=active_segment,
+        )
+        if blocked_reason is None and not planner_gate["planner_gate_ready"]:
+            blocked_reason = planner_gate["planner_gate_reason"]
+        math_context = _planner_job_math(
+            job_card=job_card,
+            planned_qty=float(job_card.planned_qty or job_card.released_qty or 0.0),
+            spec_snapshot=spec_snapshot,
+        )
         response.append(
             JobCardPlannerSummary(
                 id=job_card.id,
@@ -4215,11 +4277,16 @@ def list_planning_job_cards(
                 released_qty=float(job_card.released_qty or 0.0),
                 assigned_winder_machine_id=str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
                 product_code=job_card.product_code or spec_snapshot.get("product_code"),
+                product_size_label=math_context["product_size_label"],
                 parchment_color=spec_snapshot.get("sales_order_line_parchment_color") or spec_snapshot.get("parchment_color"),
                 active_segment_id=str(active_segment.id) if active_segment else None,
                 active_segment_status=str(active_segment.status) if active_segment else None,
+                active_segment_machine_id=planner_gate["active_segment_machine_id"],
+                active_segment_plan_date=planner_gate["active_segment_plan_date"],
                 open_segment_count=open_segment_count,
                 blocked_reason=blocked_reason,
+                planner_gate_ready=planner_gate["planner_gate_ready"],
+                planner_gate_reason=planner_gate["planner_gate_reason"],
                 current_machine_id=str(active_segment.machine_id) if active_segment and active_segment.machine_id else (str(active_stage.machine_id) if active_stage and active_stage.machine_id else None),
                 current_plan_date=active_segment.plan_date if active_segment else (active_stage.plan_date if active_stage else None),
                 current_shift_code=active_segment.shift_code if active_segment else (active_stage.shift_code if active_stage else None),
@@ -4234,8 +4301,11 @@ def list_planning_job_cards(
                 spec_version=spec_snapshot.get("version"),
                 required_cs=spec_snapshot.get("required_cs"),
                 target_tube_weight=spec_snapshot.get("target_tube_weight"),
-                pcs_per_bamboo=pcs_per_bamboo,
-                target_bamboo_count=target_bamboo_count,
+                tube_weight_g=math_context["tube_weight_g"],
+                planned_weight_kg=math_context["planned_weight_kg"],
+                bamboo_weight_kg=math_context["bamboo_weight_kg"],
+                pcs_per_bamboo=math_context["pcs_per_bamboo"],
+                target_bamboo_count=math_context["target_bamboo_count"],
                 selected_bamboo_length_mm=_snapshot_float(spec_snapshot.get("selected_bamboo_length_mm")),
                 usable_length_mm=_snapshot_float(spec_snapshot.get("usable_length_mm")),
                 due_date=_snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or (
@@ -4326,6 +4396,16 @@ def get_planning_job_card(
     )
     open_active_segments = _open_stage_segments(db, job_card.id, job_card.current_stage) if job_card.current_stage != "DONE" else []
     active_segment = open_active_segments[0] if open_active_segments else None
+    planner_gate = _planner_gate_context(
+        current_stage=job_card.current_stage,
+        active_stage=next((stage for stage in sorted_stages if stage.stage_type == job_card.current_stage), None),
+        active_segment=active_segment,
+    )
+    blocked_reason = (
+        f"{len(open_active_segments)} open segments remain in {job_card.current_stage}"
+        if len(open_active_segments) > 1
+        else planner_gate["planner_gate_reason"]
+    )
 
     return JobCardPlanningDetail(
         id=job_card.id,
@@ -4363,12 +4443,12 @@ def get_planning_job_card(
         },
         active_segment_id=str(active_segment.id) if active_segment else None,
         active_segment_status=str(active_segment.status) if active_segment else None,
+        active_segment_machine_id=planner_gate["active_segment_machine_id"],
+        active_segment_plan_date=planner_gate["active_segment_plan_date"],
         open_segment_count=len(open_active_segments),
-        blocked_reason=(
-            f"{len(open_active_segments)} open segments remain in {job_card.current_stage}"
-            if len(open_active_segments) > 1
-            else None
-        ),
+        blocked_reason=blocked_reason,
+        planner_gate_ready=planner_gate["planner_gate_ready"],
+        planner_gate_reason=planner_gate["planner_gate_reason"],
         carry_forward_suggestion=_build_carry_forward_suggestion(job_card, sorted_stages),
         stages=[
             JobCardPlanningStage(

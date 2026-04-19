@@ -1,5 +1,5 @@
 import unittest
-from datetime import date
+from datetime import date, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID
@@ -12,6 +12,7 @@ from src.routers.planning import (
     _next_stage,
     _next_sequence_for_bucket,
     _normalize_stage,
+    _planner_gate_context,
     _place_queue_entry,
     _quality_failures_for_stage,
     _routing_stages_from_snapshot,
@@ -77,6 +78,73 @@ class _FakeSession:
 
 
 class PlanningValidationTests(unittest.TestCase):
+    def test_planner_gate_context_blocks_unscheduled_stage(self):
+        context = _planner_gate_context(
+            current_stage="WINDER",
+            active_stage=SimpleNamespace(machine_id=None, shift_code=None, plan_date=None),
+            active_segment=None,
+            today=date(2026, 4, 18),
+        )
+
+        self.assertFalse(context["planner_gate_ready"])
+        self.assertIn("schedule", context["planner_gate_reason"].lower())
+        self.assertIsNone(context["active_segment_plan_date"])
+        self.assertIsNone(context["active_segment_machine_id"])
+
+    def test_planner_gate_context_blocks_segment_outside_next_three_days(self):
+        context = _planner_gate_context(
+            current_stage="WINDER",
+            active_stage=SimpleNamespace(
+                machine_id="00000000-0000-0000-0000-00000000a101",
+                shift_code="SHIFT_A",
+                plan_date=date(2026, 4, 23),
+            ),
+            active_segment=SimpleNamespace(
+                machine_id="00000000-0000-0000-0000-00000000a101",
+                shift_code="SHIFT_A",
+                plan_date=date(2026, 4, 23),
+                status="PLANNED",
+            ),
+            today=date(2026, 4, 18),
+        )
+
+        self.assertFalse(context["planner_gate_ready"])
+        self.assertIn("next 3 days", context["planner_gate_reason"].lower())
+        self.assertEqual(context["active_segment_plan_date"], date(2026, 4, 23))
+
+    def test_planner_gate_context_allows_scheduled_stage_within_next_three_days(self):
+        context = _planner_gate_context(
+            current_stage="WINDER",
+            active_stage=SimpleNamespace(
+                machine_id="00000000-0000-0000-0000-00000000a101",
+                shift_code="SHIFT_B",
+                plan_date=date(2026, 4, 19),
+            ),
+            active_segment=SimpleNamespace(
+                machine_id="00000000-0000-0000-0000-00000000a101",
+                shift_code="SHIFT_B",
+                plan_date=date(2026, 4, 19),
+                status="PLANNED",
+            ),
+            today=date(2026, 4, 18),
+        )
+
+        self.assertTrue(context["planner_gate_ready"])
+        self.assertIsNone(context["planner_gate_reason"])
+        self.assertEqual(context["active_segment_plan_date"], date(2026, 4, 19))
+        self.assertEqual(context["active_segment_machine_id"], "00000000-0000-0000-0000-00000000a101")
+
+    def test_planner_gate_context_allows_done_stage(self):
+        context = _planner_gate_context(
+            current_stage="DONE",
+            active_stage=None,
+            active_segment=None,
+            today=date(2026, 4, 18),
+        )
+
+        self.assertTrue(context["planner_gate_ready"])
+        self.assertIsNone(context["planner_gate_reason"])
+
     def test_apply_fg_inward_snapshot_updates_packing_record_snapshot(self):
         class _PackingRecord:
             def __init__(self):

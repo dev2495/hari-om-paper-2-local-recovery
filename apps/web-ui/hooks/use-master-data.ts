@@ -124,6 +124,27 @@ export function useDeleteParchment() {
     })
 }
 
+export function useParchmentVendors() {
+    return useQuery({
+        queryKey: ["parchment-vendors"],
+        queryFn: async () => {
+            const { data } = await masterApi.getParchmentVendors()
+            return data
+        },
+    })
+}
+
+export function useCreateParchmentVendor() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createParchmentVendor(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["parchment-vendors"] })
+            queryClient.invalidateQueries({ queryKey: ["parchments"] })
+        },
+    })
+}
+
 // Tube Sizes
 export function useTubeSizes() {
     return useQuery({

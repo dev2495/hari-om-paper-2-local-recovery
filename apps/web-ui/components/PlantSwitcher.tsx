@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { useRouter } from "next/navigation"
 import { Building2, Check, ChevronDown } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { authApi } from "@/lib/api"
@@ -15,10 +16,19 @@ type PlantOption = {
 const FALLBACK_PLANT_LABELS: Record<string, string> = {
     PLANT_A: "Plant A",
     PLANT_B: "Plant B",
-    ALL: "All Visible Plants",
+    ALL: "Global Analytics",
+}
+
+function normalizePlantScopeValue(plant: PlantOption | null | undefined) {
+    const code = String(plant?.code || "").trim()
+    if (code) {
+        return code.toUpperCase()
+    }
+    return String(plant?.id || "").trim()
 }
 
 export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
+    const router = useRouter()
     const { user, activePlant, setActivePlant } = useAuth()
     const [isOpen, setIsOpen] = React.useState(false)
     const [plants, setPlants] = React.useState<PlantOption[]>([])
@@ -32,6 +42,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
         const roles = new Set([user?.role, ...(user?.roles || [])].filter(Boolean))
         return roles.has("Owner") || roles.has("Admin")
     }, [user?.role, user?.roles])
+
+    const canReadAllPlants = canSwitchPlants
 
     React.useEffect(() => {
         let cancelled = false
@@ -68,27 +80,44 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     }, [plants])
 
     const visiblePlants = React.useMemo(() => {
-        const filtered = resolvedPlants.filter((plant) => plant.id !== "ALL" && plant.code !== "ALL")
-        if (user?.is_owner_all_plants || allowedPlantIds.length === 0) {
+        const filtered = resolvedPlants.filter((plant) => normalizePlantScopeValue(plant) !== "ALL")
+        if (canReadAllPlants || allowedPlantIds.length === 0) {
             return filtered
         }
         return filtered.filter((plant) => {
-            const values = [plant.id, plant.code].filter(Boolean)
+            const values = [plant.id, plant.code, normalizePlantScopeValue(plant)].filter(Boolean)
             return values.some((value) => allowedPlantIds.includes(String(value)))
         })
-    }, [allowedPlantIds, resolvedPlants, user?.is_owner_all_plants])
+    }, [allowedPlantIds, canReadAllPlants, resolvedPlants])
+
+    const allPlantsOption = React.useMemo(
+        () => resolvedPlants.find((plant) => normalizePlantScopeValue(plant) === "ALL"),
+        [resolvedPlants],
+    )
 
     const currentPlant = React.useMemo(
-        () => resolvedPlants.find((plant) => plant.id === activePlant || plant.code === activePlant),
+        () =>
+            resolvedPlants.find((plant) => {
+                const scopeValue = normalizePlantScopeValue(plant)
+                return plant.id === activePlant || plant.code === activePlant || scopeValue === activePlant
+            }),
         [activePlant, resolvedPlants],
     )
 
     const currentPlantName =
-        currentPlant?.name ||
+        (String(activePlant || "").toUpperCase() === "ALL" ? "Global Analytics" : null) ||
         currentPlant?.code ||
+        currentPlant?.name ||
         FALLBACK_PLANT_LABELS[String(activePlant || "").toUpperCase()] ||
         activePlant ||
         "Unknown Plant"
+
+    const handlePlantChange = (nextPlant: string) => {
+        setActivePlant(nextPlant)
+        setIsOpen(false)
+        router.refresh()
+        window.location.reload()
+    }
 
     if (!user) {
         return null
@@ -132,14 +161,11 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                         <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">
                             Select Plant
                         </p>
-                        {user?.is_owner_all_plants ? (
+                        {canReadAllPlants ? (
                             <button
-                                key="ALL"
-                                onClick={() => {
-                                    setActivePlant("ALL")
-                                    setIsOpen(false)
-                                    window.location.reload()
-                                }}
+                                key={allPlantsOption?.id || "ALL"}
+                                data-testid={`plant-option:${allPlantsOption?.id || "ALL"}`}
+                                onClick={() => handlePlantChange("ALL")}
                                 className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                                     activePlant === "ALL"
                                         ? "bg-cyan-50 text-cyan-900"
@@ -147,8 +173,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                                 }`}
                             >
                                 <div className="min-w-0">
-                                    <span className="block truncate text-sm font-medium">All Visible Plants</span>
-                                    <span className="block text-[10px] opacity-60">ALL</span>
+                                    <span className="block truncate text-sm font-medium">Global Analytics</span>
+                                    <span className="block text-[10px] opacity-60">ALL · read-only scope</span>
                                 </div>
                                 {activePlant === "ALL" ? <Check className="h-4 w-4 shrink-0" /> : null}
                             </button>
@@ -156,21 +182,18 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                         {visiblePlants.map((plant) => (
                             <button
                                 key={plant.id}
-                                onClick={() => {
-                                    setActivePlant(plant.id)
-                                    setIsOpen(false)
-                                    window.location.reload()
-                                }}
-                                className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${activePlant === plant.id || activePlant === plant.code
+                                data-testid={`plant-option:${plant.id}`}
+                                onClick={() => handlePlantChange(normalizePlantScopeValue(plant))}
+                                className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${activePlant === plant.id || activePlant === plant.code || activePlant === normalizePlantScopeValue(plant)
                                     ? "bg-cyan-50 text-cyan-900"
                                     : "text-slate-700 hover:bg-slate-50"
                                     }`}
                             >
                                 <div className="min-w-0">
                                     <span className="block truncate text-sm font-medium">{plant.name || plant.code || plant.id}</span>
-                                    <span className="block text-[10px] opacity-60">{plant.code || plant.id}</span>
+                                    <span className="block text-[10px] opacity-60">{normalizePlantScopeValue(plant)}</span>
                                 </div>
-                                {activePlant === plant.id || activePlant === plant.code ? (
+                                {activePlant === plant.id || activePlant === plant.code || activePlant === normalizePlantScopeValue(plant) ? (
                                     <Check className="h-4 w-4 shrink-0" />
                                 ) : null}
                             </button>

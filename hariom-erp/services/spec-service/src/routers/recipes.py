@@ -53,7 +53,7 @@ def create_recipe(
     recipe: RecipeCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecMaker"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     """Create new recipe for specification (Admin only)"""
     # Verify spec exists and is not obsolete
@@ -93,7 +93,7 @@ def add_layer(
     layer: LayerCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecMaker"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     """Add layer to recipe (Admin only, only if trial)"""
     recipe = db.query(RecipeHeader).filter(
@@ -178,7 +178,7 @@ def approve_recipe(
     recipe_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SpecApprover"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     """Approve recipe (SpecApprover or Admin)"""
     # Verify ownership before approving via service

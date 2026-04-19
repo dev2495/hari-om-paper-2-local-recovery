@@ -14,6 +14,10 @@ class Settings(BaseSettings):
     BAMBOO_WARNING_PERCENT: float = 2.0
     BAMBOO_CRITICAL_PERCENT: float = 5.0
 
+    MASTERDATA_SERVICE_URL: str = os.getenv(
+        "MASTERDATA_SERVICE_URL",
+        os.getenv("MASTER_DATA_SERVICE_URL", "http://masterdata-service:8002"),
+    )
     SPEC_SERVICE_URL: str = os.getenv("SPEC_SERVICE_URL", "http://spec-service:8003")
     INVENTORY_SERVICE_URL: str = os.getenv("INVENTORY_SERVICE_URL", "http://inventory-service:8005")
     SALES_SERVICE_URL: str = os.getenv("SALES_SERVICE_URL", "http://sales-service:8008")

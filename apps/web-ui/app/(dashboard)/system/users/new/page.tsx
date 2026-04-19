@@ -7,15 +7,34 @@ import { useApp } from "@/context/AppContext"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 
-const PLANTS = [
+const FALLBACK_PLANTS = [
     { id: "PLANT-1", name: "Plant 1 (Main)" },
     { id: "PLANT-2", name: "Plant 2 (Extension)" },
 ]
+
+const FALLBACK_ROLES = [
+    "Owner",
+    "Admin",
+    "PlantManager",
+    "Planner",
+    "SpecMaker",
+    "SpecApprover",
+    "Production",
+    "Operator",
+    "Store",
+    "DispatchMaker",
+    "DispatchApprover",
+    "Sales",
+    "SOMaker",
+    "SOApprover",
+    "QC",
+].map((name) => ({ id: name, name }))
 
 export default function NewUserPage() {
     const router = useRouter()
     const { showToast } = useApp()
     const [roles, setRoles] = useState<any[]>([])
+    const [plants, setPlants] = useState(FALLBACK_PLANTS)
     const [formData, setFormData] = useState({
         name: "",
         email: "",
@@ -26,15 +45,36 @@ export default function NewUserPage() {
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     useEffect(() => {
-        const fetchRoles = async () => {
-            try {
-                const response = await authApi.getRoles()
-                setRoles(response.data)
-            } catch (err) {
-                showToast("Failed to fetch roles", "error")
+        const loadAccessMetadata = async () => {
+            const [rolesResult, plantsResult] = await Promise.allSettled([
+                authApi.getRoles(),
+                authApi.getPlants(),
+            ])
+
+            if (rolesResult.status === "fulfilled") {
+                const nextRoles = Array.isArray(rolesResult.value.data) && rolesResult.value.data.length > 0
+                    ? rolesResult.value.data
+                    : FALLBACK_ROLES
+                setRoles(nextRoles)
+            } else {
+                setRoles(FALLBACK_ROLES)
+                showToast("Using fallback roles while auth metadata refreshes.", "error")
+            }
+
+            if (plantsResult.status === "fulfilled") {
+                const nextPlants = (Array.isArray(plantsResult.value.data) ? plantsResult.value.data : [])
+                    .filter((plant) => String(plant?.code || plant?.id || "").toUpperCase() !== "ALL" && plant?.is_active !== false)
+                    .map((plant) => ({
+                        id: String(plant.id || plant.code),
+                        name: String(plant.name || plant.code || plant.id),
+                    }))
+                if (nextPlants.length > 0) {
+                    setPlants(nextPlants)
+                    setFormData((current) => ({ ...current, plant_id: current.plant_id || nextPlants[0].id }))
+                }
             }
         }
-        fetchRoles()
+        loadAccessMetadata()
     }, [])
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -130,7 +170,7 @@ export default function NewUserPage() {
                                 value={formData.plant_id}
                                 onChange={(e) => setFormData({ ...formData, plant_id: e.target.value })}
                             >
-                                {PLANTS.map((p) => (
+                                {plants.map((p) => (
                                     <option key={p.id} value={p.id}>{p.name}</option>
                                 ))}
                             </select>

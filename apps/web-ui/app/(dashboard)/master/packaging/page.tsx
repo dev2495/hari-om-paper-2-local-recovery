@@ -1,5 +1,7 @@
 "use client"
 
+import { useMemo, useState } from "react"
+
 import { CrudTable } from "@/components/common/crud-table"
 import { FaddaForm, PackagingBoxForm, PlasticSheetForm } from "@/components/forms/master-forms"
 import {
@@ -17,7 +19,32 @@ import {
   useUpdatePackagingPlasticSheet,
 } from "@/hooks/use-master-data"
 
+const PACKING_SECTIONS = [
+  {
+    key: "boxes",
+    label: "Boxes",
+    title: "Box masters",
+    subtitle: "Outer cartons and box dimensions that feed the packing handoff.",
+  },
+  {
+    key: "plastics",
+    label: "Plastic Sheets",
+    title: "Plastic sheet masters",
+    subtitle: "Plastic sleeves and rate cards used by the spec and dispatch flows.",
+  },
+  {
+    key: "fadda",
+    label: "Fadda",
+    title: "Fadda masters",
+    subtitle: "Fadda SKUs and rates used during final packing and dispatch.",
+  },
+] as const
+
+type PackingSectionKey = (typeof PACKING_SECTIONS)[number]["key"]
+
 export default function PackagingMasterPage() {
+  const [activeSection, setActiveSection] = useState<PackingSectionKey>("boxes")
+
   const boxesQuery = usePackagingBoxes()
   const plasticsQuery = usePackagingPlasticSheets()
   const faddaQuery = usePackagingFadda()
@@ -34,67 +61,161 @@ export default function PackagingMasterPage() {
   const updateFadda = useUpdatePackagingFadda()
   const deleteFadda = useDeletePackagingFadda()
 
+  const section = useMemo(
+    () => PACKING_SECTIONS.find((item) => item.key === activeSection) || PACKING_SECTIONS[0],
+    [activeSection],
+  )
+
+  const sectionConfig = useMemo(() => {
+    if (activeSection === "plastics") {
+      return {
+        title: section.title,
+        columns: [
+          { header: "SKU", accessorKey: "sku" },
+          { header: "Size Label", accessorKey: "size_label" },
+          { header: "Weight (kg)", accessorKey: "weight_kg" },
+          { header: "Rate / Kg", accessorKey: "rate_per_kg" },
+          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
+        ],
+        data: plasticsQuery.data || [],
+        isLoading: plasticsQuery.isLoading,
+        onAdd: (data: any) => createPlastic.mutateAsync(data),
+        onEdit: (id: string, data: any) => updatePlastic.mutateAsync({ id, data }),
+        onDelete: (id: string) => deletePlastic.mutate(id),
+        FormComponent: PlasticSheetForm,
+      }
+    }
+
+    if (activeSection === "fadda") {
+      return {
+        title: section.title,
+        columns: [
+          { header: "SKU", accessorKey: "sku" },
+          { header: "Weight (kg)", accessorKey: "weight_kg" },
+          { header: "Rate / Kg", accessorKey: "rate_per_kg" },
+          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
+        ],
+        data: faddaQuery.data || [],
+        isLoading: faddaQuery.isLoading,
+        onAdd: (data: any) => createFadda.mutateAsync(data),
+        onEdit: (id: string, data: any) => updateFadda.mutateAsync({ id, data }),
+        onDelete: (id: string) => deleteFadda.mutate(id),
+        FormComponent: FaddaForm,
+      }
+    }
+
+    return {
+      title: section.title,
+      columns: [
+        { header: "Code", accessorKey: "code" },
+        { header: "Size Label", accessorKey: "size_label" },
+        {
+          header: "Dimensions",
+          accessorKey: "length_mm",
+          render: (_value: any, row: any) => `${row.length_mm} x ${row.width_mm} x ${row.height_mm} mm`,
+        },
+        { header: "Weight (kg)", accessorKey: "weight_kg" },
+        { header: "Rate / Piece", accessorKey: "rate_per_piece" },
+      ],
+      data: boxesQuery.data || [],
+      isLoading: boxesQuery.isLoading,
+      onAdd: (data: any) => createBox.mutateAsync(data),
+      onEdit: (id: string, data: any) => updateBox.mutateAsync({ id, data }),
+      onDelete: (id: string) => deleteBox.mutate(id),
+      FormComponent: PackagingBoxForm,
+    }
+  }, [
+    activeSection,
+    boxesQuery.data,
+    boxesQuery.isLoading,
+    createBox,
+    createFadda,
+    createPlastic,
+    deleteBox,
+    deleteFadda,
+    deletePlastic,
+    faddaQuery.data,
+    faddaQuery.isLoading,
+    plasticsQuery.data,
+    plasticsQuery.isLoading,
+    section.title,
+    updateBox,
+    updateFadda,
+    updatePlastic,
+  ])
+
+  const counts = {
+    boxes: (boxesQuery.data || []).length,
+    plastics: (plasticsQuery.data || []).length,
+    fadda: (faddaQuery.data || []).length,
+  }
+
   return (
     <div className="space-y-6">
-      <section className="rounded-2xl border border-cyan-200/60 bg-gradient-to-r from-slate-900 via-cyan-900 to-cyan-700 p-6 text-white shadow-xl">
-        <h1 className="text-3xl font-semibold">Packaging Master</h1>
-        <p className="mt-2 max-w-3xl text-sm text-cyan-100">
-          Restore the packing dropdowns used by specifications, job-card handoff, and dispatch validation.
-        </p>
+      <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-premium">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Packaging Workspace</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">One packing workspace, not three long pages</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Keep boxes, plastic sheets, and fadda in one compact flow. Switch the active packing master from here instead of scrolling through stacked sections that waste page height.
+            </p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {PACKING_SECTIONS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setActiveSection(item.key)}
+                className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
+                  activeSection === item.key
+                    ? "border-slate-950 bg-slate-950 text-white"
+                    : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
+                }`}
+              >
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">{item.label}</p>
+                <p className="mt-2 text-2xl font-semibold">{counts[item.key]}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-premium">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Active section</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">{section.title}</h2>
+            <p className="mt-2 text-sm text-slate-600">{section.subtitle}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {PACKING_SECTIONS.map((item) => (
+              <button
+                key={item.key}
+                type="button"
+                onClick={() => setActiveSection(item.key)}
+                className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                  activeSection === item.key
+                    ? "border-slate-950 bg-slate-950 text-white"
+                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </section>
 
       <CrudTable
-        title="Box Masters"
-        columns={[
-          { header: "Code", accessorKey: "code" },
-          { header: "Size Label", accessorKey: "size_label" },
-          {
-            header: "Dimensions",
-            accessorKey: "length_mm",
-            render: (_value, row) => `${row.length_mm} x ${row.width_mm} x ${row.height_mm} mm`,
-          },
-          { header: "Weight (kg)", accessorKey: "weight_kg" },
-          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
-        ]}
-        data={boxesQuery.data || []}
-        isLoading={boxesQuery.isLoading}
-        onAdd={(data) => createBox.mutate(data)}
-        onEdit={(id, data) => updateBox.mutate({ id, data })}
-        onDelete={(id) => deleteBox.mutate(id)}
-        FormComponent={PackagingBoxForm}
-      />
-
-      <CrudTable
-        title="Plastic Sheet Masters"
-        columns={[
-          { header: "SKU", accessorKey: "sku" },
-          { header: "Size Label", accessorKey: "size_label" },
-          { header: "Weight (kg)", accessorKey: "weight_kg" },
-          { header: "Rate / Kg", accessorKey: "rate_per_kg" },
-          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
-        ]}
-        data={plasticsQuery.data || []}
-        isLoading={plasticsQuery.isLoading}
-        onAdd={(data) => createPlastic.mutate(data)}
-        onEdit={(id, data) => updatePlastic.mutate({ id, data })}
-        onDelete={(id) => deletePlastic.mutate(id)}
-        FormComponent={PlasticSheetForm}
-      />
-
-      <CrudTable
-        title="Fadda Masters"
-        columns={[
-          { header: "SKU", accessorKey: "sku" },
-          { header: "Weight (kg)", accessorKey: "weight_kg" },
-          { header: "Rate / Kg", accessorKey: "rate_per_kg" },
-          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
-        ]}
-        data={faddaQuery.data || []}
-        isLoading={faddaQuery.isLoading}
-        onAdd={(data) => createFadda.mutate(data)}
-        onEdit={(id, data) => updateFadda.mutate({ id, data })}
-        onDelete={(id) => deleteFadda.mutate(id)}
-        FormComponent={FaddaForm}
+        title={sectionConfig.title}
+        columns={sectionConfig.columns}
+        data={sectionConfig.data}
+        isLoading={sectionConfig.isLoading}
+        onAdd={sectionConfig.onAdd}
+        onEdit={sectionConfig.onEdit}
+        onDelete={sectionConfig.onDelete}
+        FormComponent={sectionConfig.FormComponent}
       />
     </div>
   )

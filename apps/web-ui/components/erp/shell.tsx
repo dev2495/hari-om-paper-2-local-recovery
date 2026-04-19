@@ -115,7 +115,7 @@ export function MetricCard({
     <article
       data-testid={testId}
       className={cn(
-        "erp-metric-card overflow-hidden rounded-[1.5rem] border border-white/70 bg-white/90 p-5 shadow-xl",
+        "erp-metric-card overflow-hidden rounded-[1.5rem] border border-white/70 bg-white/90 p-5 shadow-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-2xl",
       )}
     >
       <div className="flex items-start justify-between gap-3">
@@ -170,7 +170,10 @@ export function Panel({
   testId?: string
 }) {
   return (
-    <section data-testid={testId} className={cn("erp-panel rounded-[1.7rem] p-6 shadow-xl", className)}>
+    <section
+      data-testid={testId}
+      className={cn("erp-panel rounded-[1.7rem] p-6 shadow-xl transition-all duration-200", className)}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold text-slate-950">{title}</h2>

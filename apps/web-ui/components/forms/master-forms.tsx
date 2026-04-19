@@ -1,5 +1,6 @@
 "use client"
 
+import { useMemo } from "react"
 import { useForm } from "react-hook-form"
 
 import { Button } from "@/components/ui/button"
@@ -32,17 +33,17 @@ export function PaperForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">GSM</label>
-          <Input type="number" {...register("gsm", { required: true })} />
+          <Input type="number" step="0.01" inputMode="decimal" {...register("gsm", { required: true, valueAsNumber: true })} />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">BF</label>
-          <Input type="number" step="0.01" {...register("bf", { required: true })} />
+          <Input type="number" step="0.01" inputMode="decimal" {...register("bf", { required: true, valueAsNumber: true })} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Bulk Factor</label>
-          <Input type="number" step="0.01" {...register("bulk_factor")} placeholder="1.00" />
+          <Input type="number" step="0.001" inputMode="decimal" {...register("bulk_factor", { valueAsNumber: true })} placeholder="1.300" />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Ply Bond</label>
@@ -120,21 +121,77 @@ export function AdhesiveForm({ initialData, onSubmit, onCancel }: MasterFormProp
   )
 }
 
-export function ParchmentForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
-  const { register, handleSubmit } = useForm({ defaultValues: initialData })
+type ParchmentVendorOption = {
+  id: string
+  name: string
+}
+
+type ParchmentFormProps = MasterFormProps & {
+  vendorOptions?: ParchmentVendorOption[]
+}
+
+export function ParchmentForm({ initialData, onSubmit, onCancel, vendorOptions = [] }: ParchmentFormProps) {
+  const defaultVendorId =
+    initialData?.vendor_id ||
+    vendorOptions.find((vendor) => vendor.name === initialData?.vendor_name)?.id ||
+    ""
+  const { register, handleSubmit, watch } = useForm({
+    defaultValues: {
+      ...initialData,
+      vendor_id: defaultVendorId || (vendorOptions.length ? vendorOptions[0]?.id : ""),
+      vendor_name: initialData?.vendor_name || "",
+    },
+  })
+  const selectedVendorId = watch("vendor_id")
+  const isCreatingVendor = selectedVendorId === "__new__" || (!selectedVendorId && vendorOptions.length === 0)
+  const vendorHelp = useMemo(() => {
+    if (isCreatingVendor) return "Create a new vendor, then attach the parchment color under it."
+    return "Pick one of the approved vendors, then add the parchment color or pattern."
+  }, [isCreatingVendor])
+
+  const submit = handleSubmit((data) => {
+    const vendorId = String(data.vendor_id || "").trim()
+    const vendorName = String(data.vendor_name || "").trim()
+    onSubmit({
+      vendor_id: vendorId && vendorId !== "__new__" ? vendorId : undefined,
+      vendor_name: vendorId === "__new__" || !vendorId ? vendorName : undefined,
+      color_name: String(data.color_name || "").trim(),
+      display_name: String(data.display_name || "").trim() || undefined,
+    })
+  })
+
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Vendor Name</label>
-        <Input {...register("vendor_name", { required: true })} placeholder="Vendor" />
-      </div>
+    <form onSubmit={submit} className="space-y-4">
+      {vendorOptions.length > 0 ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Vendor</label>
+          <select
+            {...register("vendor_id", { required: true })}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            {vendorOptions.map((vendor) => (
+              <option key={vendor.id} value={vendor.id}>
+                {vendor.name}
+              </option>
+            ))}
+            <option value="__new__">Add new vendor…</option>
+          </select>
+          <p className="text-xs text-slate-500">{vendorHelp}</p>
+        </div>
+      ) : null}
+      {isCreatingVendor || vendorOptions.length === 0 ? (
+        <div className="space-y-2">
+          <label className="text-sm font-medium">New Vendor Name</label>
+          <Input {...register("vendor_name", { required: true })} placeholder="Amma / China / Sagar" />
+        </div>
+      ) : null}
       <div className="space-y-2">
         <label className="text-sm font-medium">Color Name</label>
-        <Input {...register("color_name", { required: true })} placeholder="Blue" />
+        <Input {...register("color_name", { required: true })} placeholder="Blue / Red / Printed / Kraft" />
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">Display Name</label>
-        <Input {...register("display_name")} placeholder="Sagar Blue" />
+        <Input {...register("display_name")} placeholder="Sagar Blue / Amma White" />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -153,15 +210,15 @@ export function TubeSizeForm({ initialData, onSubmit, onCancel }: MasterFormProp
       <div className="grid grid-cols-3 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Inner Dia (mm)</label>
-          <Input type="number" {...register("inner_diameter_mm", { required: true })} />
+          <Input type="number" step="0.01" inputMode="decimal" {...register("inner_diameter_mm", { required: true, valueAsNumber: true })} />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Outer Dia (mm)</label>
-          <Input type="number" {...register("outer_diameter_mm", { required: true })} />
+          <Input type="number" step="0.01" inputMode="decimal" {...register("outer_diameter_mm", { required: true, valueAsNumber: true })} />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Length (mm)</label>
-          <Input type="number" {...register("length_mm", { required: true })} />
+          <Input type="number" step="0.01" inputMode="decimal" {...register("length_mm", { required: true, valueAsNumber: true })} />
         </div>
       </div>
       <div className="space-y-2">
@@ -180,8 +237,21 @@ export function TubeSizeForm({ initialData, onSubmit, onCancel }: MasterFormProp
 
 export function MandrelForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
   const { register, handleSubmit } = useForm({ defaultValues: initialData })
+  const submit = handleSubmit((data) => {
+    const outerDiameter = Number(data.outer_diameter_mm)
+    const lengthMm = Number(data.length_mm)
+    const tolerance = Number(data.od_tolerance_mm)
+    onSubmit({
+      ...data,
+      mandrel_code: String(data.mandrel_code || "").trim(),
+      outer_diameter_mm: Number.isFinite(outerDiameter) ? outerDiameter : undefined,
+      od_tolerance_mm: Number.isFinite(tolerance) ? tolerance : 0.1,
+      length_mm: Number.isFinite(lengthMm) ? lengthMm : undefined,
+      material: String(data.material || "").trim() || null,
+    })
+  })
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={submit} className="space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-medium">Mandrel Code</label>
         <Input {...register("mandrel_code", { required: true })} />
@@ -189,16 +259,22 @@ export function MandrelForm({ initialData, onSubmit, onCancel }: MasterFormProps
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Outer Diameter (mm)</label>
-          <Input type="number" {...register("outer_diameter_mm", { required: true })} />
+          <Input type="number" step="0.01" inputMode="decimal" {...register("outer_diameter_mm", { required: true, valueAsNumber: true })} />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Length (mm)</label>
-          <Input type="number" {...register("length_mm", { required: true })} />
+          <label className="text-sm font-medium">OD Tolerance (± mm)</label>
+          <Input type="number" step="0.01" inputMode="decimal" placeholder="0.10" {...register("od_tolerance_mm", { valueAsNumber: true })} />
         </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Material</label>
-        <Input {...register("material")} placeholder="Steel" />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Length (mm)</label>
+          <Input type="number" step="0.01" inputMode="decimal" {...register("length_mm", { required: true, valueAsNumber: true })} />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Material</label>
+          <Input {...register("material")} placeholder="Steel" />
+        </div>
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
