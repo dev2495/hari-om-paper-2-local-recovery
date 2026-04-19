@@ -1,3 +1,5 @@
+import { computePreview } from "./spec-math"
+
 export type ScalarDynamicField = {
   field_key: string
   label: string
@@ -191,6 +193,7 @@ export type GroupedRecipeRow = {
   gsm: number
   bfPerPly: number
   thicknessPerPly: number
+  bulkFactor?: number
   plyBond: number
   plyCount: number
   adhesiveLabel: string
@@ -486,25 +489,35 @@ function evaluateRecipeSuggestion(
   targetWetWeightG: number,
   options?: { wetDivisor?: number; parchmentPercent?: number },
 ) {
-  const effectiveDiameterMm = comboEffectiveDiameterMm(idMm, rows, odMm)
-  const predictedPaperWeightG = rows.reduce((sum, row) => {
-    const gsm = Number((row as any).gsm || 0)
-    return sum + paperWeightPerPlyG({ gsm }, tubeLengthMm, effectiveDiameterMm, effectiveDiameterMm) * Number(row.plyCount || 0)
-  }, 0)
   const wetDivisor = Math.max(Number(options?.wetDivisor ?? DEFAULT_WET_DIVISOR), 0.01)
-  const parchmentFactor = Math.max(Number(options?.parchmentPercent ?? 1.5), 0) / 100
-  const paperWetShare = Math.max(1 - 0.15 - parchmentFactor, 0.0001)
-  const predictedWetTubeG = predictedPaperWeightG / paperWetShare
-  const predictedDryTubeG = predictedWetTubeG * wetDivisor
   const targetDryWeightG = targetWetWeightG * wetDivisor
+  const preview = computePreview({
+    mandrel_od_mm: Number(idMm || 0),
+    tube_length_mm: Number(tubeLengthMm || 0),
+    target_dry_g: targetDryWeightG,
+    parchment_percent: Number(options?.parchmentPercent ?? 1.5),
+    moisture_loss_percent: Math.max(0, (1 - wetDivisor) * 100),
+    papers: rows.map((row) => {
+      const gsm = Number((row as any).gsm || 0)
+      const explicitBulk = Number((row as any).bulkFactor || 0)
+      const derivedBulk = gsm > 0 && Number(row.thicknessPerPly || 0) > 0 ? (Number(row.thicknessPerPly) * 1000) / gsm : 1.4
+      return {
+        paper_id: String(row.paper_id || row.code || ""),
+        code: row.code,
+        gsm,
+        bulk: explicitBulk > 0 ? explicitBulk : derivedBulk,
+        ply_count: Math.max(1, Math.floor(Number(row.plyCount || 0))),
+      }
+    }),
+  })
   return {
-    recipeThicknessMm: roundValue(comboRecipeThicknessMm(rows), 4),
-    effectiveDiameterMm: roundValue(effectiveDiameterMm, 4),
-    predictedPaperWeightG: roundValue(predictedPaperWeightG, 2),
-    predictedDryTubeG: roundValue(predictedDryTubeG, 2),
-    predictedWetTubeG: roundValue(predictedWetTubeG, 2),
-    deltaDryG: roundValue(predictedDryTubeG - targetDryWeightG, 2),
-    deltaWetG: roundValue(predictedWetTubeG - targetWetWeightG, 2),
+    recipeThicknessMm: roundValue(preview.wall_mm, 4),
+    effectiveDiameterMm: roundValue(preview.od_mm, 4),
+    predictedPaperWeightG: roundValue(preview.tube.paper_g, 2),
+    predictedDryTubeG: roundValue(preview.tube.dry_g, 2),
+    predictedWetTubeG: roundValue(preview.tube.wet_g, 2),
+    deltaDryG: roundValue(preview.validation.delta_g, 2),
+    deltaWetG: roundValue(preview.tube.wet_g - targetWetWeightG, 2),
   }
 }
 
@@ -519,6 +532,7 @@ function rowFromPaper(paper: any, plyCount: number, seed: string): GroupedRecipe
     gsm: Number(paper?.gsm || 0),
     bfPerPly: Number(paper?.bf ?? 0),
     thicknessPerPly: Number(paper?.thickness_mm || 0),
+    bulkFactor: Number(paper?.bulk_factor || 0),
     plyBond: Number(paper?.ply_bond || 0),
     plyCount: Math.max(1, Math.floor(plyCount || 1)),
     adhesiveLabel: "TL-4",

@@ -75,6 +75,8 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 4.30 Reconciliation page redesigned for month-close actuals, variance review, approval notes, and rejection flow visibility
 - [x] 4.31 Reconciliation formula bridge now treats wastage as absolute kg after moisture, not a second percentage loss
 - [x] 4.32 Owner analytics and reports now use live owner-pack/report endpoints for KPIs, WIP, exceptions, inventory, dispatch, quality, and plant comparison
+- [x] 4.33 Spec-sheet suggestion cards now call the canonical `computePreview` math, so recipe suggestions and live preview use the same dry-target/additive formula
+- [x] 4.34 Job-card print preview now stretches the winder, oven, process, packing, and signature blocks across the full portrait A4 page instead of crowding the top
 
 ## 5. Verification
 
@@ -103,7 +105,12 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 5.17 Reconciliation bridge unit test covers the corrected `107 + 15 + 1.5`, `9%` moisture, `12 kg` wastage example
 - [x] 5.18 Owner/report BFF endpoints return `200` on the live direct runtime
 - [x] 5.19 Job-card PDF regenerated for tracker job `JC-96D8A5BA` after the final portrait sizing pass and verified as A4 portrait
-- [ ] 5.20 Browser release gate rerun after Playwright is reinstalled in this checkout
+- [x] 5.20 Spec sample replay after formula fix:
+  - handwritten sample A recipe returns `282.74 / 257.29 g` tube and is not green (`+7.29 g`)
+  - handwritten sample B recipe returns `341.62 / 310.87 g` tube and is not green (`+10.87 g`)
+  - current best suggestions produce green alternatives for both samples within `0.01 g`
+- [x] 5.21 Rebuilt web-ui and regenerated `JC-96D8A5BA` PDF after the full-page job-card spacing pass
+- [ ] 5.22 Browser release gate rerun after Playwright is reinstalled in this checkout
 
 ## 6. Out of scope (flagged)
 

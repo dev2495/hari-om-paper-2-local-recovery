@@ -492,3 +492,33 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - verified by `file` as `PDF document, version 1.4, 1 pages`
   - verified by `sips` as `594.960 × 841.920` portrait pixels
   - rendered preview: `output/pdf/sample-job-card-JC-96D8A5BA-preview.png`
+
+### 2026-04-20 · Job-card full-page spacing and spec sample replay
+- `JobCardDocument.tsx` keeps the same A4 portrait document, but the screen/print preview now stretches the execution blocks across the sheet:
+  - full-page flex sheet body
+  - taller winder/oven/process/packing blocks
+  - taller measurement rows
+  - signature block pushed to the lower sheet area instead of sitting mid-page
+- `apps/web-ui/lib/spec-sheet.ts` suggestion math now calls canonical `computePreview` instead of the older paper-share approximation.
+  - This keeps suggestion cards, live preview, validation delta, and the saved spec report on the same formula.
+- Reconciliation month-close formula remains:
+  - `final_output = (paper + adhesive + parchment) × (1 - moisture%) - wastage_kg`
+  - the `12 kg` historical average is treated as absolute final process loss after the 9% moisture loss, not as `12%`.
+- Spec sample replay after the dry-target formula fix:
+  - Sample A handwritten recipe (`231x1 + 221x2 + 301x3 + 350x3 + 351x3 + 355x2`, target `250 g`, mandrel `110.65`, length `150`)
+    - target: `274.73 g wet`, `233.48 g paper`, `37.50 g adhesive`, `3.75 g parchment`
+    - actual recipe: `282.74 / 257.29 g` tube, `2827.36 / 2572.90 g` bamboo
+    - result: not green because dry delta is `+7.29 g` against the fixed `±3 g` tolerance
+  - Sample B handwritten recipe (`221x1 + 301x2 + 351x3 + 350x8`, target `300 g`, mandrel `125.65`, length `150`)
+    - target: `329.67 g wet`, `280.17 g paper`, `45.00 g adhesive`, `4.50 g parchment`
+    - actual recipe: `341.62 / 310.87 g` tube, `3416.17 / 3108.71 g` bamboo
+    - result: not green because dry delta is `+10.87 g` against the fixed `±3 g` tolerance
+  - Current canonical best-combo search produces green alternatives:
+    - Sample A example: `221x2 + 301x1 + 350x1 + 351x1 + 353x8` gives `274.73 / 250.00 g`, delta `+0.002 g`
+    - Sample B example: `221x2 + 301x3 + 350x1 + 351x6 + 355x2` gives `329.67 / 300.00 g`, delta `-0.001 g`
+- Verification after this pass:
+  - `node -r ./node_modules/sucrase/register __tests__/reconciliation-math.test.ts` -> `PASS 2/2`
+  - `node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts` -> `PASS 21/21`
+  - `node -r ./node_modules/sucrase/register __tests__/spec-sheet-suggestions.test.ts` -> `PASS 3/3`
+  - `npm run build` in `apps/web-ui` -> passed
+  - regenerated `output/pdf/sample-job-card-JC-96D8A5BA.pdf` from the live print route and verified it as one-page A4 portrait (`594.960 × 841.920`)
