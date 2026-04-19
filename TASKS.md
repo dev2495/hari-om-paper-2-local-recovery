@@ -73,6 +73,8 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 4.28 Wet/dry formula corrected: target wet is dry/divisor, adhesive/parchment are fixed from client dry weight, and paper is the remaining wet target to match by recipe
 - [x] 4.29 Job-card print converted to portrait A4 one-page layout with expanded stage tables and signature area
 - [x] 4.30 Reconciliation page redesigned for month-close actuals, variance review, approval notes, and rejection flow visibility
+- [x] 4.31 Reconciliation formula bridge now treats wastage as absolute kg after moisture, not a second percentage loss
+- [x] 4.32 Owner analytics and reports now use live owner-pack/report endpoints for KPIs, WIP, exceptions, inventory, dispatch, quality, and plant comparison
 
 ## 5. Verification
 
@@ -98,7 +100,10 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
   - TypeScript math tests, suggestion tests, web build, status check, and login chunk check passed
 - [x] 5.15 Job-card PDF generated at `output/pdf/sample-job-card-JC-3E2EB821.pdf` and verified as 1-page A4 portrait (`594.960 × 841.920`)
 - [x] 5.16 Reconciliation route returns `200` on the rebuilt local runtime
-- [ ] 5.17 Browser release gate rerun after Playwright is reinstalled in this checkout
+- [x] 5.17 Reconciliation bridge unit test covers the corrected `107 + 15 + 1.5`, `9%` moisture, `12 kg` wastage example
+- [x] 5.18 Owner/report BFF endpoints return `200` on the live direct runtime
+- [x] 5.19 Job-card PDF regenerated for tracker job `JC-96D8A5BA` after the final portrait sizing pass and verified as A4 portrait
+- [ ] 5.20 Browser release gate rerun after Playwright is reinstalled in this checkout
 
 ## 6. Out of scope (flagged)
 

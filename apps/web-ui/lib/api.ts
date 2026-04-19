@@ -144,16 +144,36 @@ function analyticsParams(
 }
 
 export const analyticsApi = {
-  getDashboardOverview: () => api.get("/api/analytics/dashboard/overview"),
-  getProductionTrends: (startDate: string, endDate: string) =>
-    api.get("/api/analytics/production/trends", { params: { start_date: startDate, end_date: endDate } }),
-  getShrinkAnalysis: (startDate: string, endDate: string) =>
-    api.get("/api/analytics/production/shrink", { params: { start_date: startDate, end_date: endDate } }),
-  getScrapAnalysis: (startDate: string, endDate: string) =>
-    api.get("/api/analytics/production/scrap", { params: { start_date: startDate, end_date: endDate } }),
-  getInventoryValuation: () => api.get("/api/analytics/inventory/valuation"),
-  getSalesTrends: (startDate: string, endDate: string) =>
-    api.get("/api/analytics/sales/trends", { params: { start_date: startDate, end_date: endDate } }),
+  getDashboardOverview: (params?: any) =>
+    api.get("/api/analytics/dashboard/overview", { params: analyticsParams(params) }),
+  getDashboardOwner: (params?: any) =>
+    api.get("/api/analytics/dashboard/owner", { params: analyticsParams(params) }),
+  getOwnerPack: (params?: any) =>
+    api.get("/api/analytics/reports/owner-pack", { params: analyticsParams(params) }),
+  getProductionReport: (params?: any) =>
+    api.get("/api/analytics/reports/production", { params: analyticsParams(params) }),
+  getSalesReport: (params?: any) =>
+    api.get("/api/analytics/reports/sales", { params: analyticsParams(params) }),
+  getQualityReport: (params?: any) =>
+    api.get("/api/analytics/reports/quality", { params: analyticsParams(params) }),
+  getDispatchReport: (params?: any) =>
+    api.get("/api/analytics/reports/dispatch", { params: analyticsParams(params) }),
+  getInventoryHealthReport: (params?: any) =>
+    api.get("/api/analytics/reports/inventory-health", { params: analyticsParams(params) }),
+  getPlantCompareReport: (params?: any) =>
+    api.get("/api/analytics/reports/plant-compare", { params: analyticsParams(params) }),
+  getExceptionReport: (params?: any) =>
+    api.get("/api/analytics/reports/exceptions", { params: analyticsParams(params) }),
+  getProductionTrends: (startOrParams?: any, endDate?: string, plant?: string) =>
+    api.get("/api/analytics/production/trends", { params: analyticsParams(startOrParams, endDate, plant) }),
+  getShrinkAnalysis: (startOrParams?: any, endDate?: string, plant?: string) =>
+    api.get("/api/analytics/production/shrink", { params: analyticsParams(startOrParams, endDate, plant) }),
+  getScrapAnalysis: (startOrParams?: any, endDate?: string, plant?: string) =>
+    api.get("/api/analytics/production/scrap", { params: analyticsParams(startOrParams, endDate, plant) }),
+  getInventoryValuation: (params?: any) =>
+    api.get("/api/analytics/inventory/valuation", { params: analyticsParams(params) }),
+  getSalesTrends: (startOrParams?: any, endDate?: string, plant?: string) =>
+    api.get("/api/analytics/dispatch/sales-trends", { params: analyticsParams(startOrParams, endDate, plant) }),
   getSupplierLoss: (startOrParams?: any, endDate?: string, plant?: string) =>
     api.get("/api/analytics/loss/supplier-loss", { params: analyticsParams(startOrParams, endDate, plant) }),
   getWinderEfficiency: (startOrParams?: any, endDate?: string, plant?: string) =>

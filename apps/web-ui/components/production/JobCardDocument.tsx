@@ -2016,7 +2016,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     } : {})
 
     return (
-      <div className="job-print-root mx-auto max-w-[1320px] print:max-w-none">
+      <div className="job-print-root mx-auto max-w-[210mm] print:max-w-none">
         <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-slate-600">Single-sheet job card for the scheduled release.</div>
           <button
@@ -2198,12 +2198,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <style jsx global>{`
           .job-print-root {
             color: #0f172a;
+            width: min(100%, 210mm);
           }
 
           .job-one-sheet {
             border: 2px solid #0f172a;
             background: #fff;
             padding: 12px;
+            min-height: 297mm;
+            box-shadow: 0 26px 80px rgba(15, 23, 42, 0.14);
           }
 
           .job-topbar {

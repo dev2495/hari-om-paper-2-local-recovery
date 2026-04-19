@@ -2,6 +2,6 @@
 
 import { ReportDetailPage } from "@/components/analytics/ReportDetailPage"
 
-export default function QualityAnalyticsPage() {
+export default function QualityReportsPage() {
   return <ReportDetailPage type="quality" />
 }

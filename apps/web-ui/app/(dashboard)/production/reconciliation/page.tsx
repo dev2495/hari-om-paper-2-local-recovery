@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { useAuth } from "@/context/AuthContext"
 import { productionApi } from "@/lib/api"
+import { computeReconciliationBridge } from "@/lib/reconciliation-math"
 
 const numberValue = (value: unknown) => {
   const parsed = Number(value)
@@ -75,21 +76,16 @@ export default function ReconciliationPage() {
     const adhesive = numberValue(model.adhesive)
     const parchment = numberValue(model.parchment)
     const moisture = numberValue(model.moisture)
-    const wastage = numberValue(model.wastage)
+    const wastageKg = numberValue(model.wastage)
     const target = numberValue(model.target)
-    const grossWet = paper + adhesive + parchment
-    const afterMoisture = grossWet * (1 - moisture / 100)
-    const finalOutput = afterMoisture * (1 - wastage / 100)
-    const targetWet = target / Math.max(1 - moisture / 100, 0.0001)
-    const paperRequired = targetWet / Math.max(1 - wastage / 100, 0.0001) - adhesive - parchment
-    return {
-      grossWet,
-      afterMoisture,
-      finalOutput,
-      variance: finalOutput - target,
-      targetWet,
-      paperRequired,
-    }
+    return computeReconciliationBridge({
+      paperKg: paper,
+      adhesiveKg: adhesive,
+      parchmentKg: parchment,
+      moisturePercent: moisture,
+      wastageKg,
+      targetOutputKg: target,
+    })
   }, [model])
 
   function updateDraft(row: any, key: "actual_consumed_weight_kg" | "actual_cost", value: string) {
@@ -154,15 +150,15 @@ export default function ReconciliationPage() {
         <section className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-[2rem] border border-slate-200 bg-[#07111f] p-5 text-white shadow-[0_18px_70px_rgba(15,23,42,0.16)]">
             <p className="text-[11px] font-black uppercase tracking-[0.24em] text-cyan-200">Global Formula Bridge</p>
-            <h2 className="mt-2 text-xl font-black">Paper + adhesive + parchment, then moisture and wastage.</h2>
-            <p className="mt-2 text-sm text-slate-300">Use this as the month-end check model. Defaults match the working example: paper 107, adhesive 15, parchment 1.5, moisture 9%, wastage 12%.</p>
+            <h2 className="mt-2 text-xl font-black">Paper + adhesive + parchment, then 9% moisture and absolute kg wastage.</h2>
+            <p className="mt-2 text-sm text-slate-300">Defaults match the working example: 107 + 15 + 1.5 = 123.5 kg wet, 9% moisture gives 112.39 kg dry, then 12 kg process wastage leaves 100.39 kg output.</p>
             <div className="mt-4 grid gap-3 md:grid-cols-6">
               {[
                 ["paper", "Paper"],
                 ["adhesive", "Adhesive"],
                 ["parchment", "Parchment"],
                 ["moisture", "Moisture %"],
-                ["wastage", "Wastage %"],
+                ["wastage", "Wastage kg"],
                 ["target", "Final Output"],
               ].map(([key, label]) => (
                 <label key={key} className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
@@ -177,13 +173,19 @@ export default function ReconciliationPage() {
                 </label>
               ))}
             </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-5">
-              <Metric label="Gross Wet" value={bridge.grossWet.toFixed(2)} dark />
-              <Metric label="After Moisture" value={bridge.afterMoisture.toFixed(2)} dark />
-              <Metric label="After Wastage" value={bridge.finalOutput.toFixed(2)} dark tone={Math.abs(bridge.variance) <= 1 ? "good" : "warn"} />
-              <Metric label="Variance" value={`${bridge.variance >= 0 ? "+" : ""}${bridge.variance.toFixed(2)}`} dark tone={Math.abs(bridge.variance) <= 1 ? "good" : "warn"} />
-              <Metric label="Paper Needed" value={bridge.paperRequired.toFixed(2)} dark />
+            <div className="mt-4 grid gap-3 md:grid-cols-6">
+              <Metric label="Wet Input" value={bridge.grossWetKg.toFixed(2)} dark />
+              <Metric label="Moisture Loss" value={bridge.moistureLossKg.toFixed(2)} dark />
+              <Metric label="Dry After Moisture" value={bridge.afterMoistureKg.toFixed(2)} dark />
+              <Metric label="Final Output" value={bridge.finalOutputKg.toFixed(2)} dark tone={Math.abs(bridge.varianceKg) <= 1 ? "good" : "warn"} />
+              <Metric label="Variance" value={`${bridge.varianceKg >= 0 ? "+" : ""}${bridge.varianceKg.toFixed(2)}`} dark tone={Math.abs(bridge.varianceKg) <= 1 ? "good" : "warn"} />
+              <Metric label="Exact Paper" value={bridge.exactPaperRequiredKg.toFixed(2)} dark />
             </div>
+            <p className="mt-3 text-xs leading-5 text-slate-400">
+              Formula: final output = (paper + adhesive + parchment) × (1 − moisture%) − wastage kg.
+              Exact paper for target = ((target + wastage kg) ÷ dry divisor) − adhesive − parchment.
+              Current wastage equals {bridge.wastagePercentOfDry.toFixed(2)}% of dry-after-moisture output.
+            </p>
           </div>
 
           <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_18px_70px_rgba(15,23,42,0.08)]">

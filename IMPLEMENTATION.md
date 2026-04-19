@@ -473,9 +473,22 @@ Pick by `(tubes desc, waste asc, length desc)`.
 - `JobCardDocument.tsx` now prints the scheduled release job card as a portrait A4 one-page document with a larger execution grid, stage-wise rejection fields, QR lookup, and operator/QC/supervisor sign-off area.
 - `production/reconciliation/page.tsx` now provides a month-close workspace: theoretical consumption, actual master-data input, variance/cost columns, approval notes, and an explicit rejection tracking flow across winder, oven, process, and month close.
 - Month-end bridge formula in the UI:
-  - `final_output = (paper + adhesive + parchment) × (1 - moisture%) × (1 - wastage%)`
-  - example `107 + 15 + 1.5`, moisture `9%`, wastage `12%` gives `98.90`; exact `100` with those constants needs `108.38` paper.
+  - `final_output = (paper + adhesive + parchment) × (1 - moisture%) - wastage_kg`
+  - example `107 + 15 + 1.5 = 123.5 kg` wet input
+  - moisture loss at `9%` is `11.115 kg`, so dry after moisture is `123.5 × 0.91 = 112.385 kg`
+  - absolute process wastage `12 kg` leaves `112.385 - 12 = 100.385 kg` output
+  - exact paper for `100 kg` output with `15 kg` adhesive, `1.5 kg` parchment, `9%` moisture, and `12 kg` wastage is `((100 + 12) / 0.91) - 15 - 1.5 = 106.5769 kg`
+- New `apps/web-ui/lib/reconciliation-math.ts` keeps the bridge calculation testable and shared by the UI.
+- `apps/web-ui/components/analytics/OwnerIntelligenceSuite.tsx` and `ReportDetailPage.tsx` now turn the existing live analytics endpoints into a practical report suite:
+  - owner pack: active jobs, sales backlog, dispatch, blocked jobs, inventory value, low-stock count, QC holds, OTIF, WIP stage mix, exceptions, rejection trail, plant comparison
+  - report pages: production, sales, inventory, quality, dispatch, plants, and exceptions
 - Generated sample PDF:
   - `output/pdf/sample-job-card-JC-3E2EB821.pdf`
   - verified by `file` as `PDF document, version 1.4, 1 pages`
   - verified by `sips` as `594.960 × 841.920` portrait pixels
+- Regenerated tracker sample PDF after the final portrait sizing pass:
+  - `output/pdf/sample-job-card-JC-96D8A5BA.pdf`
+  - source route: `/production/job-cards/96d8a5ba-54b2-45c9-9d68-267929d98f5d/print`
+  - verified by `file` as `PDF document, version 1.4, 1 pages`
+  - verified by `sips` as `594.960 × 841.920` portrait pixels
+  - rendered preview: `output/pdf/sample-job-card-JC-96D8A5BA-preview.png`
