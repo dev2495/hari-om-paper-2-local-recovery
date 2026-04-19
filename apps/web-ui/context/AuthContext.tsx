@@ -21,7 +21,7 @@ interface AuthContextType {
   user: User | null
   activePlant: string | null
   isLoading: boolean
-  login: (email: string, password: string) => Promise<void>
+  login: (email: string, password: string) => Promise<User>
   logout: () => Promise<void>
   checkAuth: () => Promise<void>
   setActivePlant: (plantId: string) => void
@@ -126,6 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(normalizedUser)
     setActivePlantState(nextPlant)
     setStoredPlant(nextPlant)
+    return normalizedUser
   }
 
   const logout = async () => {

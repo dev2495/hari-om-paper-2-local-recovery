@@ -217,6 +217,13 @@ function firstMachineId(stages: any[]) {
   return stages.find((stage) => stage.machine_id)?.machine_id || null
 }
 
+function firstOpenSegment(segments: any[], stage: StageName) {
+  const rows = segments
+    .filter((segment: any) => segment.stage_type === stage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
+    .sort((a: any, b: any) => Number(a.segment_no || 1) - Number(b.segment_no || 1) || Number(a.sequence_no || 1) - Number(b.sequence_no || 1))
+  return rows[0] || null
+}
+
 function stageMachineField(stage: StageName): string | null {
   if (stage === "SLITTING") return "slitter_no"
   if (stage === "WINDER") return "winder_no"
@@ -227,14 +234,18 @@ function stageMachineField(stage: StageName): string | null {
 
 function parseStageForms(card: any, machineLabelMap: Map<string, string>) {
   const rows = Array.isArray(card?.stages) ? card.stages : []
+  const segments = Array.isArray(card?.stage_segments) ? card.stage_segments : []
   const forms: Record<string, any> = {}
   for (const stageName of STAGES) {
     const row = rows.find((candidate: any) => candidate.stage_type === stageName)
+    const segment = firstOpenSegment(segments, stageName)
     const machineField = stageMachineField(stageName)
+    const machineId = row?.machine_id || segment?.machine_id
     const machineLabel =
-      row?.machine_id ? machineLabelMap.get(String(row.machine_id)) || String(row.machine_id).slice(0, 8) : ""
+      machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : ""
     const normalizedEntry = normalizeStageEntry(stageName, row?.entry_snapshot)
     forms[stageName] = {
+      segment_id: segment?.id || null,
       remarks: row?.remarks || "",
       override_reason: row?.actuals_snapshot?.override_reason || "",
       reel_issue_ids: Array.isArray(row?.reel_issue_ids) ? row.reel_issue_ids : [],
@@ -582,13 +593,25 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return stages.find((row: any) => row.stage_type === stage) || null
   }
 
+  function stageSegment(stage: StageName) {
+    const selectedId = stageForms[stage]?.segment_id
+    const rows = stageSegments
+      .filter((segment: any) => segment.stage_type === stage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
+      .sort((a: any, b: any) => Number(a.segment_no || 1) - Number(b.segment_no || 1) || Number(a.sequence_no || 1) - Number(b.sequence_no || 1))
+    return rows.find((segment: any) => segment.id === selectedId) || rows[0] || null
+  }
+
   function stageAssignment(stage: StageName) {
     const row = stageRow(stage)
-    const machineLabel = row?.machine_id ? machineLabelMap.get(String(row.machine_id)) || String(row.machine_id).slice(0, 8) : ""
-    const shiftLabel = row?.shift_code ? String(row.shift_code).replace("_", " ") : ""
+    const segment = stageSegment(stage)
+    const machineId = row?.machine_id || segment?.machine_id
+    const shiftCode = row?.shift_code || segment?.shift_code
+    const planDate = row?.plan_date || segment?.plan_date || ""
+    const machineLabel = machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : ""
+    const shiftLabel = shiftCode ? [String(shiftCode).replace("_", " "), planDate].filter(Boolean).join(" · ") : ""
     const needsPlannerAssignment = ["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(stage)
-    const missingRequiredAssignment = needsPlannerAssignment && (!row?.machine_id || !row?.shift_code)
-    return { machineLabel, shiftLabel, missingRequiredAssignment }
+    const missingRequiredAssignment = needsPlannerAssignment && (!machineId || !shiftCode)
+    return { machineId, machineLabel, shiftCode, shiftLabel, planDate, missingRequiredAssignment }
   }
 
   function stageEditable(stage: StageName) {
@@ -617,12 +640,16 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const stageMeta = stageRow(stage)
     const payload: Record<string, any> = {
       stage,
+      segment_id: form.segment_id || undefined,
       entry_snapshot: entry,
       remarks: form.remarks || null,
       override_reason: form.override_reason || null,
       reel_issue_ids: form.reel_issue_ids || [],
     }
-    if (stageMeta?.machine_id) {
+    const assignment = stageAssignment(stage)
+    if (assignment.machineId) {
+      payload.machine_id = assignment.machineId
+    } else if (stageMeta?.machine_id) {
       payload.machine_id = stageMeta.machine_id
     }
     if (stage === "SLITTING" && entry.slit_output_weight_kg !== "") {
@@ -1886,6 +1913,499 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     )
   }
 
+  function renderReleasePrintLayout() {
+    const customerName = documentSnapshot?.header?.customer_name || card?.sales_order?.customer_name || "-"
+    const salesOrderNumber = card?.sales_order_ref || card?.sales_order?.order_no || "-"
+    const jobCardNumber = card?.job_card_ref || card?.job_card_no || String(card?.id || "").slice(0, 8)
+    const sizeLabel = documentSnapshot?.header?.product_size_label || "-"
+    const parchmentColor = documentSnapshot?.header?.color || card?.spec_snapshot?.parchment_color || "-"
+    const lotNumber = documentSnapshot?.header?.lot_number || String(card?.id || "").slice(0, 10)
+    const releaseQty = Number(documentSnapshot?.header?.release_qty_pcs || card?.released_qty || card?.planned_qty || 0)
+    const orderQty = Number(documentSnapshot?.header?.order_quantity_pcs || card?.sales_order?.order_qty || releaseQty || 0)
+    const effectiveTargetBamboo = Number(targetBambooCount || (pcsPerBamboo ? Math.ceil(releaseQty / pcsPerBamboo) : 0))
+    const setup = documentSnapshot?.setup_tooling || {}
+    const requiredCs = documentSnapshot?.header?.required_cs ?? clientSpec?.cs?.avg
+    const releaseWeightKg = tubeDryWeightG && releaseQty ? (tubeDryWeightG * releaseQty) / 1000 : null
+    const packingType = [
+      packingPrintEntry.packing_type || setup.bundle_type || setup.bundle_code,
+      setup.box_code || setup.box,
+      setup.qty_per_box ? `${setup.qty_per_box} / box` : null,
+    ].filter(Boolean).join(" · ") || "-"
+
+    function planFor(stage: StageName) {
+      const row = stageRow(stage)
+      const segment = stageSegment(stage)
+      const releaseWinderId = stage === "WINDER" ? documentSnapshot?.header?.assigned_winder_machine_id : ""
+      const machineId = row?.machine_id || segment?.machine_id || releaseWinderId || ""
+      const shiftCode = row?.shift_code || segment?.shift_code || documentSnapshot?.header?.shift || ""
+      const planDate = row?.plan_date || segment?.plan_date || documentSnapshot?.header?.date || ""
+      return {
+        machineId,
+        machineLabel: machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : "-",
+        shiftLabel: shiftCode ? String(shiftCode).replace("_", " ") : "-",
+        planDate: planDate || "-",
+      }
+    }
+
+    const winderPlan = planFor("WINDER")
+    const ovenPlan = planFor("OVEN")
+    const processPlan = planFor("PROCESS")
+    const winderMachineLabel = winderPrintEntry.winder_no || winderPlan.machineLabel
+    const ovenMachineLabel = ovenPrintEntry.oven_no || ovenPlan.machineLabel
+    const processMachineLabel = processPrintEntry.process_line_no || processPlan.machineLabel
+    const targetMeasure = {
+      length: formatNumber(clientSpec?.length?.avg ?? documentSnapshot?.header?.tube_length_mm),
+      id: formatNumber(clientSpec?.id?.avg),
+      od: formatNumber(clientSpec?.od?.avg),
+      weight: formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg),
+      cs: formatNumber(requiredCs),
+      notch_distance: setup.notch_distance || "",
+      notch_depth: setup.notch_depth || "",
+    }
+    const winderReadings = Array.isArray(winderPrintEntry.dimension_readings)
+      ? winderPrintEntry.dimension_readings.filter((row: any) => Object.values(row || {}).some(Boolean))
+      : []
+    const winderRows = Array.from({ length: 5 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
+    const processRows = Array.from({ length: 4 }, (_, index) => index === 0 ? {
+      ...targetMeasure,
+      ...(processPrintEntry.final_measurements || {}),
+    } : {})
+    const headerFields = [
+      ["Date", documentSnapshot?.header?.date || ""],
+      ["Customer Name", customerName],
+      ["Sales Order", salesOrderNumber],
+      ["Job Card No.", jobCardNumber],
+      ["Size", sizeLabel],
+      ["Shift", winderPlan.shiftLabel],
+      ["Weight", `${formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg)} g`],
+      ["C.S.", formatNumber(requiredCs)],
+      ["Job Card Qty", `${formatNumber(releaseQty, 0)} pcs`],
+      ["Order Qty", `${formatNumber(orderQty, 0)} pcs`],
+      ["Packing Type", packingType],
+      ["Parchment Type", parchmentColor || "-"],
+      ["Target Bamboo", `${formatNumber(effectiveTargetBamboo, 0)} pcs`],
+      ["Pcs / Bamboo", formatNumber(pcsPerBamboo, 0)],
+      ["Mandrel", mandrelLabel],
+      ["Lot Number", lotNumber],
+    ]
+
+    const PrintField = ({ label, value, className = "" }: { label: string; value: any; className?: string }) => (
+      <div className={`job-print-field ${className}`}>
+        <div className="job-print-label">{label}</div>
+        <div className="job-print-value">{value || "-"}</div>
+      </div>
+    )
+    const SignatureLine = ({ label }: { label: string }) => (
+      <div className="job-signature">
+        <div className="job-signature-line" />
+        <div className="job-print-label">{label}</div>
+      </div>
+    )
+    const QtyRow = ({ cols }: { cols: Array<[string, any]> }) => (
+      <div className="job-mini-grid">
+        {cols.map(([label, value]) => (
+          <PrintField key={label} label={label} value={value} />
+        ))}
+      </div>
+    )
+
+    const compactWinderRows = Array.from({ length: 3 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
+    const compactProcessRows = Array.from({ length: 2 }, (_, index) => index === 0 ? {
+      ...targetMeasure,
+      ...(processPrintEntry.final_measurements || {}),
+    } : {})
+
+    return (
+      <div className="job-print-root mx-auto max-w-[1320px] print:max-w-none">
+        <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate-600">Single-sheet job card for the scheduled release.</div>
+          <button
+            type="button"
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
+          >
+            <Printer className="h-4 w-4" />
+            Print Job Card
+          </button>
+        </div>
+
+        <section className="job-one-sheet">
+          <div className="job-topbar">
+            <div>
+              <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
+              <div className="job-title">Job Card</div>
+            </div>
+            <div className="job-ref-box">
+              <span>Date</span>
+              <strong>{documentSnapshot?.header?.date || "-"}</strong>
+            </div>
+            <div className="job-ref-box">
+              <span>Job Card No.</span>
+              <strong>{jobCardNumber}</strong>
+            </div>
+            <QRCodeSVG value={qrValue} size={58} />
+          </div>
+
+          <div className="job-hero-grid">
+            <PrintField label="Customer" value={customerName} />
+            <PrintField label="Sales Order" value={salesOrderNumber} />
+            <PrintField label="Size" value={sizeLabel} />
+            <PrintField label="Mandrel" value={mandrelLabel} />
+            <PrintField label="Shift" value={winderPlan.shiftLabel} />
+            <PrintField label="Job Card Qty" value={`${formatNumber(releaseQty, 0)} pcs`} />
+            <PrintField label="Order Qty" value={`${formatNumber(orderQty, 0)} pcs`} />
+            <PrintField label="Packing Type" value={packingType} />
+            <PrintField label="Tube Weight" value={`${formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg)} g`} />
+            <PrintField label="Required C.S." value={formatNumber(requiredCs)} />
+            <PrintField label="Target Bamboo" value={`${formatNumber(effectiveTargetBamboo, 0)} pcs`} />
+            <PrintField label="Pcs / Bamboo" value={formatNumber(pcsPerBamboo, 0)} />
+            <PrintField label="Selected Bamboo" value={`${formatNumber(selectedBambooLength, 0)} mm`} />
+            <PrintField label="Usable Bamboo" value={`${formatNumber(usableBambooLength, 0)} mm`} />
+            <PrintField label="Parchment" value={parchmentColor || "-"} />
+            <PrintField label="Spec Reference" value={specReference} />
+          </div>
+
+          <div className="job-two-col">
+            <section className="job-block">
+              <div className="job-section-title">
+                <span>Winding (W1-W4)</span>
+                <span>{winderPlan.machineLabel}</span>
+              </div>
+              <div className="job-mini-grid job-mini-grid-6">
+                <PrintField label="Plan Date" value={winderPlan.planDate} />
+                <PrintField label="Winder No." value={winderMachineLabel} />
+                <PrintField label="Operator" value={winderPrintEntry.operator_name} />
+                <PrintField label="Output Bamboo" value={winderPrintEntry.bamboo_count_produced || formatNumber(winderPrintStage?.input_qty || effectiveTargetBamboo, 0)} />
+                <PrintField label="Accept / Reject" value={`${winderPrintEntry.accepted_bamboo_count || formatNumber(winderPrintStage?.output_qty, 0)} / ${winderPrintEntry.reject_bamboo_count || formatNumber(winderPrintStage?.scrap_qty, 0)}`} />
+                <PrintField label="Start / End" value={`${winderPrintEntry.start_time || "-"} / ${winderPrintEntry.end_time || "-"}`} />
+              </div>
+              <table className="job-print-table">
+                <thead>
+                  <tr>
+                    <th>Length</th>
+                    <th>I.D</th>
+                    <th>O.D</th>
+                    <th>Weight</th>
+                    <th>C.S</th>
+                    <th>QC</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compactWinderRows.map((row: any, index: number) => (
+                    <tr key={`compact-winder-${index}`}>
+                      <td>{row.length || ""}</td>
+                      <td>{row.id || ""}</td>
+                      <td>{row.od || ""}</td>
+                      <td>{row.weight || ""}</td>
+                      <td>{row.cs || ""}</td>
+                      <td>{index === 0 ? winderPrintEntry.qc_sign || "" : ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            <section className="job-block">
+              <div className="job-section-title">
+                <span>Oven Curing (O1-O6)</span>
+                <span>{ovenPlan.machineLabel}</span>
+              </div>
+              <div className="job-mini-grid job-mini-grid-6">
+                <PrintField label="Plan Date" value={ovenPlan.planDate} />
+                <PrintField label="Oven No." value={ovenMachineLabel} />
+                <PrintField label="Operator" value={ovenPrintEntry.operator_name} />
+                <PrintField label="Bamboo In / Out" value={`${ovenPrintEntry.bamboo_count_in || formatNumber(ovenPrintStage?.input_qty || effectiveTargetBamboo, 0)} / ${ovenPrintEntry.bamboo_count_out || formatNumber(ovenPrintStage?.output_qty, 0)}`} />
+                <PrintField label="Wet / Dry Bamboo" value={`${formatNumber(bambooWetWeightG)} / ${formatNumber(bambooDryWeightG)} g`} />
+                <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
+              </div>
+              <div className="job-mini-grid job-mini-grid-4">
+                <PrintField label="Pre Moisture" value={ovenPrintEntry.moisture_before} />
+                <PrintField label="Post Moisture" value={ovenPrintEntry.moisture_after} />
+                <PrintField label="Reject Qty" value={formatNumber(ovenPrintStage?.scrap_qty, 0)} />
+                <PrintField label="Reject Reason" value={ovenPrintEntry.rejection_code || ""} />
+              </div>
+            </section>
+          </div>
+
+          <div className="job-two-col job-lower-grid">
+            <section className="job-block">
+              <div className="job-section-title">
+                <span>Process Line (P1-P11)</span>
+                <span>{processPlan.machineLabel}</span>
+              </div>
+              <div className="job-mini-grid job-mini-grid-6">
+                <PrintField label="Plan Date" value={processPlan.planDate} />
+                <PrintField label="Line No." value={processMachineLabel} />
+                <PrintField label="Operator" value={processPrintEntry.operator_name} />
+                <PrintField label="Total Qty" value={processPrintEntry.process_qty || formatNumber(processPrintStage?.output_qty || releaseQty, 0)} />
+                <PrintField label="Reject Qty" value={processPrintEntry.reject_qty || formatNumber(processPrintStage?.scrap_qty, 0)} />
+                <PrintField label="Start / End" value={`${processPrintEntry.start_time || "-"} / ${processPrintEntry.end_time || "-"}`} />
+              </div>
+              <table className="job-print-table">
+                <thead>
+                  <tr>
+                    <th>Length</th>
+                    <th>I.D</th>
+                    <th>O.D</th>
+                    <th>Weight</th>
+                    <th>C.S</th>
+                    <th>Notch Dist.</th>
+                    <th>Notch Depth</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {compactProcessRows.map((row: any, index: number) => (
+                    <tr key={`compact-process-${index}`}>
+                      <td>{row.length || ""}</td>
+                      <td>{row.id || ""}</td>
+                      <td>{row.od || ""}</td>
+                      <td>{row.weight || ""}</td>
+                      <td>{row.cs || ""}</td>
+                      <td>{row.notch_distance || ""}</td>
+                      <td>{row.notch_depth || ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+
+            <section className="job-block">
+              <div className="job-section-title">
+                <span>Packing + Dispatch</span>
+                <span>Release Close</span>
+              </div>
+              <div className="job-mini-grid job-mini-grid-4">
+                <PrintField label="Box Packed" value={packingPrintEntry.total_packed_qty || ""} />
+                <PrintField label="Tube / Box" value={setup.qty_per_box || ""} />
+                <PrintField label="Dispatch Date" value={packingPrintEntry.dispatch_date || dispatchPrintEntry.dispatch_date || ""} />
+                <PrintField label="Dispatch Qty" value={dispatchQty > 0 ? formatNumber(dispatchQty, 0) : ""} />
+                <PrintField label="Pending Qty" value={pendingQty > 0 ? formatNumber(pendingQty, 0) : ""} />
+                <PrintField label="QC Sign" value={qcPrintEntry.qc_sign || processPrintEntry.qc_sign || ""} />
+                <PrintField label="Supervisor" value={packingPrintEntry.supervisor_sign || ""} />
+                <PrintField label="Notes" value={processPrintStage?.remarks || packingPrintStage?.remarks || qcPrintStage?.remarks || ""} />
+              </div>
+              <div className="job-signature-row">
+                <SignatureLine label="Winder Operator" />
+                <SignatureLine label="Oven Operator" />
+                <SignatureLine label="Process Operator" />
+                <SignatureLine label="QC Inspector" />
+                <SignatureLine label="Supervisor" />
+              </div>
+            </section>
+          </div>
+        </section>
+
+        <style jsx global>{`
+          .job-print-root {
+            color: #0f172a;
+          }
+
+          .job-one-sheet {
+            border: 2px solid #0f172a;
+            background: #fff;
+            padding: 12px;
+          }
+
+          .job-topbar {
+            display: grid;
+            grid-template-columns: 1fr 125px 170px 64px;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 2px solid #0f172a;
+            padding-bottom: 8px;
+          }
+
+          .job-company {
+            font-size: 26px;
+            font-weight: 950;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+          }
+
+          .job-title {
+            margin-top: 2px;
+            font-size: 12px;
+            font-weight: 900;
+            letter-spacing: 0.38em;
+            text-transform: uppercase;
+            color: #475569;
+          }
+
+          .job-ref-box {
+            border: 1px solid #0f172a;
+            padding: 6px 8px;
+            min-height: 46px;
+          }
+
+          .job-ref-box span,
+          .job-print-label {
+            display: block;
+            font-size: 7px;
+            font-weight: 900;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: #64748b;
+          }
+
+          .job-ref-box strong,
+          .job-print-value {
+            display: block;
+            margin-top: 3px;
+            font-size: 10px;
+            font-weight: 850;
+            line-height: 1.15;
+            color: #0f172a;
+          }
+
+          .job-hero-grid {
+            display: grid;
+            grid-template-columns: repeat(8, minmax(0, 1fr));
+            border-left: 1px solid #0f172a;
+            margin-top: 8px;
+          }
+
+          .job-print-field {
+            min-height: 40px;
+            border: 1px solid #0f172a;
+            border-left: 0;
+            background: #fff;
+            padding: 5px 6px;
+            overflow: hidden;
+          }
+
+          .job-two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+          }
+
+          .job-lower-grid {
+            grid-template-columns: 1.08fr 0.92fr;
+          }
+
+          .job-block {
+            border: 1px solid #0f172a;
+            background: #fff;
+          }
+
+          .job-section-title {
+            display: grid;
+            grid-template-columns: 1fr 145px;
+            border-bottom: 1px solid #0f172a;
+            background: #f1f5f9;
+            font-size: 10px;
+            font-weight: 950;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: #0f172a;
+          }
+
+          .job-section-title > span {
+            padding: 6px 8px;
+          }
+
+          .job-section-title > span + span {
+            border-left: 1px solid #0f172a;
+            letter-spacing: 0.04em;
+          }
+
+          .job-mini-grid {
+            display: grid;
+            border-left: 1px solid #0f172a;
+          }
+
+          .job-mini-grid-6 {
+            grid-template-columns: repeat(6, minmax(0, 1fr));
+          }
+
+          .job-mini-grid-4 {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+          }
+
+          .job-mini-grid .job-print-field {
+            border-top: 0;
+          }
+
+          .job-print-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 9px;
+          }
+
+          .job-print-table th,
+          .job-print-table td {
+            height: 22px;
+            border: 1px solid #0f172a;
+            border-left: 0;
+            padding: 3px 5px;
+            text-align: left;
+          }
+
+          .job-print-table th {
+            background: #f8fafc;
+            font-size: 7px;
+            font-weight: 950;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #334155;
+          }
+
+          .job-signature-row {
+            display: grid;
+            grid-template-columns: repeat(5, minmax(0, 1fr));
+            gap: 10px;
+            padding: 14px 8px 6px;
+          }
+
+          .job-signature {
+            padding-top: 18px;
+          }
+
+          .job-signature-line {
+            height: 1px;
+            border-top: 1px solid #0f172a;
+            margin-bottom: 5px;
+          }
+
+          @media print {
+            @page {
+              size: A4 landscape;
+              margin: 5mm;
+            }
+
+            .no-print {
+              display: none !important;
+            }
+
+            header,
+            aside,
+            nav {
+              display: none !important;
+            }
+
+            body {
+              background: #fff !important;
+            }
+
+            .job-print-root {
+              width: 287mm;
+              max-width: none !important;
+            }
+
+            .job-one-sheet {
+              min-height: 196mm;
+              break-after: auto;
+              padding: 5mm;
+              box-shadow: none !important;
+            }
+          }
+        `}</style>
+      </div>
+    )
+
+  }
+
   if (!jobCardId) {
     return (
       <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-sm text-slate-600">
@@ -1903,7 +2423,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   }
 
   if (mode === "print") {
-    return renderPrintLayout()
+    return renderReleasePrintLayout()
   }
 
   if (mode === "view" || mode === "supervisor") {

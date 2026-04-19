@@ -32,10 +32,11 @@ async def proxy_to_service(
     token: str,
     *,
     json_body: Any | None = None,
+    force_method: str | None = None,
 ) -> Response:
     raw_body = await request.body()
     request_kwargs: dict[str, Any] = {
-        "method": request.method,
+        "method": force_method or request.method,
         "url": f"{base_url}{service_path}",
         "headers": _forward_headers(token, request),
         "params": dict(request.query_params),

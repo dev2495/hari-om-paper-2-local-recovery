@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext"
 const workspaces = [
   { title: "Specifications", href: "/specifications", icon: ScrollText, copy: "Spec sheet, recipe trials, approval, and print packet." },
   { title: "Sales Orders", href: "/sales-orders", icon: ClipboardList, copy: "Demand intake, release posture, and customer tracking." },
-  { title: "Planning", href: "/production/planner", icon: Factory, copy: "Machine queues, plant load, and stage scheduling." },
+  { title: "Planning", href: "/planning", icon: Factory, copy: "Planner landing, plant load, and stage scheduling." },
   { title: "Production", href: "/production/job-cards", icon: Gauge, copy: "Job cards, EOD entry, reconciliation, and loss controls." },
   { title: "Inventory", href: "/inventory", icon: Package, copy: "Raw inward, production issue, reservations, and valuation." },
   { title: "Dispatch", href: "/logistics/dispatch", icon: Truck, copy: "Packing handoff, challans, and finished goods movement." },

@@ -18,6 +18,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
 import { useAuth } from "@/context/AuthContext"
 import { usePlanningBoard, usePlanningJobCards } from "@/hooks/use-production"
@@ -56,8 +57,9 @@ function PlanningLandingPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const scopedPlantId = activePlant === "ALL" ? undefined : activePlant || undefined
+  const needsConcretePlant = activePlant === "ALL"
   const selectedDate = dayjs().format("YYYY-MM-DD")
-  const canQuery = !authLoading && !!user
+  const canQuery = !authLoading && !!user && !needsConcretePlant
   const { data: boardData, isLoading } = usePlanningBoard(undefined, selectedDate, true, scopedPlantId, canQuery)
   const { data: jobCards = [] } = usePlanningJobCards({ limit: 250 }, canQuery)
 
@@ -143,6 +145,29 @@ function PlanningLandingPageContent() {
   }, [openCards, stageCards])
 
   const bottleneck = [...stageCards].sort((a, b) => b.load - a.load)[0]
+
+  if (needsConcretePlant) {
+    return (
+      <div data-testid="planner-page" className="rounded-[2rem] border border-cyan-100 bg-gradient-to-br from-cyan-50 via-white to-slate-50 p-7 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <div className="inline-flex rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-900">
+              Planner scope
+            </div>
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">Select one plant to open planning</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Owner/Admin `ALL` scope is useful for dashboards, but planner capacity is tied to physical machines and shifts.
+              Choose a plant from the switcher, then this landing will show that plant's queues, bottlenecks, and section boards.
+            </p>
+          </div>
+          <div className="rounded-[1.4rem] border border-white/80 bg-white/90 p-5 shadow-sm">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Plant switcher</p>
+            <PlantSwitcher />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div data-testid="planner-page" className="space-y-6">

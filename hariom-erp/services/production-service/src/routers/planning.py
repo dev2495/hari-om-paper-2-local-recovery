@@ -603,7 +603,13 @@ def _validate_machine_compatibility(
     spec_snapshot: dict[str, Any],
     plant_id: str,
 ) -> None:
-    if str(machine.get("plant_id")) != str(plant_id):
+    try:
+        machine_plant_id = _to_uuid(str(machine.get("plant_id") or ""), "machine.plant_id")
+        selected_plant_id = _to_uuid(str(plant_id or ""), "plant_id")
+    except HTTPException:
+        machine_plant_id = None
+        selected_plant_id = None
+    if machine_plant_id != selected_plant_id:
         raise HTTPException(status_code=400, detail="Machine belongs to another plant")
     if not bool(machine.get("is_active", machine.get("active", False))):
         raise HTTPException(status_code=400, detail="Machine is inactive")
@@ -1734,6 +1740,18 @@ def _build_document_snapshot(
     adhesive_components_raw = _snapshot_json(spec_snapshot.get("adhesive_components_json"), [])
     adhesive_components = adhesive_components_raw if isinstance(adhesive_components_raw, list) else []
     first_adhesive_component = adhesive_components[0] if adhesive_components and isinstance(adhesive_components[0], dict) else {}
+    tube_dry_weight_g = _snapshot_float(weight_bridge.get("predicted_dry_tube_g")) or weight_avg
+    tube_wet_weight_g = _snapshot_float(weight_bridge.get("predicted_wet_tube_g")) or oven_dry_weight
+    bamboo_dry_weight_g = (
+        round(float(tube_dry_weight_g) * float(pcs_per_bamboo), 2)
+        if tube_dry_weight_g is not None and pcs_per_bamboo
+        else None
+    )
+    bamboo_wet_weight_g = (
+        round(float(tube_wet_weight_g) * float(pcs_per_bamboo), 2)
+        if tube_wet_weight_g is not None and pcs_per_bamboo
+        else _snapshot_float(weight_bridge.get("bamboo_required_wet_g"))
+    )
 
     return {
         "header": {
@@ -1774,12 +1792,10 @@ def _build_document_snapshot(
             or _snapshot_float(getattr(winder_stage, "output_qty", None)),
             "packed_qty": _snapshot_float(getattr(packing_stage, "output_qty", None)),
             "dispatched_qty": _snapshot_float(getattr(dispatch_stage, "output_qty", None)),
-            "tube_dry_weight_g": _snapshot_float(weight_bridge.get("predicted_dry_tube_g")) or weight_avg,
-            "tube_wet_weight_g": _snapshot_float(weight_bridge.get("predicted_wet_tube_g")) or oven_dry_weight,
-            "bamboo_dry_weight_g": _snapshot_float(expected_output.get("total_output_weight_kg")) * 1000.0
-            if expected_output.get("total_output_weight_kg") is not None
-            else None,
-            "bamboo_wet_weight_g": _snapshot_float(weight_bridge.get("bamboo_required_wet_g")),
+            "tube_dry_weight_g": tube_dry_weight_g,
+            "tube_wet_weight_g": tube_wet_weight_g,
+            "bamboo_dry_weight_g": bamboo_dry_weight_g,
+            "bamboo_wet_weight_g": bamboo_wet_weight_g,
             "weight_per_mm_g": _snapshot_float(weight_bridge.get("weight_per_mm_g")),
         },
         "client_spec": {
@@ -1805,15 +1821,13 @@ def _build_document_snapshot(
             "winder_pre_dry_cs": round(cs_avg * 0.40, 2) if cs_avg is not None else None,
             "final_required_cs": cs_avg,
             "gsm_derived": None,
-            "tube_dry_weight_g": _snapshot_float(weight_bridge.get("predicted_dry_tube_g")) or weight_avg,
-            "tube_wet_weight_g": _snapshot_float(weight_bridge.get("predicted_wet_tube_g")) or oven_dry_weight,
+            "tube_dry_weight_g": tube_dry_weight_g,
+            "tube_wet_weight_g": tube_wet_weight_g,
             "dry_weight_per_mm_g": _snapshot_float(weight_bridge.get("dry_weight_per_mm_g")) or _snapshot_float(weight_bridge.get("weight_per_mm_g")),
             "wet_weight_per_mm_g": _snapshot_float(weight_bridge.get("wet_weight_per_mm_g")),
             "weight_per_mm_g": _snapshot_float(weight_bridge.get("weight_per_mm_g")),
-            "bamboo_dry_weight_g": _snapshot_float(expected_output.get("total_output_weight_kg")) * 1000.0
-            if expected_output.get("total_output_weight_kg") is not None
-            else None,
-            "bamboo_wet_weight_g": _snapshot_float(weight_bridge.get("bamboo_required_wet_g")),
+            "bamboo_dry_weight_g": bamboo_dry_weight_g,
+            "bamboo_wet_weight_g": bamboo_wet_weight_g,
             "trim_loss_mm": _snapshot_float(spec_snapshot.get("cut_loss_mm")) or _snapshot_float(yield_snapshot.get("cut_loss_mm")),
             "selected_bamboo_length_mm": selected_bamboo_length,
             "usable_length_mm": usable_length,

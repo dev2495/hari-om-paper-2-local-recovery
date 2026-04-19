@@ -29,6 +29,7 @@ async function login(page) {
   await page.evaluate(() => {
     window.localStorage.removeItem("hariom_access_token")
     window.localStorage.removeItem("hariom_active_plant")
+    window.localStorage.removeItem("hariom_sidebar_pinned_v2")
   })
 
   const bffBaseUrl = runtimeManifest?.urls?.bff || "http://127.0.0.1:14000"
@@ -67,6 +68,66 @@ async function expectTransition(locator) {
   expect(hasTransition).toBeTruthy()
 }
 
+async function expectPlannerMoveHonorsSelectedPlant(page) {
+  const token = await page.evaluate(() => window.localStorage.getItem("hariom_access_token"))
+  expect(token).toBeTruthy()
+
+  const bffBaseUrl = runtimeManifest?.urls?.bff || "http://127.0.0.1:14000"
+  const headers = {
+    Authorization: `Bearer ${token}`,
+    "X-Plant-ID": "PLANT_A",
+  }
+  const boardResponse = await page.request.get(`${bffBaseUrl}/api/production/planning/board`, {
+    headers,
+    params: {
+      stage: "WINDER",
+      plan_date: "2026-04-19",
+      include_unscheduled: "true",
+      plant_id: "PLANT_A",
+    },
+  })
+  expect(boardResponse.ok()).toBeTruthy()
+  const board = await boardResponse.json()
+  const winderStage = (board.stages || []).find((entry) => entry.stage === "WINDER")
+  expect(winderStage).toBeTruthy()
+  const openLane = (winderStage.lanes || []).find((lane) => !lane.machine_id && !lane.shift_code && (lane.jobs || []).length > 0)
+  const targetLane = (winderStage.lanes || []).find(
+    (lane) => lane.machine_id && lane.shift_code === "SHIFT_A" && String(lane.machine_code || "").includes("WINDER_01"),
+  )
+  expect(openLane).toBeTruthy()
+  expect(targetLane).toBeTruthy()
+
+  const job = openLane.jobs[0]
+  const moveResponse = await page.request.post(`${bffBaseUrl}/api/production/planning/board/move`, {
+    headers,
+    data: {
+      segment_id: job.segment_id,
+      stage: "WINDER",
+      machine_id: targetLane.machine_id,
+      plan_date: targetLane.plan_date || "2026-04-19",
+      shift_code: targetLane.shift_code,
+      sequence_no: 1,
+    },
+  })
+  const moveText = await moveResponse.text()
+  expect(moveResponse.ok(), moveText).toBeTruthy()
+  expect(moveText).not.toMatch(/another plant/i)
+
+  const undoResponse = await page.request.post(`${bffBaseUrl}/api/production/planning/board/move`, {
+    headers,
+    data: {
+      segment_id: job.segment_id,
+      stage: "WINDER",
+      machine_id: null,
+      plan_date: null,
+      shift_code: null,
+      sequence_no: 1,
+    },
+  })
+  const undoText = await undoResponse.text()
+  expect(undoResponse.ok(), undoText).toBeTruthy()
+}
+
 test("premium sales and planner surfaces load with animated interactive elements", async ({ page }) => {
   await login(page)
 
@@ -88,18 +149,29 @@ test("premium sales and planner surfaces load with animated interactive elements
   await expect(page.getByText(/one po, many release moments/i)).toBeVisible()
   await expectTransition(page.getByRole("link", { name: /open planner handoff/i }))
 
-  await page.goto("/planning/board?section=winder", { waitUntil: "domcontentloaded" })
+  await page.evaluate(() => window.localStorage.setItem("hariom_active_plant", "PLANT_A"))
+  await page.goto("/planning/board?section=winder&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("planner-page")).toBeVisible()
-  await expect(page.locator("aside[data-expanded='false']")).toBeVisible()
-  await expect(page.getByText(/full-width machine scheduling for the next three days/i)).toBeVisible()
+  const shellSidebar = page.locator("aside[data-expanded]").first()
+  await expect(shellSidebar).toHaveAttribute("data-expanded", "false")
+  await shellSidebar.hover()
+  await expect(shellSidebar).toHaveAttribute("data-expanded", "true")
+  await page.getByTestId("planner-page").hover()
+  await expect(shellSidebar).toHaveAttribute("data-expanded", "false")
+  await expect(page.getByText(/machine scheduling across 3 days/i)).toBeVisible()
   await expect(page.getByText(/schedule canvas/i)).toBeVisible()
   await expect(page.getByText(/previous day/i)).toHaveCount(0)
   await expect(page.getByText(/^today$/i)).toHaveCount(0)
   await expect(page.getByText(/next day/i)).toHaveCount(0)
   await expect(page.getByText(/released to this winder/i).first()).toBeVisible()
+  await expect(page.getByRole("button", { name: /all ·/i }).first()).toBeVisible()
+  await expect(page.getByRole("button", { name: /winder_01 ·/i }).first()).toBeVisible()
   await expect(page.getByText("WINDER_01").first()).toBeVisible()
   await expect(page.getByText("WINDER_02").first()).toBeVisible()
   await expect(page.getByText("WINDER_03").first()).toBeVisible()
+  await expect.poll(async () => page.locator("[data-testid='planner-page'] article[draggable='true']").count()).toBeGreaterThanOrEqual(10)
+  await expect(page.getByText(/kg/i).first()).toBeVisible()
+  await expect(page.getByText(/bamboo/i).first()).toBeVisible()
   const firstTab = page.locator("a[href*='/planning/board?section=']").first()
   await expectTransition(firstTab)
   await expect(page.getByText(/machine lane/i)).toBeVisible()
@@ -107,4 +179,10 @@ test("premium sales and planner surfaces load with animated interactive elements
   if (await queueCard.count()) {
     await expectTransition(queueCard)
   }
+  await expectPlannerMoveHonorsSelectedPlant(page)
+
+  await page.evaluate(() => window.localStorage.setItem("hariom_active_plant", "ALL"))
+  await page.goto("/planning/board?section=winder", { waitUntil: "domcontentloaded" })
+  await expect(page.getByText(/select one plant before scheduling/i)).toBeVisible()
+  await expect(page.getByRole("main").getByTestId("plant-switcher-trigger")).toBeVisible()
 })

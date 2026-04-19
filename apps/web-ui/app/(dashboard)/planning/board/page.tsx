@@ -2,12 +2,11 @@
 
 import Link from "next/link"
 import dayjs from "dayjs"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import {
   ArrowRight,
   CalendarClock,
-  CheckCircle2,
   Factory,
   GripVertical,
   Layers3,
@@ -17,6 +16,7 @@ import {
 } from "lucide-react"
 
 import { EmptyState, StatusBadge } from "@/components/erp/shell"
+import { PlantSwitcher } from "@/components/PlantSwitcher"
 import {
   Dialog,
   DialogContent,
@@ -164,7 +164,7 @@ function capacityUnitFor(section: string) {
 function formatCapacityUnit(value?: string | null) {
   const normalized = String(value || "").toUpperCase()
   if (normalized === "BAMBOOS_PER_DAY") return "bamboo/day"
-  if (normalized === "BATCHES_PER_DAY") return "batches/day"
+  if (normalized === "BATCHES_PER_DAY") return "batch cycles/day"
   if (normalized === "TUBES_PER_DAY") return "tubes/day"
   if (normalized === "REELS_PER_DAY") return "reels/day"
   return normalized ? normalized.toLowerCase().replace(/_/g, " ") : ""
@@ -205,6 +205,7 @@ export default function PlanningBoardPage() {
   const [draggedJob, setDraggedJob] = useState<any | null>(null)
   const [splitDialogJob, setSplitDialogJob] = useState<any | null>(null)
   const [splitQty, setSplitQty] = useState("")
+  const [queueFilter, setQueueFilter] = useState("all")
 
   const section = String(searchParams?.get("section") || "winder").toLowerCase()
   const stage = SECTION_STAGE_MAP[section] || "WINDER"
@@ -212,7 +213,8 @@ export default function PlanningBoardPage() {
   const focusedOrderId = String(searchParams?.get("order_id") || "")
   const focusedJobCardId = String(searchParams?.get("job_card_id") || "")
   const scopedPlantId = activePlant === "ALL" ? undefined : activePlant || undefined
-  const canQuery = !authLoading && Boolean(user)
+  const needsConcretePlant = activePlant === "ALL"
+  const canQuery = !authLoading && Boolean(user) && !needsConcretePlant
 
   const day0 = dayjs(startDate).format("YYYY-MM-DD")
   const day1 = dayjs(startDate).add(1, "day").format("YYYY-MM-DD")
@@ -329,22 +331,41 @@ export default function PlanningBoardPage() {
     return Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title))
   }, [machineLabelMap, queuedJobs, section])
 
+  const queueFilterOptions = useMemo(
+    () => [
+      { key: "all", label: "All", count: queuedJobs.length },
+      ...queueGroups.map((group) => ({ key: group.key, label: group.title, count: group.jobs.length })),
+    ],
+    [queueGroups, queuedJobs.length],
+  )
+
+  useEffect(() => {
+    if (queueFilter === "all") return
+    if (!queueGroups.some((group) => group.key === queueFilter)) {
+      setQueueFilter("all")
+    }
+  }, [queueFilter, queueGroups])
+
+  const visibleQueueGroups = useMemo(
+    () => (queueFilter === "all" ? queueGroups : queueGroups.filter((group) => group.key === queueFilter)),
+    [queueFilter, queueGroups],
+  )
+
+  const filteredQueuedJobs = useMemo(
+    () => visibleQueueGroups.flatMap((group) => group.jobs),
+    [visibleQueueGroups],
+  )
+
   const allVisibleJobs = useMemo(
     () => scheduledDays.flatMap((entry) => entry.lanes.flatMap((lane: any) => lane.jobs || [])),
     [scheduledDays],
   )
-  const completedJobs = useMemo(
-    () =>
-      (Array.isArray(jobsQuery.data) ? jobsQuery.data : []).filter(
-        (job: any) => String(job.status || "").toUpperCase() === "COMPLETED",
-      ),
-    [jobsQuery.data],
-  )
+  const allPlannerJobs = useMemo(() => [...queuedJobs, ...allVisibleJobs], [allVisibleJobs, queuedJobs])
   const dueRiskCount = useMemo(
     () =>
-      allVisibleJobs.filter((job: any) => job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day"))
+      allPlannerJobs.filter((job: any) => job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day"))
         .length,
-    [allVisibleJobs],
+    [allPlannerJobs],
   )
   const overloadedLaneCount = useMemo(
     () => scheduledDays.flatMap((entry) => entry.lanes).filter((lane: any) => Boolean(lane.warning)).length,
@@ -486,6 +507,74 @@ export default function PlanningBoardPage() {
     [machineRows],
   )
 
+  const plannerMetrics = useMemo(() => {
+    const lanes = machineRows.flatMap((machine) =>
+      machine.dayColumns.flatMap((dayColumn: any) => dayColumn.shifts || []),
+    )
+    const totalCapacity = lanes.reduce((sum, lane: any) => sum + Number(lane.capacity_value || 0), 0)
+    const scheduledLoad = lanes.reduce((sum, lane: any) => sum + Number(lane.current_load || 0), 0)
+    const queueLoad = queuedJobs.reduce((sum: number, job: any) => sum + capacityNeedFor(section, job), 0)
+    const queueTubes = queuedJobs.reduce((sum: number, job: any) => sum + Number(job.segment_planned_qty || 0), 0)
+    const queueWeight = queuedJobs.reduce((sum: number, job: any) => sum + Number(job.planned_weight_kg || 0), 0)
+    const maxShiftCapacity = Math.max(0, ...lanes.map((lane: any) => Number(lane.capacity_value || 0)))
+    const defaultShiftShare = Number(plannerShifts[0]?.capacity_share || 1)
+    const mustSplitCount = queuedJobs.filter((job: any) => {
+      const assignedMachine = machineStatsMap.get(String(job.assigned_winder_machine_id || ""))
+      const assignedCapacity = Number(assignedMachine?.capacity_value || 0)
+      const effectiveCapacity = assignedCapacity > 0 ? assignedCapacity * defaultShiftShare : maxShiftCapacity
+      return effectiveCapacity > 0 && capacityNeedFor(section, job) > effectiveCapacity
+    }).length
+
+    return {
+      totalCapacity,
+      scheduledLoad,
+      freeCapacity: Math.max(totalCapacity - scheduledLoad, 0),
+      queueLoad,
+      queueTubes,
+      queueWeight,
+      mustSplitCount,
+      utilization: totalCapacity > 0 ? Math.round((scheduledLoad / totalCapacity) * 100) : 0,
+    }
+  }, [machineRows, machineStatsMap, plannerShifts, queuedJobs, section])
+
+  const heroMetricCards = [
+    {
+      label: "Open queue",
+      value: queuedJobs.length,
+      hint: `${formatWhole(plannerMetrics.queueLoad)} ${capacityUnitFor(section)} waiting`,
+      className: "border-cyan-200 bg-cyan-50/90 text-cyan-950",
+      icon: Layers3,
+    },
+    {
+      label: "Tube load",
+      value: formatWhole(plannerMetrics.queueTubes),
+      hint: `${formatOne(plannerMetrics.queueWeight)} kg pending`,
+      className: "border-sky-200 bg-sky-50/90 text-sky-950",
+      icon: Factory,
+    },
+    {
+      label: "Free capacity",
+      value: formatWhole(plannerMetrics.freeCapacity),
+      hint: `${plannerMetrics.utilization}% slot usage`,
+      className: "border-emerald-200 bg-emerald-50/90 text-emerald-950",
+      icon: TimerReset,
+    },
+    {
+      label: "Needs split",
+      value: plannerMetrics.mustSplitCount,
+      hint: "Too large for one shift",
+      className: "border-amber-200 bg-amber-50/90 text-amber-950",
+      icon: Scissors,
+    },
+    {
+      label: "Due risk",
+      value: dueRiskCount,
+      hint: `${overloadedLaneCount} lane alert(s)`,
+      className: "border-rose-200 bg-rose-50/90 text-rose-950",
+      icon: CalendarClock,
+    },
+  ]
+
   async function handleDrop(target: DropTarget) {
     if (!draggedJob) return
     try {
@@ -532,15 +621,34 @@ export default function PlanningBoardPage() {
     return <EmptyState label="Loading planner workspace..." />
   }
 
-  if (requiresExplicitPlant) {
-    return <EmptyState label="Select one concrete plant before opening the planner workspace." />
+  if (needsConcretePlant || requiresExplicitPlant) {
+    return (
+      <div className={`rounded-[1.75rem] border bg-gradient-to-br ${stageTheme.tint} p-6 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="max-w-2xl">
+            <div className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${stageTheme.pill}`}>
+              Plant required
+            </div>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Select one plant before scheduling</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Planner boards are machine, shift, and capacity specific. Global `ALL` view is available for analytics/tracker,
+              but scheduling needs one concrete plant so queues and machine rows do not disappear or mix capacity.
+            </p>
+          </div>
+          <div className="rounded-[1.25rem] border border-white/80 bg-white/85 p-4 shadow-sm">
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Change scope</p>
+            <PlantSwitcher />
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
     <>
-      <div className="space-y-4 pb-4" data-testid="planner-page">
+      <div className="flex h-[calc(100vh-6.35rem)] min-h-[590px] flex-col gap-2.5 overflow-hidden pb-2" data-testid="planner-page">
         <section
-          className={`overflow-hidden rounded-[1.55rem] border bg-gradient-to-br ${stageTheme.tint} px-4 py-3 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}
+          className={`shrink-0 overflow-hidden rounded-[1.45rem] border bg-gradient-to-br ${stageTheme.tint} px-4 py-2.5 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}
         >
           <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
             <div className="min-w-0">
@@ -567,18 +675,15 @@ export default function PlanningBoardPage() {
               </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-5 2xl:w-[42rem]">
-              {[
-                ["Open", queuedJobs.length, section === "winder" ? "By winder" : "Stage queue"],
-                ["Scheduled", allVisibleJobs.length, "3-day slots"],
-                ["Machines", machineRows.length, "Visible rows"],
-                ["Alerts", overloadedLaneCount + dueRiskCount, "Capacity/due"],
-                ["Done", completedJobs.length, "History"],
-              ].map(([label, value, hint]) => (
-                <div key={String(label)} className="rounded-[1rem] border border-white/80 bg-white/82 px-3 py-2 shadow-sm">
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-                  <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
-                  <p className="text-[10px] text-slate-500">{hint}</p>
+            <div className="grid gap-2 sm:grid-cols-5 2xl:w-[45rem]">
+              {heroMetricCards.map((card) => (
+                <div key={card.label} className={`rounded-[1.05rem] border px-3 py-2 shadow-sm ring-1 ring-white/70 ${card.className}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-[0.16em] opacity-70">{card.label}</p>
+                    <card.icon className="h-3.5 w-3.5 opacity-70" />
+                  </div>
+                  <p className="mt-1 text-xl font-semibold leading-none">{card.value}</p>
+                  <p className="mt-1 text-[10px] leading-4 opacity-75">{card.hint}</p>
                 </div>
               ))}
             </div>
@@ -626,28 +731,50 @@ export default function PlanningBoardPage() {
           </div>
         </section>
 
-        <div className="grid gap-4 xl:grid-cols-[350px_minmax(0,1fr)]">
-          <aside className="space-y-4 xl:sticky xl:top-[5.6rem] xl:self-start">
-            <section className="rounded-[1.9rem] border border-slate-200 bg-white p-4 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
+        <div className="grid min-h-0 flex-1 gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
+          <aside className="min-h-0">
+            <section className="flex h-full min-h-0 flex-col rounded-[1.65rem] border border-slate-200 bg-white p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Open queue</p>
-                  <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">
                     {section === "winder" ? "Grouped by target winder" : "Shared stage backlog"}
                   </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
                     {section === "winder"
-                      ? "Released cards stay attached to the chosen winder. Drag them into the exact machine-shift slot once production is ready."
-                      : "Plan ahead for this stage even if the previous stage has not yet been entered. Cards leave this queue only after they are pinned to a machine slot."}
+                      ? "Filter by release-selected winder, then drag into a machine-shift slot."
+                      : "Plan ahead even before the previous stage entry lands."}
                   </p>
                 </div>
                 <div className={`rounded-full border px-3 py-2 text-xs font-semibold ${stageTheme.pill}`}>
-                  {queuedJobs.length} open
+                  {filteredQueuedJobs.length}/{queuedJobs.length}
                 </div>
               </div>
 
+              {queueFilterOptions.length > 1 ? (
+                <div className="mt-3 flex shrink-0 gap-2 overflow-x-auto pb-1">
+                  {queueFilterOptions.map((option) => {
+                    const active = queueFilter === option.key
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        onClick={() => setQueueFilter(option.key)}
+                        className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ${
+                          active
+                            ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                            : "border-slate-200 bg-slate-50 text-slate-700 hover:-translate-y-0.5 hover:bg-white"
+                        }`}
+                      >
+                        {option.label} · {option.count}
+                      </button>
+                    )
+                  })}
+                </div>
+              ) : null}
+
               <div
-                className={`mt-4 rounded-[1.3rem] border border-dashed bg-slate-50/80 px-4 py-4 text-sm text-slate-600 transition-all ${
+                className={`mt-3 shrink-0 rounded-[1.1rem] border border-dashed bg-slate-50/80 px-3 py-3 text-xs text-slate-600 transition-all ${
                   draggedJob ? `${stageTheme.border} ${stageTheme.dropRing}` : "border-slate-200"
                 }`}
                 onDragOver={(event) => event.preventDefault()}
@@ -656,12 +783,12 @@ export default function PlanningBoardPage() {
                 Drag a planned slot back here to unschedule it and return it to the queue.
               </div>
 
-              <div className="mt-4 space-y-4">
-                {queueGroups.length === 0 || queueGroups.every((group) => group.jobs.length === 0) ? (
+              <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+                {visibleQueueGroups.length === 0 || visibleQueueGroups.every((group) => group.jobs.length === 0) ? (
                   <EmptyState label="No unscheduled cards in this stage." />
                 ) : (
-                  queueGroups.map((group) => (
-                    <div key={group.key} className="rounded-[1.4rem] border border-slate-200 bg-slate-50/75 p-3">
+                  visibleQueueGroups.map((group) => (
+                    <div key={group.key} className="rounded-[1.25rem] border border-slate-200 bg-slate-50/75 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{group.title}</p>
@@ -672,16 +799,16 @@ export default function PlanningBoardPage() {
                         </div>
                       </div>
 
-                      <div className="mt-3 space-y-3">
+                      <div className="mt-3 space-y-2.5">
                         {group.jobs.map((job: any) => {
                           const assignedMachine = machineStatsMap.get(String(job.assigned_winder_machine_id || ""))
                           const preferredCapacity = Number(
                             assignedMachine?.capacity_value || job.machine_capacity_value || 0,
                           )
-                          const capacityNeed = Number(
-                            section === "winder" ? job.target_bamboo_count || job.required_capacity || 0 : job.required_capacity || 0,
-                          )
-                          const mustSplit = preferredCapacity > 0 && capacityNeed > preferredCapacity
+                          const perShiftCapacity =
+                            preferredCapacity > 0 ? preferredCapacity * Number(plannerShifts[0]?.capacity_share || 1) : 0
+                          const capacityNeed = capacityNeedFor(section, job)
+                          const mustSplit = perShiftCapacity > 0 && capacityNeed > perShiftCapacity
                           const dueSoon = job.due_date ? dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day") : false
 
                           return (
@@ -690,22 +817,23 @@ export default function PlanningBoardPage() {
                               draggable
                               onDragStart={() => setDraggedJob(job)}
                               onDragEnd={() => setDraggedJob(null)}
-                              className={`group relative overflow-visible rounded-[1.35rem] border bg-white p-4 transition-all duration-200 ${
+                              className={`group relative overflow-visible rounded-[1.2rem] border bg-white p-3 transition-all duration-200 ${
                                 draggedJob?.segment_id === job.segment_id
                                   ? `${stageTheme.border} ${stageTheme.dropRing}`
                                   : "border-slate-200 shadow-sm hover:-translate-y-0.5 hover:shadow-md"
                               }`}
                             >
-                              <div className={`absolute inset-y-3 left-3 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
-                              <div className="pl-4">
+                              <div className={`absolute inset-y-3 left-2.5 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
+                              <div className="pl-3.5">
                                 <div className="flex items-start justify-between gap-3">
                                   <div>
                                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
                                       {job.product_code || job.spec_reference || "Pending product"}
                                     </p>
-                                    <p className="mt-1 text-base font-semibold text-slate-950">
+                                    <p className="mt-1 text-sm font-semibold text-slate-950">
                                       {job.job_card_ref || String(job.job_card_id).slice(0, 8)}
                                     </p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-700">{plannerSize(job)}</p>
                                     <p className="mt-1 text-xs text-slate-500">
                                       {job.customer_name || "-"} · Due {formatDate(job.due_date)}
                                     </p>
@@ -713,12 +841,18 @@ export default function PlanningBoardPage() {
                                   <GripVertical className="h-4 w-4 text-slate-400" />
                                 </div>
 
-                                <div className="mt-3 flex flex-wrap gap-2">
+                                <div className="mt-2 flex flex-wrap gap-1.5">
                                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                                    {Number(job.segment_planned_qty || 0).toFixed(0)} pcs
+                                    {formatWhole(job.segment_planned_qty)} tubes
                                   </span>
                                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
-                                    {Number(job.target_bamboo_count || 0).toFixed(0)} bamboo
+                                    {formatWhole(job.target_bamboo_count)} bamboo
+                                  </span>
+                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                    {formatOne(job.planned_weight_kg)} kg
+                                  </span>
+                                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                                    Cap {formatWhole(capacityNeed)} {capacityUnitFor(section)}
                                   </span>
                                   {mustSplit ? (
                                     <span className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 text-[11px] font-semibold text-rose-700">
@@ -732,13 +866,14 @@ export default function PlanningBoardPage() {
                                   ) : null}
                                 </div>
 
-                                <div className="mt-3 grid gap-2 text-xs text-slate-600">
+                                <div className="mt-2 grid gap-1 text-[11px] text-slate-600">
                                   <p>
                                     {job.sales_order_id ? `SO ${String(job.sales_order_id).slice(0, 8)}` : "No sales order link"} · Release{" "}
-                                    {Number(job.segment_planned_qty || 0).toFixed(0)} pcs
+                                    {formatWhole(job.segment_planned_qty)} tubes
                                   </p>
                                   <p>
-                                    Capacity need {formatLoad(job.required_capacity)} {job.capacity_unit || ""}
+                                    Capacity need {formatWhole(capacityNeed)} {capacityUnitFor(section)}
+                                    {perShiftCapacity ? ` · slot cap ${formatWhole(perShiftCapacity)}` : ""}
                                   </p>
                                   <p>
                                     {assignedMachine
@@ -769,9 +904,16 @@ export default function PlanningBoardPage() {
                                 <p className="mt-2 text-lg font-semibold">{job.job_card_ref || String(job.job_card_id).slice(0, 8)}</p>
                                 <div className="mt-3 space-y-2 text-xs leading-5 text-slate-300">
                                   <p>Customer: {job.customer_name || "-"}</p>
-                                  <p>Spec: {job.product_code || job.spec_reference || "-"}</p>
-                                  <p>Tube qty: {Number(job.segment_planned_qty || 0).toFixed(0)} pcs</p>
-                                  <p>Bamboo: {Number(job.target_bamboo_count || 0).toFixed(0)} pcs</p>
+                                  <p>Product: {job.product_code || job.spec_reference || "-"}</p>
+                                  <p>Size: {plannerSize(job)}</p>
+                                  <p>Tube qty: {formatWhole(job.segment_planned_qty)} pcs</p>
+                                  <p>Bamboo req: {formatWhole(job.target_bamboo_count)} pcs</p>
+                                  <p>Tube weight: {formatOne(job.tube_weight_g || job.target_tube_weight)} g</p>
+                                  <p>Release weight: {formatOne(job.planned_weight_kg)} kg</p>
+                                  <p>Tube load / bamboo: {formatOne(job.bamboo_weight_kg)} kg</p>
+                                  <p>PCS / bamboo: {formatWhole(job.pcs_per_bamboo)}</p>
+                                  <p>CS target: {formatOne(job.required_cs)}</p>
+                                  <p>Bamboo length: {formatWhole(job.selected_bamboo_length_mm)} mm · usable {formatWhole(job.usable_length_mm)} mm</p>
                                   <p>Due: {formatDate(job.due_date)}</p>
                                   <p>Stage now: {String(job.current_stage || stage).toUpperCase()}</p>
                                 </div>
@@ -788,54 +930,23 @@ export default function PlanningBoardPage() {
 
           </aside>
 
-          <section className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-            <div className="flex flex-col gap-4 border-b border-slate-200 px-5 py-4">
-              <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.65rem] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+            <div className="shrink-0 border-b border-slate-200 px-4 py-2.5">
+              <div className="flex flex-col gap-1.5 xl:flex-row xl:items-end xl:justify-between">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Schedule canvas</p>
-                  <h2 className="mt-2 text-[1.45rem] font-semibold tracking-tight text-slate-950">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Schedule canvas</p>
+                  <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">
                     Machine rows across {scheduledDays.length} days and {plannerShifts.length} shifts
                   </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Every machine is visible whether scheduled or empty. Capacity bars update per slot, and manual split stays available when a card needs to break across shifts.
-                  </p>
                 </div>
-
-                <div className="grid gap-2 sm:grid-cols-2 xl:flex">
-                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <Factory className="h-4 w-4" />
-                      <span>Machines</span>
-                    </div>
-                    <p className="mt-2 text-xl font-semibold text-slate-950">{machineRows.length}</p>
-                  </div>
-                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <TimerReset className="h-4 w-4" />
-                      <span>Due risk</span>
-                    </div>
-                    <p className="mt-2 text-xl font-semibold text-slate-950">{dueRiskCount}</p>
-                  </div>
-                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <CalendarClock className="h-4 w-4" />
-                      <span>Lane alerts</span>
-                    </div>
-                    <p className="mt-2 text-xl font-semibold text-slate-950">{overloadedLaneCount}</p>
-                  </div>
-                  <div className="rounded-[1.25rem] border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
-                    <div className="flex items-center gap-2 text-slate-500">
-                      <CheckCircle2 className="h-4 w-4" />
-                      <span>Completion</span>
-                    </div>
-                    <p className="mt-2 text-xl font-semibold text-slate-950">{completedJobs.length}</p>
-                  </div>
-                </div>
+                <p className="max-w-2xl text-xs leading-5 text-slate-600">
+                  Empty and scheduled machines stay visible; drag queue cards into exact machine-shift slots.
+                </p>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <div className="min-w-[1720px] px-4 py-4">
+            <div className="min-h-0 flex-1 overflow-auto">
+              <div className="min-w-[1720px] px-4 py-3">
                 <div
                   className="grid gap-3"
                   style={{ gridTemplateColumns: `240px repeat(${Math.max(shiftHeaders.length, 1)}, minmax(170px, 1fr))` }}
@@ -887,7 +998,10 @@ export default function PlanningBoardPage() {
                           </div>
                           <div className="mt-4 space-y-2 text-xs text-slate-600">
                             <p>
-                              Capacity {formatLoad(machine.capacity_value)} {machine.capacity_unit || ""}
+                              Capacity {formatWhole(machine.capacity_value)} {machine.capacity_unit || ""}
+                              {machine.capacity_value
+                                ? ` · ~${formatWhole(Number(machine.capacity_value) * Number(plannerShifts[0]?.capacity_share || 1))}/shift`
+                                : ""}
                             </p>
                             <p>
                               {machine.status === "UP"
@@ -961,37 +1075,43 @@ export default function PlanningBoardPage() {
                                       draggable
                                       onDragStart={() => setDraggedJob(job)}
                                       onDragEnd={() => setDraggedJob(null)}
-                                      className={`group relative overflow-visible rounded-[1.1rem] border p-3 text-sm transition-all duration-200 ${
+                                      className={`group relative overflow-visible rounded-xl border px-2.5 py-2 text-xs transition-all duration-200 ${
                                         draggedJob?.segment_id === job.segment_id
                                           ? `${stageTheme.border} bg-white ${stageTheme.dropRing}`
-                                          : "border-slate-200 bg-slate-50 hover:-translate-y-0.5 hover:bg-white"
+                                          : "border-slate-200 bg-slate-50 hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
                                       }`}
                                     >
-                                      <div className={`absolute inset-y-2 left-2 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
-                                      <div className="pl-4">
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div>
-                                            <p className="font-semibold text-slate-950">
+                                      <div className={`absolute inset-y-2 left-1.5 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
+                                      <div className="pl-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <p className="truncate font-semibold text-slate-950">
                                               {job.job_card_ref || String(job.job_card_id).slice(0, 8)}
                                             </p>
-                                            <p className="mt-1 text-[11px] text-slate-500">
-                                              {job.product_code || "No product code"} · {job.customer_name || "-"}
+                                            <p className="mt-0.5 truncate text-[11px] font-semibold text-slate-700">
+                                              {plannerSize(job)}
+                                            </p>
+                                            <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                                              {job.customer_name || "-"}
                                             </p>
                                           </div>
-                                          <MoveHorizontal className="h-4 w-4 text-slate-400" />
+                                          <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                                         </div>
 
-                                        <div className="mt-2 flex flex-wrap gap-2">
+                                        <div className="mt-1.5 flex flex-wrap gap-1.5">
                                           <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
-                                            {Number(job.target_bamboo_count || 0).toFixed(0)} bmb
+                                            {formatWhole(job.target_bamboo_count)} bmb
                                           </span>
                                           <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
-                                            {Number(job.segment_planned_qty || 0).toFixed(0)} pcs
+                                            {formatWhole(job.segment_planned_qty)} tubes
+                                          </span>
+                                          <span className="rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] font-semibold text-slate-700">
+                                            {formatOne(job.planned_weight_kg)} kg
                                           </span>
                                         </div>
 
-                                        <div className="mt-2 grid gap-1 text-[11px] text-slate-600">
-                                          <p>Need {formatLoad(job.required_capacity)} capacity</p>
+                                        <div className="mt-1.5 grid gap-0.5 text-[10px] text-slate-600">
+                                          <p>Need {formatWhole(capacityNeedFor(section, job))} {capacityUnitFor(section)}</p>
                                           <p>Due {formatDate(job.due_date)}</p>
                                         </div>
 
@@ -1002,7 +1122,7 @@ export default function PlanningBoardPage() {
                                               setSplitDialogJob(job)
                                               setSplitQty(String(Math.floor(Number(job.segment_planned_qty || 0) / 2)))
                                             }}
-                                            className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-700 transition hover:bg-white"
+                                            className="mt-1.5 inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-[10px] font-semibold text-slate-700 transition hover:bg-white"
                                           >
                                             <Scissors className="h-3 w-3" />
                                             Split
@@ -1017,9 +1137,16 @@ export default function PlanningBoardPage() {
                                         </p>
                                         <div className="mt-3 space-y-2 text-xs leading-5 text-slate-300">
                                           <p>Customer: {job.customer_name || "-"}</p>
-                                          <p>Spec: {job.product_code || job.spec_reference || "-"}</p>
-                                          <p>Tube qty: {Number(job.segment_planned_qty || 0).toFixed(0)} pcs</p>
-                                          <p>Bamboo: {Number(job.target_bamboo_count || 0).toFixed(0)} pcs</p>
+                                          <p>Product: {job.product_code || job.spec_reference || "-"}</p>
+                                          <p>Size: {plannerSize(job)}</p>
+                                          <p>Tube qty: {formatWhole(job.segment_planned_qty)} pcs</p>
+                                          <p>Bamboo req: {formatWhole(job.target_bamboo_count)} pcs</p>
+                                          <p>Tube weight: {formatOne(job.tube_weight_g || job.target_tube_weight)} g</p>
+                                          <p>Release weight: {formatOne(job.planned_weight_kg)} kg</p>
+                                          <p>Tube load / bamboo: {formatOne(job.bamboo_weight_kg)} kg</p>
+                                          <p>PCS / bamboo: {formatWhole(job.pcs_per_bamboo)}</p>
+                                          <p>CS target: {formatOne(job.required_cs)}</p>
+                                          <p>Bamboo length: {formatWhole(job.selected_bamboo_length_mm)} mm · usable {formatWhole(job.usable_length_mm)} mm</p>
                                           <p>Due: {formatDate(job.due_date)}</p>
                                           <p>Status: {job.segment_status || job.status || "PLANNED"}</p>
                                         </div>

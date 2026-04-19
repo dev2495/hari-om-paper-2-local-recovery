@@ -5,10 +5,17 @@ import { useRouter, useSearchParams } from "next/navigation"
 
 import { useAuth } from "@/context/AuthContext"
 
+function landingPathFor(user: { role?: string | null; roles?: string[] }, fallback: string) {
+  const roles = new Set([user.role, ...(user.roles || [])].filter(Boolean))
+  const isPlannerPrimary = roles.has("Planner") && !["Owner", "Admin", "PlantManager"].some((role) => roles.has(role))
+  return isPlannerPrimary ? "/planning" : fallback
+}
+
 function LoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const nextPath = searchParams?.get("next") || "/dashboard"
+  const explicitNextPath = searchParams?.get("next")
+  const nextPath = explicitNextPath || "/dashboard"
   const { login, user, isLoading } = useAuth()
   const [email, setEmail] = useState("admin@hariom.com")
   const [password, setPassword] = useState("admin123")
@@ -17,17 +24,17 @@ function LoginPageContent() {
 
   useEffect(() => {
     if (!isLoading && user) {
-      router.replace(nextPath)
+      router.replace(explicitNextPath || landingPathFor(user, nextPath))
     }
-  }, [isLoading, nextPath, router, user])
+  }, [explicitNextPath, isLoading, nextPath, router, user])
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSubmitting(true)
     setError(null)
     try {
-      await login(email.trim(), password)
-      router.replace(nextPath)
+      const loggedInUser = await login(email.trim(), password)
+      router.replace(explicitNextPath || landingPathFor(loggedInUser, nextPath))
     } catch (err: any) {
       setError(err?.response?.data?.detail || err?.message || "Login failed")
     } finally {

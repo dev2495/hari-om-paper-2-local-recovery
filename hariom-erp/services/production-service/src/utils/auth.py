@@ -1,9 +1,10 @@
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, HTTPException, status, Header, Query
 from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
 from ..security import jwt_handler
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
+PLANNER_SCOPE_ROLES = {"Owner", "Admin", "PlantManager", "Planner"}
 
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -18,6 +19,8 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     roles = payload.get("roles", [])
     if not isinstance(roles, list):
         roles = [roles] if roles else []
+    if payload.get("role"):
+        roles = sorted({*roles, str(payload.get("role"))})
 
     permissions = payload.get("permissions", [])
     if not isinstance(permissions, list):
@@ -31,14 +34,21 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 
 def get_current_plant(
     current_user: dict = Depends(get_current_user),
+    plant_id: Optional[str] = Query(None),
     x_plant_id: Optional[str] = Header(None, alias="X-Plant-ID")
 ) -> str:
     user_roles = set(current_user.get("roles", []))
-    
-    # Owner can override plant via header
-    if "Owner" in user_roles and x_plant_id:
-        return x_plant_id
-        
+
+    requested = str(plant_id or x_plant_id or "").strip()
+    if requested:
+        if requested.upper() == "ALL":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select one concrete plant for planner write actions",
+            )
+        if user_roles.intersection(PLANNER_SCOPE_ROLES):
+            return requested
+
     # Default to user's assigned plant
     plant_id = current_user.get("plant_id")
     if not plant_id:
@@ -62,7 +72,7 @@ def get_current_plant_scope(
         )
 
     requested = (x_plant_id or default_plant).strip()
-    elevated_roles = {"Owner", "Admin", "Planner"}
+    elevated_roles = PLANNER_SCOPE_ROLES
 
     if requested.upper() == "ALL":
         if user_roles.intersection(elevated_roles):
