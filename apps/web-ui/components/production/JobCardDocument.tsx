@@ -1965,8 +1965,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const winderReadings = Array.isArray(winderPrintEntry.dimension_readings)
       ? winderPrintEntry.dimension_readings.filter((row: any) => Object.values(row || {}).some(Boolean))
       : []
-    const winderRows = Array.from({ length: 5 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
-    const processRows = Array.from({ length: 4 }, (_, index) => index === 0 ? {
+    const winderRows = Array.from({ length: 4 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
+    const processRows = Array.from({ length: 3 }, (_, index) => index === 0 ? {
       ...targetMeasure,
       ...(processPrintEntry.final_measurements || {}),
     } : {})
@@ -2001,19 +2001,18 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="job-print-label">{label}</div>
       </div>
     )
-    const QtyRow = ({ cols }: { cols: Array<[string, any]> }) => (
-      <div className="job-mini-grid">
-        {cols.map(([label, value]) => (
-          <PrintField key={label} label={label} value={value} />
-        ))}
-      </div>
-    )
-
-    const compactWinderRows = Array.from({ length: 3 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
-    const compactProcessRows = Array.from({ length: 2 }, (_, index) => index === 0 ? {
-      ...targetMeasure,
-      ...(processPrintEntry.final_measurements || {}),
-    } : {})
+    const measuredDimensionRows = (rows: any[]) =>
+      rows.map((row, index) => (
+        <tr key={`dimension-row-${index}`}>
+          <td>{row.length || ""}</td>
+          <td>{row.id || ""}</td>
+          <td>{row.od || ""}</td>
+          <td>{row.weight || ""}</td>
+          <td>{row.cs || ""}</td>
+          <td>{row.notch_distance || ""}</td>
+          <td>{row.notch_depth || ""}</td>
+        </tr>
+      ))
 
     return (
       <div className="job-print-root mx-auto max-w-[210mm] print:max-w-none">
@@ -2046,153 +2045,120 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <QRCodeSVG value={qrValue} size={58} />
           </div>
 
-          <div className="job-hero-grid">
-            <PrintField label="Customer" value={customerName} />
-            <PrintField label="Sales Order" value={salesOrderNumber} />
-            <PrintField label="Size" value={sizeLabel} />
-            <PrintField label="Mandrel" value={mandrelLabel} />
-            <PrintField label="Shift" value={winderPlan.shiftLabel} />
-            <PrintField label="Job Card Qty" value={`${formatNumber(releaseQty, 0)} pcs`} />
-            <PrintField label="Order Qty" value={`${formatNumber(orderQty, 0)} pcs`} />
-            <PrintField label="Packing Type" value={packingType} />
-            <PrintField label="Tube Weight" value={`${formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg)} g`} />
-            <PrintField label="Required C.S." value={formatNumber(requiredCs)} />
-            <PrintField label="Target Bamboo" value={`${formatNumber(effectiveTargetBamboo, 0)} pcs`} />
-            <PrintField label="Pcs / Bamboo" value={formatNumber(pcsPerBamboo, 0)} />
-            <PrintField label="Selected Bamboo" value={`${formatNumber(selectedBambooLength, 0)} mm`} />
-            <PrintField label="Usable Bamboo" value={`${formatNumber(usableBambooLength, 0)} mm`} />
-            <PrintField label="Parchment" value={parchmentColor || "-"} />
-            <PrintField label="Spec Reference" value={specReference} />
-          </div>
+          <section className="job-band job-summary-band">
+            <div className="job-section-title">
+              <span>Summary Box</span>
+              <span>Release + spec truth</span>
+            </div>
+            <div className="job-hero-grid">
+              {headerFields.map(([label, value]) => (
+                <PrintField key={label} label={String(label)} value={value} />
+              ))}
+            </div>
+          </section>
 
-          <div className="job-two-col">
-            <section className="job-block">
-              <div className="job-section-title">
-                <span>Winding (W1-W4)</span>
-                <span>{winderPlan.machineLabel}</span>
-              </div>
-              <div className="job-mini-grid job-mini-grid-6">
-                <PrintField label="Plan Date" value={winderPlan.planDate} />
-                <PrintField label="Winder No." value={winderMachineLabel} />
-                <PrintField label="Operator" value={winderPrintEntry.operator_name} />
-                <PrintField label="Output Bamboo" value={winderPrintEntry.bamboo_count_produced || formatNumber(winderPrintStage?.input_qty || effectiveTargetBamboo, 0)} />
-                <PrintField label="Accept / Reject" value={`${winderPrintEntry.accepted_bamboo_count || formatNumber(winderPrintStage?.output_qty, 0)} / ${winderPrintEntry.reject_bamboo_count || formatNumber(winderPrintStage?.scrap_qty, 0)}`} />
-                <PrintField label="Start / End" value={`${winderPrintEntry.start_time || "-"} / ${winderPrintEntry.end_time || "-"}`} />
-              </div>
-              <table className="job-print-table">
-                <thead>
-                  <tr>
-                    <th>Length</th>
-                    <th>I.D</th>
-                    <th>O.D</th>
-                    <th>Weight</th>
-                    <th>C.S</th>
-                    <th>QC</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {compactWinderRows.map((row: any, index: number) => (
-                    <tr key={`compact-winder-${index}`}>
-                      <td>{row.length || ""}</td>
-                      <td>{row.id || ""}</td>
-                      <td>{row.od || ""}</td>
-                      <td>{row.weight || ""}</td>
-                      <td>{row.cs || ""}</td>
-                      <td>{index === 0 ? winderPrintEntry.qc_sign || "" : ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
+          <section className="job-band">
+            <div className="job-section-title">
+              <span>Winding (W1-W4)</span>
+              <span>{winderPlan.machineLabel}</span>
+            </div>
+            <div className="job-mini-grid job-mini-grid-8">
+              <PrintField label="Plan Date" value={winderPlan.planDate} />
+              <PrintField label="Winder No." value={winderMachineLabel} />
+              <PrintField label="Operator" value={winderPrintEntry.operator_name} />
+              <PrintField label="Output Bamboo" value={winderPrintEntry.bamboo_count_produced || formatNumber(winderPrintStage?.input_qty || effectiveTargetBamboo, 0)} />
+              <PrintField label="Accept / Reject" value={`${winderPrintEntry.accepted_bamboo_count || formatNumber(winderPrintStage?.output_qty, 0)} / ${winderPrintEntry.reject_bamboo_count || formatNumber(winderPrintStage?.scrap_qty, 0)}`} />
+              <PrintField label="Start / End" value={`${winderPrintEntry.start_time || "-"} / ${winderPrintEntry.end_time || "-"}`} />
+              <PrintField label="QC Sign" value={winderPrintEntry.qc_sign || ""} />
+              <PrintField label="Supervisor" value={winderPrintEntry.supervisor_sign || ""} />
+            </div>
+            <table className="job-print-table job-dimension-table">
+              <thead>
+                <tr>
+                  <th>Length</th>
+                  <th>I.D</th>
+                  <th>O.D</th>
+                  <th>Weight</th>
+                  <th>C.S</th>
+                  <th>Notch Dist.</th>
+                  <th>Notch Depth</th>
+                </tr>
+              </thead>
+              <tbody>{measuredDimensionRows(winderRows)}</tbody>
+            </table>
+          </section>
 
-            <section className="job-block">
-              <div className="job-section-title">
-                <span>Oven Curing (O1-O6)</span>
-                <span>{ovenPlan.machineLabel}</span>
-              </div>
-              <div className="job-mini-grid job-mini-grid-6">
-                <PrintField label="Plan Date" value={ovenPlan.planDate} />
-                <PrintField label="Oven No." value={ovenMachineLabel} />
-                <PrintField label="Operator" value={ovenPrintEntry.operator_name} />
-                <PrintField label="Bamboo In / Out" value={`${ovenPrintEntry.bamboo_count_in || formatNumber(ovenPrintStage?.input_qty || effectiveTargetBamboo, 0)} / ${ovenPrintEntry.bamboo_count_out || formatNumber(ovenPrintStage?.output_qty, 0)}`} />
-                <PrintField label="Wet / Dry Bamboo" value={`${formatNumber(bambooWetWeightG)} / ${formatNumber(bambooDryWeightG)} g`} />
-                <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
-              </div>
-              <div className="job-mini-grid job-mini-grid-4">
-                <PrintField label="Pre Moisture" value={ovenPrintEntry.moisture_before} />
-                <PrintField label="Post Moisture" value={ovenPrintEntry.moisture_after} />
-                <PrintField label="Reject Qty" value={formatNumber(ovenPrintStage?.scrap_qty, 0)} />
-                <PrintField label="Reject Reason" value={ovenPrintEntry.rejection_code || ""} />
-              </div>
-            </section>
-          </div>
+          <section className="job-band job-oven-band">
+            <div className="job-section-title">
+              <span>Oven Curing (O1-O6)</span>
+              <span>{ovenPlan.machineLabel}</span>
+            </div>
+            <div className="job-mini-grid job-mini-grid-8">
+              <PrintField label="Plan Date" value={ovenPlan.planDate} />
+              <PrintField label="Oven No." value={ovenMachineLabel} />
+              <PrintField label="Operator" value={ovenPrintEntry.operator_name} />
+              <PrintField label="Bamboo In / Out" value={`${ovenPrintEntry.bamboo_count_in || formatNumber(ovenPrintStage?.input_qty || effectiveTargetBamboo, 0)} / ${ovenPrintEntry.bamboo_count_out || formatNumber(ovenPrintStage?.output_qty, 0)}`} />
+              <PrintField label="Wet / Dry Bamboo" value={`${formatNumber(bambooWetWeightG)} / ${formatNumber(bambooDryWeightG)} g`} />
+              <PrintField label="Pre / Post Moisture" value={`${ovenPrintEntry.moisture_before || "-"} / ${ovenPrintEntry.moisture_after || "-"}`} />
+              <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
+              <PrintField label="Reject / Reason" value={`${formatNumber(ovenPrintStage?.scrap_qty, 0)} / ${ovenPrintEntry.rejection_code || "-"}`} />
+            </div>
+          </section>
 
-          <div className="job-two-col job-lower-grid">
-            <section className="job-block">
-              <div className="job-section-title">
-                <span>Process Line (P1-P11)</span>
-                <span>{processPlan.machineLabel}</span>
-              </div>
-              <div className="job-mini-grid job-mini-grid-6">
-                <PrintField label="Plan Date" value={processPlan.planDate} />
-                <PrintField label="Line No." value={processMachineLabel} />
-                <PrintField label="Operator" value={processPrintEntry.operator_name} />
-                <PrintField label="Total Qty" value={processPrintEntry.process_qty || formatNumber(processPrintStage?.output_qty || releaseQty, 0)} />
-                <PrintField label="Reject Qty" value={processPrintEntry.reject_qty || formatNumber(processPrintStage?.scrap_qty, 0)} />
-                <PrintField label="Start / End" value={`${processPrintEntry.start_time || "-"} / ${processPrintEntry.end_time || "-"}`} />
-              </div>
-              <table className="job-print-table">
-                <thead>
-                  <tr>
-                    <th>Length</th>
-                    <th>I.D</th>
-                    <th>O.D</th>
-                    <th>Weight</th>
-                    <th>C.S</th>
-                    <th>Notch Dist.</th>
-                    <th>Notch Depth</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {compactProcessRows.map((row: any, index: number) => (
-                    <tr key={`compact-process-${index}`}>
-                      <td>{row.length || ""}</td>
-                      <td>{row.id || ""}</td>
-                      <td>{row.od || ""}</td>
-                      <td>{row.weight || ""}</td>
-                      <td>{row.cs || ""}</td>
-                      <td>{row.notch_distance || ""}</td>
-                      <td>{row.notch_depth || ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
+          <section className="job-band">
+            <div className="job-section-title">
+              <span>Process Line (P1-P11)</span>
+              <span>{processPlan.machineLabel}</span>
+            </div>
+            <div className="job-mini-grid job-mini-grid-8">
+              <PrintField label="Plan Date" value={processPlan.planDate} />
+              <PrintField label="Line No." value={processMachineLabel} />
+              <PrintField label="Operator" value={processPrintEntry.operator_name} />
+              <PrintField label="Oven Qty" value={formatNumber(ovenPrintStage?.output_qty || effectiveTargetBamboo, 0)} />
+              <PrintField label="Process Qty" value={processPrintEntry.process_qty || formatNumber(processPrintStage?.output_qty || releaseQty, 0)} />
+              <PrintField label="Reject / Reason" value={`${processPrintEntry.reject_qty || formatNumber(processPrintStage?.scrap_qty, 0)} / ${processPrintEntry.reject_reason || "-"}`} />
+              <PrintField label="Start / End" value={`${processPrintEntry.start_time || "-"} / ${processPrintEntry.end_time || "-"}`} />
+              <PrintField label="Cycle Time" value={processPrintEntry.cycle_time || "-"} />
+            </div>
+            <table className="job-print-table job-dimension-table">
+              <thead>
+                <tr>
+                  <th>Length</th>
+                  <th>I.D</th>
+                  <th>O.D</th>
+                  <th>Weight</th>
+                  <th>C.S</th>
+                  <th>Notch Dist.</th>
+                  <th>Notch Depth</th>
+                </tr>
+              </thead>
+              <tbody>{measuredDimensionRows(processRows)}</tbody>
+            </table>
+          </section>
 
-            <section className="job-block">
-              <div className="job-section-title">
-                <span>Packing + Dispatch</span>
-                <span>Release Close</span>
-              </div>
-              <div className="job-mini-grid job-mini-grid-4">
-                <PrintField label="Box Packed" value={packingPrintEntry.total_packed_qty || ""} />
-                <PrintField label="Tube / Box" value={setup.qty_per_box || ""} />
-                <PrintField label="Dispatch Date" value={packingPrintEntry.dispatch_date || dispatchPrintEntry.dispatch_date || ""} />
-                <PrintField label="Dispatch Qty" value={dispatchQty > 0 ? formatNumber(dispatchQty, 0) : ""} />
-                <PrintField label="Pending Qty" value={pendingQty > 0 ? formatNumber(pendingQty, 0) : ""} />
-                <PrintField label="QC Sign" value={qcPrintEntry.qc_sign || processPrintEntry.qc_sign || ""} />
-                <PrintField label="Supervisor" value={packingPrintEntry.supervisor_sign || ""} />
-                <PrintField label="Notes" value={processPrintStage?.remarks || packingPrintStage?.remarks || qcPrintStage?.remarks || ""} />
-              </div>
-              <div className="job-signature-row">
-                <SignatureLine label="Winder Operator" />
-                <SignatureLine label="Oven Operator" />
-                <SignatureLine label="Process Operator" />
-                <SignatureLine label="QC Inspector" />
-                <SignatureLine label="Supervisor" />
-              </div>
-            </section>
-          </div>
+          <section className="job-band job-pack-band">
+            <div className="job-section-title">
+              <span>Packing + Dispatch</span>
+              <span>Release Close</span>
+            </div>
+            <div className="job-mini-grid job-mini-grid-8">
+              <PrintField label="Box Packed" value={packingPrintEntry.total_packed_qty || ""} />
+              <PrintField label="Tube / Box" value={setup.qty_per_box || ""} />
+              <PrintField label="Dispatch Date" value={packingPrintEntry.dispatch_date || dispatchPrintEntry.dispatch_date || ""} />
+              <PrintField label="Dispatch Qty" value={dispatchQty > 0 ? formatNumber(dispatchQty, 0) : ""} />
+              <PrintField label="Pending Qty" value={pendingQty > 0 ? formatNumber(pendingQty, 0) : ""} />
+              <PrintField label="QC Sign" value={qcPrintEntry.qc_sign || processPrintEntry.qc_sign || ""} />
+              <PrintField label="Supervisor" value={packingPrintEntry.supervisor_sign || ""} />
+              <PrintField label="Notes" value={processPrintStage?.remarks || packingPrintStage?.remarks || qcPrintStage?.remarks || ""} />
+            </div>
+            <div className="job-signature-row">
+              <SignatureLine label="Winder Operator" />
+              <SignatureLine label="Oven Operator" />
+              <SignatureLine label="Process Operator" />
+              <SignatureLine label="QC Inspector" />
+              <SignatureLine label="Supervisor" />
+            </div>
+          </section>
         </section>
 
         <style jsx global>{`
@@ -2205,7 +2171,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             box-sizing: border-box;
             border: 2px solid #0f172a;
             background: #fff;
-            padding: 20px;
+            padding: 18px;
             min-height: 297mm;
             display: flex;
             flex-direction: column;
@@ -2267,48 +2233,31 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             display: grid;
             grid-template-columns: repeat(4, minmax(0, 1fr));
             border-left: 1px solid #0f172a;
-            margin-top: 8px;
           }
 
           .job-print-field {
-            min-height: 34px;
+            min-height: 29px;
             border: 1px solid #0f172a;
             border-left: 0;
+            border-top: 0;
             background: #fff;
-            padding: 4px 5px;
+            padding: 3px 5px;
             overflow: hidden;
           }
 
-          .job-two-col {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-            margin-top: 10px;
-            align-items: stretch;
-          }
-
-          .job-two-col .job-block {
-            min-height: 76mm;
-          }
-
-          .job-lower-grid {
-            grid-template-columns: 1.08fr 0.92fr;
-          }
-
-          .job-lower-grid .job-block {
-            min-height: 90mm;
-          }
-
-          .job-block {
+          .job-band {
             border: 1px solid #0f172a;
+            border-top: 0;
             background: #fff;
-            display: flex;
-            flex-direction: column;
+          }
+
+          .job-summary-band {
+            margin-top: 8px;
           }
 
           .job-section-title {
             display: grid;
-            grid-template-columns: 1fr 145px;
+            grid-template-columns: 1fr 155px;
             border-bottom: 1px solid #0f172a;
             background: #f1f5f9;
             font-size: 10px;
@@ -2332,12 +2281,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             border-left: 1px solid #0f172a;
           }
 
-          .job-mini-grid-6 {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-          }
-
-          .job-mini-grid-4 {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
+          .job-mini-grid-8 {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
           }
 
           .job-mini-grid .job-print-field {
@@ -2348,12 +2293,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             width: 100%;
             border-collapse: collapse;
             font-size: 9px;
-            flex: 1;
           }
 
           .job-print-table th,
           .job-print-table td {
-            height: 7.2mm;
+            height: 7mm;
             border: 1px solid #0f172a;
             border-left: 0;
             padding: 2px 4px;
@@ -2373,8 +2317,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             display: grid;
             grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 8px;
-            margin-top: auto;
-            padding: 12mm 7px 5px;
+            padding: 14mm 7px 5px;
           }
 
           .job-signature {
@@ -2415,44 +2358,30 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             .job-one-sheet {
               min-height: 287mm;
               break-after: auto;
-              padding: 7mm;
+              padding: 6mm 7mm;
               box-shadow: none !important;
             }
 
-            .job-hero-grid {
-              margin-top: 4mm;
+            .job-summary-band {
+              margin-top: 3mm;
             }
 
             .job-print-field {
-              min-height: 11mm;
-              padding: 1.6mm 2mm;
+              min-height: 8.8mm;
+              padding: 1.2mm 1.8mm;
             }
 
             .job-ref-box {
               min-height: 13mm;
             }
 
-            .job-two-col {
-              gap: 3mm;
-              margin-top: 4mm;
-            }
-
-            .job-two-col .job-block {
-              min-height: 74mm;
-            }
-
-            .job-lower-grid .job-block {
-              min-height: 88mm;
-            }
-
             .job-print-table th,
             .job-print-table td {
-              height: 7.2mm;
+              height: 6.8mm;
               padding: 1mm 1.4mm;
             }
 
             .job-signature-row {
-              margin-top: auto;
               padding-top: 12mm;
               padding-bottom: 2mm;
             }

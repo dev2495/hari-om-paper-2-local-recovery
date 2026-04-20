@@ -2062,9 +2062,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g paper in live recipe` : "No recipe applied yet"}
                   />
                   <SummaryMetric
-                    label="Dry delta"
-                    value={`${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g`}
-                    detail={hasRecipeSelection ? `${Math.abs(liveDryDelta) <= 3 ? "Inside" : "Outside"} tolerance` : "Apply a recipe to compare against the target"}
+                    label="Tube dry band"
+                    value={`${weightBand.min.toFixed(2)} - ${weightBand.max.toFixed(2)} g`}
+                    detail={
+                      hasRecipeSelection
+                        ? `${liveDryTube.toFixed(2)} g predicted (${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g)`
+                        : "Apply a recipe to compare against the min/max band"
+                    }
                     tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
                   />
                 </div>
@@ -2233,7 +2237,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-xs text-slate-400">Target wet {targetWetTube.toFixed(2)} g</p>
                     </div>
                     <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Dry delta</p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Dry vs band</p>
                       <p className={`mt-2 text-3xl font-black tracking-[-0.04em] ${Math.abs(liveDryDelta) <= 3 ? "text-emerald-300" : "text-amber-300"}`}>
                         {liveDryDelta > 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g
                       </p>
