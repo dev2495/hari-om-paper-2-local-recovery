@@ -52,6 +52,10 @@ ENV NODE_ENV=production \
     INVENTORY_PORT=18005 \
     ANALYTICS_PORT=18007 \
     SALES_PORT=18008 \
+    BOOTSTRAP_ADMIN_EMAIL=devarsh@hariom.com \
+    BOOTSTRAP_ADMIN_NAME="Devarsh Admin" \
+    BOOTSTRAP_OWNER_EMAIL=yash@hariom.com \
+    BOOTSTRAP_OWNER_NAME="Yash Owner" \
     SEED_DEMO_USERS=false
 
 EXPOSE 13000
@@ -60,4 +64,3 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=5 \
     CMD curl -fsS http://127.0.0.1:13000/login >/dev/null || exit 1
 
 CMD ["bash", "deploy/tinypod/start_single_container.sh"]
-

@@ -2,21 +2,23 @@
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://127.0.0.1:13000}"
-ADMIN_EMAIL="${ADMIN_EMAIL:-${BOOTSTRAP_ADMIN_EMAIL:-admin@hariom.com}}"
+ADMIN_EMAIL="${ADMIN_EMAIL:-${BOOTSTRAP_ADMIN_EMAIL:-devarsh@hariom.com}}"
 ADMIN_PASSWORD="${ADMIN_PASSWORD:-${BOOTSTRAP_ADMIN_PASSWORD:-}}"
+OWNER_EMAIL="${OWNER_EMAIL:-${BOOTSTRAP_OWNER_EMAIL:-yash@hariom.com}}"
+OWNER_PASSWORD="${OWNER_PASSWORD:-${BOOTSTRAP_OWNER_PASSWORD:-}}"
 
 if [[ -z "$ADMIN_PASSWORD" ]]; then
   echo "ADMIN_PASSWORD or BOOTSTRAP_ADMIN_PASSWORD is required for authenticated smoke checks." >&2
   exit 2
 fi
 
-python3 - "$BASE_URL" "$ADMIN_EMAIL" "$ADMIN_PASSWORD" <<'PY'
+python3 - "$BASE_URL" "$ADMIN_EMAIL" "$ADMIN_PASSWORD" "$OWNER_EMAIL" "$OWNER_PASSWORD" <<'PY'
 import json
 import sys
 import urllib.error
 import urllib.request
 
-base_url, email, password = sys.argv[1:4]
+base_url, email, password, owner_email, owner_password = sys.argv[1:6]
 base_url = base_url.rstrip("/")
 
 
@@ -54,6 +56,12 @@ if not token:
     raise SystemExit(f"[fail] login succeeded without access_token: {login_payload}")
 print(f"[ok] auth login HTTP {status}")
 
+if owner_password:
+    status, owner_payload = request("POST", "/api/auth/login", {"email": owner_email, "password": owner_password})
+    if not (owner_payload or {}).get("access_token"):
+        raise SystemExit(f"[fail] owner login succeeded without access_token: {owner_payload}")
+    print(f"[ok] owner auth login HTTP {status}")
+
 checks = [
     ("GET", "/api/auth/me"),
     ("GET", "/api/master/papers"),
@@ -70,4 +78,3 @@ for method, path in checks:
 
 print("[ok] TinyPod smoke passed")
 PY
-

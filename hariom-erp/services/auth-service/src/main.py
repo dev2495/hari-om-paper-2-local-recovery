@@ -144,9 +144,9 @@ seed_default_plants()
 def seed_bootstrap_admin():
     db: Session = SessionLocal()
     try:
-        admin_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@hariom.com")
+        admin_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "devarsh@hariom.com")
         admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123")
-        admin_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "System Admin")
+        admin_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "Devarsh Admin")
         admin_plant_code = os.getenv("BOOTSTRAP_ADMIN_PLANT_ID", "PLANT_A")
         admin_plant = db.query(models.Plant).filter(models.Plant.code == admin_plant_code).first()
 
@@ -165,8 +165,6 @@ def seed_bootstrap_admin():
         existing_user = db.query(models.User).filter(models.User.email == admin_email).first()
 
         if existing_user is None:
-            if db.query(models.User).count() > 0:
-                return
             existing_user = models.User(
                 name=admin_name,
                 email=admin_email,
@@ -193,6 +191,52 @@ def seed_bootstrap_admin():
 
 
 seed_bootstrap_admin()
+
+
+def seed_staging_owner_user():
+    owner_email = os.getenv("BOOTSTRAP_OWNER_EMAIL", "yash@hariom.com")
+    owner_password = os.getenv("BOOTSTRAP_OWNER_PASSWORD", "owner123")
+    owner_name = os.getenv("BOOTSTRAP_OWNER_NAME", "Yash Owner")
+    owner_plant_code = os.getenv("BOOTSTRAP_OWNER_PLANT_ID", "PLANT_A")
+
+    db: Session = SessionLocal()
+    try:
+        owner_plant = db.query(models.Plant).filter(models.Plant.code == owner_plant_code).first()
+        owner_role = db.query(models.Role).filter(models.Role.name == "Owner").first()
+        active_plants = (
+            db.query(models.Plant)
+            .filter(models.Plant.is_active.is_(True), models.Plant.code != "ALL")
+            .order_by(models.Plant.code.asc())
+            .all()
+        )
+        existing_user = db.query(models.User).filter(models.User.email == owner_email).first()
+        if existing_user is None:
+            existing_user = models.User(
+                name=owner_name,
+                email=owner_email,
+                plant_id=owner_plant.id if owner_plant else None,
+                hashed_password=hashing.get_password_hash(owner_password),
+                is_active=True,
+            )
+            db.add(existing_user)
+            db.flush()
+
+        existing_user.name = owner_name
+        existing_user.is_active = True
+        existing_user.is_owner_all_plants = True
+        existing_user.allowed_plants = active_plants
+        if owner_plant:
+            existing_user.plant_id = owner_plant.id
+        if owner_role:
+            role_map = {role.name: role for role in existing_user.roles}
+            role_map[owner_role.name] = owner_role
+            existing_user.roles = list(role_map.values())
+        db.commit()
+    finally:
+        db.close()
+
+
+seed_staging_owner_user()
 
 
 def seed_canonical_demo_users():
