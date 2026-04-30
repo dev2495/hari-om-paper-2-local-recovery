@@ -174,6 +174,8 @@ def seed_bootstrap_admin():
             )
             db.add(existing_user)
             db.flush()
+        elif env_flag("RESET_BOOTSTRAP_PASSWORDS", default=False):
+            existing_user.hashed_password = hashing.get_password_hash(admin_password)
 
         role_map = {role.name: role for role in existing_user.roles}
         for role in admin_roles:
@@ -220,6 +222,8 @@ def seed_staging_owner_user():
             )
             db.add(existing_user)
             db.flush()
+        elif env_flag("RESET_BOOTSTRAP_PASSWORDS", default=False):
+            existing_user.hashed_password = hashing.get_password_hash(owner_password)
 
         existing_user.name = owner_name
         existing_user.is_active = True
