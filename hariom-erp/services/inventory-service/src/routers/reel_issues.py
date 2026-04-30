@@ -102,8 +102,10 @@ class ReelIssueResponse(BaseModel):
     shift: str
     issue_date: date
     issued_weight_kg: float
+    consumed_weight_kg: float = 0.0
     remaining_weight_kg: float
     status: str
+    closed_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
@@ -120,8 +122,10 @@ def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
         shift=issue.shift,
         issue_date=issue.issue_date,
         issued_weight_kg=float(issue.issued_weight_kg or 0.0),
+        consumed_weight_kg=float(getattr(issue, "consumed_weight_kg", 0.0) or 0.0),
         remaining_weight_kg=float(issue.remaining_weight_kg or 0.0),
         status=issue.status.value if isinstance(issue.status, ReelIssueStatus) else str(issue.status),
+        closed_at=getattr(issue, "closed_at", None),
         created_at=issue.created_at,
     )
 
@@ -171,6 +175,7 @@ def create_reel_issue(
 
 @router.get("", response_model=List[ReelIssueResponse])
 def list_reel_issues(
+    reel_id: Optional[uuid.UUID] = Query(default=None),
     machine_id: Optional[uuid.UUID] = Query(default=None),
     winder_machine_id: Optional[uuid.UUID] = Query(default=None),
     winder: Optional[uuid.UUID] = Query(default=None),
@@ -181,6 +186,8 @@ def list_reel_issues(
     date_to: Optional[date] = Query(default=None),
     issue_ids: Optional[str] = Query(default=None, description="Comma-separated reel issue UUIDs"),
     status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
@@ -199,6 +206,8 @@ def list_reel_issues(
 
     if effective_machine:
         query = query.filter(ReelIssue.winder_machine_id == effective_machine)
+    if reel_id:
+        query = query.filter(ReelIssue.reel_id == reel_id)
     if issue_section:
         query = query.filter(ReelIssue.issue_section == _normalize_section(issue_section))
     if shift:
@@ -214,7 +223,7 @@ def list_reel_issues(
     if normalized_status:
         query = query.filter(ReelIssue.status == ReelIssueStatus(normalized_status))
 
-    rows = query.order_by(ReelIssue.issue_date.desc(), ReelIssue.created_at.desc()).all()
+    rows = query.order_by(ReelIssue.issue_date.desc(), ReelIssue.created_at.desc()).offset(offset).limit(limit).all()
     return [_serialize_issue(row) for row in rows]
 
 
@@ -249,7 +258,9 @@ def close_reel_issue(
         raise HTTPException(status_code=400, detail="Consumed weight cannot exceed reel current weight")
 
     issue.remaining_weight_kg = float(issue.issued_weight_kg) - consumed
+    issue.consumed_weight_kg = consumed
     issue.status = ReelIssueStatus.CLOSED
+    issue.closed_at = datetime.utcnow()
 
     reel.current_weight_kg = float(reel.current_weight_kg) - consumed
     if reel.current_weight_kg < 0:

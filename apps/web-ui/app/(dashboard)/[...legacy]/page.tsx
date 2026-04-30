@@ -18,6 +18,7 @@ import MasterPackagingPage from "../master/packaging/page"
 import MasterPage from "../master/page"
 import MasterPapersPage from "../master/papers/page"
 import MasterParchmentsPage from "../master/parchments/page"
+import MasterSuppliersPage from "../master/suppliers/page"
 import MasterToolsPage from "../master/tools/page"
 import MasterTubeSizesPage from "../master/tube-sizes/page"
 import CustomersPage from "../masters/customers/page"
@@ -32,9 +33,9 @@ import ReportsPlantsPage from "../reports/plants/page"
 import ReportsSalesPage from "../reports/sales/page"
 
 type LegacyPageProps = {
-  params: {
+  params: Promise<{
     legacy: string[]
-  }
+  }>
 }
 
 const componentMap: Record<string, any> = {
@@ -66,12 +67,14 @@ const componentMap: Record<string, any> = {
   "inventory/valuation": ReportsInventoryPage,
   "master/customers": CustomersPage,
   "master/packaging": MasterPackagingPage,
+  "master/suppliers": MasterSuppliersPage,
   "master/tools": MasterToolsPage,
   "masters/adhesives": MasterAdhesivesPage,
   "masters/machines": MasterItemsPage,
   "masters/mandrels": MasterMandrelsPage,
   "masters/packaging": MasterPackagingPage,
   "masters/parchments": MasterParchmentsPage,
+  "masters/suppliers": MasterSuppliersPage,
   "masters/tools": MasterToolsPage,
   "masters/tube-sizes": MasterTubeSizesPage,
   "planning": ProductionPlannerPage,
@@ -138,9 +141,11 @@ function resolveLegacyTarget(segments: string[]) {
   return null
 }
 
-export default function LegacyRoutePage({ params }: LegacyPageProps) {
-  const joined = params.legacy.join("/")
-  const Component = componentMap[joined] || resolveLegacyTarget(params.legacy)
+export default async function LegacyRoutePage({ params }: LegacyPageProps) {
+  const resolvedParams = await params
+  const segments = resolvedParams.legacy || []
+  const joined = segments.join("/")
+  const Component = componentMap[joined] || resolveLegacyTarget(segments)
 
   if (!Component) {
     notFound()

@@ -1,17 +1,12 @@
 "use client"
 
 import Link from "next/link"
-import { Building2, ChevronRight, Factory, Plus, Shield, User as UserIcon, Users2 } from "lucide-react"
+import { useDeferredValue, useMemo, useState } from "react"
+import { Building2, ChevronRight, Factory, Plus, Search, Shield, User as UserIcon, Users2 } from "lucide-react"
 
 import { useAuth } from "@/context/AuthContext"
 import { usePlants, useUsers } from "@/hooks/use-system"
-
-const PLANT_SCOPE_ALIASES: Record<string, string> = {
-  "00000000-0000-0000-0000-0000000000a1": "Plant A",
-  "00000000-0000-0000-0000-0000000000b2": "Plant B",
-  PLANT_A: "Plant A",
-  PLANT_B: "Plant B",
-}
+import { PLANT_SCOPE_LABELS, displayPlantScope } from "@/lib/plant-scope"
 
 function formatCreated(value: string | undefined | null) {
   if (!value) return "Legacy user"
@@ -24,6 +19,10 @@ export default function UsersPage() {
   const { user, activePlant } = useAuth()
   const { data: users = [], isLoading: usersLoading } = useUsers()
   const { data: plants = [] } = usePlants()
+  const [search, setSearch] = useState("")
+  const [roleFilter, setRoleFilter] = useState("ALL")
+  const [statusFilter, setStatusFilter] = useState("ALL")
+  const deferredSearch = useDeferredValue(search.trim().toLowerCase())
 
   const plantMap = new Map<string, string>()
   ;(Array.isArray(plants) ? plants : []).forEach((plant: any) => {
@@ -32,7 +31,7 @@ export default function UsersPage() {
       plantMap.set(String(value), label)
     })
   })
-  Object.entries(PLANT_SCOPE_ALIASES).forEach(([key, value]) => {
+  Object.entries(PLANT_SCOPE_LABELS).forEach(([key, value]) => {
     if (!plantMap.has(key)) {
       plantMap.set(key, value)
     }
@@ -46,6 +45,33 @@ export default function UsersPage() {
     return allowedPlants.includes(activePlant)
   })
 
+  const visibleUsers = useMemo(() => {
+    return scopedUsers.filter((entry: any) => {
+      const roles = Array.isArray(entry?.roles) ? entry.roles.filter(Boolean) : []
+      if (roleFilter !== "ALL" && !roles.some((role: string) => String(role).toLowerCase() === roleFilter.toLowerCase())) return false
+      if (statusFilter === "ACTIVE" && entry?.is_active === false) return false
+      if (statusFilter === "INACTIVE" && entry?.is_active !== false) return false
+      if (!deferredSearch) return true
+      return [entry?.name, entry?.email, roles.join(" "), entry?.plant_id, ...(entry?.allowed_plant_ids || []), ...(entry?.allowed_plants || [])]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(deferredSearch)
+    })
+  }, [scopedUsers, deferredSearch, roleFilter, statusFilter])
+
+  const roleOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (Array.isArray(users) ? users : []).flatMap((entry: any) =>
+            Array.isArray(entry?.roles) ? entry.roles.filter(Boolean).map((role: string) => String(role)) : [],
+          ),
+        ),
+      ).sort(),
+    [users],
+  )
+
   const globalUsers = scopedUsers.filter((entry: any) => {
     const allowedPlants = [...(entry?.allowed_plant_ids || []), ...(entry?.allowed_plants || [])].filter(Boolean)
     return entry?.is_owner_all_plants || allowedPlants.length === 0
@@ -54,7 +80,7 @@ export default function UsersPage() {
   const scopeLabel =
     activePlant === "ALL"
       ? "All visible plants"
-      : plantMap.get(String(activePlant || "")) || activePlant || user?.plant_id || "Global"
+      : plantMap.get(String(activePlant || "")) || displayPlantScope(activePlant || user?.plant_id, "Global")
 
   return (
     <div className="space-y-6">
@@ -96,6 +122,7 @@ export default function UsersPage() {
           { href: "/system/users", label: "Users", icon: Users2, active: true },
           { href: "/system/plants", label: "Plants", icon: Building2, active: false },
           { href: "/system/machines", label: "Machines", icon: Factory, active: false },
+          { href: "/system/locations", label: "Locations", icon: Building2, active: false },
         ].map((item) => (
           <Link
             key={item.href}
@@ -116,9 +143,39 @@ export default function UsersPage() {
             <h2 className="text-lg font-semibold text-slate-950">User management</h2>
             <p className="text-sm text-slate-500">Roles are rendered from the real auth-service payload and plant IDs are resolved back to plant names.</p>
           </div>
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {scopeLabel}
-          </span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
+              <Search className="h-4 w-4 text-slate-400" />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search users, email, role..."
+                className="w-56 bg-transparent text-sm outline-none placeholder:text-slate-400"
+              />
+            </div>
+            <select
+              value={roleFilter}
+              onChange={(event) => setRoleFilter(event.target.value)}
+              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+            >
+              <option value="ALL">All roles</option>
+              {roleOptions.map((role) => (
+                <option key={role} value={role}>{role}</option>
+              ))}
+            </select>
+            <select
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+            >
+              <option value="ALL">All status</option>
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+            </select>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {visibleUsers.length}/{scopedUsers.length}
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -141,23 +198,23 @@ export default function UsersPage() {
                     </td>
                   </tr>
                 ))
-              ) : scopedUsers.length === 0 ? (
+              ) : visibleUsers.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
-                    No users found for this scope.
+                    No users matched this scope/filter.
                   </td>
                 </tr>
               ) : (
-                scopedUsers.map((entry: any) => {
+                visibleUsers.map((entry: any) => {
                   const roles = Array.isArray(entry?.roles) ? entry.roles.filter(Boolean) : []
                   const allowedPlants = Array.from(
                     new Set([...(entry?.allowed_plant_ids || []), ...(entry?.allowed_plants || []), entry?.plant_id].filter(Boolean)),
                   )
-                  const scopeItems = entry?.is_owner_all_plants
-                    ? ["All plants"]
-                    : allowedPlants.length > 0
-                      ? allowedPlants.map((plantId: string) => plantMap.get(String(plantId)) || String(plantId))
-                      : ["Global"]
+                      const scopeItems = entry?.is_owner_all_plants
+                        ? ["All plants"]
+                        : allowedPlants.length > 0
+                          ? allowedPlants.map((plantId: string) => plantMap.get(String(plantId)) || displayPlantScope(String(plantId)))
+                          : ["Global"]
 
                   return (
                     <tr key={entry.id} className="transition hover:bg-slate-50/80">

@@ -52,6 +52,8 @@ MACHINES = [
         "department": "OVEN",
         "capacity_type": "BATCHES_PER_DAY",
         "capacity_value": 2,
+        "batch_bamboo_capacity": 500,
+        "cycle_time_hours": 5.5,
     },
     {
         "code": "OVEN_02",
@@ -59,6 +61,8 @@ MACHINES = [
         "department": "OVEN",
         "capacity_type": "BATCHES_PER_DAY",
         "capacity_value": 2,
+        "batch_bamboo_capacity": 450,
+        "cycle_time_hours": 5.5,
     },
     {
         "code": "OVEN_03",
@@ -66,6 +70,8 @@ MACHINES = [
         "department": "OVEN",
         "capacity_type": "BATCHES_PER_DAY",
         "capacity_value": 1,
+        "batch_bamboo_capacity": 300,
+        "cycle_time_hours": 6.0,
     },
     {
         "code": "PROCESS_01",
@@ -165,11 +171,12 @@ def seed_machine_master() -> list[dict]:
                     """
                     INSERT INTO machine (
                         id, code, name, department, capacity_type, capacity_value,
+                        batch_bamboo_capacity, cycle_time_hours,
                         id_min_mm, id_max_mm, od_min_mm, od_max_mm,
                         length_min_mm, length_max_mm, plant_id, is_active, active
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, 10, 500, 10, 650, 25, 2500, %s, TRUE, TRUE)
-                    RETURNING id, code, name, department, capacity_type, capacity_value
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 10, 500, 10, 650, 25, 2500, %s, TRUE, TRUE)
+                    RETURNING id, code, name, department, capacity_type, capacity_value, batch_bamboo_capacity, cycle_time_hours
                     """,
                     (
                         machine_id,
@@ -178,6 +185,8 @@ def seed_machine_master() -> list[dict]:
                         row["department"],
                         row["capacity_type"],
                         float(row["capacity_value"]),
+                        row.get("batch_bamboo_capacity"),
+                        row.get("cycle_time_hours"),
                         PLANT_ID,
                     ),
                 )
@@ -190,6 +199,8 @@ def seed_machine_master() -> list[dict]:
                         "department": result[3],
                         "capacity_type": result[4],
                         "capacity_value": float(result[5]),
+                        "batch_bamboo_capacity": float(result[6]) if result[6] is not None else None,
+                        "cycle_time_hours": float(result[7]) if result[7] is not None else None,
                     }
                 )
     return seeded

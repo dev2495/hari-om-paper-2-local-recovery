@@ -9,6 +9,7 @@ import { useParams } from "next/navigation"
 import { EmptyState, Panel, StatusBadge } from "@/components/erp/shell"
 import { usePlanningJobCards } from "@/hooks/use-production"
 import { useSalesOrder, useSalesOrderTimeline } from "@/hooks/use-sales"
+import { jobCardRef } from "@/lib/job-card-display"
 
 function formatDateTime(value?: string | null) {
   if (!value) return "-"
@@ -32,7 +33,7 @@ export default function SalesOrderAuditPage() {
       .map((job: any) => ({
         id: `${job.id}:job-card`,
         event_type: "JOB_CARD_SYNCED",
-        title: `Job card synced: ${job.job_card_ref || String(job.id).slice(0, 8)}`,
+        title: `Job card synced: ${jobCardRef(job)}`,
         message: `${job.current_stage} queue created for ${Number(job.planned_qty || 0).toFixed(0)} pcs.`,
         created_at: job.created_at,
         actor: job.current_machine_id || "planner",

@@ -314,6 +314,9 @@ def create_reel_inward(
 def list_reels(
     status: Optional[str] = Query(default=None),
     reel_ids: Optional[str] = Query(default=None, description="Comma-separated reel UUIDs"),
+    search: Optional[str] = Query(default=None, min_length=1, max_length=120),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
@@ -333,8 +336,11 @@ def list_reels(
         query = query.filter(PaperReel.status == ReelStatus(normalized_status))
     if selected_reel_ids:
         query = query.filter(PaperReel.id.in_(selected_reel_ids))
+    if search:
+        needle = f"%{search.strip()}%"
+        query = query.filter(PaperReel.reel_code.ilike(needle))
 
-    return query.order_by(PaperReel.created_at.desc()).all()
+    return query.order_by(PaperReel.created_at.desc()).offset(offset).limit(limit).all()
 
 
 @router.get("/{reel_id}", response_model=ReelResponse)
@@ -363,7 +369,7 @@ def slit_reel(
     payload: ReelSlitCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "PlantManager", "Production"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager"])),
 ):
     plant_uuid = _to_uuid(plant_id)
     parent = db.query(PaperReel).filter(
@@ -459,7 +465,7 @@ def create_reel_scan_event(
     payload: ReelScanCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "Production", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Store", "PlantManager", "Operator"])),
 ):
     plant_uuid = _to_uuid(plant_id)
     reel = db.query(PaperReel).filter(

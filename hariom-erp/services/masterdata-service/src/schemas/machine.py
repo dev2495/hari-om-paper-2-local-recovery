@@ -63,6 +63,8 @@ class MachineBase(MachineSupportedMandrelBase):
     department: MachineDepartment
     capacity_type: MachineCapacityType
     capacity_value: float = Field(gt=0)
+    batch_bamboo_capacity: Optional[float] = Field(default=None, gt=0)
+    cycle_time_hours: Optional[float] = Field(default=None, ge=4, le=8)
     id_min_mm: float = Field(gt=0)
     id_max_mm: float = Field(gt=0)
     od_min_mm: float = Field(gt=0)
@@ -109,6 +111,11 @@ class MachineBase(MachineSupportedMandrelBase):
             raise ValueError("od_min_mm must be less than or equal to od_max_mm")
         if self.length_min_mm > self.length_max_mm:
             raise ValueError("length_min_mm must be less than or equal to length_max_mm")
+        if self.department == MachineDepartment.OVEN:
+            if not self.batch_bamboo_capacity:
+                raise ValueError("batch_bamboo_capacity is required for oven machines")
+            if not self.cycle_time_hours:
+                raise ValueError("cycle_time_hours is required for oven machines")
         return self
 
 
@@ -124,6 +131,8 @@ class MachineUpdate(MachineSupportedMandrelBase):
     department: Optional[MachineDepartment] = None
     capacity_type: Optional[MachineCapacityType] = None
     capacity_value: Optional[float] = Field(default=None, gt=0)
+    batch_bamboo_capacity: Optional[float] = Field(default=None, gt=0)
+    cycle_time_hours: Optional[float] = Field(default=None, ge=4, le=8)
     id_min_mm: Optional[float] = Field(default=None, gt=0)
     id_max_mm: Optional[float] = Field(default=None, gt=0)
     od_min_mm: Optional[float] = Field(default=None, gt=0)
@@ -187,6 +196,8 @@ class MachineResponse(BaseModel):
     department: MachineDepartment
     capacity_type: MachineCapacityType
     capacity_value: float
+    batch_bamboo_capacity: Optional[float] = None
+    cycle_time_hours: Optional[float] = None
     id_min_mm: float
     id_max_mm: float
     od_min_mm: float
@@ -199,4 +210,3 @@ class MachineResponse(BaseModel):
     supported_mandrel_ids: list[UUID] = Field(default_factory=list)
     supported_mandrels: list[MachineSupportedMandrelResponse] = Field(default_factory=list)
     created_at: Optional[datetime] = None
-

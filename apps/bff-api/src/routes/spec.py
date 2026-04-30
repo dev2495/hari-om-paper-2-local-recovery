@@ -25,7 +25,7 @@ async def create_specification(request: Request, token: str = Depends(get_token)
         title=f"Specification created: {payload.get('spec_no') or payload.get('id') or 'draft'}",
         message=f"{payload.get('customer_name') or 'Customer'} specification draft entered workflow.",
         href="/specifications",
-        recipient_roles=["Owner", "Admin", "Planner", "SpecMaker", "SpecApprover", "Sales"],
+        recipient_roles=["Owner", "Admin", "Planner", "Sales"],
         payload={"spec_id": str(payload.get('id') or '')},
     )
     return response
@@ -47,7 +47,7 @@ async def update_specification(spec_id: str, request: Request, token: str = Depe
         title=f"Specification updated: {payload.get('spec_no') or spec_id}",
         message=f"{payload.get('customer_name') or 'Specification'} details changed.",
         href=f"/specifications/{spec_id}",
-        recipient_roles=["Owner", "Admin", "Planner", "SpecMaker", "SpecApprover", "Sales"],
+        recipient_roles=["Owner", "Admin", "Planner", "Sales"],
         payload={"spec_id": spec_id},
     )
     return response
@@ -64,7 +64,7 @@ async def approve_specification(spec_id: str, request: Request, token: str = Dep
         title=f"Specification approved: {payload.get('spec_no') or spec_id}",
         message="Commercial and planning flows can now consume this approved spec.",
         href=f"/specifications/{spec_id}",
-        recipient_roles=["Owner", "Admin", "Planner", "SpecMaker", "SpecApprover", "Sales"],
+        recipient_roles=["Owner", "Admin", "Planner", "Sales"],
         payload={"spec_id": spec_id},
     )
     return response
@@ -81,7 +81,7 @@ async def obsolete_specification(spec_id: str, request: Request, token: str = De
         title=f"Specification obsoleted: {payload.get('spec_no') or spec_id}",
         message="This spec is no longer active for new demand.",
         href=f"/specifications/{spec_id}",
-        recipient_roles=["Owner", "Admin", "Planner", "SpecMaker", "SpecApprover", "Sales"],
+        recipient_roles=["Owner", "Admin", "Planner", "Sales"],
         payload={"spec_id": spec_id},
     )
     return response
@@ -143,7 +143,7 @@ async def approve_recipe(recipe_id: str, request: Request, token: str = Depends(
         title=f"Recipe approved: {payload.get('id') or recipe_id}",
         message="Production planning can now consume this approved recipe snapshot.",
         href="/specifications",
-        recipient_roles=["Owner", "Admin", "Planner", "SpecMaker", "SpecApprover"],
+        recipient_roles=["Owner", "Admin", "Planner"],
         payload={"recipe_id": recipe_id, "spec_id": str(payload.get("spec_id") or "")},
     )
     return response

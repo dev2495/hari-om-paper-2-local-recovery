@@ -12,7 +12,7 @@ import {
   Plus,
   Search,
 } from "lucide-react"
-import { startTransition, useDeferredValue, useMemo, useState } from "react"
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react"
 
 import {
   EmptyState,
@@ -40,6 +40,7 @@ import {
 import {
   useApproveSalesOrder,
   useReleaseSalesOrder,
+  useReleaseSalesOrderLine,
   useSalesOrders,
 } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -73,15 +74,28 @@ function resolveCustomerLabel(order: any, customerMap: Map<string, string>) {
 function buildReleaseRows(order: any, selectedLineIds: string[], defaultMachineId: string) {
   return (order.lines || [])
     .filter((line: any) => selectedLineIds.includes(String(line.id)))
-    .map((line: any) => ({
-      sales_order_line_id: String(line.id),
-      release_lot_id: crypto.randomUUID(),
-      product_code: String(line.product_code || order.po_number || order.order_no || "").trim(),
-      due_date: line.due_date || null,
-      remaining_qty: Number(line.remaining_qty || line.qty || 0),
-      release_qty: Number(line.remaining_qty || line.qty || 0).toFixed(0),
-      winder_machine_id: defaultMachineId,
-    }))
+    .map((line: any) => {
+      const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? line.qty ?? 0)
+      return {
+        sales_order_line_id: String(line.id),
+        release_lot_id: "",
+        product_code: String(line.product_code || order.po_number || order.order_no || "").trim(),
+        due_date: line.due_date || null,
+        remaining_qty: releaseRemainingQty,
+        release_qty: releaseRemainingQty.toFixed(0),
+        winder_machine_id: defaultMachineId,
+      }
+    })
+}
+
+function orderPlantId(order: any) {
+  const value = String(order?.plant_id || order?.plant || "").trim()
+  return value && value.toUpperCase() !== "ALL" ? value : undefined
+}
+
+function machineBelongsToPlant(machine: any, plantId?: string) {
+  if (!plantId) return true
+  return String(machine?.plant_id || machine?.plant || "").trim() === plantId
 }
 
 export default function SalesOrdersPage() {
@@ -92,15 +106,31 @@ export default function SalesOrdersPage() {
   const [syncResults, setSyncResults] = useState<SyncResultMap>({})
   const [releaseDialogOrder, setReleaseDialogOrder] = useState<any | null>(null)
   const [releaseDraftRows, setReleaseDraftRows] = useState<ReleaseDraftRow[]>([])
-  const deferredSearch = useDeferredValue(search.trim().toLowerCase())
+  const [statusFilter, setStatusFilter] = useState("open")
+  const [pageSize, setPageSize] = useState(10)
+  const [pageIndex, setPageIndex] = useState(0)
+  const deferredSearch = useDeferredValue(search.trim())
+  const offset = pageIndex * pageSize
 
-  const ordersQuery = useSalesOrders()
+  const salesQueryParams = useMemo(
+    () => ({
+      search: deferredSearch || undefined,
+      status: statusFilter === "open" || statusFilter === "all" ? undefined : statusFilter,
+      status_group: statusFilter === "open" ? "open" : undefined,
+      limit: pageSize + 1,
+      offset,
+    }),
+    [deferredSearch, offset, pageSize, statusFilter],
+  )
+
+  const ordersQuery = useSalesOrders(salesQueryParams)
   const customersQuery = useCustomers()
   const machinesQuery = useMachines()
-  const jobCardsQuery = usePlanningJobCards({ limit: 500 })
+  const jobCardsQuery = usePlanningJobCards({ limit: 250 })
 
   const approveOrder = useApproveSalesOrder()
   const releaseOrder = useReleaseSalesOrder()
+  const releaseOrderLine = useReleaseSalesOrderLine()
   const releaseSync = useReleaseSyncSalesOrder()
 
   const customerMap = useMemo(
@@ -122,6 +152,11 @@ export default function SalesOrdersPage() {
     [machinesQuery.data],
   )
 
+  const releaseDialogWinderMachines = useMemo(() => {
+    const plantId = orderPlantId(releaseDialogOrder)
+    return winderMachines.filter((machine) => machineBelongsToPlant(machine, plantId))
+  }, [releaseDialogOrder, winderMachines])
+
   const jobsByOrderId = useMemo(() => {
     const buckets = new Map<string, any[]>()
     for (const job of Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []) {
@@ -134,31 +169,13 @@ export default function SalesOrdersPage() {
     return buckets
   }, [jobCardsQuery.data])
 
-  const orders = useMemo(() => {
-    const rows = Array.isArray(ordersQuery.data) ? ordersQuery.data : []
-    if (!deferredSearch) return rows
+  useEffect(() => {
+    setPageIndex(0)
+  }, [deferredSearch, pageSize, statusFilter])
 
-    return rows.filter((order: any) => {
-      const haystack = [
-        order.order_no,
-        order.po_number,
-        resolveCustomerLabel(order, customerMap),
-        order.status,
-        ...(order.lines || []).flatMap((line: any) => [
-          line.id,
-          line.line_no,
-          line.product_code,
-          line.parchment_color,
-          line.qty,
-          line.due_date,
-        ]),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-      return haystack.includes(deferredSearch)
-    })
-  }, [customerMap, deferredSearch, ordersQuery.data])
+  const serverRows = useMemo(() => (Array.isArray(ordersQuery.data) ? ordersQuery.data : []), [ordersQuery.data])
+  const hasNextPage = serverRows.length > pageSize
+  const orders = useMemo(() => serverRows.slice(0, pageSize), [serverRows, pageSize])
 
   const metrics = useMemo(() => {
     const draftOrders = orders.filter((order: any) => order.status === "draft" || order.status === "submitted")
@@ -184,9 +201,9 @@ export default function SalesOrdersPage() {
     })
   }
 
-  const handleApprove = async (orderId: string) => {
+  const handleApprove = async (order: any) => {
     try {
-      await approveOrder.mutateAsync(orderId)
+      await approveOrder.mutateAsync({ orderId: String(order.id), plantId: orderPlantId(order) })
       showToast("Sales order approved.", "success")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Approval failed."
@@ -200,9 +217,10 @@ export default function SalesOrdersPage() {
       showToast("Select one or more lines before opening the release planner.", "error")
       return
     }
-    const defaultMachineId = String(winderMachines[0]?.id || "")
+    const plantWinders = winderMachines.filter((machine) => machineBelongsToPlant(machine, orderPlantId(order)))
+    const defaultMachineId = String(plantWinders[0]?.id || "")
     if (!defaultMachineId) {
-      showToast("No winder machine is available in master data for release sync.", "error")
+      showToast("No winder machine is available in this order's plant master data.", "error")
       return
     }
     setReleaseDialogOrder(order)
@@ -255,14 +273,34 @@ export default function SalesOrdersPage() {
 
     try {
       if (String(releaseDialogOrder.status) === "approved") {
-        await releaseOrder.mutateAsync(String(releaseDialogOrder.id))
+        await releaseOrder.mutateAsync({ orderId: String(releaseDialogOrder.id), plantId: orderPlantId(releaseDialogOrder) })
       }
+
+      const persistedRows = await Promise.all(
+        normalizedRows.map(async (row) => {
+          const response = await releaseOrderLine.mutateAsync({
+            lineId: row.sales_order_line_id,
+            plantId: orderPlantId(releaseDialogOrder),
+            data: {
+              release_qty: row.release_qty,
+              winder_machine_id: row.winder_machine_id,
+              product_code: row.product_code || null,
+              release_lot_id: row.release_lot_id || undefined,
+            },
+          })
+          return {
+            ...row,
+            release_lot_id: String(response?.data?.release_lot_id || row.release_lot_id),
+          }
+        }),
+      )
 
       const response = await releaseSync.mutateAsync({
         salesOrderId: String(releaseDialogOrder.id),
+        plantId: orderPlantId(releaseDialogOrder),
         data: {
-          line_ids: normalizedRows.map((row) => row.sales_order_line_id),
-          release_rows: normalizedRows.map((row) => ({
+          line_ids: persistedRows.map((row) => row.sales_order_line_id),
+          release_rows: persistedRows.map((row) => ({
             release_lot_id: row.release_lot_id,
             sales_order_line_id: row.sales_order_line_id,
             release_qty: row.release_qty,
@@ -278,7 +316,7 @@ export default function SalesOrdersPage() {
 
       setSelectedLines((current) => ({ ...current, [String(releaseDialogOrder.id)]: [] }))
       setSyncResults((current) => ({ ...current, [String(releaseDialogOrder.id)]: jobCardIds }))
-      showToast(`Released ${normalizedRows.length} line bucket(s) into planner.`, "success")
+      showToast(`Released ${persistedRows.length} line bucket(s) into planner.`, "success")
       closeReleaseDialog()
       router.push(`/planning/board?section=winder&order_id=${releaseDialogOrder.id}`)
     } catch (error: any) {
@@ -317,28 +355,28 @@ export default function SalesOrdersPage() {
           <MetricCard
             label="Draft Queue"
             value={metrics.draftOrders.length}
-            detail="Needs maker-checker approval"
+            detail="Needs maker-checker approval in this window"
             icon={CheckCircle2}
             tone="amber"
           />
           <MetricCard
             label="Release Ready"
             value={metrics.readyOrders.length}
-            detail="Approved orders waiting for winder selection"
+            detail="Approved rows waiting for winder selection"
             icon={ArrowRightLeft}
             tone="cyan"
           />
           <MetricCard
             label="Planner Synced"
             value={metrics.syncedOrders.length}
-            detail="Orders already mapped to job cards"
+            detail="Visible orders already mapped to job cards"
             icon={ClipboardCheck}
             tone="emerald"
           />
           <MetricCard
             label="Open Qty"
             value={metrics.openQty.toFixed(0)}
-            detail="Pieces still open across all commercial lines"
+            detail="Pieces still open in this loaded window"
             icon={Factory}
             tone="violet"
           />
@@ -348,20 +386,54 @@ export default function SalesOrdersPage() {
           title="Commercial Release Studio"
           subtitle="Scan each PO as a long-running commercial contract, select the exact live line buckets, then release only what production needs."
           actions={
-            <div className="flex w-full max-w-[26rem] items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 shadow-sm">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => {
-                  const nextValue = event.target.value
-                  startTransition(() => setSearch(nextValue))
-                }}
-                placeholder="Search PO, customer, product code, parchment..."
-                className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
-              />
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex w-full min-w-[18rem] items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 shadow-sm sm:w-[26rem]">
+                <Search className="h-4 w-4 text-slate-400" />
+                <input
+                  value={search}
+                  onChange={(event) => {
+                    const nextValue = event.target.value
+                    startTransition(() => setSearch(nextValue))
+                  }}
+                  placeholder="Search PO, product code, parchment..."
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(event) => setStatusFilter(event.target.value)}
+                className="h-12 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+              >
+                <option value="open">Open queue</option>
+                <option value="all">All statuses</option>
+                <option value="draft">Draft</option>
+                <option value="submitted">Submitted</option>
+                <option value="approved">Approved</option>
+                <option value="released">Released</option>
+                <option value="partially_released">Partially released</option>
+                <option value="partially_dispatched">Partially dispatched</option>
+                <option value="closed">Closed</option>
+              </select>
+              <select
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+                className="h-12 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+              >
+                <option value={10}>10 / page</option>
+                <option value={25}>25 / page</option>
+                <option value={50}>50 / page</option>
+              </select>
             </div>
           }
         >
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+            <span>
+              Window {offset + 1}-{offset + orders.length} · Page {pageIndex + 1} · {statusFilter === "open" ? "open orders" : statusFilter.replaceAll("_", " ")}
+            </span>
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              {ordersQuery.isFetching ? "Refreshing..." : hasNextPage ? "More rows available" : "End of current window"}
+            </span>
+          </div>
           {ordersQuery.isLoading ? (
             <EmptyState label="Loading live sales orders..." />
           ) : orders.length === 0 ? (
@@ -436,7 +508,8 @@ export default function SalesOrdersPage() {
                         <div className="grid gap-3 lg:grid-cols-2">
                           {(order.lines || []).map((line: any) => {
                             const checked = selectedLineIds.includes(String(line.id))
-                            const releaseable = Number(line.remaining_qty || 0) > 0
+                            const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? 0)
+                            const releaseable = releaseRemainingQty > 0
                             return (
                               <label
                                 key={line.id}
@@ -461,7 +534,7 @@ export default function SalesOrdersPage() {
                                   </span>
                                   <span className="mt-2 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
                                     <span>Ordered {Number(line.qty || 0).toFixed(0)} pcs</span>
-                                    <span>Remaining {Number(line.remaining_qty || 0).toFixed(0)} pcs</span>
+                                    <span>Remaining {releaseRemainingQty.toFixed(0)} pcs</span>
                                     <span>Due {formatDate(line.due_date)}</span>
                                     <span>{line.parchment_color ? `Parchment ${line.parchment_color}` : "No parchment note"}</span>
                                   </span>
@@ -508,7 +581,7 @@ export default function SalesOrdersPage() {
                           {order.status === "draft" || order.status === "submitted" ? (
                             <button
                               type="button"
-                              onClick={() => handleApprove(String(order.id))}
+                              onClick={() => handleApprove(order)}
                               disabled={approveOrder.isPending}
                               className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-all duration-200 hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-sm disabled:opacity-60"
                             >
@@ -561,13 +634,38 @@ export default function SalesOrdersPage() {
               })}
             </div>
           )}
+          {orders.length > 0 ? (
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3">
+              <p className="text-sm text-slate-600">
+                Large queue mode keeps only {pageSize} order cards mounted at once.
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
+                  disabled={pageIndex === 0 || ordersQuery.isFetching}
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Previous
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPageIndex((current) => current + 1)}
+                  disabled={!hasNextPage || ordersQuery.isFetching}
+                  className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          ) : null}
         </Panel>
       </div>
 
       <Dialog open={Boolean(releaseDialogOrder)} onOpenChange={(open) => (!open ? closeReleaseDialog() : null)}>
-        <DialogContent className="max-w-6xl rounded-[2rem] border-slate-200 p-0">
-          <div className="rounded-[1.75rem] bg-white">
-            <DialogHeader className="border-b border-slate-200 px-6 py-5">
+        <DialogContent className="max-h-[calc(100vh-2rem)] max-w-6xl overflow-hidden rounded-[2rem] border-slate-200 p-0">
+          <div className="flex max-h-[calc(100vh-2rem)] flex-col rounded-[1.75rem] bg-white">
+            <DialogHeader className="shrink-0 border-b border-slate-200 px-6 py-5">
               <DialogTitle className="text-2xl text-slate-950">
                 Release lines into planning
               </DialogTitle>
@@ -576,7 +674,8 @@ export default function SalesOrdersPage() {
               </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-0 xl:grid-cols-[320px_minmax(0,1fr)]">
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="grid gap-0 xl:grid-cols-[320px_minmax(0,1fr)]">
               {releaseDialogOrder ? (
                 <aside className="border-b border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_100%)] p-6 xl:border-b-0 xl:border-r">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Commercial Source</p>
@@ -690,6 +789,7 @@ export default function SalesOrdersPage() {
                               Target winder
                             </label>
                             <select
+                              data-testid="sales-orders:release-winder"
                               value={row.winder_machine_id}
                               onChange={(event) =>
                                 updateReleaseDraftRow(row.sales_order_line_id, {
@@ -699,7 +799,7 @@ export default function SalesOrdersPage() {
                               className="mt-2 h-12 w-full rounded-2xl border border-slate-300 bg-white px-4 text-sm"
                             >
                               <option value="">Select winder</option>
-                              {winderMachines.map((machine: any) => (
+                              {releaseDialogWinderMachines.map((machine: any) => (
                                 <option key={machine.id} value={machine.id}>
                                   {machine.code || machine.name} · {machine.capacity_value || "-"} {machine.capacity_unit || ""}
                                 </option>
@@ -715,9 +815,10 @@ export default function SalesOrdersPage() {
                   })}
                 </div>
               </div>
+              </div>
             </div>
 
-            <DialogFooter className="border-t border-slate-200 px-6 py-5">
+            <DialogFooter className="shrink-0 border-t border-slate-200 bg-white px-6 py-5">
               <button
                 type="button"
                 onClick={closeReleaseDialog}
@@ -726,12 +827,13 @@ export default function SalesOrdersPage() {
                 Cancel
               </button>
               <button
+                data-testid="sales-orders:confirm-release"
                 type="button"
                 onClick={handleConfirmRelease}
-                disabled={releaseOrder.isPending || releaseSync.isPending}
+                disabled={releaseOrder.isPending || releaseOrderLine.isPending || releaseSync.isPending}
                 className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg disabled:opacity-60"
               >
-                {releaseOrder.isPending || releaseSync.isPending ? "Sending to planner..." : "Confirm release"}
+                {releaseOrder.isPending || releaseOrderLine.isPending || releaseSync.isPending ? "Sending to planner..." : "Confirm release"}
               </button>
             </DialogFooter>
           </div>

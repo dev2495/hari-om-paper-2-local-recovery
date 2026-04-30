@@ -69,6 +69,46 @@ async def get_machines(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/machines/", request, token)
 
 
+@router.get("/quality/inspections")
+async def list_quality_inspections(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/inspections", request, token)
+
+
+@router.post("/quality/inspections")
+async def create_quality_inspection(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/inspections", request, token)
+
+
+@router.get("/quality/holds")
+async def list_quality_holds(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/holds", request, token)
+
+
+@router.post("/quality/holds")
+async def create_quality_hold(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/holds", request, token)
+
+
+@router.post("/quality/holds/{hold_id}/release")
+async def release_quality_hold(hold_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/holds/{hold_id}/release", request, token)
+
+
+@router.post("/machines")
+async def create_machine(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/machines/", request, token)
+
+
+@router.put("/machines/{machine_id}")
+async def update_machine(machine_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/machines/{machine_id}", request, token)
+
+
+@router.delete("/machines/{machine_id}")
+async def delete_machine(machine_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/machines/{machine_id}", request, token)
+
+
 @router.post("/sales-orders")
 async def create_planning_sales_order(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/sales-orders", request, token)
@@ -92,6 +132,11 @@ async def list_planning_job_cards(request: Request, token: str = Depends(get_tok
 @router.get("/job-cards/{job_card_id}")
 async def get_planning_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}", request, token)
+
+
+@router.get("/genealogy/job-cards/{job_card_id}")
+async def get_job_card_genealogy(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/genealogy/job-cards/{job_card_id}", request, token)
 
 
 @router.get("/planning/queues")
@@ -213,6 +258,11 @@ async def get_monthly_material_summary(request: Request, token: str = Depends(ge
 @router.get("/monthly-close-state")
 async def get_monthly_close_state(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/monthly-close", request, token)
+
+
+@router.get("/monthly-close-history")
+async def get_monthly_close_history(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/monthly-close/history", request, token)
 
 
 @router.post("/import-monthly-actuals")

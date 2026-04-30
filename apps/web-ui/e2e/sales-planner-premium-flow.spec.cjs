@@ -49,11 +49,19 @@ async function login(page) {
       sameSite: "Lax",
     },
   ])
-  await page.evaluate((token) => {
+  const plantA = browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1"
+  await page.evaluate(({ token, plantA }) => {
     window.localStorage.setItem("hariom_access_token", token)
-  }, payload.access_token)
+    window.localStorage.setItem("hariom_active_plant", plantA)
+  }, { token: payload.access_token, plantA })
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
-  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(
+    page.locator(
+      "[data-testid='workspace-role-landing'], [data-testid='landing-owner-page'], [data-testid='landing-admin-page']",
+    ),
+  ).toBeVisible()
+  await expect(page.getByText(/admin workspace|owner workspace|owner’s daily scan|admin control surface/i).first()).toBeVisible()
+  await expect(page.getByText("00000000-0000-0000-0000-0000000000a1")).toHaveCount(0)
 }
 
 async function expectTransition(locator) {
@@ -149,7 +157,36 @@ test("premium sales and planner surfaces load with animated interactive elements
   await expect(page.getByText(/one po, many release moments/i)).toBeVisible()
   await expectTransition(page.getByRole("link", { name: /open planner handoff/i }))
 
+  await page.goto("/analytics/dashboard", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("analytics-dashboard-page")).toBeVisible()
+  await expect(page.getByText(/comparative production, sales, inventory/i)).toBeVisible()
+  await expect(page.getByRole("button", { name: /last 30d/i })).toBeVisible()
+  await expect(page.getByText("00000000-0000-0000-0000-0000000000a1")).toHaveCount(0)
+
   await page.evaluate(() => window.localStorage.setItem("hariom_active_plant", "PLANT_A"))
+
+  await page.goto("/inventory", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("inventory-control-page")).toBeVisible()
+  await expect(page.getByText(/stock, locations, reels, issues, valuation, and mrp readiness/i)).toBeVisible()
+  await expect(page.getByRole("link", { name: /mrp and po drafts/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /stock close control/i }).first()).toBeVisible()
+
+  await page.goto("/inventory/stock-control", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("inventory-stock-control-page")).toBeVisible()
+  await expect(page.getByText(/opening stock, closing certification, and formal year carry-forward/i)).toBeVisible()
+  await expect(page.getByRole("button", { name: /draft certification for period/i })).toBeVisible()
+  await expect(page.getByRole("button", { name: /post opening load/i })).toBeVisible()
+  await expect(page.getByText(/bootstrap opening stock/i)).toBeVisible()
+
+  await page.goto("/system/locations", { waitUntil: "domcontentloaded" })
+  await expect(page.getByText(/inventory locations/i)).toBeVisible()
+  await expect(page.getByText(/new storage location/i)).toBeVisible()
+
+  await page.goto("/analytics/mrp", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("mrp-analytics-page")).toBeVisible()
+  await expect(page.getByText(/material requirements planning with shortage timing/i)).toBeVisible()
+  await expect(page.getByRole("button", { name: /generate po draft/i })).toBeVisible()
+
   await page.goto("/planning/board?section=winder&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("planner-page")).toBeVisible()
   const shellSidebar = page.locator("aside[data-expanded]").first()
@@ -160,9 +197,11 @@ test("premium sales and planner surfaces load with animated interactive elements
   await expect(shellSidebar).toHaveAttribute("data-expanded", "false")
   await expect(page.getByText(/machine scheduling across 3 days/i)).toBeVisible()
   await expect(page.getByText(/schedule canvas/i)).toBeVisible()
-  await expect(page.getByText(/previous day/i)).toHaveCount(0)
-  await expect(page.getByText(/^today$/i)).toHaveCount(0)
-  await expect(page.getByText(/next day/i)).toHaveCount(0)
+  await expect(page.getByRole("link", { name: /previous 3 days/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /today window/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /next 3 days/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /print shop-floor plan/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /summary/i }).first()).toBeVisible()
   await expect(page.getByText(/released to this winder/i).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /all ·/i }).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /winder_01 ·/i }).first()).toBeVisible()
@@ -178,8 +217,21 @@ test("premium sales and planner surfaces load with animated interactive elements
   const queueCard = page.locator("[data-testid='planner-page'] article").first()
   if (await queueCard.count()) {
     await expectTransition(queueCard)
+    await queueCard.hover()
+    await expect(page.getByTestId("planner-hover-popover")).toBeVisible()
+    await expect(page.getByText(/queue card details|pinned card details/i).first()).toBeVisible()
   }
   await expectPlannerMoveHonorsSelectedPlant(page)
+
+  await page.goto("/planning/print?section=winder&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
+  await expect(page.getByText(/shop floor planning sheet/i)).toBeVisible()
+  await expect(page.getByText(/scheduled machine slots/i)).toBeVisible()
+  await expect(page.getByText(/queue cards are intentionally excluded/i)).toBeVisible()
+
+  await page.goto("/planning/board?section=summary&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
+  await expect(page.getByText(/live production standing across the last 6 days/i)).toBeVisible()
+  await expect(page.getByText(/daily planning control/i)).toBeVisible()
+  await expect(page.getByText(/stage-wise wip and bottleneck board/i)).toBeVisible()
 
   await page.evaluate(() => window.localStorage.setItem("hariom_active_plant", "ALL"))
   await page.goto("/planning/board?section=winder", { waitUntil: "domcontentloaded" })

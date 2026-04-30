@@ -68,7 +68,7 @@ api.interceptors.request.use((config) => {
   }
 
   const plantId = getStoredPlant()
-  if (plantId) {
+  if (plantId && !headers["X-Plant-ID"]) {
     headers["X-Plant-ID"] = plantId
   }
 
@@ -224,6 +224,11 @@ export const masterApi = {
   deleteCustomerContact: (customerId: string, contactId: string) =>
     api.delete(`/api/master/customers/${customerId}/contacts/${contactId}`),
 
+  getSuppliers: () => api.get("/api/master/suppliers"),
+  createSupplier: (data: any) => api.post("/api/master/suppliers", data),
+  updateSupplier: (id: string, data: any) => api.put(`/api/master/suppliers/${id}`, data),
+  deleteSupplier: (id: string) => api.delete(`/api/master/suppliers/${id}`),
+
   getPackagingBoxes: () => api.get("/api/master/packaging/boxes"),
   createPackagingBox: (data: any) => api.post("/api/master/packaging/boxes", data),
   updatePackagingBox: (id: string, data: any) => api.put(`/api/master/packaging/boxes/${id}`, data),
@@ -280,13 +285,14 @@ export const specApi = {
 }
 
 export const salesApi = {
-  getOrders: () => api.get("/api/sales/orders"),
+  getOrders: (params?: any) => api.get("/api/sales/orders", { params }),
   createOrder: (data: any) => api.post("/api/sales/orders", data),
   getOrder: (id: string) => api.get(`/api/sales/orders/${id}`),
   getOrderTimeline: (id: string) => api.get(`/api/sales/orders/${id}/timeline`),
   updateOrder: (id: string, data: any) => api.put(`/api/sales/orders/${id}`, data),
-  approveOrder: (id: string) => api.post(`/api/sales/orders/${id}/approve`, {}),
-  releaseOrder: (id: string) => api.post(`/api/sales/orders/${id}/release`, {}),
+  approveOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/approve`, {}, withPlantHeader(plantId)),
+  releaseOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/release`, {}, withPlantHeader(plantId)),
+  releaseOrderLine: (lineId: string, data: any, plantId?: string) => api.post(`/api/sales/orders/lines/${lineId}/release`, data, withPlantHeader(plantId)),
 }
 
 export const productionApi = {
@@ -302,11 +308,12 @@ export const productionApi = {
   getReels: (jobId: string) => api.get(`/api/production/jobs/${jobId}/reels`),
   getMachines: () => api.get("/api/production/machines"),
   createPlanningSalesOrder: (data: any) => api.post("/api/production/sales-orders", data),
-  releaseSyncSalesOrder: (salesOrderId: string, data: any) =>
-    api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data),
+  releaseSyncSalesOrder: (salesOrderId: string, data: any, plantId?: string) =>
+    api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
   getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
+  getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {
     stage: string
     plan_date?: string
@@ -324,6 +331,14 @@ export const productionApi = {
   reorderPlanningQueue: (data: any) => api.patch("/api/production/planning/queues/reorder", data),
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
+  getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),
+  createQualityInspection: (data: any, plantId?: string) =>
+    api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),
+  getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),
+  createQualityHold: (data: any, plantId?: string) =>
+    api.post("/api/production/quality/holds", data, withPlantHeader(plantId)),
+  releaseQualityHold: (holdId: string, plantId?: string) =>
+    api.post(`/api/production/quality/holds/${holdId}/release`, {}, withPlantHeader(plantId)),
 
   getJobCards: (params?: any) => api.get("/api/production/jobs", { params }),
   createJobCard: (data: any) => api.post("/api/production/job-cards", data),
@@ -336,6 +351,7 @@ export const productionApi = {
   getPlantRetallySummary: (params?: any) => api.get("/api/production/plant-retally-summary", { params }),
   getMonthlyMaterialSummary: (params?: any) => api.get("/api/production/monthly-material-summary", { params }),
   getMonthlyCloseState: (params?: any) => api.get("/api/production/monthly-close-state", { params }),
+  getMonthlyCloseHistory: (params?: any) => api.get("/api/production/monthly-close-history", { params }),
   createShiftMaterialLedger: (data: any) => api.post("/api/production/shift-material-ledger", data),
   importMonthlyActuals: (payload: any, plantId?: string) =>
     api.post("/api/production/import-monthly-actuals", payload, withPlantHeader(plantId)),
@@ -346,9 +362,30 @@ export const productionApi = {
 export const inventoryApi = {
   getItems: () => api.get("/api/inventory/items"),
   createItem: (data: any) => api.post("/api/inventory/items", data),
+  updateItem: (id: string, data: any) => api.put(`/api/inventory/items/${id}`, data),
   getBalances: () => api.get("/api/inventory/balance"),
   getItemBalance: (itemId: string) => api.get(`/api/inventory/balance/${itemId}`),
   getTransactions: (params?: any) => api.get("/api/inventory/ledger", { params }),
+  getStockStatement: (params?: any) => api.get("/api/inventory/stock-control/statement", { params }),
+  getOpeningLoads: () => api.get("/api/inventory/stock-control/opening-loads"),
+  createOpeningLoad: (data: any) => api.post("/api/inventory/stock-control/opening-loads", data),
+  getStockCertifications: () => api.get("/api/inventory/stock-control/certifications"),
+  createStockCertification: (data: any) => api.post("/api/inventory/stock-control/certifications", data),
+  getStockCertification: (id: string) => api.get(`/api/inventory/stock-control/certifications/${id}`),
+  updateStockCertification: (id: string, data: any) => api.patch(`/api/inventory/stock-control/certifications/${id}`, data),
+  certifyStockCertification: (id: string, data?: any) => api.post(`/api/inventory/stock-control/certifications/${id}/certify`, data || {}),
+  getCarryForwards: () => api.get("/api/inventory/stock-control/carry-forwards"),
+  createCarryForward: (id: string, data?: any) => api.post(`/api/inventory/stock-control/certifications/${id}/carry-forward`, data || {}),
+  getLocations: () => api.get("/api/inventory/locations"),
+  createLocation: (data: any) => api.post("/api/inventory/locations", data),
+  getInventoryHealthSummary: () => api.get("/api/inventory/health/summary"),
+  notifyMrpShortage: (data: any) => api.post("/api/inventory/mrp/notify-shortage", data),
+  getInventoryStatusSummary: () => api.get("/api/inventory/health/status-summary"),
+  getInventoryLocationOccupancy: () => api.get("/api/inventory/health/location-occupancy"),
+  getInventoryAging: () => api.get("/api/inventory/health/aging"),
+  getInventoryGenealogyExceptions: () => api.get("/api/inventory/health/genealogy-exceptions"),
+  getValuationSummary: () => api.get("/api/inventory/valuation/summary"),
+  getValuationReels: () => api.get("/api/inventory/valuation/reels"),
   createTransaction: (data: any) => api.post("/api/inventory/issue", data),
   createInward: (data: any) => api.post("/api/inventory/inward", data),
   createIssue: (data: any) => api.post("/api/inventory/issue", data),

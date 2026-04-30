@@ -1,3 +1,4 @@
+import uuid
 from fastapi import Depends, HTTPException, status, Header, Query
 from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
@@ -5,6 +6,30 @@ from ..security import jwt_handler
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 PLANNER_SCOPE_ROLES = {"Owner", "Admin", "PlantManager", "Planner"}
+PLANT_ALIASES = {
+    "PLANT_A": "00000000-0000-0000-0000-0000000000a1",
+    "PLANT-1": "00000000-0000-0000-0000-0000000000a1",
+    "PLANT_1": "00000000-0000-0000-0000-0000000000a1",
+    "PLANT1": "00000000-0000-0000-0000-0000000000a1",
+    "PLANT_B": "00000000-0000-0000-0000-0000000000b2",
+    "PLANT-2": "00000000-0000-0000-0000-0000000000b2",
+    "PLANT_2": "00000000-0000-0000-0000-0000000000b2",
+    "PLANT2": "00000000-0000-0000-0000-0000000000b2",
+}
+
+
+def _normalize_plant_scope(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return normalized
+    upper = normalized.upper()
+    if upper == "ALL":
+        return "ALL"
+    normalized = PLANT_ALIASES.get(upper, normalized)
+    try:
+        return str(uuid.UUID(str(normalized)))
+    except ValueError:
+        return normalized
 
 
 def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -39,7 +64,7 @@ def get_current_plant(
 ) -> str:
     user_roles = set(current_user.get("roles", []))
 
-    requested = str(plant_id or x_plant_id or "").strip()
+    requested = _normalize_plant_scope(str(plant_id or x_plant_id or "").strip())
     if requested:
         if requested.upper() == "ALL":
             raise HTTPException(
@@ -71,7 +96,7 @@ def get_current_plant_scope(
             detail="User has no assigned plant"
         )
 
-    requested = (x_plant_id or default_plant).strip()
+    requested = _normalize_plant_scope((x_plant_id or default_plant).strip())
     elevated_roles = PLANNER_SCOPE_ROLES
 
     if requested.upper() == "ALL":
@@ -87,7 +112,7 @@ def get_current_plant_scope(
             "allowed_plants": [default_plant],
         }
 
-    selected = requested if user_roles.intersection(elevated_roles) else default_plant
+    selected = requested if user_roles.intersection(elevated_roles) else _normalize_plant_scope(default_plant)
     return {
         "scope_all": False,
         "selected_plant_id": selected,

@@ -8,12 +8,13 @@ const STAGE_MAP: Record<string, string> = {
   qc: "QC",
 }
 
-export default function LegacyPlanningBoardSectionPage({
+export default async function LegacyPlanningBoardSectionPage({
   params,
 }: {
-  params: { section: string }
+  params: Promise<{ section: string }>
 }) {
-  const section = String(params?.section || "").toLowerCase()
+  const resolvedParams = await params
+  const section = String(resolvedParams?.section || "").toLowerCase()
   const normalized = Object.keys(STAGE_MAP).includes(section) ? section : "winder"
   redirect(`/planning/board?section=${normalized}`)
 }

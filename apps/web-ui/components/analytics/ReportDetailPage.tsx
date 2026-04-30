@@ -1,11 +1,14 @@
 "use client"
 
 import { useMemo, useState } from "react"
+import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
+import { ChartCard, CompactTable, FilterChip, KpiCard, PageIntro, formatCompactCurrency, formatCompactNumber, formatPercent } from "@/components/erp/premium-dashboard"
 import { useAuth } from "@/context/AuthContext"
 import { analyticsApi } from "@/lib/api"
+import { displayPlantScope } from "@/lib/plant-scope"
 
 type ReportType = "production" | "sales" | "inventory" | "quality" | "dispatch" | "plants" | "exceptions"
 
@@ -51,7 +54,7 @@ const REPORT_META: Record<ReportType, { title: string; eyebrow: string; descript
     description: "Ready jobs, sealed dispatches, dispatched quantity, and closed-order movement.",
   },
   plants: {
-    title: "Plant Comparison",
+    title: "Cross-plant Comparison",
     eyebrow: "Owner view",
     description: "Plant-wise cards, inventory value, blocked quantity, ready jobs, and delayed order load.",
   },
@@ -94,55 +97,19 @@ function chartRows(data: any) {
   })
 }
 
-function SummaryGrid({ summary }: { summary: any }) {
-  const entries = Object.entries(summary || {}).slice(0, 8)
-  if (!entries.length) return <p className="text-sm text-slate-500">No summary metrics returned for this report.</p>
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {entries.map(([key, value]) => (
-        <div key={key} className="rounded-[1.35rem] border border-slate-200 bg-white px-4 py-4 shadow-sm">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{formatLabel(key)}</p>
-          <p className="mt-3 text-2xl font-black text-slate-950">{formatValue(value)}</p>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function DataTable({ rows }: { rows: any[] }) {
-  const columns = useMemo(() => {
-    const keys = new Set<string>()
-    for (const row of rows.slice(0, 10)) {
-      Object.keys(row || {}).forEach((key) => {
-        if (!key.endsWith("_id") || key === "job_card_id" || key === "order_id" || key === "plant_id") keys.add(key)
-      })
-    }
-    return Array.from(keys).slice(0, 6)
-  }, [rows])
-
-  return (
-    <div className="overflow-x-auto rounded-[1.4rem] border border-slate-200 bg-white">
-      <table className="min-w-full text-left text-sm">
-        <thead className="bg-slate-950 text-white">
-          <tr>
-            {columns.map((column) => (
-              <th key={column} className="px-4 py-3 text-[10px] font-black uppercase tracking-[0.18em]">{formatLabel(column)}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 18).map((row, index) => (
-            <tr key={row.id || row.job_card_id || row.order_id || index} className="border-t border-slate-200">
-              {columns.map((column) => (
-                <td key={column} className="max-w-[240px] truncate px-4 py-3 font-medium text-slate-700">{formatValue(row[column])}</td>
-              ))}
-            </tr>
-          ))}
-          {!rows.length ? <tr><td colSpan={Math.max(1, columns.length)} className="px-4 py-8 text-center text-slate-500">No rows for the selected window.</td></tr> : null}
-        </tbody>
-      </table>
-    </div>
-  )
+function summaryTone(key: string, value: unknown) {
+  const numeric = Number(value || 0)
+  const normalized = key.toLowerCase()
+  if (normalized.includes("otif") || normalized.includes("yield") || normalized.includes("on_time")) {
+    return numeric >= 92 ? "emerald" : "rose"
+  }
+  if (normalized.includes("blocked") || normalized.includes("delay") || normalized.includes("hold")) {
+    return numeric > 0 ? "rose" : "emerald"
+  }
+  if (normalized.includes("low_stock") || normalized.includes("overstock")) {
+    return numeric > 0 ? "amber" : "emerald"
+  }
+  return "cyan"
 }
 
 export function ReportDetailPage({ type }: { type: ReportType }) {
@@ -150,6 +117,7 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
   const [startDate, setStartDate] = useState(daysAgo(29))
   const [endDate, setEndDate] = useState(today())
   const meta = REPORT_META[type]
+  const activePlantLabel = displayPlantScope(activePlant, "No plant selected")
   const params = { start_date: startDate, end_date: endDate, granularity: "day", plant: activePlant }
   const query = useQuery({
     queryKey: ["report-detail", type, activePlant, startDate, endDate],
@@ -159,22 +127,47 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
   const rows = primaryRows(type, data)
   const chart = chartRows(data).slice(-14)
   const chartKeys = Object.keys(chart[0] || {}).filter((key) => key !== "bucket").slice(0, 4)
+  const summaryEntries = Object.entries(data.summary || {}).slice(0, 6)
+  const tableColumns = useMemo(() => {
+    const keys = new Set<string>()
+    for (const row of rows.slice(0, 10)) {
+      Object.keys(row || {}).forEach((key) => {
+        if (!key.endsWith("_id") || key === "job_card_id" || key === "order_id" || key === "plant_id") keys.add(key)
+      })
+    }
+    return Array.from(keys).slice(0, 6).map((key) => ({
+      key,
+      label: formatLabel(key),
+      render: (row: any) => (key === "plant_id" || key === "plant" ? displayPlantScope(row[key], "-") : formatValue(row[key])),
+    }))
+  }, [rows])
 
   return (
-    <main className="space-y-5 px-6 pb-8 pt-2" data-testid={`report-detail-${type}`}>
-      <section className="rounded-[2rem] border border-slate-200 bg-white px-6 py-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.26em] text-slate-400">{meta.eyebrow}</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-950">{meta.title}</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{meta.description}</p>
+    <div className="space-y-5 px-6 pb-8 pt-2" data-testid={`report-detail-${type}`}>
+      <PageIntro
+        eyebrow={meta.eyebrow}
+        title={meta.title}
+        description={meta.description}
+        actions={
+          <>
+            <FilterChip active>{activePlantLabel}</FilterChip>
+            <FilterChip>{startDate}</FilterChip>
+            <FilterChip>{endDate}</FilterChip>
+          </>
+        }
+        aside={
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+              From
+              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-white/10 bg-white/10 px-3 text-sm text-white outline-none" />
+            </label>
+            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+              To
+              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-white/10 bg-white/10 px-3 text-sm text-white outline-none" />
+            </label>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold" />
-            <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold" />
-          </div>
-        </div>
-      </section>
+        }
+      />
 
       {query.isLoading ? (
         <div className="rounded-[2rem] border border-slate-200 bg-white p-8 text-slate-500">Loading report...</div>
@@ -182,11 +175,27 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
         <div className="rounded-[2rem] border border-rose-200 bg-rose-50 p-8 text-rose-700">Report service failed for this page.</div>
       ) : (
         <>
-          <SummaryGrid summary={data.summary} />
+          <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {summaryEntries.map(([key, value]) => (
+              <KpiCard
+                key={key}
+                label={formatLabel(key)}
+                value={
+                  key.toLowerCase().includes("value") || key.toLowerCase().includes("cost")
+                    ? formatCompactCurrency(Number(value || 0))
+                    : key.toLowerCase().includes("otif") || key.toLowerCase().includes("yield")
+                      ? formatPercent(Number(value || 0))
+                      : formatCompactNumber(Number(value || 0), Number(value || 0) % 1 !== 0 ? 1 : 0)
+                }
+                detail="Live summary metric"
+                tone={summaryTone(key, value) as any}
+              />
+            ))}
+          </section>
+
           <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Trend</p>
-              <div className="mt-4 h-[320px]">
+            <ChartCard eyebrow="Primary Visual" title="Trend" description="Primary period trend from the report service.">
+              <div className="h-[320px]">
                 {chart.length && chartKeys.length ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chart}>
@@ -203,19 +212,29 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
                   <div className="flex h-full items-center justify-center rounded-2xl bg-slate-50 text-sm text-slate-500">No trend series returned.</div>
                 )}
               </div>
-            </div>
-            <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
-              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Decision Notes</p>
-              <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
-                <p>Use this page to identify the action queue, then open the source workflow for correction. Report rows retain job/order/plant references where the backend provides them.</p>
+            </ChartCard>
+
+            <ChartCard eyebrow="Decision Notes" title="How to use this report" description="Operator-facing notes for the current report mode.">
+              <div className="space-y-3 text-sm leading-6 text-slate-600">
+                <p>Use this page to identify the action queue, then open the source workflow for correction. Report rows retain job, order, and plant references where the backend provides them.</p>
                 <p>For reconciliation: known rejection qty and reason should be captured at stage entry; only the unexplained balance should remain in monthly variance.</p>
-                <p>Current data scope: <span className="font-black text-slate-950">{activePlant || "No plant selected"}</span>.</p>
+                <p>Current data scope: <span className="font-bold text-slate-950">{activePlantLabel}</span>.</p>
+                <Link href="/reports" className="inline-flex items-center gap-2 font-semibold text-cyan-900">
+                  Back to reports hub
+                </Link>
               </div>
-            </div>
+            </ChartCard>
           </section>
-          <DataTable rows={rows} />
+
+          <ChartCard eyebrow="Detail Table" title="Underlying rows" description="Table view of the current report slice for export or follow-up.">
+            <CompactTable
+              columns={tableColumns}
+              rows={rows.slice(0, 18)}
+              emptyLabel="No rows for the selected window."
+            />
+          </ChartCard>
         </>
       )}
-    </main>
+    </div>
   )
 }

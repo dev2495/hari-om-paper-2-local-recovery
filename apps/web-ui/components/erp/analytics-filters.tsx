@@ -9,6 +9,7 @@ import { usePathname } from "next/navigation"
 import { StickyFilterBar, StatusBadge } from "@/components/erp/shell"
 import { type AnalyticsPreset, useAnalyticsContext } from "@/components/providers/analytics-provider"
 import { authApi } from "@/lib/api"
+import { plantScopeOptionLabel } from "@/lib/plant-scope"
 import { cn } from "@/lib/utils"
 
 const REPORT_TABS = [
@@ -117,7 +118,7 @@ export function AnalyticsFilters() {
                 {isCrossPlantDefault ? <option value="ALL">All Visible Plants</option> : null}
                 {(plantsQuery.data || []).map((plant: any) => (
                   <option key={plant.id} value={plant.id}>
-                    {plant.code ? `${plant.code} - ${plant.name}` : plant.name || plant.id}
+                    {plantScopeOptionLabel(plant)}
                   </option>
                 ))}
               </select>

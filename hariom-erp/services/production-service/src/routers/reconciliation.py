@@ -28,6 +28,8 @@ from ..utils.auth import get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 settings = get_settings()
+PAPER_EXPECTED_CONSUMPTION_FACTOR = 1.07
+PAPER_STANDARD_WASTAGE_PERCENT = 7.0
 
 
 class ShiftMaterialLedgerPayload(BaseModel):
@@ -131,6 +133,9 @@ class MonthlyMaterialActualRow(BaseModel):
     item_type: Optional[str] = None
     item_uom: Optional[str] = None
     unit_cost: float
+    exact_output_paper_kg: Optional[float] = None
+    standard_wastage_kg: Optional[float] = None
+    expected_consumption_factor: float = 1.0
     theoretical_consumption_kg: float
     provisional_theory_consumption_kg: float
     actual_consumption_kg: float
@@ -182,6 +187,26 @@ class MonthlyCloseStateResponse(BaseModel):
     approved_at: Optional[str] = None
     locked_at: Optional[str] = None
     notes: Optional[str] = None
+
+
+class MonthlyCloseHistoryRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    plant_id: str
+    month_start: date
+    status: str
+    imported_rows_count: int = 0
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    locked_at: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class MonthlyCloseHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    scope_all: bool
+    rows: list[MonthlyCloseHistoryRow] = Field(default_factory=list)
 
 
 class WinderShiftReconciliationResponse(BaseModel):
@@ -319,6 +344,23 @@ def _fetch_inventory_item_catalog(token: str, plant_id: str) -> dict[str, dict[s
             continue
         catalog[code] = row
     return catalog
+
+
+def _paper_catalog_codes(paper_catalog: dict[str, dict[str, Any]]) -> set[str]:
+    codes: set[str] = set()
+    for paper_id, row in (paper_catalog or {}).items():
+        for value in (paper_id, row.get("code")):
+            code = str(value or "").strip().upper()
+            if code:
+                codes.add(code)
+    return codes
+
+
+def _is_raw_paper_item(item_code: str, item_name: Optional[str], inventory_item: dict[str, Any], paper_codes: set[str]) -> bool:
+    item_type = str(inventory_item.get("type") or "").strip().upper()
+    code = str(item_code or "").strip().upper()
+    name = str(item_name or inventory_item.get("name") or "").strip().upper()
+    return item_type == "RAW_PAPER" or code in paper_codes or code.startswith("KRAFT") or "PAPER" in name
 
 
 def _job_card_activity_date(job_card: JobCard) -> date:
@@ -700,6 +742,7 @@ def _build_monthly_material_summary(
     month_end = _next_month(month_start)
     machine_scope_plant = "ALL" if plant_scope.get("scope_all") else str(plant_scope["selected_plant_id"])
     paper_catalog = _fetch_paper_catalog(current_user.get("token", ""), machine_scope_plant)
+    paper_codes = _paper_catalog_codes(paper_catalog)
     inventory_catalog = _fetch_inventory_item_catalog(current_user.get("token", ""), machine_scope_plant)
 
     provisional_query = _apply_scope(db.query(MonthlyMaterialProvisional), MonthlyMaterialProvisional, plant_scope).filter(
@@ -749,6 +792,7 @@ def _build_monthly_material_summary(
     item_codes = sorted(set(provisional_map.keys()) | set(actual_map.keys()) | inventory_item_codes)
     rows: list[MonthlyMaterialActualRow] = []
     total_theoretical = 0.0
+    total_provisional_theory = 0.0
     total_actual = 0.0
     total_theoretical_cost = 0.0
     total_actual_cost = 0.0
@@ -756,7 +800,12 @@ def _build_monthly_material_summary(
         provisional = provisional_map.get(item_code, {})
         actual = actual_map.get(item_code, {})
         inventory_item = inventory_catalog.get(item_code, {})
-        theoretical_kg = float(provisional.get("theoretical_consumption_kg") or 0.0)
+        exact_theory_kg = float(provisional.get("theoretical_consumption_kg") or 0.0)
+        row_name = actual.get("item_name") or provisional.get("item_name") or inventory_item.get("name")
+        is_paper = _is_raw_paper_item(item_code, str(row_name or ""), inventory_item, paper_codes)
+        expected_factor = PAPER_EXPECTED_CONSUMPTION_FACTOR if is_paper and exact_theory_kg > 0 else 1.0
+        theoretical_kg = round(exact_theory_kg * expected_factor, 6)
+        standard_wastage_kg = round(theoretical_kg - exact_theory_kg, 6) if is_paper and exact_theory_kg > 0 else None
         actual_kg = float(actual.get("actual_consumption_kg") or 0.0)
         unit_cost = float(inventory_item.get("unit_cost") or 0.0)
         theoretical_cost = theoretical_kg * unit_cost
@@ -765,18 +814,22 @@ def _build_monthly_material_summary(
         variance_cost = round(actual_cost - theoretical_cost, 4)
         variance_percent = round((variance_kg / theoretical_kg) * 100.0, 2) if theoretical_kg > 0 else (0.0 if actual_kg == 0 else 100.0)
         total_theoretical += theoretical_kg
+        total_provisional_theory += exact_theory_kg
         total_actual += actual_kg
         total_theoretical_cost += theoretical_cost
         total_actual_cost += actual_cost
         rows.append(
             MonthlyMaterialActualRow(
                 item_code=item_code,
-                item_name=actual.get("item_name") or provisional.get("item_name") or inventory_item.get("name"),
+                item_name=row_name,
                 item_type=str(inventory_item.get("type") or "").strip().upper() or None,
                 item_uom=str(inventory_item.get("uom") or "").strip().upper() or None,
                 unit_cost=round(unit_cost, 4),
+                exact_output_paper_kg=round(exact_theory_kg, 4) if is_paper and exact_theory_kg > 0 else None,
+                standard_wastage_kg=round(standard_wastage_kg, 4) if standard_wastage_kg is not None else None,
+                expected_consumption_factor=round(expected_factor, 4),
                 theoretical_consumption_kg=round(theoretical_kg, 4),
-                provisional_theory_consumption_kg=round(theoretical_kg, 4),
+                provisional_theory_consumption_kg=round(exact_theory_kg, 4),
                 actual_consumption_kg=round(actual_kg, 4),
                 actual_month_end_consumption_kg=round(actual_kg, 4),
                 variance_kg=variance_kg,
@@ -795,7 +848,7 @@ def _build_monthly_material_summary(
         scope_all=bool(plant_scope.get("scope_all")),
         plant_count=plant_count,
         total_theoretical_consumption_kg=round(total_theoretical, 4),
-        total_provisional_theory_consumption_kg=round(total_theoretical, 4),
+        total_provisional_theory_consumption_kg=round(total_provisional_theory, 4),
         total_actual_consumption_kg=round(total_actual, 4),
         total_actual_month_end_consumption_kg=round(total_actual, 4),
         total_variance_kg=round(total_actual - total_theoretical, 4),
@@ -844,7 +897,7 @@ def create_shift_material_ledger(
     payload: ShiftMaterialLedgerPayload,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["PlantManager", "Planner", "Production", "Store"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Planner", "Store"])),
 ):
     if plant_scope.get("scope_all"):
         raise HTTPException(status_code=400, detail="Shift ledger writes require a selected plant")
@@ -865,7 +918,7 @@ def create_shift_material_ledger(
         slit_output_weight_kg=payload.slit_output_weight_kg,
         wastage_weight_kg=payload.wastage_weight_kg,
         remaining_weight_kg=payload.remaining_weight_kg,
-        actual_job_card_ids=[uuid.UUID(str(value)) for value in (payload.actual_job_card_ids or [])],
+        actual_job_card_ids=[str(uuid.UUID(str(value))) for value in (payload.actual_job_card_ids or [])],
         transfer_snapshot=dict(payload.transfer_snapshot or {}),
         notes=payload.notes,
         created_by=current_user.get("sub"),
@@ -1065,6 +1118,37 @@ def get_monthly_close_state(
     return _serialize_monthly_close_state(close_row=close_row, month_start=month_start, plant_scope=plant_scope)
 
 
+@router.get("/monthly-close/history", response_model=MonthlyCloseHistoryResponse)
+def list_monthly_close_history(
+    limit: int = Query(12, ge=1, le=36),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = (
+        _apply_scope(db.query(MonthlyMaterialClose), MonthlyMaterialClose, plant_scope)
+        .order_by(MonthlyMaterialClose.month_start.desc(), MonthlyMaterialClose.updated_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return MonthlyCloseHistoryResponse(
+        scope_all=bool(plant_scope.get("scope_all")),
+        rows=[
+            MonthlyCloseHistoryRow(
+                plant_id=str(row.plant_id),
+                month_start=row.month_start,
+                status=row.status,
+                imported_rows_count=int(row.imported_rows_count or 0),
+                approved_by=row.approved_by,
+                approved_at=row.approved_at.isoformat() if row.approved_at else None,
+                locked_at=row.locked_at.isoformat() if row.locked_at else None,
+                notes=row.notes,
+            )
+            for row in rows
+        ],
+    )
+
+
 @router.post("/monthly-close/approve", response_model=MonthlyCloseStateResponse)
 def approve_monthly_close(
     payload: MonthlyCloseApprovePayload,
@@ -1127,7 +1211,7 @@ def get_winder_shift_reconciliation(
     report_date: date = Query(..., alias="date"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["PlantManager", "Planner", "Production", "Store"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Planner", "Store"])),
 ):
     normalized_shift = shift.strip().upper()
     plant_selector = "ALL" if plant_scope.get("scope_all") else str(plant_scope["selected_plant_id"])
@@ -1194,7 +1278,7 @@ def get_job_card_loss_breakup(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["PlantManager", "Planner", "Production", "Store"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Planner", "Store"])),
 ):
     query = _apply_scope(db.query(JobCard), JobCard, plant_scope).filter(JobCard.id == job_card_id)
     job_card = query.first()

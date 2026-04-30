@@ -58,6 +58,26 @@ class SalesOrderLine(Base):
 
     sales_order = relationship("SalesOrder", back_populates="lines")
     dispatch_logs = relationship("SalesOrderDispatchLog", back_populates="line", cascade="all, delete-orphan")
+    release_lots = relationship("SalesOrderReleaseLot", back_populates="line", cascade="all, delete-orphan")
+
+
+class SalesOrderReleaseLot(Base):
+    __tablename__ = "sales_order_release_lots"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sales_order_id = Column(UUID(as_uuid=True), ForeignKey("sales_orders.id"), nullable=False, index=True)
+    sales_order_line_id = Column(UUID(as_uuid=True), ForeignKey("sales_order_lines.id"), nullable=False, index=True)
+    product_code = Column(String(120), nullable=True)
+    released_qty = Column(Float, nullable=False)
+    winder_machine_id = Column(UUID(as_uuid=True), nullable=False)
+    job_card_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(String(30), nullable=False, default="released")
+    released_by = Column(String(200), nullable=True)
+    released_by_identity = Column(String(200), nullable=True)
+    released_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    line = relationship("SalesOrderLine", back_populates="release_lots")
 
 
 class SalesOrderDispatchLog(Base):

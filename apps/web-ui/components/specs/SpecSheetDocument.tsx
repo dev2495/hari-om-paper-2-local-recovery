@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from "react"
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
+import { displayPlantScope } from "@/lib/plant-scope"
 import {
   useAdhesives,
   useCustomers,
@@ -335,6 +336,17 @@ function safeNumber(value: any, fallback = 0) {
   return Number.isFinite(next) ? next : fallback
 }
 
+function useDebouncedValue<T>(value: T, delayMs: number) {
+  const [debouncedValue, setDebouncedValue] = useState(value)
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedValue(value), delayMs)
+    return () => clearTimeout(timer)
+  }, [delayMs, value])
+
+  return debouncedValue
+}
+
 function inputNumberValue(value: number | null | undefined, allowZero = false) {
   const numeric = safeNumber(value, 0)
   if (!allowZero && numeric <= 0) return ""
@@ -548,7 +560,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const { data: packagingFadda } = usePackagingFadda()
   const { data: tools } = useTools()
   const { data: specConstants } = useSpecConstants()
-  const { data: specFields } = useSpecFields()
+  const { data: specFields, isSuccess: specFieldsLoaded } = useSpecFields()
   const { data: specDocument, isLoading: isLoadingDocument } = useSpecSheetDocument(specId || "")
 
   const ensureCatalog = useEnsureSpecSheetCatalog()
@@ -839,6 +851,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     form.averages.weight,
     form.shrinkPercent,
     form.dynamicValues.glue_base_percent,
+    form.parchmentAllowed,
     form.parchmentPercent,
     form.recipeRows,
     manufacturingAverages.id,
@@ -856,33 +869,66 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     [clientRanges.weight_min_g, clientRanges.weight_max_g],
   )
 
-  const previewQuery = useSpecSheetPreview({
-    tubeLengthMm: Number(selectedTube?.length_mm || form.averages.length || 0),
-    tubeOdMm: Number(manufacturingAverages.od || selectedTube?.outer_diameter_mm || form.averages.od || 0),
-    tubeIdMm: Number(manufacturingAverages.id || form.averages.id || selectedTube?.inner_diameter_mm || 0),
-    targetDryWeightG: Number(form.averages.weight || 0),
-    dryingPercent: Number(form.shrinkPercent || 9.0),
-    parchmentPercent: Number(form.parchmentPercent || 1.5),
-    parchmentAllowed: form.parchmentAllowed,
-    adhesivePercent: Number(form.dynamicValues.glue_base_percent || 15),
-    recipeRows: form.recipeRows.map((row) => ({
-      paper_id: row.paper_id || "",
-      code: row.code || "",
-      variety: row.variety || "",
-      category: row.category || "",
-      gsm: Number(paperMap.get(row.paper_id)?.gsm || 0),
-      bf_per_ply: Number(row.bfPerPly || 0),
-      thickness_per_ply: Number(row.thicknessPerPly || 0),
-      ply_bond: Number(row.plyBond || 0),
-      ply_count: Number(row.plyCount || 1),
-      positions_text: row.positionsText || "",
-    })),
-    adhesiveComponents: buildAdhesiveComponentsPayload(form.adhesiveComponents, {
-      tl4: Number(form.adhesive20100 || 0),
-      vinsol: Number(form.adhesive30100 || 0),
-      basePercent: Number(form.dynamicValues.glue_base_percent || 15),
+  const previewTubeLengthMm = Number(selectedTube?.length_mm || form.averages.length || 0)
+  const previewTubeOdMm = Number(manufacturingAverages.od || selectedTube?.outer_diameter_mm || form.averages.od || 0)
+  const previewTubeIdMm = Number(manufacturingAverages.id || form.averages.id || selectedTube?.inner_diameter_mm || 0)
+  const targetDryWeightG = Number(form.averages.weight || 0)
+  const dryingPercent = Number(form.shrinkPercent || 9.0)
+  const parchmentPercent = Number(form.parchmentPercent || 1.5)
+  const adhesivePercent = Number(form.dynamicValues.glue_base_percent || 15)
+  const previewRecipeRows = useMemo(
+    () =>
+      form.recipeRows.map((row) => ({
+        paper_id: row.paper_id || "",
+        code: row.code || "",
+        variety: row.variety || "",
+        category: row.category || "",
+        gsm: Number(paperMap.get(row.paper_id)?.gsm || 0),
+        bf_per_ply: Number(row.bfPerPly || 0),
+        thickness_per_ply: Number(row.thicknessPerPly || 0),
+        ply_bond: Number(row.plyBond || 0),
+        ply_count: Number(row.plyCount || 1),
+        positions_text: row.positionsText || "",
+      })),
+    [form.recipeRows, paperMap],
+  )
+  const previewAdhesiveComponents = useMemo(
+    () =>
+      buildAdhesiveComponentsPayload(form.adhesiveComponents, {
+        tl4: Number(form.adhesive20100 || 0),
+        vinsol: Number(form.adhesive30100 || 0),
+        basePercent: adhesivePercent,
+      }),
+    [adhesivePercent, form.adhesive20100, form.adhesive30100, form.adhesiveComponents],
+  )
+  const previewRequest = useMemo(
+    () => ({
+      tubeLengthMm: previewTubeLengthMm,
+      tubeOdMm: previewTubeOdMm,
+      tubeIdMm: previewTubeIdMm,
+      targetDryWeightG,
+      dryingPercent,
+      parchmentPercent,
+      parchmentAllowed: form.parchmentAllowed,
+      adhesivePercent,
+      recipeRows: previewRecipeRows,
+      adhesiveComponents: previewAdhesiveComponents,
     }),
-  })
+    [
+      adhesivePercent,
+      dryingPercent,
+      form.parchmentAllowed,
+      parchmentPercent,
+      previewAdhesiveComponents,
+      previewRecipeRows,
+      previewTubeIdMm,
+      previewTubeLengthMm,
+      previewTubeOdMm,
+      targetDryWeightG,
+    ],
+  )
+  const debouncedPreviewRequest = useDebouncedValue(previewRequest, 250)
+  const previewQuery = useSpecSheetPreview(debouncedPreviewRequest)
 
   const latestApprovedTrial = useMemo(() => {
     const trials = specDocument?.trials || []
@@ -899,20 +945,63 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     setTodayLabel(formatter.format(new Date()))
   }, [])
 
-  const suggestionsQuery = useSpecSheetSuggestions({
-    recipeId: specDocument?.latestRecipe?.id || undefined,
-    tubeLengthMm: Number(selectedTube?.length_mm || form.averages.length || 0),
-    tubeOdMm: Number(manufacturingAverages.od || selectedTube?.outer_diameter_mm || form.averages.od || 0),
-    tubeIdMm: Number(manufacturingAverages.id || form.averages.id || selectedTube?.inner_diameter_mm || 0),
-    targetWetWeightG: Number(form.averages.weight || 0) / Math.max(0.01, 1 - Number(form.shrinkPercent || 9.0) / 100),
-    dryingPercent: Number(form.shrinkPercent || 9.0),
-    parchmentPercent: Number(form.parchmentPercent || 1.5),
-    paperCandidates: papers || [],
-  })
+  const paperCandidatesForSuggestions = useMemo(
+    () =>
+      ((papers || []) as any[])
+        .filter((paper) => Number(paper?.gsm || 0) > 0)
+        .map((paper) => ({
+          ...paper,
+          id: String(paper?.id || ""),
+          code: String(paper?.code || ""),
+          gsm: Number(paper?.gsm || 0),
+          bf: Number(paper?.bf ?? paper?.strength_value ?? 0),
+          thickness_mm: Number(paper?.thickness_mm || 0),
+          bulk_factor: Number(paper?.bulk_factor || 0),
+          ply_bond: Number(paper?.ply_bond || 0),
+        })),
+    [papers],
+  )
+  const suggestionInputsReady =
+    Boolean(form.mandrelId) &&
+    previewTubeLengthMm > 0 &&
+    previewTubeOdMm > 0 &&
+    previewTubeIdMm > 0 &&
+    targetDryWeightG > 0 &&
+    paperCandidatesForSuggestions.length >= 3
+  const suggestionRequest = useMemo(
+    () => ({
+      recipeId: specDocument?.latestRecipe?.id || undefined,
+      tubeLengthMm: suggestionInputsReady ? previewTubeLengthMm : 0,
+      tubeOdMm: suggestionInputsReady ? previewTubeOdMm : 0,
+      tubeIdMm: suggestionInputsReady ? previewTubeIdMm : 0,
+      targetWetWeightG: suggestionInputsReady ? targetDryWeightG / Math.max(0.01, 1 - dryingPercent / 100) : 0,
+      dryingPercent,
+      parchmentPercent,
+      paperCandidates: paperCandidatesForSuggestions,
+    }),
+    [
+      dryingPercent,
+      paperCandidatesForSuggestions,
+      parchmentPercent,
+      previewTubeIdMm,
+      previewTubeLengthMm,
+      previewTubeOdMm,
+      specDocument?.latestRecipe?.id,
+      suggestionInputsReady,
+      targetDryWeightG,
+    ],
+  )
+  const debouncedSuggestionRequest = useDebouncedValue(suggestionRequest, 400)
+  const suggestionsQuery = useSpecSheetSuggestions(debouncedSuggestionRequest)
   const recipeSuggestions = useMemo(
     () => ((suggestionsQuery.data?.suggestions || []) as RecipeSuggestion[]),
     [suggestionsQuery.data?.suggestions],
   )
+  const isSpecMathUpdating =
+    previewQuery.isFetching ||
+    suggestionsQuery.isFetching ||
+    previewRequest !== debouncedPreviewRequest ||
+    suggestionRequest !== debouncedSuggestionRequest
 
   const notchDistanceMm = parseMmValue(form.dynamicValues.notch_distance_mm)
   const notchDepthMm = parseMmValue(form.dynamicValues.notch_depth_mm)
@@ -981,15 +1070,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }, [form.averages.cs, latestApprovedTrial, previewSummary.predicted_dry_tube_g, weightBand.max, weightBand.min])
 
   const missingFieldDefinitions = useMemo(() => {
+    if (!specFieldsLoaded) return []
     const existingKeys = new Set((specFields || []).map((field: any) => field.key))
     return DEFAULT_SPEC_FIELD_DEFINITIONS.filter((field) => !existingKeys.has(field.field_key))
-  }, [specFields])
+  }, [specFields, specFieldsLoaded])
 
   useEffect(() => {
-    if (catalogBootstrapped || missingFieldDefinitions.length === 0 || ensureCatalog.isPending) return
+    if (!specFieldsLoaded || catalogBootstrapped || missingFieldDefinitions.length === 0 || ensureCatalog.isPending) return
     setCatalogBootstrapped(true)
     ensureCatalog.mutate(specFields || [])
-  }, [catalogBootstrapped, ensureCatalog, missingFieldDefinitions.length, specFields])
+  }, [catalogBootstrapped, ensureCatalog, missingFieldDefinitions.length, specFields, specFieldsLoaded])
 
   useEffect(() => {
     if (!isCreate || !selectedTube) return
@@ -1131,10 +1221,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     })
     setLoadedSpecId(spec.id)
 
-    if (mode === "edit" && spec.status !== "draft") {
+    if (mode === "edit" && (spec.active === false || spec.status === "obsolete")) {
+      showToast("Inactive specification versions are read-only. Open the active version to create the next revision.", "error")
       router.replace(`/specifications/${spec.id}`)
     }
-  }, [loadedSpecId, mode, paperMap, router, specDocument, latestApprovedTrial])
+  }, [loadedSpecId, mode, paperMap, router, showToast, specDocument, latestApprovedTrial])
 
   const footerFieldKeys = ["valid_upto", "prepared_by", "prepared_date", "sign_off_note"] as const
   const footerValidation = footerFieldKeys.map((key) => ({
@@ -1175,7 +1266,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     mode === "create"
       ? "New Specification Sheet"
       : mode === "edit"
-        ? `Edit Spec v${specDocument?.spec?.version || ""}`
+        ? `New Version from Spec v${specDocument?.spec?.version || ""}`
         : mode === "print"
           ? `Print Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
           : `Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
@@ -1203,7 +1294,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const writePlantLabel =
     activePlant === "ALL"
       ? "Pick one plant before writing."
-      : activePlant || user?.plant_id || "No plant selected"
+      : displayPlantScope(activePlant || user?.plant_id, "No plant selected")
   const writePlantAlertMessage =
     activePlant === "ALL"
       ? "Global scope is read-only here. Specification create, edit, and approval only work on one selected plant."
@@ -1640,7 +1731,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         recipeLayers,
         trialData,
       })
-      showToast(result.recipe ? "Specification updated and a new recipe version was saved." : "Specification updated.", "success")
+      showToast(
+        result.recipe
+          ? `Specification v${result.spec.version || "next"} saved as a new active version with a new recipe.`
+          : `Specification v${result.spec.version || "next"} saved as a new active version.`,
+        "success",
+      )
       router.push(`/specifications/${result.spec.id}`)
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to save the specification sheet."
@@ -1847,12 +1943,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   disabled={!canSubmit || createSpecSheet.isPending || updateSpecSheet.isPending}
                   className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
                 >
-                  {isCreate ? "Save Draft" : "Save Draft + Recipe"}
+                  {isCreate ? "Save Draft" : "Save as New Version + Recipe"}
                 </button>
               ) : null}
-              {!isCreate && currentStatus === "draft" ? (
+              {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" ? (
                 <Link href={`/specifications/${specId}/edit`} className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700">
-                  Edit Draft
+                  Create New Version
                 </Link>
               ) : null}
               {!isCreate && currentStatus === "draft" ? (
@@ -2391,6 +2487,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     />
                   </div>
                 </section>
+
+                {isSpecMathUpdating ? (
+                  <div className="rounded-[22px] border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
+                    Recalculating recipe math after input settles. You can keep typing.
+                  </div>
+                ) : null}
 
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
                   {recipeSuggestions.length === 0 ? (

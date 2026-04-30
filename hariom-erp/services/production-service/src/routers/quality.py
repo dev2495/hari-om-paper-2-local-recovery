@@ -186,7 +186,7 @@ def create_inspection(
     payload: InspectionCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     job_card = (
@@ -263,9 +263,11 @@ def create_inspection(
 def list_inspections(
     job_card_id: Optional[uuid.UUID] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales"])),
 ):
     query = db.query(QualityInspection)
     if plant_scope.get("scope_all"):
@@ -278,7 +280,7 @@ def list_inspections(
         query = query.filter(QualityInspection.job_card_id == job_card_id)
     if status:
         query = query.filter(QualityInspection.status == status.strip().upper())
-    rows = query.order_by(QualityInspection.created_at.desc()).all()
+    rows = query.order_by(QualityInspection.created_at.desc()).offset(offset).limit(limit).all()
     return [
         InspectionResponse(
             id=row.id,
@@ -299,7 +301,7 @@ def create_hold(
     payload: HoldCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     job_card = (
@@ -354,9 +356,11 @@ def create_hold(
 def list_holds(
     job_card_id: Optional[uuid.UUID] = Query(default=None),
     status: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales"])),
 ):
     query = db.query(QualityHold)
     if plant_scope.get("scope_all"):
@@ -369,7 +373,7 @@ def list_holds(
         query = query.filter(QualityHold.job_card_id == job_card_id)
     if status:
         query = query.filter(QualityHold.status == status.strip().upper())
-    rows = query.order_by(QualityHold.created_at.desc()).all()
+    rows = query.order_by(QualityHold.created_at.desc()).offset(offset).limit(limit).all()
     return [
         HoldResponse(
             id=row.id,
@@ -393,7 +397,7 @@ def release_hold(
     hold_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "QC"])),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     hold = (

@@ -26,8 +26,11 @@ import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { NotificationCenter } from "@/components/workspace/notification-center"
+import { RoleSwitcher } from "@/components/workspace/role-switcher"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
+import { displayPlantScope } from "@/lib/plant-scope"
 import { cn } from "@/lib/utils"
 
 type NavLink = {
@@ -35,6 +38,7 @@ type NavLink = {
   href: string
   icon: any
   description: string
+  roles?: string[]
 }
 
 type NavGroup = {
@@ -64,30 +68,42 @@ const navigationUnits: NavGroup[] = [
         href: "/sales-orders",
         icon: ClipboardList,
         description: "Commercial demand, releases, and customer intake.",
+        roles: ["Owner", "Admin", "Sales", "Planner"],
       },
       {
         name: "Job Cards",
         href: "/production/job-cards",
         icon: Factory,
         description: "Release truth, execution packets, and printable cards.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "Operator"],
       },
       {
         name: "Planner",
         href: "/production/planner",
         icon: Sparkles,
         description: "Machine queues, shift scheduling, and stage balancing.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager"],
       },
       {
         name: "Tracker",
         href: "/planning/tracker",
         icon: LineChart,
         description: "Live segment posture and release-to-dispatch tracking.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "Dispatch", "Operator"],
+      },
+      {
+        name: "Quality",
+        href: "/quality",
+        icon: ShieldCheck,
+        description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
+        roles: ["Owner", "Admin", "PlantManager", "QC", "SupervisorEntry", "Production", "Dispatch", "Store", "Sales"],
       },
       {
         name: "Reconciliation",
         href: "/production/reconciliation",
         icon: FileText,
         description: "Material retally, close posture, and monthly actuals.",
+        roles: ["Owner", "Admin", "PlantManager"],
       },
     ],
   },
@@ -99,12 +115,28 @@ const navigationUnits: NavGroup[] = [
         href: "/inventory",
         icon: Package,
         description: "Raw material inward, reel issue, balances, and valuation.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+      },
+      {
+        name: "Genealogy",
+        href: "/inventory/genealogy",
+        icon: Layers,
+        description: "Reel lineage, slit children, issue scans, and trace exceptions.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "Dispatch"],
+      },
+      {
+        name: "MRP",
+        href: "/analytics/mrp",
+        icon: LineChart,
+        description: "Material shortage planning and purchase draft generation.",
+        roles: ["Owner", "Admin", "Store", "Planner"],
       },
       {
         name: "Dispatch",
         href: "/logistics/dispatch",
         icon: Truck,
         description: "Packing handoff, challans, and finished-goods release.",
+        roles: ["Owner", "Admin", "Dispatch", "Sales", "Store"],
       },
     ],
   },
@@ -115,7 +147,8 @@ const navigationUnits: NavGroup[] = [
         name: "Specifications",
         href: "/specifications",
         icon: ScrollText,
-        description: "Spec sheet workspace, recipe truth, and approval flow.",
+        description: "Spec sheet workspace, recipe truth, and print-ready outputs.",
+        roles: ["Owner", "Admin"],
       },
     ],
   },
@@ -127,12 +160,14 @@ const navigationUnits: NavGroup[] = [
         href: "/analytics",
         icon: LineChart,
         description: "Shared KPI and production intelligence hub.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales"],
       },
       {
         name: "Reports",
         href: "/reports",
         icon: FileText,
         description: "Owner reporting, exceptions, and plant summaries.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales"],
       },
     ],
   },
@@ -144,12 +179,14 @@ const navigationUnits: NavGroup[] = [
         href: "/masters/papers",
         icon: Layers,
         description: "Papers, mandrels, parchments, customers, and supporting masters.",
+        roles: ["Owner", "Admin"],
       },
       {
         name: "System",
         href: "/system/users",
         icon: ShieldCheck,
         description: "Users, plants, machine setup, and platform governance.",
+        roles: ["Owner", "Admin"],
       },
     ],
   },
@@ -171,16 +208,24 @@ function initialsFor(name: string | null | undefined) {
 
 function compactIdentity(value: string | null | undefined) {
   const identity = String(value || "").trim()
-  if (!identity) return "00000000-0000-0000-0000-0000000000A1"
+  if (!identity) return "Plant A"
+  const label = displayPlantScope(identity, identity)
+  if (label !== identity) return label
   if (identity.length <= 22) return identity
   return `${identity.slice(0, 18)}...`
+}
+
+function canSeeLink(item: NavLink, roles: Set<string>) {
+  if (!item.roles || item.roles.length === 0) return true
+  if (roles.has("Owner") || roles.has("Admin")) return true
+  return item.roles.some((role) => roles.has(role))
 }
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/dashboard"
   const router = useRouter()
   const { toast, clearToast } = useApp()
-  const { user, isLoading, logout, activePlant } = useAuth()
+  const { user, isLoading, logout, activePlant, activeRole } = useAuth()
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarPinned, setSidebarPinned] = useState(false)
@@ -208,7 +253,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const wideWorkspace = pathname.startsWith("/planning/board")
   const sidebarExpanded = sidebarPinned || sidebarHovered
 
-  const flatLinks = useMemo(() => navigationUnits.flatMap((group) => group.items), [])
+  const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
+  const visibleNavigationUnits = useMemo(
+    () =>
+      navigationUnits
+        .map((group) => ({ ...group, items: group.items.filter((item) => canSeeLink(item, userRoles)) }))
+        .filter((group) => group.items.length > 0),
+    [userRoles],
+  )
+  const flatLinks = useMemo(() => visibleNavigationUnits.flatMap((group) => group.items), [visibleNavigationUnits])
 
   const pageLink = useMemo(() => {
     if (pathname.startsWith("/masters")) {
@@ -246,19 +299,24 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       .slice(0, 6)
   }, [flatLinks, searchQuery])
 
-  const headerShortcuts = useMemo(
+  const currentGroup = useMemo(
+    () => visibleNavigationUnits.find((group) => group.items.some((item) => pageLink && item.href === pageLink.href)),
+    [pageLink, visibleNavigationUnits],
+  )
+  const pathTrail = useMemo(
     () =>
-      ["/dashboard", "/sales-orders", "/production/job-cards", "/specifications"]
-        .map((href) => flatLinks.find((item) => item.href === href))
-        .filter(Boolean) as NavLink[],
-    [flatLinks],
+      pathname
+        .split("/")
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((segment) => segment.replace(/-/g, " ")),
+    [pathname],
   )
 
   const layoutOffsetClass = sidebarExpanded ? "lg:pl-[18.5rem]" : "lg:pl-[6.5rem]"
   const shellMaxWidthClass = wideWorkspace ? "max-w-none" : "max-w-[1680px]"
-  const roleLabel = String(user?.role || user?.roles?.[0] || "User").toUpperCase()
-  const userRoles = new Set([user?.role, ...(user?.roles || [])].filter(Boolean))
   const showAdminControls = userRoles.has("Owner") || userRoles.has("Admin")
+  const PageIcon = pageLink?.icon
 
   const handleLogout = async () => {
     await logout()
@@ -357,7 +415,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
 
         <nav className={cn("erp-sidebar-scroll flex-1 space-y-5 overflow-y-auto py-5", sidebarExpanded ? "px-3" : "px-2")}>
-          {navigationUnits.map((group) => (
+          {visibleNavigationUnits.map((group) => (
             <div key={group.title} className="space-y-1">
               <div
                 className={cn(
@@ -414,19 +472,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className={cn("border-t border-slate-200/80 py-3", sidebarExpanded ? "px-3" : "px-2")}>
           <div
             className={cn(
-              "rounded-[1.5rem] bg-[linear-gradient(180deg,rgba(239,252,255,0.96),rgba(255,255,255,0.92))] px-3 py-3 shadow-inner transition-all",
-              sidebarExpanded ? "opacity-100" : "pointer-events-none h-0 overflow-hidden p-0 opacity-0",
-            )}
-          >
-            <div className="text-[10px] font-bold uppercase tracking-[0.24em] text-amber-700">Approval Inbox</div>
-            <p className="pt-2 text-xs leading-5 text-slate-600">
-              Track pending specs, release approvals, and reconciliation checkpoints from one rail.
-            </p>
-          </div>
-
-          <div
-            className={cn(
-              "mt-3 flex items-center gap-3 rounded-[1.2rem] border border-white/80 bg-white/88 py-2.5 shadow-sm transition-all",
+              "flex items-center gap-3 rounded-[1.2rem] border border-white/80 bg-white/88 py-2.5 shadow-sm transition-all",
               sidebarExpanded ? "px-3" : "justify-center px-0",
             )}
           >
@@ -441,7 +487,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             >
               <div className="truncate text-sm font-semibold text-slate-900">{user.name}</div>
               <div className="truncate pt-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                {user.role || user.roles?.[0] || "System User"}
+                {activeRole || user.role || user.roles?.[0] || "System User"}
               </div>
             </div>
             <button
@@ -522,31 +568,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               ) : null}
             </div>
 
-            <div className="hidden xl:flex">
-              <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white px-1.5 py-1 shadow-sm">
-                {headerShortcuts.map((item) => (
-                  <button
-                    key={`quick-${item.href}`}
-                    onClick={() => navigateTo(item.href)}
-                    className={cn(
-                      "rounded-full px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition",
-                      isActivePath(pathname, item.href)
-                        ? "bg-slate-950 text-white"
-                        : "text-slate-500 hover:bg-slate-100 hover:text-slate-900",
-                    )}
-                  >
-                    {item.name}
-                  </button>
-                ))}
-              </div>
+            <div className="hidden min-w-0 xl:flex">
+              <button
+                type="button"
+                onClick={() => pageLink?.href && navigateTo(pageLink.href)}
+                className="group flex max-w-[25rem] items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-left shadow-sm transition hover:border-cyan-200 hover:bg-cyan-50/40"
+                title={pageLink?.description}
+              >
+                {PageIcon ? (
+                  <PageIcon className="h-3.5 w-3.5 shrink-0 text-cyan-900" />
+                ) : null}
+                <span className="min-w-0 truncate text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
+                  {currentGroup?.title || "Workspace"}
+                </span>
+                <ChevronRight className="h-3 w-3 shrink-0 text-slate-300" />
+                <span className="min-w-0 truncate text-[11px] font-bold uppercase tracking-[0.15em] text-slate-900">
+                  {pageLink?.name || pathTrail[pathTrail.length - 1] || "Dashboard"}
+                </span>
+                {pathTrail.length > 1 ? (
+                  <span className="hidden min-w-0 truncate rounded-full bg-slate-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500 2xl:block">
+                    {pathTrail.join(" / ")}
+                  </span>
+                ) : null}
+              </button>
             </div>
 
             <div className="ml-auto flex items-center gap-2">
-              {showAdminControls ? (
-                <div className="hidden rounded-full border border-slate-200 bg-white px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 shadow-sm lg:block">
-                  {roleLabel}
-                </div>
-              ) : null}
+              <RoleSwitcher compact />
+              <NotificationCenter />
               {showAdminControls ? <PlantSwitcher compact /> : null}
               <Button variant="outline" className="rounded-full border-slate-200 bg-white px-3.5 text-xs" onClick={handleLogout}>
                 <LogOut className="mr-2 h-3.5 w-3.5" />
@@ -581,7 +630,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <nav className="erp-sidebar-scroll flex-1 space-y-5 overflow-y-auto px-3 py-4">
-              {navigationUnits.map((group) => (
+              {visibleNavigationUnits.map((group) => (
                 <div key={`mobile-${group.title}`} className="space-y-1">
                   <div className="px-3 pb-1 text-[10px] font-bold uppercase tracking-[0.24em] text-slate-400">
                     {group.title}
@@ -626,7 +675,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-semibold text-slate-900">{user.name}</div>
                   <div className="truncate pt-0.5 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                    {user.role || user.roles?.[0] || "System User"}
+                    {activeRole || user.role || user.roles?.[0] || "System User"}
                   </div>
                 </div>
                 <button

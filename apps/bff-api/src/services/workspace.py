@@ -20,24 +20,24 @@ INTERNAL_EVENT_TOKEN = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events
 workspace_http_client = httpx.AsyncClient(timeout=20.0)
 
 NAV_ITEMS = [
-    {"label": "Dashboard", "href": "/dashboard", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Production", "Store", "Sales", "QC"]},
+    {"label": "Dashboard", "href": "/dashboard", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch", "Operator"]},
     {"label": "Sales Orders", "href": "/sales-orders", "roles": ["Owner", "Admin", "Planner", "Sales"]},
-    {"label": "Specifications", "href": "/specifications", "roles": ["Owner", "Admin", "Planner", "SpecMaker", "SpecApprover"]},
+    {"label": "Specifications", "href": "/specifications", "roles": ["Owner", "Admin"]},
     {"label": "Planning", "href": "/planning", "roles": ["Owner", "Admin", "Planner", "PlantManager"]},
-    {"label": "Job Cards", "href": "/job-cards", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Production", "QC"]},
-    {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Production", "SupervisorEntry", "Operator"]},
-    {"label": "Inventory", "href": "/inventory", "roles": ["Owner", "Admin", "Store", "PlantManager", "Production", "Sales", "Dispatch"]},
-    {"label": "Dispatch", "href": "/dispatch", "roles": ["Owner", "Admin", "Planner", "Store", "Sales", "Dispatch", "DispatchMaker", "DispatchApprover"]},
-    {"label": "Reports", "href": "/reports", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Production", "Store", "Sales", "QC"]},
+    {"label": "Job Cards", "href": "/job-cards", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Operator"]},
+    {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Operator"]},
+    {"label": "Inventory", "href": "/inventory", "roles": ["Owner", "Admin", "Store", "PlantManager", "Sales", "Dispatch"]},
+    {"label": "Dispatch", "href": "/dispatch", "roles": ["Owner", "Admin", "Planner", "Store", "Sales", "Dispatch"]},
+    {"label": "Reports", "href": "/reports", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch"]},
     {"label": "User Management", "href": "/system/users", "roles": ["Owner", "Admin"]},
 ]
 
 QUICK_ACTIONS = [
-    {"label": "New Sales Order", "href": "/sales-orders/new", "roles": ["Owner", "Admin", "Planner", "Sales", "SOMaker"]},
-    {"label": "New Specification", "href": "/specifications/new", "roles": ["Owner", "Admin", "Planner", "SpecMaker"]},
+    {"label": "New Sales Order", "href": "/sales-orders/new", "roles": ["Owner", "Admin", "Planner", "Sales"]},
+    {"label": "New Specification", "href": "/specifications/new", "roles": ["Owner", "Admin"]},
     {"label": "Open Planning Board", "href": "/planning", "roles": ["Owner", "Admin", "Planner", "PlantManager"]},
-    {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Production", "SupervisorEntry", "Operator"]},
-    {"label": "Open Reports", "href": "/reports/owner", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Production", "Store", "Sales", "QC"]},
+    {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Operator"]},
+    {"label": "Open Reports", "href": "/reports/owner", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch"]},
     {"label": "Role Matrix", "href": "/system/users", "roles": ["Owner", "Admin"]},
 ]
 

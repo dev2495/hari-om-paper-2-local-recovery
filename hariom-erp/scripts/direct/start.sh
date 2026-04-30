@@ -157,28 +157,27 @@ start_uvicorn_service() {
 
   check_port_free "$port" "$name"
 
-  (
-    cd "$workdir"
-    nohup env \
-      DATABASE_URL="$database_url" \
-      JWT_SECRET="$JWT_SECRET" \
-      AUTH_SERVICE_URL="$AUTH_SERVICE_URL" \
-      MASTER_DATA_SERVICE_URL="$MASTER_SERVICE_URL" \
-      SPEC_SERVICE_URL="$SPEC_SERVICE_URL" \
-      SALES_SERVICE_URL="$SALES_SERVICE_URL" \
-      PRODUCTION_SERVICE_URL="$PRODUCTION_SERVICE_URL" \
-      INVENTORY_SERVICE_URL="$INVENTORY_SERVICE_URL" \
-      ANALYTICS_SERVICE_URL="$ANALYTICS_SERVICE_URL" \
-      REDIS_URL="$REDIS_URL" \
-      SECRET_KEY="$JWT_SECRET" \
-      BOOTSTRAP_ADMIN_EMAIL="$BOOTSTRAP_ADMIN_EMAIL" \
-      BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
-      BOOTSTRAP_ADMIN_NAME="$BOOTSTRAP_ADMIN_NAME" \
-      BOOTSTRAP_ADMIN_PLANT_ID="$BOOTSTRAP_ADMIN_PLANT_ID" \
-      "${VENV_PYTHON}" -m uvicorn src.main:app --host "$HOST" --port "$port" \
-      >"$logfile" 2>&1 &
-    echo $! > "$pidfile"
-  )
+  env \
+    DATABASE_URL="$database_url" \
+    JWT_SECRET="$JWT_SECRET" \
+    AUTH_SERVICE_URL="$AUTH_SERVICE_URL" \
+    MASTER_DATA_SERVICE_URL="$MASTER_SERVICE_URL" \
+    SPEC_SERVICE_URL="$SPEC_SERVICE_URL" \
+    SALES_SERVICE_URL="$SALES_SERVICE_URL" \
+    PRODUCTION_SERVICE_URL="$PRODUCTION_SERVICE_URL" \
+    INVENTORY_SERVICE_URL="$INVENTORY_SERVICE_URL" \
+    ANALYTICS_SERVICE_URL="$ANALYTICS_SERVICE_URL" \
+    REDIS_URL="$REDIS_URL" \
+    SECRET_KEY="$JWT_SECRET" \
+    BOOTSTRAP_ADMIN_EMAIL="$BOOTSTRAP_ADMIN_EMAIL" \
+    BOOTSTRAP_ADMIN_PASSWORD="$BOOTSTRAP_ADMIN_PASSWORD" \
+    BOOTSTRAP_ADMIN_NAME="$BOOTSTRAP_ADMIN_NAME" \
+    BOOTSTRAP_ADMIN_PLANT_ID="$BOOTSTRAP_ADMIN_PLANT_ID" \
+    "${VENV_PYTHON}" "${ROOT_DIR}/scripts/direct/launch_detached.py" \
+      --cwd "$workdir" \
+      --pidfile "$pidfile" \
+      --logfile "$logfile" \
+      -- "${VENV_PYTHON}" -m uvicorn src.main:app --host "$HOST" --port "$port"
 
   echo "[start] ${name} pid $(cat "$pidfile") on ${HOST}:${port}"
 }
@@ -196,20 +195,19 @@ start_bff() {
 
   check_port_free "$BFF_PORT" "$name"
 
-  (
-    cd "$workdir"
-    nohup env \
-      AUTH_SERVICE_URL="$AUTH_SERVICE_URL" \
-      MASTER_SERVICE_URL="$MASTER_SERVICE_URL" \
-      SPEC_SERVICE_URL="$SPEC_SERVICE_URL" \
-      SALES_SERVICE_URL="$SALES_SERVICE_URL" \
-      PRODUCTION_SERVICE_URL="$PRODUCTION_SERVICE_URL" \
-      INVENTORY_SERVICE_URL="$INVENTORY_SERVICE_URL" \
-      ANALYTICS_SERVICE_URL="$ANALYTICS_SERVICE_URL" \
-      "${VENV_PYTHON}" -m uvicorn src.main:app --host "$HOST" --port "$BFF_PORT" \
-      >"$logfile" 2>&1 &
-    echo $! > "$pidfile"
-  )
+  env \
+    AUTH_SERVICE_URL="$AUTH_SERVICE_URL" \
+    MASTER_SERVICE_URL="$MASTER_SERVICE_URL" \
+    SPEC_SERVICE_URL="$SPEC_SERVICE_URL" \
+    SALES_SERVICE_URL="$SALES_SERVICE_URL" \
+    PRODUCTION_SERVICE_URL="$PRODUCTION_SERVICE_URL" \
+    INVENTORY_SERVICE_URL="$INVENTORY_SERVICE_URL" \
+    ANALYTICS_SERVICE_URL="$ANALYTICS_SERVICE_URL" \
+    "${VENV_PYTHON}" "${ROOT_DIR}/scripts/direct/launch_detached.py" \
+      --cwd "$workdir" \
+      --pidfile "$pidfile" \
+      --logfile "$logfile" \
+      -- "${VENV_PYTHON}" -m uvicorn src.main:app --host "$HOST" --port "$BFF_PORT"
 
   echo "[start] ${name} pid $(cat "$pidfile") on ${HOST}:${BFF_PORT}"
 }
@@ -237,27 +235,35 @@ start_web_ui() {
     if [[ "$WEB_UI_MODE" == "prod" ]]; then
       echo "[preflight] Web UI production build..."
       env BFF_INTERNAL_URL="$BFF_URL" NEXT_PUBLIC_BFF_URL="$BFF_URL" npm run build
-      nohup env \
+      env \
         BFF_INTERNAL_URL="$BFF_URL" \
         NEXT_PUBLIC_BFF_URL="$BFF_URL" \
-        npm run start -- -H "$HOST" -p "$WEB_UI_PORT" \
-        >"$logfile" 2>&1 &
+        "${VENV_PYTHON}" "${ROOT_DIR}/scripts/direct/launch_detached.py" \
+          --cwd "$workdir" \
+          --pidfile "$pidfile" \
+          --logfile "$logfile" \
+          -- npm run start -- -H "$HOST" -p "$WEB_UI_PORT"
     else
       if [[ "$WEB_UI_TURBO" == "1" ]]; then
-        nohup env \
+        env \
           BFF_INTERNAL_URL="$BFF_URL" \
           NEXT_PUBLIC_BFF_URL="$BFF_URL" \
-          npm run dev -- --turbo --hostname "$HOST" --port "$WEB_UI_PORT" \
-          >"$logfile" 2>&1 &
+          "${VENV_PYTHON}" "${ROOT_DIR}/scripts/direct/launch_detached.py" \
+            --cwd "$workdir" \
+            --pidfile "$pidfile" \
+            --logfile "$logfile" \
+            -- npm run dev -- --turbo --hostname "$HOST" --port "$WEB_UI_PORT"
       else
-        nohup env \
+        env \
           BFF_INTERNAL_URL="$BFF_URL" \
           NEXT_PUBLIC_BFF_URL="$BFF_URL" \
-          npm run dev -- --hostname "$HOST" --port "$WEB_UI_PORT" \
-          >"$logfile" 2>&1 &
+          "${VENV_PYTHON}" "${ROOT_DIR}/scripts/direct/launch_detached.py" \
+            --cwd "$workdir" \
+            --pidfile "$pidfile" \
+            --logfile "$logfile" \
+            -- npm run dev -- --hostname "$HOST" --port "$WEB_UI_PORT"
       fi
     fi
-    echo $! > "$pidfile"
   )
 
   echo "[start] ${name} pid $(cat "$pidfile") on ${HOST}:${WEB_UI_PORT} (${WEB_UI_MODE})"

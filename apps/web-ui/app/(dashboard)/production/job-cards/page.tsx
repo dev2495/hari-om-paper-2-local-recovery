@@ -8,6 +8,7 @@ import { useDeferredValue, useMemo, useState } from "react"
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
 import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -134,21 +135,21 @@ export default function JobCardsPage() {
                     <td className="px-4 py-4">
                       <div className="space-y-2">
                         <Link href={`/production/job-cards/${job.id}`} className="text-sm font-semibold text-slate-950 hover:text-cyan-700">
-                          {job.job_card_ref || String(job.id).slice(0, 8)}
+                          {jobCardRef(job)}
                         </Link>
                         <div className="text-xs text-slate-500">
-                          Release lot {job.release_lot_id ? String(job.release_lot_id).slice(0, 8) : "-"}
+                          Release lot {job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "-"}
                         </div>
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-700">
                       <div className="font-semibold text-slate-900">{job.customer_name || String(job.customer_id || "-")}</div>
                       <div className="mt-1 text-xs text-slate-500">
-                        SO {job.sales_order_id ? String(job.sales_order_id).slice(0, 8) : "-"} · Spec {job.spec_reference || String(job.spec_id || "").slice(0, 8)}
+                        SO {job.sales_order_ref || (job.sales_order_id ? compactRef(job.sales_order_id, "SO") : "-")} · Spec {job.spec_reference || compactRef(job.spec_id, "SPEC")}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-700">
-                      <div>{job.release_lot_id ? `Lot ${String(job.release_lot_id).slice(0, 8)}` : "-"}</div>
+                      <div>{job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "-"}</div>
                       <div className="mt-1 text-xs text-slate-500">
                         {job.assigned_winder_machine_id
                           ? machineLabelMap.get(String(job.assigned_winder_machine_id)) || String(job.assigned_winder_machine_id).slice(0, 8)
@@ -166,7 +167,7 @@ export default function JobCardsPage() {
                       {Number(job.planned_qty || 0).toFixed(0)}
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-700">
-                      <div>{job.current_machine_id ? String(job.current_machine_id).slice(0, 8) : "Unassigned"}</div>
+                      <div>{job.current_machine_id ? machineLabelMap.get(String(job.current_machine_id)) || compactRef(job.current_machine_id, "MC") : "Unassigned"}</div>
                       <div className="mt-1 text-xs text-slate-500">
                         {job.current_shift_code || "No shift"} · {job.current_plan_date ? formatDate(job.current_plan_date) : "No plan date"}
                       </div>

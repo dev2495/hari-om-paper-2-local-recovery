@@ -12,6 +12,7 @@ from fastapi import Request
 
 from ..utils.deps import get_current_user, require_internal_event_request, require_role
 from .auth import serialize_user, UserResponse, UserCreate, _assign_roles
+from ..workspace import canonical_role_name
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -30,7 +31,17 @@ def list_users(
     current_user: models.User = Depends(require_role(["Admin"]))
 ):
     users = db.query(models.User).order_by(models.User.created_at.desc()).all()
-    return [serialize_user(user) for user in users]
+    visible_users = []
+    for user in users:
+        email = str(user.email or "").lower()
+        if not user.is_active:
+            continue
+        if email.startswith("release."):
+            continue
+        if user.roles and not any(canonical_role_name(role.name) for role in user.roles):
+            continue
+        visible_users.append(user)
+    return [serialize_user(user) for user in visible_users]
 
 
 @router.get("/owners/active")
@@ -168,19 +179,19 @@ def delete_user(
     if str(user.id) == str(current_user.id):
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
         
-    deleted_email = user.email
-    deleted_id = str(user.id)
-    db.delete(user)
+    disabled_email = user.email
+    disabled_id = str(user.id)
+    user.is_active = False
     db.commit()
     create_notifications(
         db,
-        event_type="RBAC_USER_DELETED",
-        title="User deleted",
-        message=f"{deleted_email} was removed from the ERP workspace.",
+        event_type="RBAC_USER_DISABLED",
+        title="User disabled",
+        message=f"{disabled_email} was disabled in the ERP workspace.",
         href="/system/users",
         recipient_roles=["Owner", "Admin"],
         actor_user_id=current_user.id,
-        payload={"user_id": deleted_id, "email": deleted_email},
+        payload={"user_id": disabled_id, "email": disabled_email},
     )
     db.commit()
-    return {"message": "User deleted successfully"}
+    return {"message": "User disabled successfully"}

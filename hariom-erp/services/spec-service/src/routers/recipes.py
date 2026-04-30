@@ -124,6 +124,7 @@ def add_layer(
     
     db_layer = RecipeLayer(
         recipe_id=recipe_id,
+        plant_id=plant_id,
         ply_no=layer.ply_no,
         paper_id=layer.paper_id,
         gsm_snapshot=layer.gsm_snapshot,

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Building2, Check, ChevronDown } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 import { authApi } from "@/lib/api"
+import { PLANT_SCOPE_LABELS, canonicalPlantScopeValue, displayPlantScope, plantScopeOptionLabel } from "@/lib/plant-scope"
 
 type PlantOption = {
     id: string
@@ -13,18 +14,16 @@ type PlantOption = {
     is_active?: boolean
 }
 
-const FALLBACK_PLANT_LABELS: Record<string, string> = {
-    PLANT_A: "Plant A",
-    PLANT_B: "Plant B",
-    ALL: "Global Analytics",
-}
-
 function normalizePlantScopeValue(plant: PlantOption | null | undefined) {
+    const id = String(plant?.id || "").trim()
+    if (id && id.toUpperCase() !== "ALL") {
+        return canonicalPlantScopeValue(id)
+    }
     const code = String(plant?.code || "").trim()
     if (code) {
-        return code.toUpperCase()
+        return canonicalPlantScopeValue(code)
     }
-    return String(plant?.id || "").trim()
+    return id
 }
 
 export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
@@ -76,7 +75,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
 
     const resolvedPlants = React.useMemo(() => {
         if (plants.length > 0) return plants
-        return Object.entries(FALLBACK_PLANT_LABELS).map(([id, name]) => ({ id, code: id, name }))
+        return Object.entries(PLANT_SCOPE_LABELS).map(([id, name]) => ({ id, code: id, name }))
     }, [plants])
 
     const visiblePlants = React.useMemo(() => {
@@ -105,12 +104,9 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     )
 
     const currentPlantName =
-        (String(activePlant || "").toUpperCase() === "ALL" ? "Global Analytics" : null) ||
-        currentPlant?.code ||
+        (String(activePlant || "").toUpperCase() === "ALL" ? displayPlantScope("ALL") : null) ||
         currentPlant?.name ||
-        FALLBACK_PLANT_LABELS[String(activePlant || "").toUpperCase()] ||
-        activePlant ||
-        "Unknown Plant"
+        displayPlantScope(activePlant, "Unknown Plant")
 
     const handlePlantChange = (nextPlant: string) => {
         setActivePlant(nextPlant)
@@ -173,7 +169,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                                 }`}
                             >
                                 <div className="min-w-0">
-                                    <span className="block truncate text-sm font-medium">Global Analytics</span>
+                                    <span className="block truncate text-sm font-medium">All Visible Plants</span>
                                     <span className="block text-[10px] opacity-60">ALL · read-only scope</span>
                                 </div>
                                 {activePlant === "ALL" ? <Check className="h-4 w-4 shrink-0" /> : null}
@@ -190,8 +186,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                                     }`}
                             >
                                 <div className="min-w-0">
-                                    <span className="block truncate text-sm font-medium">{plant.name || plant.code || plant.id}</span>
-                                    <span className="block text-[10px] opacity-60">{normalizePlantScopeValue(plant)}</span>
+                                    <span className="block truncate text-sm font-medium">{plantScopeOptionLabel(plant)}</span>
+                                    <span className="block text-[10px] opacity-60">{displayPlantScope(normalizePlantScopeValue(plant))}</span>
                                 </div>
                                 {activePlant === plant.id || activePlant === plant.code || activePlant === normalizePlantScopeValue(plant) ? (
                                     <Check className="h-4 w-4 shrink-0" />

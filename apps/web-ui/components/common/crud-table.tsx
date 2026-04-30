@@ -13,7 +13,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
-import { Pencil, Plus, Search, Trash2 } from "lucide-react"
+import { Pencil, Plus, PowerOff, Search } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 
 interface Column {
@@ -84,12 +84,13 @@ const WORKSPACE_LINKS = {
         { href: "/system/users", label: "Users" },
         { href: "/system/plants", label: "Plants" },
         { href: "/system/machines", label: "Machines" },
+        { href: "/system/locations", label: "Locations" },
     ],
 } as const
 
 function datasetWorkspace(title: string) {
     const value = title.toLowerCase()
-    if (["plants", "machines", "users"].includes(value)) return "system"
+    if (["plants", "machines", "users", "locations"].includes(value)) return "system"
     return "masters"
 }
 
@@ -203,6 +204,9 @@ export function CrudTable({
                         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master Data Workspace</p>
                         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{title}</h1>
                         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{subtitle}</p>
+                        <p className="mt-2 max-w-3xl text-xs font-semibold text-amber-700">
+                            Master data is never physically deleted. Disable hides it from future dropdowns while old orders, specs, job cards, and ledgers keep their historical references.
+                        </p>
                     </div>
                     <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
                         <div>
@@ -323,13 +327,15 @@ export function CrudTable({
                                             )}
                                             {onDelete && (
                                                 <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="rounded-xl border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                                            variant="ghost"
+                                            size="icon"
+                                                    title={`Disable ${title}`}
+                                                    aria-label={`Disable ${title}`}
+                                                    className="rounded-xl border border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
                                                     disabled={writeBlocked}
                                                     onClick={() => onDelete(row.id)}
                                                 >
-                                                    <Trash2 className="h-4 w-4" />
+                                                    <PowerOff className="h-4 w-4" />
                                                 </Button>
                                             )}
                                         </div>

@@ -7,6 +7,7 @@ import { usePlanningJobCard } from "@/hooks/use-production"
 import { useCustomers } from "@/hooks/use-master-data"
 import { DispatchDocument } from "@/components/dispatch/dispatch-document"
 import { Button } from "@/components/ui/button"
+import { jobCardRef } from "@/lib/job-card-display"
 
 function NewDispatchForm() {
     const router = useRouter()
@@ -46,7 +47,7 @@ function NewDispatchForm() {
         const _qtyUnits = pcsPerUnit ? Math.ceil(totalPcs / pcsPerUnit) : 1
 
         const initialData = {
-            job_card_no: jobCard.job_card_no || jobCard.id.slice(0, 8),
+            job_card_no: jobCardRef(jobCard),
             date: new Date().toISOString().split("T")[0],
             customer: {
                 id: customer.id,

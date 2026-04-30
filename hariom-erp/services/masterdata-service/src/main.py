@@ -3,7 +3,7 @@ from sqlalchemy import text
 
 from . import models
 from .database import engine
-from .routers import adhesive, customer, machine, mandrel, packaging, paper, parchment, tool, tube_size
+from .routers import adhesive, customer, machine, mandrel, packaging, paper, parchment, supplier, tool, tube_size
 
 app = FastAPI(
     title="Hari Om Paper ERP - Master Data Service",
@@ -17,6 +17,7 @@ app.include_router(parchment.router)
 app.include_router(tube_size.router)
 app.include_router(mandrel.router)
 app.include_router(customer.router)
+app.include_router(supplier.router)
 app.include_router(machine.router)
 app.include_router(packaging.router)
 app.include_router(tool.router)
@@ -87,6 +88,8 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS code VARCHAR(50)"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS capacity_type VARCHAR(40)"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS capacity_value DOUBLE PRECISION"))
+        connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS batch_bamboo_capacity DOUBLE PRECISION"))
+        connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS cycle_time_hours DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS id_min_mm DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS id_max_mm DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS od_min_mm DOUBLE PRECISION"))
@@ -102,6 +105,8 @@ def _ensure_schema_compatibility() -> None:
         )
         connection.execute(text("UPDATE machine SET capacity_type = COALESCE(capacity_type, 'TUBES_PER_DAY')"))
         connection.execute(text("UPDATE machine SET capacity_value = COALESCE(capacity_value, 0.0)"))
+        connection.execute(text("UPDATE machine SET batch_bamboo_capacity = COALESCE(batch_bamboo_capacity, 500.0) WHERE department = 'OVEN'"))
+        connection.execute(text("UPDATE machine SET cycle_time_hours = COALESCE(cycle_time_hours, 5.5) WHERE department = 'OVEN'"))
         connection.execute(text("UPDATE machine SET id_min_mm = COALESCE(id_min_mm, 0.0)"))
         connection.execute(text("UPDATE machine SET id_max_mm = COALESCE(id_max_mm, 0.0)"))
         connection.execute(text("UPDATE machine SET od_min_mm = COALESCE(od_min_mm, 0.0)"))
@@ -164,6 +169,29 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(
             text(
                 """
+                CREATE TABLE IF NOT EXISTS supplier (
+                    id UUID PRIMARY KEY,
+                    supplier_code VARCHAR(50) NOT NULL,
+                    name VARCHAR(200) NOT NULL,
+                    category VARCHAR(80) NOT NULL DEFAULT 'RAW_MATERIAL',
+                    contact_name VARCHAR(200),
+                    contact_phone VARCHAR(50),
+                    contact_email VARCHAR(200),
+                    gst_no VARCHAR(50),
+                    address VARCHAR(500),
+                    plant_id VARCHAR(50) NOT NULL,
+                    active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                )
+                """
+            )
+        )
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_plant_code ON supplier (plant_id, supplier_code)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_plant_name ON supplier (plant_id, name)"))
+
+        connection.execute(
+            text(
+                """
                 CREATE TABLE IF NOT EXISTS packaging_box (
                     id UUID PRIMARY KEY,
                     code VARCHAR(50) NOT NULL,
@@ -221,6 +249,87 @@ def _ensure_schema_compatibility() -> None:
 _ensure_schema_compatibility()
 
 
+def _seed_default_suppliers() -> None:
+    """Keep raw-material inward usable after a fresh reset without manual typing."""
+    default_suppliers = (
+        {
+            "id": "00000000-0000-0000-0000-00000000a101",
+            "plant_id": "00000000-0000-0000-0000-0000000000a1",
+            "supplier_code": "RM-SEED-A",
+            "name": "RM Seed Supplier",
+            "category": "RAW_MATERIAL",
+            "contact_name": "Stores Desk",
+            "contact_phone": "+91 00000 00001",
+            "contact_email": "store-a@hariom.local",
+            "gst_no": None,
+            "address": "Plant A approved raw material supplier",
+        },
+        {
+            "id": "00000000-0000-0000-0000-00000000a102",
+            "plant_id": "00000000-0000-0000-0000-0000000000a1",
+            "supplier_code": "PARCH-SEED-A",
+            "name": "Parchment Seed Supplier",
+            "category": "PARCHMENT",
+            "contact_name": "Procurement Desk",
+            "contact_phone": "+91 00000 00002",
+            "contact_email": "parchment-a@hariom.local",
+            "gst_no": None,
+            "address": "Plant A approved parchment supplier",
+        },
+        {
+            "id": "00000000-0000-0000-0000-00000000b101",
+            "plant_id": "00000000-0000-0000-0000-0000000000b2",
+            "supplier_code": "RM-SEED-B",
+            "name": "RM Seed Supplier",
+            "category": "RAW_MATERIAL",
+            "contact_name": "Stores Desk",
+            "contact_phone": "+91 00000 00003",
+            "contact_email": "store-b@hariom.local",
+            "gst_no": None,
+            "address": "Plant B approved raw material supplier",
+        },
+        {
+            "id": "00000000-0000-0000-0000-00000000b102",
+            "plant_id": "00000000-0000-0000-0000-0000000000b2",
+            "supplier_code": "PARCH-SEED-B",
+            "name": "Parchment Seed Supplier",
+            "category": "PARCHMENT",
+            "contact_name": "Procurement Desk",
+            "contact_phone": "+91 00000 00004",
+            "contact_email": "parchment-b@hariom.local",
+            "gst_no": None,
+            "address": "Plant B approved parchment supplier",
+        },
+    )
+    upsert_sql = text(
+        """
+        INSERT INTO supplier (
+            id, plant_id, supplier_code, name, category, contact_name, contact_phone,
+            contact_email, gst_no, address, active, created_at
+        )
+        VALUES (
+            :id, :plant_id, :supplier_code, :name, :category, :contact_name, :contact_phone,
+            :contact_email, :gst_no, :address, TRUE, NOW()
+        )
+        ON CONFLICT (plant_id, supplier_code) DO UPDATE SET
+            name = EXCLUDED.name,
+            category = EXCLUDED.category,
+            contact_name = EXCLUDED.contact_name,
+            contact_phone = EXCLUDED.contact_phone,
+            contact_email = EXCLUDED.contact_email,
+            gst_no = EXCLUDED.gst_no,
+            address = EXCLUDED.address,
+            active = TRUE
+        """
+    )
+    with engine.begin() as connection:
+        for supplier in default_suppliers:
+            connection.execute(upsert_sql, supplier)
+
+
+_seed_default_suppliers()
+
+
 @app.get("/")
 def health_check():
     return {
@@ -235,6 +344,7 @@ def health_check():
             "/master/tube-sizes",
             "/master/mandrels",
             "/master/customers",
+            "/master/suppliers",
             "/master/machines",
             "/master/packaging/boxes",
             "/master/packaging/plastic-sheets",

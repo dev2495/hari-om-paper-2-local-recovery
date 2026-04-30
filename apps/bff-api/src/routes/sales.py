@@ -86,7 +86,7 @@ async def release_order(order_id: str, request: Request, token: str = Depends(ge
         title=f"Sales order released: {payload.get('order_no') or order_id}",
         message="Planning can now schedule execution against this order.",
         href=f"/sales-orders/{order_id}",
-        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Production"],
+        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Operator"],
         payload={"order_id": order_id},
     )
     return response
@@ -104,7 +104,7 @@ async def release_order_line(line_id: str, request: Request, token: str = Depend
         title=f"Sales line released: {line_id}",
         message="A sales-order line was released into production planning.",
         href=f"/sales-orders/{order_id}" if order_id else "/sales-orders",
-        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Production"],
+        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Operator"],
         payload={"order_id": order_id, "line_id": line_id},
     )
     return response

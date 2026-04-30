@@ -4,6 +4,7 @@ import { useState } from "react"
 import Link from "next/link"
 import { useReadyJobs, useCustomers } from "@/hooks/use-dispatch"
 import { Button } from "@/components/ui/button"
+import { jobCardRef } from "@/lib/job-card-display"
 
 export default function DispatchSelectionPage() {
     const { data: readyJobs, isLoading } = useReadyJobs()
@@ -28,7 +29,7 @@ export default function DispatchSelectionPage() {
     const filteredJobs = jobs.filter((job: any) => {
         const customerName = customerMap[job.customer_id] || ""
         if (filterCustomer && !customerName.toLowerCase().includes(filterCustomer.toLowerCase())) return false
-        if (filterJobNo && !String(job.job_card_no || job.id).toLowerCase().includes(filterJobNo.toLowerCase())) return false
+        if (filterJobNo && !jobCardRef(job).toLowerCase().includes(filterJobNo.toLowerCase())) return false
 
         // Status filter logic
         if (filterStatus) {
@@ -118,7 +119,7 @@ export default function DispatchSelectionPage() {
                                     return (
                                         <tr key={job.id} className="hover:bg-slate-50 transition-colors">
                                             <td className="px-4 py-3 font-medium text-slate-900 border-l-[3px] border-l-transparent hover:border-l-amber-500">
-                                                {job.job_card_no || job.id.slice(0, 8)}
+                                                {jobCardRef(job)}
                                             </td>
                                             <td className="px-4 py-3 text-slate-700">{customerName}</td>
                                             <td className="px-4 py-3 text-slate-600">{specDisplay}</td>

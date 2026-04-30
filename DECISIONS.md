@@ -104,6 +104,13 @@
 - `/planning/board` is the canonical planner screen.
 - `/production/planner` should redirect there instead of keeping a parallel stale page.
 - The board must expose unscheduled queue, machine-shift lanes for the next three days, and manual split only as an exception control.
+- Winder planning must honor the winder selected during sales release. A release assigned to one winder cannot be scheduled on another winder lane.
+
+### 2026-04-24: Tracker and job-card register are separate truths
+
+- `/planning/tracker` tracks customer sales orders from booking through release, WIP stages, and dispatch readiness.
+- `/production/job-cards` is the production job-card register and document entry point.
+- `/production/reconciliation` is a monthly production variance close; inventory opening/closing/carry-forward remains in `/inventory/stock-control`.
 
 ### 2026-04-15: Master-data forms must save the full downstream payload
 
@@ -117,3 +124,15 @@
 - Global glue base remains fixed at `15%`.
 - Wet divisor remains `1 - drying_percent / 100`, default `0.905`.
 - Packing primary UI is box/plastic/fadda master selection plus per-box usage counts.
+
+### 2026-04-30: Master data is immutable after entry
+
+- Master records are never physically deleted from exposed product flows.
+- Disable is the only user-facing removal action and means hidden from future dropdowns/lists.
+- Historical sales orders, job cards, specs, ledgers, and audit records keep pointing to the original disabled record.
+
+### 2026-04-30: Spec edit creates a new active version
+
+- Editing an active specification creates the next version as a new row.
+- The previous version is disabled/obsolete instead of being overwritten.
+- Old production and commercial records remain tied to the exact spec truth they were created with.

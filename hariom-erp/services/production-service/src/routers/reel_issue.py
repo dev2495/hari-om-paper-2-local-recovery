@@ -31,7 +31,7 @@ def add_reel_issue(
     reel: ReelIssueCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "Admin"]))
+    current_user: dict = Depends(require_role(["PlantManager", "Admin"]))
 ):
     """Add reel issue to job (Production or Admin)"""
     # Verify job exists

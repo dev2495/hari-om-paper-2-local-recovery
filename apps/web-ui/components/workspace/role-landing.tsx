@@ -27,6 +27,7 @@ import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { usePlanningBoard, usePlanningJobCards } from "@/hooks/use-production"
 import { useSalesOrders } from "@/hooks/use-sales"
 import { ERP_CHART_THEME, MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { jobCardRef } from "@/lib/job-card-display"
 import { LANDING_LABELS, LANDING_QUICK_ACTIONS, type LandingRole } from "@/lib/workspace"
 import { formatMetric } from "@/lib/reporting"
 
@@ -62,11 +63,6 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "Order release, specification readiness, and schedule pressure across the execution spine",
     description: "A planner-first landing with release velocity, queue pressure, and the actions that convert demand into executable work.",
   },
-  Production: {
-    badge: "Production Workspace",
-    title: "Execution truth, stage pressure, and material readiness for the floor",
-    description: "Open cards, blocked work, issue pressure, and supervisor-entry readiness are grouped on one landing.",
-  },
   Store: {
     badge: "Store Workspace",
     title: "Inventory health, reservation pressure, and dispatch readiness in one operational surface",
@@ -77,10 +73,15 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "Commercial demand, backlog pressure, and customer handoff readiness",
     description: "See release health, delayed orders, and dispatch readiness without dropping into separate modules.",
   },
-  QC: {
-    badge: "QC Workspace",
-    title: "Compliance signals, blocked lots, and inspection-driven exceptions across the route",
-    description: "Focus on failing checkpoints, active holds, and the jobs that need QC attention now.",
+  Dispatch: {
+    badge: "Dispatch Workspace",
+    title: "Finished goods readiness, challan pressure, and handoff exceptions",
+    description: "See newly created FG, pending challans, blocked dispatches, and what must leave next.",
+  },
+  Operator: {
+    badge: "Operator Workspace",
+    title: "QR scan work, assigned stages, and simple input actions for the floor",
+    description: "A narrow landing for job-card scanning, stage entry, and work that needs operator input.",
   },
 }
 
@@ -89,10 +90,10 @@ const ROLE_ICONS = {
   Admin: ShieldAlert,
   PlantManager: Factory,
   Planner: ClipboardCheck,
-  Production: Wrench,
   Store: Warehouse,
+  Dispatch: Truck,
   Sales: ShoppingCart,
-  QC: FlaskConical,
+  Operator: Wrench,
 } satisfies Record<LandingRole, any>
 
 function statusCounts(rows: any[], key: string): CountRow[] {
@@ -131,7 +132,7 @@ function buildExceptionCards(data: {
     })),
     ...data.blockedRows.slice(0, 2).map((row: any) => ({
       id: `blocked-${row.job_card_id}`,
-      title: `${row.job_card_no || row.job_card_id} blocked`,
+      title: `${jobCardRef(row)} blocked`,
       detail: `${row.customer_name || "-"} at ${row.current_stage || "route"}`,
       tone: "QC_HOLD",
     })),
@@ -143,7 +144,7 @@ function buildExceptionCards(data: {
     })),
     ...data.activeHolds.slice(0, 2).map((row: any, index: number) => ({
       id: `hold-${row.id || index}`,
-      title: `QC hold ${String(row.job_card_id || row.batch_id || row.id || "").slice(0, 10)}`,
+      title: `QC hold ${jobCardRef(row)}`,
       detail: row.reason || row.hold_reason || "Active quality hold",
       tone: "QC_HOLD",
     })),
@@ -163,7 +164,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
   const { data: jobCards } = usePlanningJobCards()
   const { data: inventoryHealth } = useInventoryHealthSummary()
   const { data: readyJobs } = useReadyJobs()
-  const { data: notifications } = useNotifications(false)
+  const { data: notifications } = useNotifications(true)
 
   const orderRows = Array.isArray(salesOrders) ? salesOrders : []
   const jobCardRows = Array.isArray(jobCards) ? jobCards : []
@@ -230,12 +231,6 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
       { label: "Low-stock Items", value: formatMetric(commonMetrics.lowStockCount), detail: "Material pressure against release", icon: AlertTriangle, tone: "amber" },
       { label: "Active Job Cards", value: formatMetric(commonMetrics.activeJobCards), detail: "Cards already on the execution spine", icon: ClipboardCheck, tone: "violet" },
     ],
-    Production: [
-      { label: "Open Job Cards", value: formatMetric(commonMetrics.activeJobCards), detail: "Current execution load", icon: Factory, tone: "cyan" },
-      { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Cards needing operator or planner attention", icon: ShieldAlert, tone: "rose" },
-      { label: "Material Risk", value: formatMetric(commonMetrics.lowStockCount), detail: "Items already under availability pressure", icon: Warehouse, tone: "amber" },
-      { label: "QC Holds", value: formatMetric(commonMetrics.activeQcHolds), detail: "Lots or cards blocked by quality", icon: FlaskConical, tone: "violet" },
-    ],
     Store: [
       { label: "Low-stock Items", value: formatMetric(commonMetrics.lowStockCount), detail: "Immediate replenishment or release review", icon: Warehouse, tone: "rose" },
       { label: "Ready Dispatches", value: formatMetric(commonMetrics.readyDispatchCount), detail: "Jobs that can move into handoff", icon: Truck, tone: "emerald" },
@@ -248,11 +243,17 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
       { label: "Dispatch Qty", value: formatMetric(commonMetrics.dispatchQty), detail: "Commercial handoff captured in reports", icon: Truck, tone: "emerald" },
       { label: "OTIF", value: formatMetric(commonMetrics.otifPercent, "%", 1), detail: "On-time in-full performance", icon: PackageCheck, tone: "cyan" },
     ],
-    QC: [
-      { label: "Active Holds", value: formatMetric(commonMetrics.activeQcHolds), detail: "Jobs or stock still blocked by QC", icon: FlaskConical, tone: "rose" },
-      { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Execution already waiting on clean quality release", icon: ShieldAlert, tone: "amber" },
-      { label: "Low-stock Risk", value: formatMetric(commonMetrics.lowStockCount), detail: "Quality-visible stock pressure", icon: Warehouse, tone: "violet" },
-      { label: "Ready Dispatches", value: formatMetric(commonMetrics.readyDispatchCount), detail: "Jobs approaching final handoff", icon: Truck, tone: "cyan" },
+    Dispatch: [
+      { label: "Ready Dispatches", value: formatMetric(commonMetrics.readyDispatchCount), detail: "FG jobs waiting for challan flow", icon: Truck, tone: "emerald" },
+      { label: "Dispatch Qty", value: formatMetric(commonMetrics.dispatchQty), detail: "Quantity already moved in the window", icon: PackageCheck, tone: "cyan" },
+      { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Jobs stopping clean dispatch", icon: ShieldAlert, tone: "rose" },
+      { label: "Backlog Orders", value: formatMetric(commonMetrics.backlogOrders), detail: "Commercial demand still open", icon: ReceiptText, tone: "amber" },
+    ],
+    Operator: [
+      { label: "Open Job Cards", value: formatMetric(commonMetrics.activeJobCards), detail: "Cards available for floor action", icon: Factory, tone: "cyan" },
+      { label: "Stage Backlog", value: formatMetric(stageBacklog), detail: "Work standing across stages", icon: ClipboardCheck, tone: "violet" },
+      { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Cards needing supervisor attention", icon: ShieldAlert, tone: "rose" },
+      { label: "QC Holds", value: formatMetric(commonMetrics.activeQcHolds), detail: "Lots blocked from clean movement", icon: FlaskConical, tone: "amber" },
     ],
   }
 
@@ -268,11 +269,11 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
           { label: "Awaiting Dispatch", value: readyDispatchCount },
           { label: "Ready Dispatch", value: commonMetrics.readyDispatchCount },
         ]
-      : landingRole === "QC"
+      : landingRole === "Dispatch"
       ? [
-          { label: "QC Holds", value: commonMetrics.activeQcHolds },
-          { label: "Blocked Jobs", value: commonMetrics.blockedJobs },
-          { label: "Delayed", value: delayedCount },
+          { label: "Ready", value: commonMetrics.readyDispatchCount },
+          { label: "Moved", value: commonMetrics.dispatchQty },
+          { label: "Blocked", value: commonMetrics.blockedJobs },
         ]
       : stageLoadRows
 
@@ -283,8 +284,8 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
       ? "Sales Order Mix"
       : landingRole === "Store"
       ? "Stock Pressure"
-      : landingRole === "QC"
-      ? "Quality Pressure"
+      : landingRole === "Dispatch"
+      ? "Dispatch Pressure"
       : "Stage Load"
 
   const focusChartSubtitle =
@@ -294,8 +295,8 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
       ? "Live sales-order counts grouped by current status."
       : landingRole === "Store"
       ? "Inventory, section issue readiness, and dispatch pressure in the current workspace."
-      : landingRole === "QC"
-      ? "Hold and exception counts that need quality attention."
+      : landingRole === "Dispatch"
+      ? "Finished-goods handoff and dispatch exception counts."
       : "Active jobs grouped by the current planning board stages."
 
   return (

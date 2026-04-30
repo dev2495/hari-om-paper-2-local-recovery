@@ -1,0 +1,7 @@
+authdb
+masterdb
+specdb
+salesdb
+productiondb
+inventorydb
+analyticsdb

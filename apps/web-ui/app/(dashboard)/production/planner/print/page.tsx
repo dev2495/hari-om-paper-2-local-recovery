@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { useMachines, usePlanningQueue } from "@/hooks/use-production"
 import { useTubeSizes } from "@/hooks/use-master-data"
+import { jobCardRef } from "@/lib/job-card-display"
 
 const VALID_STAGES = new Set(["WINDER", "OVEN", "PROCESS", "PACKING"])
 
@@ -94,7 +95,7 @@ export default function PlannerPrintPage() {
                     {bucket.jobs.map((job: any) => (
                       <tr key={job.job_card_id}>
                         <td className="border border-slate-300 px-2 py-1">{job.sequence_no}</td>
-                        <td className="border border-slate-300 px-2 py-1">{job.job_card_id.slice(0, 8)}</td>
+                        <td className="border border-slate-300 px-2 py-1">{jobCardRef(job)}</td>
                         <td className="border border-slate-300 px-2 py-1">{job.customer_name || "-"}</td>
                         <td className="border border-slate-300 px-2 py-1">
                           {tubeSizeMap.get(job.tube_size_id || "") || (job.tube_size_id ? job.tube_size_id.slice(0, 8) : "-")}

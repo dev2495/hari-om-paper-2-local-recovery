@@ -83,7 +83,7 @@ def create_reservation(
     payload: ReservationCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "DispatchMaker", "DispatchApprover"])),
+    current_user: dict = Depends(require_role(["Admin", "Store", "Dispatch"])),
 ):
     item = db.query(ItemMaster).filter(
         ItemMaster.id == payload.item_id,
@@ -164,7 +164,7 @@ def release_reservation(
     reservation_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "DispatchApprover"])),
+    current_user: dict = Depends(require_role(["Admin", "Store", "Dispatch"])),
 ):
     reservation = db.query(Reservation).filter(
         Reservation.id == reservation_id,
@@ -193,7 +193,7 @@ def consume_reservation(
     payload: ReservationConsume,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "DispatchMaker", "DispatchApprover", "Store"])),
+    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store"])),
 ):
     reservation = db.query(Reservation).filter(
         Reservation.id == reservation_id,

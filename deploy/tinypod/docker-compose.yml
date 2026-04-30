@@ -1,0 +1,62 @@
+name: hariom-tinypod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-hariom}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - hariom_postgres_data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-hariom} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  erp-app:
+    build:
+      context: ../..
+      dockerfile: deploy/tinypod/Dockerfile.erp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      ENVIRONMENT: production
+      NODE_ENV: production
+      SEED_DEMO_USERS: ${SEED_DEMO_USERS:-false}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-hariom}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      DB_ADMIN_DB: postgres
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      SECRET_KEY: ${JWT_SECRET:?set JWT_SECRET}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?set BOOTSTRAP_ADMIN_EMAIL}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-System Admin}
+      BOOTSTRAP_ADMIN_PLANT_ID: ${BOOTSTRAP_ADMIN_PLANT_ID:-PLANT_A}
+      ANALYTICS_CACHE_TTL_SECONDS: ${ANALYTICS_CACHE_TTL_SECONDS:-120}
+      AUTH_PORT: 18001
+      MASTER_PORT: 18002
+      SPEC_PORT: 18003
+      PRODUCTION_PORT: 18004
+      INVENTORY_PORT: 18005
+      ANALYTICS_PORT: 18007
+      SALES_PORT: 18008
+      BFF_PORT: 14000
+      WEB_UI_PORT: 13000
+      PUBLIC_WEB_PORT: 13000
+      BFF_INTERNAL_URL: http://127.0.0.1:14000
+      NEXT_PUBLIC_BFF_URL: http://127.0.0.1:14000
+    ports:
+      - "${WEB_UI_PORT:-13000}:13000"
+
+volumes:
+  hariom_postgres_data:
+

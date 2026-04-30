@@ -20,6 +20,7 @@ from ..config import get_settings
 from ..database import get_db
 from ..models import (
     AuditEvent,
+    Dispatch,
     JobCard,
     JobCardStage,
     JobCardStageSegment,
@@ -31,6 +32,7 @@ from ..models import (
     QualityHold,
     QualityInspection,
     SalesOrder,
+    ShiftMaterialLedger,
     StageQueueOrder,
 )
 from ..schemas.planning import (
@@ -88,6 +90,20 @@ STAGE_DEFAULT_CAPACITY_UNITS = {
     "DISPATCH": "TUBES_PER_DAY",
 }
 QC_BLOCKING_STATUSES = {"HOLD"}
+
+
+def _winder_override_warning(job_card: JobCard, machine_id: Optional[uuid.UUID]) -> Optional[str]:
+    if machine_id is None:
+        return None
+    assigned_winder = job_card.assigned_winder_machine_id
+    if assigned_winder is None:
+        return "No release winder was captured; planner assigned this WINDER job manually."
+    if str(assigned_winder) != str(machine_id):
+        return (
+            "Other winder used. Release selected "
+            f"{str(assigned_winder)[:8]}, planner assigned {str(machine_id)[:8]}."
+        )
+    return None
 SHIFT_CALENDAR = [
     {"code": "SHIFT_A", "label": "Shift A", "capacity_share": 0.5},
     {"code": "SHIFT_B", "label": "Shift B", "capacity_share": 0.5},
@@ -239,6 +255,17 @@ def _fetch_sales_order(order_id: uuid.UUID, token: str, plant_id: str) -> dict[s
     if response.status_code != 200:
         raise HTTPException(status_code=400, detail="Unable to validate sales order")
     return response.json()
+
+
+def _sync_sales_release_lot_job_card(release_lot_id: uuid.UUID, job_card_id: uuid.UUID, token: str, plant_id: str) -> None:
+    with httpx.Client(timeout=10.0) as client:
+        response = client.post(
+            f"{settings.SALES_SERVICE_URL}/sales-orders/release-lots/{release_lot_id}/sync-job-card",
+            headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            json={"job_card_id": str(job_card_id)},
+        )
+    if response.status_code >= 400:
+        raise HTTPException(status_code=400, detail="Unable to sync sales release lot with job card")
 
 
 def _fetch_recipes_for_spec(spec_id: uuid.UUID, token: str, plant_id: str) -> list[dict[str, Any]]:
@@ -820,6 +847,16 @@ def _execution_load_for_capacity(
     return qty
 
 
+def _oven_bamboo_capacity_profile(stage: str, machine: dict[str, Any]) -> tuple[Optional[float], Optional[str]]:
+    if stage != "OVEN":
+        return None, None
+    batches_per_day = _snapshot_float(machine.get("capacity_value"))
+    bamboos_per_batch = _snapshot_float(machine.get("batch_bamboo_capacity"))
+    if not batches_per_day or not bamboos_per_batch:
+        return None, None
+    return round(batches_per_day * bamboos_per_batch, 2), "BAMBOOS_PER_DAY"
+
+
 def _resolve_capacity_profile(
     *,
     db: Session,
@@ -1288,13 +1325,15 @@ def _validate_execution_capacity(
         return
 
     machine_capacity = float(machine.get("capacity_value") or 0.0)
-    capacity, capacity_unit = _resolve_capacity_profile(
-        db=db,
-        plant_id=stage_row.job_card.plant_id,
-        stage=stage,
-        machine_id=machine_id,
-        machine_capacity=machine_capacity,
-    )
+    capacity, capacity_unit = _oven_bamboo_capacity_profile(stage, machine)
+    if not capacity:
+        capacity, capacity_unit = _resolve_capacity_profile(
+            db=db,
+            plant_id=stage_row.job_card.plant_id,
+            stage=stage,
+            machine_id=machine_id,
+            machine_capacity=machine_capacity,
+        )
     if capacity and capacity > 0 and capacity_unit:
         now = datetime.utcnow()
         start_utc, end_utc = _today_utc_window(now)
@@ -1626,6 +1665,23 @@ def _format_ref(prefix: str, value: Any) -> str:
         return f"{prefix}-{str(value).replace('-', '')[:8].upper()}"
     except Exception:
         return f"{prefix}-UNKNOWN"
+
+
+def _reference_search_terms(value: str) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    if text.upper() in {"JC", "JOB", "JOB CARD", "JOB-CARD", "LOT", "SO", "SPEC"}:
+        return []
+    terms = [text]
+    upper = text.upper()
+    for prefix in ("JC-", "LOT-", "SO-", "LINE-", "SPEC-", "MC-"):
+        if upper.startswith(prefix) and len(text) > len(prefix):
+            terms.append(text[len(prefix):])
+    compact = text.replace("-", "")
+    if compact and compact != text:
+        terms.append(compact)
+    return list(dict.fromkeys(term for term in terms if term))
 
 
 def _lot_number_for_job_card(job_card: JobCard) -> str:
@@ -2404,14 +2460,16 @@ def _move_or_split_segment(
         plant_id=plant_id,
     )
     machine_capacity = float(machine.get("capacity_value") or 0.0)
-    daily_capacity, capacity_unit = _resolve_capacity_profile(
-        db=db,
-        plant_id=job_card.plant_id,
-        stage=stage,
-        machine_id=machine_id,
-        machine_capacity=machine_capacity,
-        on_day=normalized_date,
-    )
+    daily_capacity, capacity_unit = _oven_bamboo_capacity_profile(stage, machine)
+    if not daily_capacity:
+        daily_capacity, capacity_unit = _resolve_capacity_profile(
+            db=db,
+            plant_id=job_card.plant_id,
+            stage=stage,
+            machine_id=machine_id,
+            machine_capacity=machine_capacity,
+            on_day=normalized_date,
+        )
     if not daily_capacity or daily_capacity <= 0 or not capacity_unit:
         segment.status = "ASSIGNED"
         _place_stage_segment(
@@ -2429,14 +2487,16 @@ def _move_or_split_segment(
     allocations: list[tuple[date, str, float, float]] = []
     next_sequence = desired_sequence
     for slot_date, slot_shift in _future_stage_slots(normalized_date, normalized_shift):
-        slot_capacity_value, slot_capacity_unit = _resolve_capacity_profile(
-            db=db,
-            plant_id=job_card.plant_id,
-            stage=stage,
-            machine_id=machine_id,
-            machine_capacity=machine_capacity,
-            on_day=slot_date,
-        )
+        slot_capacity_value, slot_capacity_unit = _oven_bamboo_capacity_profile(stage, machine)
+        if not slot_capacity_value:
+            slot_capacity_value, slot_capacity_unit = _resolve_capacity_profile(
+                db=db,
+                plant_id=job_card.plant_id,
+                stage=stage,
+                machine_id=machine_id,
+                machine_capacity=machine_capacity,
+                on_day=slot_date,
+            )
         if not slot_capacity_value or slot_capacity_value <= 0:
             continue
         effective_unit = slot_capacity_unit or capacity_unit
@@ -3743,14 +3803,16 @@ def _build_stage_board_view(
     if stage in STAGE_TO_MACHINE_DEPARTMENT:
         for machine in sorted(machine_rows, key=lambda row: (str(row.get("code") or ""), str(row.get("name") or ""))):
             machine_id = str(machine.get("id"))
-            capacity_value, capacity_unit = _resolve_capacity_profile(
-                db=db,
-                plant_id=plant_uuid,
-                stage=stage,
-                machine_id=_to_uuid(machine_id, field="machine_id"),
-                machine_capacity=_snapshot_float(machine.get("capacity_value")),
-                on_day=plan_date,
-            )
+            capacity_value, capacity_unit = _oven_bamboo_capacity_profile(stage, machine)
+            if not capacity_value:
+                capacity_value, capacity_unit = _resolve_capacity_profile(
+                    db=db,
+                    plant_id=plant_uuid,
+                    stage=stage,
+                    machine_id=_to_uuid(machine_id, field="machine_id"),
+                    machine_capacity=_snapshot_float(machine.get("capacity_value")),
+                    on_day=plan_date,
+                )
             resolved_unit = capacity_unit or summary_unit
             for shift_code in _shift_codes():
                 lane_id = f"{stage}:{machine_id}:{shift_code}"
@@ -3769,6 +3831,8 @@ def _build_stage_board_view(
                         machine_department=str(machine.get("department") or ""),
                         capacity_value=shift_capacity,
                         capacity_unit=resolved_unit,
+                        batch_bamboo_capacity=_snapshot_float(machine.get("batch_bamboo_capacity")),
+                        cycle_time_hours=_snapshot_float(machine.get("cycle_time_hours")),
                         current_load=_lane_load(stage, resolved_unit, machine_jobs, spec_lookup),
                         warning=_capacity_warning_message(
                             db=db,
@@ -3919,7 +3983,7 @@ def sync_released_sales_order(
     payload: Optional[ReleaseSyncPayload] = None,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "SOApprover", "PlantManager", "Planner"])),
+    current_user: dict = Depends(require_role(["Admin", "Sales", "PlantManager", "Planner"])),
 ):
     plant_uuid = _to_uuid(plant_id)
     token = current_user.get("token", "")
@@ -3955,6 +4019,7 @@ def sync_released_sales_order(
             plant_id=plant_id,
             current_user=current_user,
         )
+        _sync_sales_release_lot_job_card(requested_row.release_lot_id, job_card.id, token, plant_id)
         line_results.append(
             ReleaseSyncLineResult(
                 sales_order_line_id=job_card.sales_order_line_id,
@@ -3979,7 +4044,7 @@ def get_execution_snapshot(
     end_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Production", "Store", "SOApprover", "QC", "Dispatch"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
 ):
     del current_user
     today = datetime.now(PLANT_TIMEZONE).date()
@@ -4002,7 +4067,7 @@ def get_stage_queue(
     include_unscheduled: bool = Query(True),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Production"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner"])),
 ):
     selected_stage = _normalize_stage(stage)
     rows = _query_stage_queue_rows(
@@ -4044,7 +4109,7 @@ def get_planning_board(
     include_unscheduled: bool = Query(True),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Production"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner"])),
 ):
     selected_stage = _normalize_stage(stage) if stage else None
     if plant_scope.get("scope_all"):
@@ -4116,7 +4181,7 @@ def export_planning_board(
     format: str = Query(default="csv", pattern="^(csv|print)$"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Production"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner"])),
 ):
     selected_stage = _normalize_stage(stage)
     rows = _query_stage_queue_rows(
@@ -4210,13 +4275,16 @@ def export_planning_board(
 @router.get("/job-cards", response_model=list[JobCardPlannerSummary])
 def list_planning_job_cards(
     search: Optional[str] = Query(None),
+    sales_order_id: Optional[uuid.UUID] = Query(None),
+    sales_order_line_id: Optional[uuid.UUID] = Query(None),
+    release_lot_id: Optional[uuid.UUID] = Query(None),
     status: Optional[str] = Query(None),
     current_stage: Optional[str] = Query(None),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Production", "Store", "SOApprover", "QC", "Dispatch"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)
@@ -4234,18 +4302,34 @@ def list_planning_job_cards(
             raise HTTPException(status_code=400, detail="Invalid current_stage filter")
         query = query.filter(JobCard.current_stage == selected_stage)
 
-    if search:
-        needle = f"%{search.strip()}%"
-        query = query.filter(
-            or_(
-                cast(JobCard.id, String).ilike(needle),
-                cast(JobCard.release_lot_id, String).ilike(needle),
-                cast(JobCard.sales_order_id, String).ilike(needle),
-                JobCard.product_code.ilike(needle),
-                JobCard.spec_snapshot["customer_name_snapshot"].astext.ilike(needle),
-                JobCard.spec_snapshot["customer_name"].astext.ilike(needle),
+    if sales_order_id:
+        query = query.filter(JobCard.sales_order_id == sales_order_id)
+
+    if sales_order_line_id:
+        query = query.filter(JobCard.sales_order_line_id == sales_order_line_id)
+
+    if release_lot_id:
+        query = query.filter(JobCard.release_lot_id == release_lot_id)
+
+    if search and search.strip():
+        terms = _reference_search_terms(search)
+        if terms:
+            ref_conditions = []
+            for term in terms:
+                needle = f"%{term}%"
+                ref_conditions.extend(
+                    [
+                        cast(JobCard.id, String).ilike(needle),
+                        cast(JobCard.release_lot_id, String).ilike(needle),
+                        cast(JobCard.sales_order_id, String).ilike(needle),
+                        JobCard.product_code.ilike(needle),
+                        JobCard.spec_snapshot["customer_name_snapshot"].astext.ilike(needle),
+                        JobCard.spec_snapshot["customer_name"].astext.ilike(needle),
+                    ]
+                )
+            query = query.filter(
+                or_(*ref_conditions)
             )
-        )
 
     rows = (
         query.order_by(JobCard.created_at.desc())
@@ -4336,7 +4420,7 @@ def get_planning_job_card(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Production", "SOApprover", "QC", "Dispatch", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)
@@ -4572,6 +4656,490 @@ def get_planning_job_card(
     )
 
 
+def _service_json_for_genealogy(
+    *,
+    base_url: str,
+    path: str,
+    token: str,
+    plant_id: str,
+    params: Optional[dict[str, Any]] = None,
+) -> Any:
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(
+                f"{base_url}{path}",
+                params=params or None,
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+    except httpx.RequestError as exc:
+        return {"_error": str(exc), "_status": "service_unreachable"}
+    if response.status_code >= 400:
+        return {"_error": response.text, "_status": response.status_code}
+    try:
+        return response.json()
+    except ValueError:
+        return {}
+
+
+def _payload_list(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, list):
+        return [row for row in value if isinstance(row, dict)]
+    if isinstance(value, dict):
+        for key in ["items", "rows", "ledger", "results"]:
+            nested = value.get(key)
+            if isinstance(nested, list):
+                return [row for row in nested if isinstance(row, dict)]
+    return []
+
+
+def _stage_genealogy_row(stage: JobCardStage) -> dict[str, Any]:
+    return {
+        "id": str(stage.id),
+        "stage_type": stage.stage_type,
+        "status": stage.status,
+        "machine_id": str(stage.machine_id) if stage.machine_id else None,
+        "plan_date": stage.plan_date,
+        "shift_code": stage.shift_code,
+        "input_qty": float(stage.input_qty or 0.0),
+        "output_qty": float(stage.output_qty or 0.0),
+        "scrap_qty": float(stage.scrap_qty or 0.0),
+        "reel_issue_ids": [str(value) for value in (stage.reel_issue_ids or [])],
+        "entry_snapshot": stage.entry_snapshot or {},
+        "actuals_snapshot": stage.actuals_snapshot or {},
+        "quality_checks": stage.quality_checks or {},
+        "material_allocations": stage.material_allocations or [],
+        "actual_start": stage.actual_start,
+        "actual_end": stage.actual_end,
+        "entered_at": stage.entered_at,
+    }
+
+
+def _segment_genealogy_row(segment: JobCardStageSegment) -> dict[str, Any]:
+    return {
+        "id": str(segment.id),
+        "stage_type": segment.stage_type,
+        "segment_no": int(segment.segment_no or 1),
+        "sequence_no": int(segment.sequence_no or 1),
+        "machine_id": str(segment.machine_id) if segment.machine_id else None,
+        "plan_date": segment.plan_date,
+        "shift_code": segment.shift_code,
+        "planned_qty": float(segment.planned_qty or 0.0),
+        "input_qty": float(segment.input_qty or 0.0),
+        "output_qty": float(segment.output_qty or 0.0),
+        "scrap_qty": float(segment.scrap_qty or 0.0),
+        "required_capacity": float(segment.required_capacity or 0.0),
+        "status": segment.status,
+        "split_source": segment.split_source,
+        "started_at": segment.started_at,
+        "completed_at": segment.completed_at,
+    }
+
+
+def _flow_step(code: str, label: str, status: str, detail: str, metrics: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    return {
+        "code": code,
+        "label": label,
+        "status": status,
+        "detail": detail,
+        "metrics": metrics or {},
+    }
+
+
+def _genealogy_gap(gaps: list[dict[str, Any]], severity: str, code: str, message: str) -> None:
+    gaps.append({"severity": severity, "code": code, "message": message})
+
+
+def _collect_reel_issue_ids(stages: list[JobCardStage]) -> list[str]:
+    collected: list[str] = []
+    seen: set[str] = set()
+    for stage in stages:
+        for raw in stage.reel_issue_ids or []:
+            text = str(raw)
+            if text and text not in seen:
+                seen.add(text)
+                collected.append(text)
+    return collected
+
+
+@router.get("/genealogy/job-cards/{job_card_id}", response_model=dict[str, Any])
+def get_job_card_genealogy(
+    job_card_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC", "Production"])),
+):
+    query = (
+        db.query(JobCard, SalesOrder)
+        .outerjoin(SalesOrder, SalesOrder.id == JobCard.sales_order_id)
+        .filter(JobCard.id == job_card_id)
+    )
+    query = _apply_plant_scope_filter(query, JobCard.plant_id, plant_scope)
+    row = query.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Job card not found")
+
+    job_card, local_sales_order = row
+    token = current_user.get("token", "")
+    plant_id = str(job_card.plant_id)
+    stages = (
+        db.query(JobCardStage)
+        .filter(JobCardStage.job_card_id == job_card.id)
+        .all()
+    )
+    sorted_stages = sorted(stages, key=lambda item: _stage_sort_key(item.stage_type))
+    segments = (
+        db.query(JobCardStageSegment)
+        .filter(JobCardStageSegment.job_card_id == job_card.id)
+        .order_by(
+            JobCardStageSegment.stage_type.asc(),
+            JobCardStageSegment.sequence_no.asc(),
+            JobCardStageSegment.segment_no.asc(),
+            JobCardStageSegment.created_at.asc(),
+        )
+        .all()
+    )
+    packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
+    quality_inspections = (
+        db.query(QualityInspection)
+        .filter(QualityInspection.job_card_id == job_card.id)
+        .order_by(QualityInspection.created_at.asc())
+        .all()
+    )
+    quality_holds = (
+        db.query(QualityHold)
+        .filter(QualityHold.job_card_id == job_card.id)
+        .order_by(QualityHold.created_at.asc())
+        .all()
+    )
+    dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id).first()
+    recent_shift_ledgers = (
+        db.query(ShiftMaterialLedger)
+        .filter(ShiftMaterialLedger.plant_id == job_card.plant_id)
+        .order_by(ShiftMaterialLedger.work_date.desc(), ShiftMaterialLedger.created_at.desc())
+        .limit(250)
+        .all()
+    )
+    shift_ledgers = [
+        row
+        for row in recent_shift_ledgers
+        if str(job_card.id) in {str(value) for value in (row.actual_job_card_ids or [])}
+    ]
+    audit_events = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.job_card_id == job_card.id)
+        .order_by(AuditEvent.event_ts.asc())
+        .all()
+    )
+
+    external_sales_order = None
+    if job_card.sales_order_id:
+        external_sales_order = _service_json_for_genealogy(
+            base_url=settings.SALES_SERVICE_URL,
+            path=f"/sales-orders/{job_card.sales_order_id}",
+            token=token,
+            plant_id=plant_id,
+        )
+
+    packing_snapshot = dict(packing_record.snapshot or {}) if packing_record else {}
+    dispatch_snapshot = dict(dispatch.dispatch_snapshot or {}) if dispatch else {}
+    inventory_batch_id = dispatch_snapshot.get("inventory_batch_id") or packing_snapshot.get("inventory_batch_id")
+    fg_production_ledger = _service_json_for_genealogy(
+        base_url=settings.INVENTORY_SERVICE_URL,
+        path="/ledger",
+        token=token,
+        plant_id=plant_id,
+        params={"reference_type": "PRODUCTION_JOB", "reference_id": str(job_card.id), "limit": 100},
+    )
+    fg_batch_ledger = (
+        _service_json_for_genealogy(
+            base_url=settings.INVENTORY_SERVICE_URL,
+            path="/ledger",
+            token=token,
+            plant_id=plant_id,
+            params={"batch_id": str(inventory_batch_id), "limit": 100},
+        )
+        if inventory_batch_id
+        else {"ledger": []}
+    )
+    dispatch_ledger = (
+        _service_json_for_genealogy(
+            base_url=settings.INVENTORY_SERVICE_URL,
+            path="/ledger",
+            token=token,
+            plant_id=plant_id,
+            params={"external_ref": f"PROD-DISPATCH-{dispatch.id}", "limit": 25},
+        )
+        if dispatch
+        else {"ledger": []}
+    )
+
+    reel_issue_ids = _collect_reel_issue_ids(sorted_stages)
+    reel_issues_response = (
+        _service_json_for_genealogy(
+            base_url=settings.INVENTORY_SERVICE_URL,
+            path="/reel-issues",
+            token=token,
+            plant_id=plant_id,
+            params={"issue_ids": ",".join(reel_issue_ids), "limit": 500},
+        )
+        if reel_issue_ids
+        else []
+    )
+    reel_issues = _payload_list(reel_issues_response)
+    reel_ids = sorted({str(row.get("reel_id")) for row in reel_issues if row.get("reel_id")})
+    reels_response = (
+        _service_json_for_genealogy(
+            base_url=settings.INVENTORY_SERVICE_URL,
+            path="/reels",
+            token=token,
+            plant_id=plant_id,
+            params={"reel_ids": ",".join(reel_ids), "limit": 500},
+        )
+        if reel_ids
+        else []
+    )
+    reels = _payload_list(reels_response)
+
+    active_holds = [row for row in quality_holds if row.status in QC_BLOCKING_STATUSES]
+    stage_map = {stage.stage_type: stage for stage in sorted_stages}
+    winder_segments = [segment for segment in segments if segment.stage_type == "WINDER"]
+    scheduled_winder = next((segment for segment in winder_segments if segment.machine_id and segment.plan_date), None)
+    winder_warning = (
+        _winder_override_warning(job_card, scheduled_winder.machine_id)
+        if scheduled_winder and scheduled_winder.machine_id
+        else None
+    )
+    production_stages = [stage for stage in ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"] if stage in stage_map]
+    completed_stage_count = sum(1 for stage in production_stages if stage_map[stage].status == "COMPLETED")
+    packing_completed = bool(stage_map.get("PACKING") and stage_map["PACKING"].status == "COMPLETED")
+    quality_evidence = bool(quality_inspections) or any(bool(stage.quality_checks) for stage in sorted_stages)
+    material_evidence = bool(reel_issue_ids) or bool(shift_ledgers) or any(bool(stage.material_allocations) for stage in sorted_stages)
+    fg_posted = bool(packing_record and packing_snapshot.get("inventory_batch_id") and packing_snapshot.get("inventory_transaction_id"))
+    inventory_dispatched = bool(
+        dispatch_snapshot.get("inventory_dispatch_transaction_id")
+        or dispatch_snapshot.get("inventory_transaction_id")
+        or _payload_list(dispatch_ledger)
+    )
+
+    gaps: list[dict[str, Any]] = []
+    flow_steps = [
+        _flow_step(
+            "SALES_ORDER",
+            "Sales order",
+            "COMPLETE" if (local_sales_order or (isinstance(external_sales_order, dict) and not external_sales_order.get("_error"))) else "WARNING",
+            "Commercial demand is linked to the job card." if job_card.sales_order_id else "Job card is not linked to a sales order.",
+            {"sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None},
+        ),
+        _flow_step(
+            "RELEASE_TO_PLANNER",
+            "Release to planner",
+            "COMPLETE" if job_card.release_lot_id else "WARNING",
+            "Sales release lot gates this job into the planner." if job_card.release_lot_id else "No release lot is linked; planner genealogy is weaker.",
+            {
+                "release_lot_id": str(job_card.release_lot_id) if job_card.release_lot_id else None,
+                "assigned_winder_machine_id": str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
+            },
+        ),
+        _flow_step(
+            "PLANNER_SCHEDULE",
+            "Planner schedule",
+            "WARNING" if winder_warning else ("COMPLETE" if scheduled_winder else "PENDING"),
+            winder_warning or ("Winder schedule is fixed with machine, date, and shift." if scheduled_winder else "Winder scheduling is still pending."),
+            {
+                "machine_id": str(scheduled_winder.machine_id) if scheduled_winder and scheduled_winder.machine_id else None,
+                "plan_date": scheduled_winder.plan_date if scheduled_winder else None,
+                "shift_code": scheduled_winder.shift_code if scheduled_winder else None,
+            },
+        ),
+        _flow_step(
+            "PRODUCTION_OUTPUT",
+            "Production output logs",
+            "COMPLETE" if production_stages and completed_stage_count == len(production_stages) else "PENDING",
+            f"{completed_stage_count}/{len(production_stages)} production stage(s) completed with output logs.",
+            {"completed_stage_count": completed_stage_count, "stage_count": len(production_stages)},
+        ),
+        _flow_step(
+            "QUALITY",
+            "Quality and inspection",
+            "BLOCKED" if active_holds else ("COMPLETE" if quality_evidence else "WARNING"),
+            f"{len(active_holds)} active hold(s) block dispatch." if active_holds else ("Inspection evidence exists." if quality_evidence else "No inspection evidence is attached yet."),
+            {"inspection_count": len(quality_inspections), "active_hold_count": len(active_holds)},
+        ),
+        _flow_step(
+            "PACKING_FG",
+            "Packing and FG creation",
+            "COMPLETE" if packing_completed and fg_posted else ("WARNING" if packing_completed else "PENDING"),
+            "Packing created FG stock and inventory batch." if fg_posted else "Packing is complete but FG stock posting is missing." if packing_completed else "Packing output is not complete yet.",
+            {
+                "packed_qty": float(packing_record.total_packed_qty or 0.0) if packing_record else 0.0,
+                "inventory_batch_id": str(inventory_batch_id) if inventory_batch_id else None,
+            },
+        ),
+        _flow_step(
+            "DISPATCH",
+            "Dispatch and sales close",
+            "COMPLETE" if dispatch and dispatch.status == "SEALED" and inventory_dispatched else ("WARNING" if dispatch and dispatch.status == "SEALED" else "PENDING"),
+            "Dispatch is sealed, inventory is reduced, and sales fulfillment is updated." if dispatch and dispatch.status == "SEALED" and inventory_dispatched else "Dispatch is sealed but inventory dispatch proof is missing." if dispatch and dispatch.status == "SEALED" else "Dispatch is not sealed yet.",
+            {
+                "dispatch_id": str(dispatch.id) if dispatch else None,
+                "status": dispatch.status if dispatch else None,
+                "inventory_dispatched": inventory_dispatched,
+            },
+        ),
+    ]
+
+    if not job_card.sales_order_id:
+        _genealogy_gap(gaps, "high", "SALES_LINK_MISSING", "Job card has no sales order link.")
+    if not job_card.release_lot_id:
+        _genealogy_gap(gaps, "medium", "RELEASE_LOT_MISSING", "Job card was not created from a sales release lot.")
+    if winder_warning:
+        _genealogy_gap(gaps, "info", "OTHER_WINDER_USED", winder_warning)
+    if production_stages and completed_stage_count != len(production_stages):
+        _genealogy_gap(gaps, "medium", "PRODUCTION_OUTPUT_INCOMPLETE", "Not all production stage outputs are completed.")
+    if active_holds:
+        _genealogy_gap(gaps, "high", "QUALITY_HOLD_ACTIVE", "Active quality holds must be released before dispatch.")
+    if not quality_evidence:
+        _genealogy_gap(gaps, "medium", "QUALITY_EVIDENCE_MISSING", "Add inspection or stage quality checks before client handoff.")
+    if packing_completed and not fg_posted:
+        _genealogy_gap(gaps, "high", "FG_INWARD_MISSING", "Packing completed but FG inventory inward is not posted.")
+    if dispatch and dispatch.status == "SEALED" and not inventory_dispatched:
+        _genealogy_gap(gaps, "high", "DISPATCH_INVENTORY_MISSING", "Dispatch is sealed without inventory dispatch proof.")
+    if not material_evidence:
+        _genealogy_gap(gaps, "medium", "MATERIAL_PROOF_MISSING", "No reel issue, shift material ledger, or stage material allocation proof is attached.")
+
+    return {
+        "job_card": {
+            "id": str(job_card.id),
+            "job_card_ref": _format_ref("JC", job_card.id),
+            "plant_id": str(job_card.plant_id),
+            "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
+            "sales_order_line_id": str(job_card.sales_order_line_id) if job_card.sales_order_line_id else None,
+            "release_lot_id": str(job_card.release_lot_id) if job_card.release_lot_id else None,
+            "spec_id": str(job_card.spec_id),
+            "product_code": job_card.product_code or (job_card.spec_snapshot or {}).get("product_code"),
+            "status": job_card.status,
+            "current_stage": job_card.current_stage,
+            "planned_qty": float(job_card.planned_qty or 0.0),
+            "released_qty": float(job_card.released_qty or 0.0),
+            "assigned_winder_machine_id": str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
+            "created_at": job_card.created_at,
+        },
+        "sales_order": {
+            "local": {
+                "id": str(local_sales_order.id) if local_sales_order else None,
+                "status": local_sales_order.status if local_sales_order else None,
+                "order_qty": float(local_sales_order.order_qty or 0.0) if local_sales_order else None,
+                "due_date": local_sales_order.due_date if local_sales_order else None,
+            } if local_sales_order else None,
+            "external": external_sales_order,
+        },
+        "flow_steps": flow_steps,
+        "gaps": gaps,
+        "stages": [_stage_genealogy_row(stage) for stage in sorted_stages],
+        "stage_segments": [_segment_genealogy_row(segment) for segment in segments],
+        "quality": {
+            "inspections": [
+                {
+                    "id": str(row.id),
+                    "stage_type": row.stage_type,
+                    "status": row.status,
+                    "readings": row.readings or {},
+                    "failures": row.failures or [],
+                    "created_by": row.created_by,
+                    "created_at": row.created_at,
+                }
+                for row in quality_inspections
+            ],
+            "holds": [
+                {
+                    "id": str(row.id),
+                    "stage_type": row.stage_type,
+                    "batch_id": str(row.batch_id) if row.batch_id else None,
+                    "reason": row.reason,
+                    "status": row.status,
+                    "source_inspection_id": str(row.source_inspection_id) if row.source_inspection_id else None,
+                    "created_by": row.created_by,
+                    "released_by": row.released_by,
+                    "created_at": row.created_at,
+                    "released_at": row.released_at,
+                }
+                for row in quality_holds
+            ],
+            "active_hold_count": len(active_holds),
+        },
+        "packing": (
+            {
+                "id": str(packing_record.id),
+                "fg_item_id": str(packing_record.fg_item_id) if packing_record.fg_item_id else None,
+                "fg_batch_no": packing_record.fg_batch_no,
+                "qty_per_bundle": float(packing_record.qty_per_bundle or 0.0),
+                "bundle_count": int(packing_record.bundle_count or 0),
+                "total_packed_qty": float(packing_record.total_packed_qty or 0.0),
+                "location_id": str(packing_record.location_id) if packing_record.location_id else None,
+                "stock_status": packing_record.stock_status,
+                "snapshot": packing_snapshot,
+            }
+            if packing_record
+            else None
+        ),
+        "fg_inventory": {
+            "batch_id": str(inventory_batch_id) if inventory_batch_id else None,
+            "production_ledger": _payload_list(fg_production_ledger),
+            "batch_ledger": _payload_list(fg_batch_ledger),
+            "dispatch_ledger": _payload_list(dispatch_ledger),
+        },
+        "dispatch": (
+            {
+                "id": str(dispatch.id),
+                "status": dispatch.status,
+                "dispatch_snapshot": dispatch_snapshot,
+                "created_at": dispatch.created_at,
+            }
+            if dispatch
+            else None
+        ),
+        "materials": {
+            "reel_issue_ids": reel_issue_ids,
+            "reel_issues": reel_issues,
+            "reels": reels,
+            "shift_ledgers": [
+                {
+                    "id": str(row.id),
+                    "stage_type": row.stage_type,
+                    "work_date": row.work_date,
+                    "shift_code": row.shift_code,
+                    "issue_section": row.issue_section,
+                    "machine_id": str(row.machine_id) if row.machine_id else None,
+                    "reel_issue_ids": [str(value) for value in (row.reel_issue_ids or [])],
+                    "parent_reel_id": row.parent_reel_id,
+                    "child_reel_ids": row.child_reel_ids or [],
+                    "issued_weight_kg": float(row.issued_weight_kg or 0.0),
+                    "consumed_weight_kg": float(row.consumed_weight_kg or 0.0),
+                    "wastage_weight_kg": float(row.wastage_weight_kg or 0.0),
+                    "remaining_weight_kg": float(row.remaining_weight_kg or 0.0),
+                    "actual_job_card_ids": [str(value) for value in (row.actual_job_card_ids or [])],
+                    "transfer_snapshot": row.transfer_snapshot or {},
+                    "notes": row.notes,
+                }
+                for row in shift_ledgers
+            ],
+        },
+        "audit_events": [
+            {
+                "id": str(row.id),
+                "entity_type": row.entity_type,
+                "entity_id": str(row.entity_id),
+                "action": row.action,
+                "actor_id": row.actor_id,
+                "actor_role": row.actor_role,
+                "payload": row.payload or {},
+                "event_ts": row.event_ts,
+            }
+            for row in audit_events
+        ],
+    }
+
+
 @router.patch("/planning/queues/reorder", response_model=StageActionResponse)
 def reorder_stage_queue(
     payload: ReorderQueuePayload,
@@ -4631,6 +5199,7 @@ def reorder_stage_queue(
         segment_id=payload.segment_id,
     )
 
+    warnings: list[str] = []
     if selected_stage == "PACKING":
         machine_uuid = payload.machine_id
         machine_capacity = None
@@ -4644,6 +5213,10 @@ def reorder_stage_queue(
         if selected_stage in {"QC", "DISPATCH"}:
             machine_uuid = None
         elif machine_uuid is not None:
+            if selected_stage == "WINDER":
+                warning = _winder_override_warning(job_card, machine_uuid)
+                if warning:
+                    warnings.append(warning)
             machine = _fetch_machine(machine_uuid, current_user.get("token", ""), plant_id)
             _validate_machine_compatibility(
                 machine=machine,
@@ -4688,10 +5261,15 @@ def reorder_stage_queue(
         machine_id=machine_uuid,
         machine_capacity=float(machine_capacity or 0.0) if machine_uuid else None,
     )
+    if warning_message:
+        warnings.append(warning_message)
+    message = "Queue order updated"
+    if warnings:
+        message = f"{message}. {' '.join(warnings)}"
     db.commit()
     db.refresh(job_card)
     return StageActionResponse(
-        message="Queue order updated" if not warning_message else f"Queue order updated. {warning_message}",
+        message=message,
         job_card_id=job_card.id,
         stage=selected_stage,
         segment_id=moved_segment.id,
@@ -4699,6 +5277,7 @@ def reorder_stage_queue(
         current_stage=job_card.current_stage,
         stage_status=stage.status,
         remaining_open_segments=open_count,
+        warnings=warnings,
         reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
     )
 
@@ -4950,7 +5529,7 @@ def capture_stage_output(
     payload: StageOutputPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "SupervisorEntry", "Production", "Operator"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Operator"])),
 ):
     plant_uuid = _to_uuid(plant_id)
     save_mode = payload.save_mode or "complete"
@@ -5192,6 +5771,10 @@ def capture_stage_output(
         selected_stage=selected_stage,
         current_user=current_user,
     )
+    if quality_holds:
+        stage.remarks = (
+            f"{stage.remarks}\n" if stage.remarks else ""
+        ) + "Progression blocked until active quality hold is released."
     packing_record = _sync_packing_record(
         db=db,
         plant_id=plant_uuid,
@@ -5219,7 +5802,7 @@ def capture_stage_output(
         _apply_fg_inward_snapshot(packing_record, fg_inward_result)
 
     remaining_open_segments = len(_open_stage_segments(db, job_card.id, selected_stage))
-    if remaining_open_segments == 0:
+    if remaining_open_segments == 0 and not quality_holds:
         next_stage = _next_stage(selected_stage, routing_stages)
         if next_stage != "DONE":
             next_stage_row = (

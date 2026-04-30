@@ -1,15 +1,28 @@
-from typing import Optional
+from typing import Any, Optional
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
 from datetime import datetime
 from pydantic import BaseModel, Field
 import uuid
 
+from ..config import get_settings
 from ..database import get_db
-from ..models import Dispatch, JobCard, SalesOrder
-from ..utils.auth import require_role
+from ..models import Dispatch, JobCard, PackingRecord, QualityHold, SalesOrder
+from ..utils.auth import get_current_plant, require_role
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
+settings = get_settings()
+QC_BLOCKING_STATUSES = {"HOLD"}
+
+
+def _plant_uuid(value: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(str(value))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid plant_id: {value}") from exc
 
 class DispatchPayload(BaseModel):
     job_card_id: uuid.UUID
@@ -23,36 +36,193 @@ class DispatchResponse(DispatchPayload):
     class Config:
         orm_mode = True
 
+
+def _number(value: Any) -> Optional[float]:
+    try:
+        if value in (None, ""):
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dispatch_qty(snapshot: dict[str, Any], job_card: JobCard, packing_record: Optional[PackingRecord]) -> float:
+    for key in ["qty", "dispatch_qty", "quantity", "total_qty", "packed_qty"]:
+        value = _number(snapshot.get(key))
+        if value and value > 0:
+            return value
+
+    items = snapshot.get("items")
+    if isinstance(items, list):
+        total = 0.0
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            total += _number(item.get("qty") or item.get("quantity") or item.get("dispatch_qty")) or 0.0
+        if total > 0:
+            return total
+
+    if packing_record and float(packing_record.total_packed_qty or 0.0) > 0:
+        return float(packing_record.total_packed_qty or 0.0)
+    return float(job_card.released_qty or job_card.planned_qty or 0.0)
+
+
+def _dispatch_ref(snapshot: dict[str, Any], dispatch_id: uuid.UUID) -> str:
+    return str(snapshot.get("dispatch_ref") or snapshot.get("challan_no") or f"DISPATCH:{dispatch_id}")
+
+
+def _existing_inventory_dispatch_id(snapshot: dict[str, Any]) -> Optional[str]:
+    for key in ["inventory_dispatch_transaction_id", "inventory_transaction_id", "fg_dispatch_transaction_id"]:
+        value = snapshot.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _active_hold_count(db: Session, job_card_id: uuid.UUID) -> int:
+    return int(
+        db.query(QualityHold)
+        .filter(
+            QualityHold.job_card_id == job_card_id,
+            QualityHold.status.in_(list(QC_BLOCKING_STATUSES)),
+        )
+        .count()
+    )
+
+
+def _post_inventory_dispatch_if_needed(
+    *,
+    dispatch: Dispatch,
+    job_card: JobCard,
+    packing_record: PackingRecord,
+    snapshot: dict[str, Any],
+    dispatch_qty: float,
+    dispatch_ref: str,
+    token: str,
+    plant_id: str,
+) -> dict[str, Any]:
+    existing_transaction_id = _existing_inventory_dispatch_id(snapshot)
+    packing_snapshot = dict(packing_record.snapshot or {})
+    fg_item_id = snapshot.get("fg_item_id") or str(packing_record.fg_item_id or "") or packing_snapshot.get("fg_item_id")
+    inventory_batch_id = snapshot.get("inventory_batch_id") or packing_snapshot.get("inventory_batch_id")
+    if not fg_item_id or not inventory_batch_id:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot seal dispatch before PACKING has posted FG inventory for this job card",
+        )
+
+    payload = {
+        "item_id": str(fg_item_id),
+        "batch_id": str(inventory_batch_id),
+        "qty": dispatch_qty,
+        "dispatch_ref": dispatch_ref,
+        "external_ref": str(snapshot.get("inventory_dispatch_external_ref") or snapshot.get("external_ref") or f"PROD-DISPATCH-{dispatch.id}"),
+        "production_job_id": str(job_card.id),
+        "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
+    }
+    if existing_transaction_id:
+        payload["existing_transaction_id"] = existing_transaction_id
+
+    try:
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                f"{settings.INVENTORY_SERVICE_URL}/dispatch/",
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+                json=payload,
+            )
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Inventory dispatch posting failed: {exc}") from exc
+
+    if response.status_code not in (200, 201):
+        raise HTTPException(status_code=response.status_code, detail=response.text)
+    result = response.json()
+    snapshot["inventory_dispatch_transaction_id"] = str(result.get("transaction_id"))
+    snapshot["inventory_transaction_id"] = str(result.get("transaction_id"))
+    snapshot["inventory_batch_id"] = str(result.get("batch_id") or inventory_batch_id)
+    snapshot["inventory_item_id"] = str(result.get("item_id") or fg_item_id)
+    snapshot["fg_inventory_inward_transaction_id"] = packing_snapshot.get("inventory_transaction_id")
+    snapshot["inventory_dispatch_status"] = "POSTED"
+    return snapshot
+
 @router.post("/", response_model=DispatchResponse)
 def create_or_update_dispatch(
     payload: DispatchPayload,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role(["Admin", "Supervisor", "Logistics", "Store"]))
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
 ):
     # Check if job card exists
-    job_card = db.query(JobCard).filter(JobCard.id == payload.job_card_id).first()
+    plant_uuid = _plant_uuid(plant_id)
+    job_card = db.query(JobCard).filter(JobCard.id == payload.job_card_id, JobCard.plant_id == plant_uuid).first()
     if not job_card:
         raise HTTPException(status_code=404, detail="Job Card not found")
 
+    dispatch_snapshot = dict(payload.dispatch_snapshot or {})
     # Check if a dispatch already exists
     dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id).first()
 
     if dispatch:
         if dispatch.status == "SEALED":
             raise HTTPException(status_code=400, detail="Cannot edit a SEALED dispatch")
-        dispatch.dispatch_snapshot = payload.dispatch_snapshot
+        dispatch.dispatch_snapshot = dict(dispatch_snapshot)
+        flag_modified(dispatch, "dispatch_snapshot")
         dispatch.status = payload.status
     else:
         dispatch = Dispatch(
             job_card_id=payload.job_card_id,
-            dispatch_snapshot=payload.dispatch_snapshot,
+            dispatch_snapshot=dispatch_snapshot,
             status=payload.status
         )
         db.add(dispatch)
 
+    db.flush()
     if payload.status == "SEALED":
-        # Mark Job Card as dispatched
+        active_holds = _active_hold_count(db, job_card.id)
+        if active_holds:
+            raise HTTPException(status_code=409, detail=f"Cannot seal dispatch while {active_holds} quality hold(s) are active")
+
+        packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
+        if not packing_record or float(packing_record.total_packed_qty or 0.0) <= 0:
+            raise HTTPException(status_code=409, detail="Cannot seal dispatch before production is packed")
+
+        dispatch_qty = _dispatch_qty(dispatch_snapshot, job_card, packing_record)
+        if dispatch_qty <= 0:
+            raise HTTPException(status_code=400, detail="Dispatch quantity must be positive before sealing")
+        packed_qty = float(packing_record.total_packed_qty or 0.0)
+        if dispatch_qty > packed_qty + 0.0001:
+            raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed packed qty {packed_qty:g}")
+
+        dispatch_ref = _dispatch_ref(dispatch_snapshot, dispatch.id)
+        dispatch_snapshot["qty"] = dispatch_qty
+        dispatch_snapshot["dispatch_ref"] = dispatch_ref
+        dispatch_snapshot = _post_inventory_dispatch_if_needed(
+            dispatch=dispatch,
+            job_card=job_card,
+            packing_record=packing_record,
+            snapshot=dispatch_snapshot,
+            dispatch_qty=dispatch_qty,
+            dispatch_ref=dispatch_ref,
+            token=current_user.get("token", ""),
+            plant_id=plant_id,
+        )
+        dispatch.dispatch_snapshot = dict(dispatch_snapshot)
+        flag_modified(dispatch, "dispatch_snapshot")
+
+        if job_card.sales_order_line_id:
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    response = client.post(
+                        f"{settings.SALES_SERVICE_URL}/sales-orders/lines/{job_card.sales_order_line_id}/record-dispatch",
+                        headers={"Authorization": f"Bearer {current_user.get('token', '')}", "X-Plant-ID": plant_id},
+                        json={"qty": dispatch_qty, "dispatch_line_ref": dispatch_ref},
+                    )
+                if response.status_code >= 400:
+                    raise HTTPException(status_code=response.status_code, detail=response.text)
+            except httpx.RequestError as exc:
+                raise HTTPException(status_code=502, detail=f"Sales fulfillment update failed: {exc}") from exc
+
         job_card.status = "COMPLETED"
+        job_card.current_stage = "DONE"
 
     db.commit()
     db.refresh(dispatch)
@@ -62,9 +232,15 @@ def create_or_update_dispatch(
 def get_dispatch(
     dispatch_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role(["Admin", "Supervisor", "Logistics", "Store"]))
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
 ):
-    dispatch = db.query(Dispatch).filter(Dispatch.id == dispatch_id).first()
+    dispatch = (
+        db.query(Dispatch)
+        .join(JobCard, JobCard.id == Dispatch.job_card_id)
+        .filter(Dispatch.id == dispatch_id, JobCard.plant_id == _plant_uuid(plant_id))
+        .first()
+    )
     if not dispatch:
         raise HTTPException(status_code=404, detail="Dispatch not found")
     return dispatch
@@ -73,15 +249,22 @@ def get_dispatch(
 def get_dispatch_by_job_card(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role(["Admin", "Supervisor", "Logistics", "Store"]))
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
 ):
-    dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == job_card_id).first()
+    dispatch = (
+        db.query(Dispatch)
+        .join(JobCard, JobCard.id == Dispatch.job_card_id)
+        .filter(Dispatch.job_card_id == job_card_id, JobCard.plant_id == _plant_uuid(plant_id))
+        .first()
+    )
     return dispatch
 
 @router.get("/ready-jobs/", response_model=list[dict])
 def get_ready_jobs_for_dispatch(
     db: Session = Depends(get_db),
-    current_user: dict = Depends(require_role(["Admin", "Supervisor", "Logistics", "Store"]))
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
 ):
     """
     Returns job cards that are candidates for dispatch, meaning they have reached
@@ -91,7 +274,10 @@ def get_ready_jobs_for_dispatch(
         db.query(JobCard, SalesOrder, Dispatch)
         .join(SalesOrder, JobCard.sales_order_id == SalesOrder.id)
         .outerjoin(Dispatch, JobCard.id == Dispatch.job_card_id)
-        .filter(JobCard.current_stage.in_(["PROCESS", "PACKING", "DONE"]))
+        .filter(
+            JobCard.plant_id == _plant_uuid(plant_id),
+            or_(JobCard.current_stage.in_(["PACKING", "DONE"]), Dispatch.status == "SEALED"),
+        )
         .order_by(JobCard.created_at.desc())
         .all()
     )

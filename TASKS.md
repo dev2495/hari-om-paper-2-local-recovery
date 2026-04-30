@@ -117,3 +117,71 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [-] Separate bamboo raw-material master with density per species
 - [-] Multi-plant admin UI for global defaults
 - [-] Changes to notching/packing field sets (ported 1:1)
+
+---
+
+## 7. Inventory stock accounting close
+
+- [x] 7.1 Add persisted item policy fields: unit cost, cost source, reorder level, safety stock, and lead-time days
+- [x] 7.2 Make inventory balances and item ledger reel-aware so raw-paper stock includes `PaperReel.current_weight_kg` and closed reel consumption
+- [x] 7.3 Add dated stock statement API: opening + receipts - issues + opening adjustments = closing
+- [x] 7.4 Add auditable opening-load documents for go-live/bootstrap stock with bulk batch and reel-tracked paper posting
+- [x] 7.5 Add closing stock certification header/line tables with book quantity, physical quantity, variance, value, and policy snapshot
+- [x] 7.6 Add certification lifecycle: draft from book statement, edit physical counts, certify, and lock
+- [x] 7.7 Add formal carry-forward documents from certified closing stock without double-posting the running ledger
+- [x] 7.8 Add BFF proxies and notifications for opening load, certification draft, certified close, carry-forward, and item policy update
+- [x] 7.9 Build `/inventory/stock-control` as the planner/store/owner cockpit for opening stock, certification, and year carry-forward
+- [x] 7.10 Upgrade item master UI so MRP policy is governed from master data instead of hidden defaults
+- [x] 7.11 Update MRP to use persisted item policy only for reorder/safety/lead-time calculations
+- [x] 7.12 Add reconciliation companion link that separates production variance close from inventory stock close
+- [x] 7.13 Extend the premium browser E2E to cover the stock-control workspace
+
+## 8. Inventory, roles, and operating dashboard polish
+
+- [x] 8.1 Condense RBAC to the canonical matrix: Owner, Admin, Sales, Planner, PlantManager, Store, Dispatch, Operator
+- [x] 8.2 Hide/deactivate old release, QA, maker, and approver demo users; seed clean canonical demo users only
+- [x] 8.3 Expand user overrides for sales, planner, plant floor, store, dispatch, operator, reports, and system setup
+- [x] 8.4 Convert the top role switcher to a compact dropdown and replace fixed nav buttons with a live route capsule
+- [x] 8.5 Fix first-login/analytics global scope so Owner/Admin see Global / All Plants instead of raw plant UUIDs
+- [x] 8.6 Add Supplier master under Master data and wire raw-material/reel inward supplier fields to dropdowns
+- [x] 8.7 Keep Location master in System only and wire raw-material/reel inward location fields to dropdowns
+- [x] 8.8 Seed default suppliers and inventory locations for Plant A and Plant B so fresh runtime dropdowns are usable
+- [x] 8.9 Rebuild inventory landing with kg/value/risk KPIs, category split, top material load, aging, MRP actions, and location-wise stock
+- [x] 8.10 Rebuild ledger/balances as one working location-aware stock statement and transaction surface
+- [x] 8.11 Upgrade Owner/Admin dashboards with useful charts, real customer-name fallbacks, action queues, and non-empty data fallbacks
+- [x] 8.12 Document opening load, daily inward, certification close, carry-forward, and alert policy behavior in the inventory UI
+- [x] 8.13 Verify with Python compile, TypeScript compile, Next build, runtime restart, live BFF smoke endpoints, and focused Chromium Playwright flow
+
+## 9. End-client readiness polish: search, filters, job-card names, and flow contracts
+
+- [x] 9.1 Add a shared job-card display helper so planner, production, sales, dispatch, owner, and print surfaces show readable `JC-XXXXXXXX` refs instead of raw UUID slices.
+- [x] 9.2 Fix production issue UI to post the live inventory-service contract: material item, quantity, actual job-card id, reason code, raw-paper exception flag, and external reference.
+- [x] 9.3 Add searchable job-card dropdowns to production issue so stores cannot type invalid job references.
+- [x] 9.4 Fix EOD production entry to read the legacy production-job endpoint that its validate/close actions use, with search and state filters.
+- [x] 9.5 Add server-side production-job search by job card, operator, supervisor, job id, and sales order id.
+- [x] 9.6 Add planner job-card search support for display refs like `JC-43B22B6B` and prefix-only searches like `JC`.
+- [x] 9.7 Add working filters to reconciliation actual rows: material search, variance-only, matched rows, and plant-scope display normalization.
+- [x] 9.8 Add working filters to inventory ledger/balances: item search, item type filter, and transaction search.
+- [x] 9.9 Add working filters to system users: user/email search, role filter, status filter, and visible/total count.
+- [x] 9.10 Seed planner demo queue back to 10 open unscheduled winder jobs so the drag/drop planner acceptance flow is testable.
+- [x] 9.11 Verify with Python compile, TypeScript compile, Next build, live BFF smoke endpoints, planner demo seed, and focused Chromium Playwright flow.
+
+## 10. Reconciliation and tracker separation pass
+
+- [x] 10.1 Enforce sales-release target winder as a hard scheduling gate in planner API and planner drag/drop UI.
+- [x] 10.2 Add monthly close history API and BFF/web client support for month-end audit records.
+- [x] 10.3 Rebuild `/production/reconciliation` as a month-end close workspace with open/read-only/locked states, save actuals, close notes, variance KPIs, formula bridge, actual-entry tab, and close-history tab.
+- [x] 10.4 Split `/planning/tracker` into a sales-order-to-dispatch tracker so it is no longer a duplicate job-card grid.
+- [x] 10.5 Keep `/production/job-cards` as the individual job-card register with production-card details and document links.
+- [x] 10.6 Verify with Python compile, Next build, TypeScript compile after build, runtime restart, BFF live smoke, page HTTP checks, and focused Chromium Playwright.
+
+## 11. Master-data immutability and spec versioning guardrail
+
+- [x] 11.1 Confirm master-data delete endpoints are soft-disable flows so historical orders, job cards, inventory ledgers, and specs keep valid references.
+- [x] 11.2 Change shared master-table actions from destructive delete language/icons to explicit Disable actions.
+- [x] 11.3 Convert supplier, customer, customer-contact, user, and plant exposed disable actions away from hard-delete semantics.
+- [x] 11.4 Fix plant update/disable lookup so UI row ids and plant codes both resolve safely.
+- [x] 11.5 Make specification edit create a new active version while disabling/obsoleting the previous version.
+- [x] 11.6 Preserve previous dynamic spec fields when creating the replacement version, then apply the edited payload.
+- [x] 11.7 Update the spec UI copy so users create a new version instead of thinking they are overwriting the old sheet.
+- [x] 11.8 Run final compile/build/runtime verification for this pass.

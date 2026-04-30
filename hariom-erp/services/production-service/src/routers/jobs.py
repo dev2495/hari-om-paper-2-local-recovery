@@ -6,6 +6,7 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
+from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
@@ -15,6 +16,23 @@ from ..utils.auth import get_current_user, require_role, get_current_plant
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 settings = get_settings()
+
+
+def _reference_search_terms(value: str) -> list[str]:
+    text = str(value or "").strip()
+    if not text:
+        return []
+    if text.upper() in {"JC", "JOB", "JOB CARD", "JOB-CARD", "SO", "LINE"}:
+        return []
+    terms = [text]
+    upper = text.upper()
+    for prefix in ("JC-", "SO-", "LINE-"):
+        if upper.startswith(prefix) and len(text) > len(prefix):
+            terms.append(text[len(prefix):])
+    compact = text.replace("-", "")
+    if compact and compact != text:
+        terms.append(compact)
+    return list(dict.fromkeys(term for term in terms if term))
 
 
 class JobCreate(BaseModel):
@@ -196,7 +214,7 @@ def create_job(
     job: JobCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "Admin"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Admin"])),
 ):
     payload = job.model_dump()
     payload["job_card_no"] = _next_job_card_no(db)
@@ -243,6 +261,7 @@ def get_jobs(
     shift: Optional[str] = Query(None),
     operator_name: Optional[str] = Query(None),
     state: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(get_current_user),
@@ -256,6 +275,23 @@ def get_jobs(
         query = query.filter(ProductionJob.operator_name.ilike(f"%{operator_name}%"))
     if state:
         query = query.filter(ProductionJob.job_state == state)
+    if search and search.strip():
+        conditions = []
+        for term in _reference_search_terms(search):
+            needle = f"%{term}%"
+            conditions.extend(
+                [
+                    ProductionJob.job_card_no.ilike(needle),
+                    ProductionJob.operator_name.ilike(needle),
+                    ProductionJob.supervisor_name.ilike(needle),
+                    cast(ProductionJob.id, String).ilike(needle),
+                    cast(ProductionJob.sales_order_id, String).ilike(needle),
+                ]
+            )
+        if conditions:
+            query = query.filter(
+                or_(*conditions)
+            )
     return query.order_by(ProductionJob.date.desc(), ProductionJob.created_at.desc()).all()
 
 
@@ -350,7 +386,7 @@ def update_job(
     job_update: JobUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "Admin"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Admin"])),
 ):
     db_job = db.query(ProductionJob).filter(
         ProductionJob.id == job_id,
@@ -379,7 +415,7 @@ def validate_job(
     payload: ValidateJobPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "Admin"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Admin"])),
 ):
     job = db.query(ProductionJob).filter(
         ProductionJob.id == job_id,
@@ -455,7 +491,7 @@ def close_job(
     payload: CloseJobPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "Admin"])),
+    current_user: dict = Depends(require_role(["PlantManager", "Admin"])),
 ):
     job = db.query(ProductionJob).filter(
         ProductionJob.id == job_id,

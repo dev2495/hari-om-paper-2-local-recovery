@@ -73,12 +73,19 @@ function PlanningLandingPageContent() {
     router.replace(`/planning/board?${nextParams.toString()}`)
   }, [router, searchParams])
 
-  const stages = Array.isArray((boardData as any)?.stages) ? (boardData as any).stages : []
+  const stages = useMemo(
+    () => (Array.isArray((boardData as any)?.stages) ? (boardData as any).stages : []),
+    [boardData],
+  )
   const suggestions = Array.isArray((boardData as any)?.suggestions) ? (boardData as any).suggestions : []
   const summary = (boardData as any)?.summary || {}
-  const openCards = Array.isArray(jobCards)
-    ? jobCards.filter((row: any) => String(row.status || "").toUpperCase() !== "COMPLETED")
-    : []
+  const openCards = useMemo(
+    () =>
+      Array.isArray(jobCards)
+        ? jobCards.filter((row: any) => String(row.status || "").toUpperCase() !== "COMPLETED")
+        : [],
+    [jobCards],
+  )
 
   const blockedCards = openCards.filter((row: any) => {
     const stage = String(row.current_stage || "").toUpperCase()
@@ -102,18 +109,26 @@ function PlanningLandingPageContent() {
     return Object.entries(buckets).map(([name, value]) => ({ name, value }))
   }, [openCards])
 
-  const stageCards: StageCard[] = stages.map((stage: any) => ({
-    stage: stage.stage,
-    jobs: Number(stage?.summary?.jobs || 0),
-    load: Number(stage?.summary?.capacity_load || 0),
-    unit: String(stage?.summary?.capacity_unit || "TUBES_PER_DAY"),
-    overloaded: Number(stage?.lanes?.filter((lane: any) => Boolean(lane.warning)).length || 0),
-  }))
-  const stagePressureData = stageCards.map((stage: StageCard) => ({
-    stage: stageLabel(stage.stage),
-    load: Number(stage.load.toFixed(2)),
-    jobs: stage.jobs,
-  }))
+  const stageCards: StageCard[] = useMemo(
+    () =>
+      stages.map((stage: any) => ({
+        stage: stage.stage,
+        jobs: Number(stage?.summary?.jobs || 0),
+        load: Number(stage?.summary?.capacity_load || 0),
+        unit: String(stage?.summary?.capacity_unit || "TUBES_PER_DAY"),
+        overloaded: Number(stage?.lanes?.filter((lane: any) => Boolean(lane.warning)).length || 0),
+      })),
+    [stages],
+  )
+  const stagePressureData = useMemo(
+    () =>
+      stageCards.map((stage: StageCard) => ({
+        stage: stageLabel(stage.stage),
+        load: Number(stage.load.toFixed(2)),
+        jobs: stage.jobs,
+      })),
+    [stageCards],
+  )
 
   const sectionLinks = useMemo(() => {
     const sections = ["WINDER", "OVEN", "PROCESS"] as const
@@ -156,8 +171,8 @@ function PlanningLandingPageContent() {
             </div>
             <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">Select one plant to open planning</h1>
             <p className="mt-3 text-sm leading-6 text-slate-600">
-              Owner/Admin `ALL` scope is useful for dashboards, but planner capacity is tied to physical machines and shifts.
-              Choose a plant from the switcher, then this landing will show that plant's queues, bottlenecks, and section boards.
+              Owner/Admin ALL scope is useful for dashboards, but planner capacity is tied to physical machines and shifts.
+              Choose a plant from the switcher, then this landing will show that plant&apos;s queues, bottlenecks, and section boards.
             </p>
           </div>
           <div className="rounded-[1.4rem] border border-white/80 bg-white/90 p-5 shadow-sm">

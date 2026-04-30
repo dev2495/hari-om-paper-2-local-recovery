@@ -3,10 +3,10 @@ export type LandingRole =
   | "Admin"
   | "PlantManager"
   | "Planner"
-  | "Production"
   | "Store"
+  | "Dispatch"
   | "Sales"
-  | "QC"
+  | "Operator"
 
 type QuickAction = {
   href: string
@@ -19,10 +19,52 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Admin: "Admin",
   PlantManager: "Plant Manager",
   Planner: "Planner",
-  Production: "Production",
   Store: "Store",
+  Dispatch: "Dispatch",
   Sales: "Sales",
-  QC: "QC",
+  Operator: "Operator",
+}
+
+export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "Planner", "Store", "Dispatch", "Sales", "Operator"]
+
+export const ROLE_TO_LANDING: Record<string, LandingRole> = {
+  Owner: "Owner",
+  Admin: "Admin",
+  PlantManager: "PlantManager",
+  SupervisorEntry: "PlantManager",
+  Production: "PlantManager",
+  QC: "PlantManager",
+  Planner: "Planner",
+  Store: "Store",
+  Dispatch: "Dispatch",
+  DispatchMaker: "Dispatch",
+  DispatchApprover: "Dispatch",
+  Sales: "Sales",
+  SOMaker: "Sales",
+  SOApprover: "Sales",
+  Operator: "Operator",
+}
+
+export function resolveLandingRole(roles: string[] = []): LandingRole {
+  const mapped = new Set(roles.map((role) => ROLE_TO_LANDING[role]).filter(Boolean))
+  return ROLE_PRIORITY.find((role) => mapped.has(role)) || "Operator"
+}
+
+export function rolesForSwitcher(roles: string[] = []) {
+  const unique = Array.from(new Set(roles.map((role) => ROLE_TO_LANDING[role] || role).filter(Boolean)))
+  return ROLE_PRIORITY.filter((role) => unique.includes(role))
+}
+
+export function landingPathForRole(role: string | null | undefined) {
+  const landingRole = ROLE_TO_LANDING[String(role || "")] || resolveLandingRole(role ? [role] : [])
+  if (landingRole === "Owner") return "/landing/owner"
+  if (landingRole === "Admin") return "/landing/admin"
+  if (landingRole === "Planner") return "/planning/board/winder"
+  if (landingRole === "PlantManager") return "/planning/tracker"
+  if (landingRole === "Sales") return "/sales-orders"
+  if (landingRole === "Store") return "/inventory"
+  if (landingRole === "Dispatch") return "/logistics/dispatch"
+  return "/dashboard"
 }
 
 export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
@@ -34,13 +76,13 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   ],
   Admin: [
     { href: "/system/users", label: "Role Matrix", detail: "Manage users, roles, and governance." },
+    { href: "/quality", label: "Quality Lifecycle", detail: "Review holds, inspections, and release decisions." },
     { href: "/reports/owner", label: "Owner Pack", detail: "Monitor cross-plant operations." },
-    { href: "/master", label: "Master Data", detail: "Update canonical data dictionaries." },
     { href: "/planning", label: "Planning Board", detail: "Inspect route-level readiness." },
   ],
   PlantManager: [
     { href: "/planning/board?section=winder", label: "Winder Plan", detail: "Schedule machine and shift assignments." },
-    { href: "/production/supervisor-entry", label: "Supervisor Entry", detail: "Review stage output logs." },
+    { href: "/quality", label: "Quality Desk", detail: "Log inspections and release active holds." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Track cards through the production spine." },
     { href: "/dispatch", label: "Dispatch Ready", detail: "Confirm finished jobs ready for handoff." },
   ],
@@ -50,17 +92,17 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/planning/tracker", label: "Tracker", detail: "Monitor WIP and delays by stage." },
     { href: "/specifications/new", label: "Spec Sheet", detail: "Create recipe-backed specification sheets." },
   ],
-  Production: [
-    { href: "/production/job-cards", label: "Open Job Cards", detail: "Open card-wise execution details." },
-    { href: "/production/supervisor-entry", label: "Supervisor Entry", detail: "Capture WINDER, OVEN, and PROCESS outputs." },
-    { href: "/production/reconciliation", label: "Reconciliation", detail: "Resolve losses and closing metrics." },
-    { href: "/inventory/reels/issue", label: "Reel Issues", detail: "Track and close reel issue records." },
-  ],
   Store: [
     { href: "/inventory", label: "Inventory Actions", detail: "Run inward, issue, and reservations." },
+    { href: "/inventory/genealogy", label: "Genealogy", detail: "Trace reel lineage, issues, and scan events." },
     { href: "/inventory/valuation", label: "Valuation", detail: "Audit stock value and risk items." },
-    { href: "/dispatch", label: "Dispatch", detail: "Move ready jobs into challan flow." },
     { href: "/inventory/reels/inward", label: "Reel Inward", detail: "Record reel-wise inward entries." },
+  ],
+  Dispatch: [
+    { href: "/logistics/dispatch", label: "Dispatch Desk", detail: "Move finished-goods lots into challans." },
+    { href: "/inventory/reservations", label: "FG Reservations", detail: "Check stock reserved against open customer demand." },
+    { href: "/planning/tracker", label: "Ready Tracker", detail: "See jobs moving toward dispatch readiness." },
+    { href: "/reports/dispatch", label: "Dispatch Reports", detail: "Review shipped quantity and pending handoff." },
   ],
   Sales: [
     { href: "/sales-orders/new", label: "Create Sales Order", detail: "Capture PO demand and release needs." },
@@ -68,10 +110,10 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/reports/sales", label: "Sales Reports", detail: "Track OTIF and delayed commitments." },
     { href: "/dispatch", label: "Dispatch Status", detail: "Check commercial handoff status." },
   ],
-  QC: [
-    { href: "/production/supervisor-entry", label: "QC Stage Entries", detail: "Verify inspection and hold events." },
-    { href: "/reports/exceptions", label: "Exceptions", detail: "Inspect blocked jobs and QC holds." },
-    { href: "/production/job-cards", label: "Job Card Checks", detail: "Review stage-wise quality notes." },
-    { href: "/inventory", label: "Inventory Risk", detail: "Review held or constrained stock." },
+  Operator: [
+    { href: "/production/supervisor-entry", label: "QR / Stage Entry", detail: "Scan job card and enter stage output." },
+    { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Open printable job-card details." },
+    { href: "/planning/tracker", label: "Stage Tracker", detail: "Check where scanned jobs are standing." },
+    { href: "/dashboard", label: "My Work", detail: "Return to the operator landing." },
   ],
 }

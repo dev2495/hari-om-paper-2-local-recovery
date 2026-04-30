@@ -522,3 +522,168 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - `node -r ./node_modules/sucrase/register __tests__/spec-sheet-suggestions.test.ts` -> `PASS 3/3`
   - `npm run build` in `apps/web-ui` -> passed
   - regenerated `output/pdf/sample-job-card-JC-96D8A5BA.pdf` from the live print route and verified it as one-page A4 portrait (`594.960 × 841.920`)
+
+### 2026-04-21 · Inventory stock accounting close and carry-forward
+- Added first-class inventory accounting controls instead of treating GRN as the only way stock can enter the system.
+- `hariom-erp/services/inventory-service/src/models.py`
+  - item master now persists unit cost, cost source, reorder level, safety stock, and lead time
+  - reel issue close now stores `consumed_weight_kg` and `closed_at` so historical raw-paper consumption is auditable
+  - new opening-load, certification, and carry-forward tables freeze opening/closing/carry-forward proof
+- `hariom-erp/services/inventory-service/src/services/stock_control.py`
+  - computes dated stock statements from bulk stock transactions and reel-tracked paper history
+  - statement formula: opening + inward - outward + opening adjustments = closing
+  - exposes risk flags for missing policy, reorder breach, and safety breach
+- `hariom-erp/services/inventory-service/src/routers/stock_control.py`
+  - `GET /inventory/stock-control/statement`
+  - `POST/GET /inventory/stock-control/opening-loads`
+  - `POST/GET/PATCH /inventory/stock-control/certifications`
+  - `POST /inventory/stock-control/certifications/{id}/certify`
+  - `POST /inventory/stock-control/certifications/{id}/carry-forward`
+  - `GET /inventory/stock-control/carry-forwards`
+- `hariom-erp/services/inventory-service/src/services/stock_calc.py`
+  - item balances and item ledger are now reel-aware, so raw-paper MRP and valuation no longer miss reel stock
+- `apps/bff-api/src/routes/inventory.py`
+  - proxies all stock-control endpoints
+  - emits notifications for opening load, certification draft, certified close, carry-forward, and item policy update
+- `apps/web-ui/app/(dashboard)/inventory/stock-control/page.tsx`
+  - new premium cockpit for period statement, physical certification, opening loads, and carry-forward proof
+  - global plant scope is read-only; write actions require one concrete plant
+- `apps/web-ui/app/(dashboard)/inventory/items/page.tsx`
+  - item master now governs cost, reorder, safety stock, and lead time from the UI
+- `apps/web-ui/app/(dashboard)/analytics/mrp/page.tsx`
+  - MRP now uses persisted item policy only, and surfaces missing policy as a data-governance problem
+- `apps/web-ui/app/(dashboard)/production/reconciliation/page.tsx`
+  - production reconciliation now links to inventory stock close and explains the difference between production variance and inventory certification
+- Verification added:
+  - Python syntax checks for the changed inventory service modules
+  - TypeScript `npx tsc --noEmit --pretty false`
+  - Playwright coverage for `/inventory/stock-control` added to `sales-planner-premium-flow.spec.cjs`
+
+### 2026-04-21 · Inventory system polish, role matrix cleanup, and master-data usability
+- RBAC is now aligned to the condensed business matrix only:
+  - `Owner`
+  - `Admin`
+  - `Sales`
+  - `Planner`
+  - `PlantManager`
+  - `Store`
+  - `Dispatch`
+  - `Operator`
+- Legacy release, maker/checker, QA, and acceptance demo users are deactivated and hidden from `/system/users`; startup now seeds clean canonical users for the eight-role matrix.
+- The user-create UI now exposes one primary business role plus practical overrides for sales, planner, plant floor, store, dispatch, operator, reports, and system setup.
+- The global shell now uses:
+  - compact role dropdown instead of wide role pills
+  - live route capsule instead of fixed shortcut buttons
+  - normalized Owner/Admin plant scope so stale UUID selections resolve back to `Global / All Plants`
+- Supplier master is now a real master-data surface:
+  - `masterdata-service` `Supplier` model and `/master/suppliers` router
+  - BFF proxies under `/api/master/suppliers`
+  - web hooks and `/master/suppliers`
+  - raw-material inward and reel inward now require supplier dropdown selection instead of free typing
+- Inventory location handling is now operational:
+  - location master remains under System for Owner/Admin management
+  - raw-material inward and reel inward require location selection
+  - location occupancy API returns every active location with nested item rows
+  - default Plant A / Plant B store locations are seeded on inventory-service startup (`RM`, `WIP`, `FG`)
+- Fresh runtime usability is covered by startup seed data:
+  - Plant A suppliers: `RM-SEED-A`, `PARCH-SEED-A`
+  - Plant B suppliers: `RM-SEED-B`, `PARCH-SEED-B`
+  - Plant A locations: `RM-A-01`, `WIP-A-01`, `FG-A-01`
+  - Plant B locations: `RM-B-01`, `WIP-B-01`, `FG-B-01`
+- Inventory landing was rebuilt as an operating dashboard:
+  - stock value, usable kg, blocked/hold kg, low-stock count
+  - category split chart
+  - usable vs blocked status bars
+  - top paper/material load
+  - aging posture
+  - MRP and shortage actions
+  - location-wise stock table
+  - inline explanation of opening load, daily inward, period certification, carry-forward, and alerts
+- Ledger and balances are now one working location-aware page instead of a dead surface:
+  - stock value and balance KPIs
+  - item balances
+  - location-wise occupancy
+  - recent transaction ledger
+- Owner/Admin landing dashboards were tightened:
+  - real customer names where available instead of UUID labels
+  - non-empty fallbacks when analytics has sparse data
+  - useful charts/action queues instead of blank panels
+- Live verification after this pass:
+  - `python3 -m py_compile ...` passed for changed auth, masterdata, and inventory service modules
+  - `npx tsc --noEmit --pretty false` passed in `apps/web-ui`
+  - `npm run build` passed in `apps/web-ui`
+  - `./start_all.sh` restarted the affected services and reported all runtime services ready
+  - `npx playwright test e2e/sales-planner-premium-flow.spec.cjs --project=chromium` passed after restarting `web-ui` on the rebuilt bundle
+  - BFF smoke as admin on Plant A:
+    - roles: `8`, canonical only
+    - users: `9`, no release/QA/maker/approver users visible
+    - suppliers: `2`
+    - locations: `3`
+    - location occupancy locations: `3`
+    - ledger rows: `200`
+    - balances: `1`
+
+### 2026-04-24 · End-client readiness polish for search, filters, naming, and operational contracts
+- Added `apps/web-ui/lib/job-card-display.ts` as the canonical UI display helper for job-card refs, compact ids, subtitles, and search text.
+- Replaced raw job-card UUID slices across planner board, planner print, production queue, sales-order detail/audit, dispatch selection/create, owner intelligence, and role landing surfaces with stable `JC-XXXXXXXX` style labels.
+- Corrected `/inventory/production-issue` from the old placeholder payload to the live inventory-service issue contract:
+  - `item_id`
+  - `qty`
+  - `production_job_id`
+  - `reason_code`
+  - `allow_raw_paper_exception`
+  - `external_ref`
+  - `notes`
+- Added material search and job-card search/dropdown selection to production issue so stores issue only against real job cards.
+- Corrected EOD entry to read `/api/production/jobs` because validate/close still use the legacy production-job lifecycle, and added job search plus state filters.
+- Added backend production-job search in `production-service/src/routers/jobs.py`.
+- Added planner display-ref search handling in `production-service/src/routers/planning.py`, including `JC-...` and prefix-only `JC` searches.
+- Added working search/filter controls to:
+  - `/production/reconciliation` actual material rows
+  - `/inventory/ledger` balances and transactions
+  - `/system/users`
+- Re-seeded the local planner demo data to 10 open unscheduled winder cards for end-to-end drag/drop testing.
+- Verification:
+  - `python3 -m py_compile` passed for changed production routers
+  - `npx tsc --noEmit --pretty false` passed
+  - `npm run build` passed
+  - runtime restarted with production-service and BFF reloaded
+  - live BFF smoke returned `200` for job-card search, planner board, inventory items, inventory ledger, monthly material summary, monthly close state, and auth users
+  - `npx playwright test e2e/sales-planner-premium-flow.spec.cjs --project=chromium` passed
+
+### 2026-04-24 · Reconciliation close workspace, winder gate, and tracker separation
+- The planner schedule API now treats the sales-release target winder as a hard gate. A WINDER-stage schedule without `assigned_winder_machine_id`, or to any other winder, returns a 400 and does not move the segment.
+- The planner board drag/drop handler mirrors the same rule client-side, showing the selected winder before the API call and preventing accidental wrong-lane planning.
+- Added `/reconciliation/monthly-close/history` in production-service, `/api/production/monthly-close-history` in BFF, and web client/query support.
+- Rebuilt `/production/reconciliation` into a clear month-end flow:
+  - select reconciliation month
+  - review theory, actual, variance, and variance cost
+  - save monthly actual consumption/cost rows
+  - require close notes when variance exists
+  - close/lock the month
+  - review month-close history records
+  - link inventory stock close for opening/closing/carry-forward certification
+- Rebuilt `/planning/tracker` as a sales-order tracker, not a duplicate job-card table. It now tracks customer order demand, release/job-card linkage, stage mix, blocked state, due risk, dispatch readiness, and drill paths to sales orders, planner, and job-card register.
+- `/production/job-cards` remains the individual production job-card register.
+- Verification:
+  - `python3 -m py_compile` passed for changed production and BFF routers.
+  - `npm run build` passed and regenerated the production web bundle.
+  - `npx tsc --noEmit --pretty false` passed after the build regenerated `.next/types`.
+  - Runtime restarted production-service, BFF, and web-ui successfully.
+  - Live BFF smoke returned `200` for monthly close history, monthly material summary, monthly close state, sales orders, job cards, and planner board.
+  - Live web HTTP checks returned `200` for `/production/reconciliation`, `/planning/tracker`, and `/production/job-cards`.
+  - `npx playwright test e2e/sales-planner-premium-flow.spec.cjs --project=chromium` passed.
+
+### 2026-04-30 · Master-data immutability and specification versioning
+- Master data now follows a no-hard-delete operating rule for exposed admin/master flows. Disable actions keep historical references valid and hide inactive rows from normal dropdown/list APIs.
+- The shared `CrudTable` now labels this clearly: master records are disabled, not deleted. It uses a neutral disable action instead of a destructive trash affordance.
+- Supplier, customer, customer-contact, user, machine, plant, paper, adhesive, parchment, tube-size, mandrel, packaging, and tool flows either already soft-disabled or now present/route as Disable.
+- Auth plant disable no longer physically deletes plant records, and the endpoint resolves either UUID row ids or plant codes so system UI actions operate on the intended plant.
+- Spec-sheet edit is version-safe:
+  - editing an active spec creates `version + 1` as a new active record
+  - the previous active spec is marked inactive/obsolete
+  - old job cards, releases, and recipe history still point to the old spec id
+  - active spec lists and dropdowns show only the latest active version
+  - dynamic fields are copied from the previous version and then overwritten by the edited payload
+  - any new recipe/trial payload is attached to the new version id, not the disabled old version
+- The spec UI now says `Create New Version` / `Save as New Version + Recipe` so users do not assume they are overwriting an old approved sheet.

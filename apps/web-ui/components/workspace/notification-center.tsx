@@ -39,7 +39,7 @@ export function NotificationCenter() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
-  const { data } = useNotifications(false)
+  const { data } = useNotifications(true)
   const unreadCount = useNotificationUnreadCount()
   const unread = Number(unreadCount.data?.count || 0)
 
@@ -47,8 +47,8 @@ export function NotificationCenter() {
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["workspace", "notifications"] }),
-      queryClient.invalidateQueries({ queryKey: ["workspace", "notifications", "unread-count"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-notifications"] }),
+      queryClient.invalidateQueries({ queryKey: ["workspace-notifications-unread"] }),
     ])
   }
 

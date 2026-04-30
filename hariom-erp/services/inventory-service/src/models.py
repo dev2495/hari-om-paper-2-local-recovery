@@ -52,6 +52,7 @@ class TransactionType(str, enum.Enum):
     FG_INWARD = "FG_INWARD"
     DISPATCH = "DISPATCH"
     MOVE = "MOVE"
+    OPENING = "OPENING"
 
 
 class ReferenceType(str, enum.Enum):
@@ -126,6 +127,11 @@ class ItemMaster(Base):
     type = Column(SQLEnum(ItemType), nullable=False)
     tracking_mode = Column(SQLEnum(TrackingMode), nullable=False, default=TrackingMode.BULK)
     uom = Column(SQLEnum(UOM), nullable=False)
+    unit_cost = Column(Float, nullable=True)
+    cost_source = Column(String(20), nullable=True)
+    reorder_level = Column(Float, nullable=False, default=0.0)
+    safety_stock = Column(Float, nullable=False, default=0.0)
+    lead_time_days = Column(Float, nullable=False, default=0.0)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -279,14 +285,18 @@ class ReelIssue(Base):
     shift = Column(String(20), nullable=False)
     issue_date = Column(Date, nullable=False)
     issued_weight_kg = Column(Float, nullable=False)
+    consumed_weight_kg = Column(Float, nullable=False, default=0.0)
     remaining_weight_kg = Column(Float, nullable=False)
     status = Column(SQLEnum(ReelIssueStatus), nullable=False, default=ReelIssueStatus.OPEN)
+    closed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     reel = relationship("PaperReel", back_populates="issues")
 
     __table_args__ = (
         CheckConstraint("issued_weight_kg > 0", name="ck_reel_issues_issued_positive"),
+        CheckConstraint("consumed_weight_kg >= 0", name="ck_reel_issues_consumed_nonnegative"),
+        CheckConstraint("consumed_weight_kg <= issued_weight_kg", name="ck_reel_issues_consumed_lte_issued"),
         CheckConstraint("remaining_weight_kg >= 0", name="ck_reel_issues_remaining_nonnegative"),
         CheckConstraint("remaining_weight_kg <= issued_weight_kg", name="ck_reel_issues_remaining_lte_issued"),
     )
@@ -306,3 +316,151 @@ class ReelScanEvent(Base):
 
     reel = relationship("PaperReel", back_populates="scan_events")
 
+
+class InventoryOpeningLoad(Base):
+    __tablename__ = "inventory_opening_loads"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    document_no = Column(String(80), nullable=False)
+    effective_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="POSTED")
+    notes = Column(String(500), nullable=True)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    lines = relationship("InventoryOpeningLoadLine", back_populates="header", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "document_no", name="uq_inventory_opening_load_doc"),
+    )
+
+
+class InventoryOpeningLoadLine(Base):
+    __tablename__ = "inventory_opening_load_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    opening_load_id = Column(UUID(as_uuid=True), ForeignKey("inventory_opening_loads.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True)
+    reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True)
+    batch_no = Column(String(100), nullable=True)
+    reel_code = Column(String(100), nullable=True)
+    qty = Column(Float, nullable=False)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True)
+    stock_status = Column(String(20), nullable=False, default="UNRESTRICTED")
+    unit_cost = Column(Float, nullable=True)
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    header = relationship("InventoryOpeningLoad", back_populates="lines")
+    item = relationship("ItemMaster")
+    batch = relationship("StockBatch")
+    reel = relationship("PaperReel")
+    inventory_location = relationship("InventoryLocation")
+
+    __table_args__ = (
+        CheckConstraint("qty > 0", name="ck_inventory_opening_load_lines_qty_positive"),
+        CheckConstraint(
+            "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP')",
+            name="ck_inventory_opening_load_lines_status",
+        ),
+    )
+
+
+class InventoryCertification(Base):
+    __tablename__ = "inventory_certifications"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    period_start = Column(Date, nullable=False)
+    period_end = Column(Date, nullable=False)
+    fiscal_year_label = Column(String(30), nullable=True)
+    status = Column(String(30), nullable=False, default="DRAFT")
+    notes = Column(String(500), nullable=True)
+    created_by = Column(String(200), nullable=False)
+    certified_by = Column(String(200), nullable=True)
+    certified_at = Column(DateTime, nullable=True)
+    carried_forward_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    lines = relationship("InventoryCertificationLine", back_populates="header", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "period_start", "period_end", name="uq_inventory_certifications_period"),
+    )
+
+
+class InventoryCertificationLine(Base):
+    __tablename__ = "inventory_certification_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    certification_id = Column(UUID(as_uuid=True), ForeignKey("inventory_certifications.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    item_code = Column(String(80), nullable=False)
+    item_name = Column(String(200), nullable=False)
+    item_type = Column(String(40), nullable=False)
+    tracking_mode = Column(String(20), nullable=False)
+    uom = Column(String(20), nullable=False)
+    opening_qty = Column(Float, nullable=False, default=0.0)
+    inward_qty = Column(Float, nullable=False, default=0.0)
+    outward_qty = Column(Float, nullable=False, default=0.0)
+    adjustment_qty = Column(Float, nullable=False, default=0.0)
+    closing_qty = Column(Float, nullable=False, default=0.0)
+    physical_qty = Column(Float, nullable=True)
+    variance_qty = Column(Float, nullable=False, default=0.0)
+    unit_cost = Column(Float, nullable=False, default=0.0)
+    closing_value = Column(Float, nullable=False, default=0.0)
+    variance_value = Column(Float, nullable=False, default=0.0)
+    reorder_level = Column(Float, nullable=False, default=0.0)
+    safety_stock = Column(Float, nullable=False, default=0.0)
+    lead_time_days = Column(Float, nullable=False, default=0.0)
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    header = relationship("InventoryCertification", back_populates="lines")
+    item = relationship("ItemMaster")
+
+
+class InventoryCarryForward(Base):
+    __tablename__ = "inventory_carry_forwards"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    certification_id = Column(UUID(as_uuid=True), ForeignKey("inventory_certifications.id"), nullable=False, index=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    opening_date = Column(Date, nullable=False)
+    fiscal_year_label = Column(String(30), nullable=True)
+    document_no = Column(String(80), nullable=False)
+    status = Column(String(20), nullable=False, default="GENERATED")
+    notes = Column(String(500), nullable=True)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    certification = relationship("InventoryCertification")
+    lines = relationship("InventoryCarryForwardLine", back_populates="header", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "document_no", name="uq_inventory_carry_forward_doc"),
+    )
+
+
+class InventoryCarryForwardLine(Base):
+    __tablename__ = "inventory_carry_forward_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    carry_forward_id = Column(UUID(as_uuid=True), ForeignKey("inventory_carry_forwards.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    item_code = Column(String(80), nullable=False)
+    item_name = Column(String(200), nullable=False)
+    item_type = Column(String(40), nullable=False)
+    tracking_mode = Column(String(20), nullable=False)
+    uom = Column(String(20), nullable=False)
+    opening_qty = Column(Float, nullable=False, default=0.0)
+    unit_cost = Column(Float, nullable=False, default=0.0)
+    opening_value = Column(Float, nullable=False, default=0.0)
+    source_variance_qty = Column(Float, nullable=False, default=0.0)
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    header = relationship("InventoryCarryForward", back_populates="lines")
+    item = relationship("ItemMaster")

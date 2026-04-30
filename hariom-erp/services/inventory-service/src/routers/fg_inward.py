@@ -40,7 +40,7 @@ def create_fg_inward(
     fg_inward: FGInwardCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Production", "SupervisorEntry", "Admin", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "Operator", "Production", "SupervisorEntry"])),
 ):
     item = db.query(ItemMaster).filter(
         ItemMaster.id == fg_inward.item_id,

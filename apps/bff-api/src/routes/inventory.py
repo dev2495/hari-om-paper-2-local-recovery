@@ -5,7 +5,7 @@ import httpx
 
 from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
-from src.services.workspace import emit_from_response, response_body_json
+from src.services.workspace import emit_from_response, emit_notification_event, response_body_json
 
 router = APIRouter()
 INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:18005")
@@ -33,6 +33,23 @@ async def create_item(request: Request, token: str = Depends(get_token)):
     return response
 
 
+@router.put("/items/{item_id}")
+async def update_item(item_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_POLICY_UPDATED",
+        title=f"Inventory policy updated: {payload.get('item_code') or item_id}",
+        message="Cost, reorder, safety stock, or lead-time controls changed.",
+        href="/inventory/items",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"item_id": item_id},
+    )
+    return response
+
+
 @router.post("/inward")
 async def create_inward(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inward/", request, token)
@@ -43,7 +60,7 @@ async def create_inward(request: Request, token: str = Depends(get_token)):
         title="Raw material inward recorded",
         message="Stores recorded new inbound stock.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Planner", "Production"],
+        recipient_roles=["Owner", "Admin", "Store", "Planner", "PlantManager", "Operator"],
     )
     return response
 
@@ -58,7 +75,7 @@ async def create_issue(request: Request, token: str = Depends(get_token)):
         title="Inventory issue recorded",
         message="Material was issued from stores into production.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Production", "Planner"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator", "Planner"],
     )
     return response
 
@@ -108,6 +125,126 @@ async def get_ledger(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/ledger", request, token)
 
 
+@router.get("/stock-control/statement")
+async def get_stock_statement(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/statement", request, token)
+
+
+@router.get("/stock-control/opening-loads")
+async def list_opening_loads(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/opening-loads", request, token)
+
+
+@router.post("/stock-control/opening-loads")
+async def create_opening_load(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/opening-loads", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_OPENING_LOAD_POSTED",
+        title=f"Opening stock posted: {payload.get('document_no') or payload.get('id') or 'document'}",
+        message="Stores posted auditable opening stock into the inventory ledger.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"opening_load_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
+@router.get("/stock-control/certifications")
+async def list_certifications(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/certifications", request, token)
+
+
+@router.post("/stock-control/certifications")
+async def create_certification(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/certifications", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_CERTIFICATION_DRAFTED",
+        title=f"Stock certification drafted: {payload.get('period_end') or payload.get('id') or 'period'}",
+        message="Physical count can now be checked against book closing stock.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"certification_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
+@router.get("/stock-control/certifications/{certification_id}")
+async def get_certification(certification_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}", request, token)
+
+
+@router.patch("/stock-control/certifications/{certification_id}")
+async def update_certification(certification_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}", request, token)
+
+
+@router.post("/stock-control/certifications/{certification_id}/certify")
+async def certify_stock(certification_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}/certify", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_STOCK_CERTIFIED",
+        title=f"Closing stock certified: {payload.get('period_end') or certification_id}",
+        message="The period has an auditable book-vs-physical stock certificate.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"certification_id": certification_id},
+    )
+    return response
+
+
+@router.get("/stock-control/carry-forwards")
+async def list_carry_forwards(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/carry-forwards", request, token)
+
+
+@router.post("/stock-control/certifications/{certification_id}/carry-forward")
+async def create_carry_forward(certification_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/stock-control/certifications/{certification_id}/carry-forward", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_CARRY_FORWARD_GENERATED",
+        title=f"Year carry-forward generated: {payload.get('document_no') or certification_id}",
+        message="Certified closing stock has been frozen as the next period's opening proof.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"certification_id": certification_id, "carry_forward_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
+@router.get("/locations")
+async def get_locations(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations", request, token)
+
+
+@router.post("/locations")
+async def create_location(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/locations", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_LOCATION_CREATED",
+        title=f"Inventory location created: {payload.get('code') or payload.get('id') or 'new location'}",
+        message="Stores can now use this location for reel and batch placement.",
+        href="/system/locations",
+        recipient_roles=["Owner", "Admin", "Store"],
+        payload={"location_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
 @router.get("/lots/availability")
 async def lot_availability(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/lots/availability", request, token)
@@ -123,7 +260,7 @@ async def create_reel_inward(request: Request, token: str = Depends(get_token)):
         title="Reel inward recorded",
         message="New reels are available in inventory.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Production"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
     )
     return response
 
@@ -148,7 +285,7 @@ async def create_reel_scan_event(reel_id: str, request: Request, token: str = De
         title="Reel scan captured",
         message=f"Reel {reel_id} changed tracked state or location.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Production"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
         payload={"reel_id": reel_id},
     )
     return response
@@ -169,7 +306,7 @@ async def create_reel_issue(request: Request, token: str = Depends(get_token)):
         title="Reel issue recorded",
         message="A reel variance or issue now needs follow-up.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Production", "QC"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
     )
     return response
 
@@ -189,7 +326,7 @@ async def close_reel_issue(issue_id: str, request: Request, token: str = Depends
         title="Reel issue closed",
         message=f"Reel issue {issue_id} was resolved.",
         href="/inventory",
-        recipient_roles=["Owner", "Admin", "Store", "Production", "QC"],
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
         payload={"issue_id": issue_id},
     )
     return response
@@ -233,6 +370,28 @@ async def get_health_summary(request: Request, token: str = Depends(get_token)):
 @router.get("/health/status-summary")
 async def get_health_status_summary(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/status-summary", request, token)
+
+
+@router.post("/mrp/notify-shortage")
+async def notify_mrp_shortage(request: Request, token: str = Depends(get_token)):
+    payload = await request.json()
+    raw_lines = payload.get("lines") if isinstance(payload, dict) else []
+    lines = raw_lines if isinstance(raw_lines, list) else []
+    shortage_count = len(lines)
+    total_value = sum(float(row.get("estimated_value") or row.get("po_value") or 0) for row in lines if isinstance(row, dict))
+    try:
+        await emit_notification_event(
+            token=token,
+            event_type="MRP_SHORTAGE_DRAFTED",
+            title=f"MRP shortage draft generated ({shortage_count} lines)",
+            message=f"Store must review shortage material and PO draft value {total_value:,.0f}.",
+            href="/analytics/mrp",
+            recipient_roles=["Owner", "Admin", "Store", "Planner"],
+            payload={"shortage_count": shortage_count, "estimated_value": total_value, "lines": lines[:20] if isinstance(lines, list) else []},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=202, content={"notified": False, "detail": "Notification service unavailable"})
+    return {"notified": True, "shortage_count": shortage_count, "estimated_value": total_value}
 
 
 @router.get("/health/location-occupancy")

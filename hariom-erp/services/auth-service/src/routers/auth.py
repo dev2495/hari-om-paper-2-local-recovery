@@ -8,6 +8,7 @@ from ..database import get_db
 from .. import models
 from ..security import hashing, jwt_handler
 from ..utils.deps import get_current_user, require_role
+from ..workspace import BUSINESS_ROLE_ORDER, canonical_role_name
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -55,6 +56,10 @@ def serialize_user(user: models.User) -> dict:
     allowed_plants = [str(plant.id) for plant in getattr(user, "allowed_plants", [])]
     if not allowed_plants and user.plant_id:
         allowed_plants = [str(user.plant_id)]
+    canonical_roles = sorted(
+        {canonical_role_name(role.name) for role in user.roles if canonical_role_name(role.name)},
+        key=lambda role: BUSINESS_ROLE_ORDER.index(role) if role in BUSINESS_ROLE_ORDER else 999,
+    )
     permissions = sorted({
         permission.name
         for role in user.roles
@@ -66,8 +71,8 @@ def serialize_user(user: models.User) -> dict:
         "email": user.email,
         "plant_id": str(user.plant_id) if user.plant_id else (allowed_plants[0] if allowed_plants else "PLANT_A"),
         "is_active": user.is_active,
-        "role": sorted([role.name for role in user.roles])[0] if user.roles else None,
-        "roles": sorted([role.name for role in user.roles]),
+        "role": canonical_roles[0] if canonical_roles else None,
+        "roles": canonical_roles,
         "permissions": permissions,
         "allowed_plants": allowed_plants,
         "allowed_plant_ids": allowed_plants,
@@ -78,7 +83,11 @@ def serialize_user(user: models.User) -> dict:
 
 
 def _assign_roles(user: models.User, role_names: List[str], db: Session) -> None:
-    normalized = sorted({str(role or "").strip() for role in (role_names or []) if str(role or "").strip()})
+    incoming = [str(role or "").strip() for role in (role_names or []) if str(role or "").strip()]
+    unknown = [role for role in incoming if canonical_role_name(role) is None]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown roles: {', '.join(unknown)}")
+    normalized = sorted({canonical_role_name(role) for role in incoming if canonical_role_name(role)})
     if not normalized:
         return
     roles = db.query(models.Role).filter(models.Role.name.in_(normalized)).all()

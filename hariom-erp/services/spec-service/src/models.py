@@ -90,8 +90,9 @@ class RecipeHeader(Base):
 
 class RecipeLayer(Base):
     __tablename__ = "recipe_layers"
-    
+
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     recipe_id = Column(UUID(as_uuid=True), ForeignKey('recipe_header.id'), nullable=False)
     ply_no = Column(Integer, nullable=False)
     
@@ -160,6 +161,7 @@ class SpecDynamicFieldValue(Base):
     __tablename__ = "spec_dynamic_field_values"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     spec_id = Column(UUID(as_uuid=True), ForeignKey("specification_sheet.id"), nullable=False)
     field_id = Column(UUID(as_uuid=True), ForeignKey("spec_dynamic_fields.id"), nullable=False)
     value = Column(Text, nullable=True)

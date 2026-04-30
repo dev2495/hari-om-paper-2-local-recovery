@@ -2,20 +2,20 @@
 
 import Link from "next/link"
 import { useEffect, useMemo } from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { useParams, usePathname, useRouter } from "next/navigation"
 
 import JobCardDocument from "@/components/production/JobCardDocument"
 import { useAuth } from "@/context/AuthContext"
 
-export default function ProductionMobileEntryPage({ params }: { params: { jobCardId: string } }) {
+export default function ProductionMobileEntryPage() {
   const router = useRouter()
   const pathname = usePathname()
+  const params = useParams<{ jobCardId: string }>()
+  const jobCardId = String(params?.jobCardId || "")
   const { user, isLoading } = useAuth()
   const roles = useMemo(() => (Array.isArray(user?.roles) ? user.roles : []), [user?.roles])
   const canEnter =
     roles.includes("Operator") ||
-    roles.includes("SupervisorEntry") ||
-    roles.includes("Production") ||
     roles.includes("Admin") ||
     roles.includes("PlantManager") ||
     roles.includes("Owner")
@@ -23,13 +23,13 @@ export default function ProductionMobileEntryPage({ params }: { params: { jobCar
   useEffect(() => {
     if (isLoading) return
     if (!user) {
-      router.replace(`/login?next=${encodeURIComponent(pathname || `/production/entry/${params.jobCardId}`)}`)
+      router.replace(`/login?next=${encodeURIComponent(pathname || `/production/entry/${jobCardId}`)}`)
       return
     }
     if (!canEnter) {
       router.replace("/dashboard")
     }
-  }, [canEnter, isLoading, params.jobCardId, pathname, router, user])
+  }, [canEnter, isLoading, jobCardId, pathname, router, user])
 
   if (isLoading && !user) {
     return (
@@ -48,7 +48,7 @@ export default function ProductionMobileEntryPage({ params }: { params: { jobCar
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-rose-600">Access denied</p>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">This account cannot open mobile production entry.</h1>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            Operator, supervisor-entry, production, plant-manager, owner, or admin access is required for QR stage entry.
+            Operator, plant-manager, owner, or admin access is required for QR stage entry.
           </p>
           <div className="mt-5">
             <Link href="/dashboard" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
@@ -75,7 +75,7 @@ export default function ProductionMobileEntryPage({ params }: { params: { jobCar
           </div>
         </section>
 
-        <JobCardDocument jobCardId={params.jobCardId} mode="supervisor" />
+        <JobCardDocument jobCardId={jobCardId} mode="supervisor" />
       </div>
     </div>
   )

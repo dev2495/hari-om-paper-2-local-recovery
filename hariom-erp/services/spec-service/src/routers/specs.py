@@ -19,7 +19,6 @@ from .. import spec_math
 from ..services.approval import ApprovalService
 from ..utils.auth import (
     apply_plant_scope,
-    enforce_maker_checker,
     get_current_plant,
     get_current_plant_scope,
     get_current_user,
@@ -553,11 +552,13 @@ def _upsert_dynamic_values(
         if not value_model:
             value_model = SpecDynamicFieldValue(
                 spec_id=spec_id,
+                plant_id=plant_id,
                 field_id=field.id,
                 value=entry.value
             )
             db.add(value_model)
         else:
+            value_model.plant_id = plant_id
             value_model.value = entry.value
 
 
@@ -578,12 +579,88 @@ def _upsert_compat_dynamic_values(
         if not value_model:
             value_model = SpecDynamicFieldValue(
                 spec_id=spec_id,
+                plant_id=plant_id,
                 field_id=field.id,
                 value=stored_value,
             )
             db.add(value_model)
         else:
+            value_model.plant_id = plant_id
             value_model.value = stored_value
+
+
+def _merged_dynamic_fields_for_replacement(
+    previous: SpecificationSheet,
+    payload_fields: Optional[List[DynamicFieldValueInput]],
+) -> List[DynamicFieldValueInput]:
+    merged: dict[str, Optional[str]] = {}
+    for value in previous.dynamic_values:
+        if value.field:
+            merged[value.field.key] = value.value
+    for entry in payload_fields or []:
+        merged[entry.field_key] = entry.value
+    return [DynamicFieldValueInput(field_key=key, value=value) for key, value in merged.items()]
+
+
+def _replacement_spec_from_payload(
+    *,
+    previous: SpecificationSheet,
+    payload: SpecUpdate,
+    plant_id: str,
+    current_user: dict,
+) -> SpecificationSheet:
+    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile"})
+
+    def resolved(field: str):
+        return updates[field] if field in updates else getattr(previous, field)
+
+    customer_name = str(
+        updates.get("customer_name")
+        or updates.get("customer_name_snapshot")
+        or previous.customer_name_snapshot
+        or previous.customer_name
+        or ""
+    ).strip()
+    if not customer_name:
+        raise HTTPException(status_code=400, detail="customer_name or customer_name_snapshot is required")
+
+    customer_id_value = updates.get("customer_id") if "customer_id" in updates else previous.customer_id
+    return SpecificationSheet(
+        customer_name=customer_name,
+        customer_id=uuid.UUID(str(customer_id_value)) if customer_id_value else None,
+        customer_name_snapshot=updates.get("customer_name_snapshot") or customer_name,
+        tube_size_id=resolved("tube_size_id"),
+        mandrel_id=resolved("mandrel_id"),
+        required_cs=resolved("required_cs"),
+        target_tube_weight=resolved("target_tube_weight"),
+        id_min_mm=resolved("id_min_mm"),
+        id_max_mm=resolved("id_max_mm"),
+        od_min_mm=resolved("od_min_mm"),
+        od_max_mm=resolved("od_max_mm"),
+        length_min_mm=resolved("length_min_mm"),
+        length_max_mm=resolved("length_max_mm"),
+        weight_min_g=resolved("weight_min_g"),
+        weight_max_g=resolved("weight_max_g"),
+        cs_min_n=resolved("cs_min_n"),
+        cs_max_n=resolved("cs_max_n"),
+        moisture_min_pct=resolved("moisture_min_pct"),
+        moisture_max_pct=resolved("moisture_max_pct"),
+        parchment_percent=resolved("parchment_percent"),
+        parchment_color=resolved("parchment_color"),
+        parchment_allowed=resolved("parchment_allowed"),
+        adhesive_percent=resolved("adhesive_percent"),
+        moisture_loss_percent=resolved("moisture_loss_percent"),
+        adhesive_20100_percent=resolved("adhesive_20100_percent"),
+        adhesive_30100_percent=resolved("adhesive_30100_percent"),
+        shrink_percent=resolved("shrink_percent"),
+        bamboo_max_length=previous.bamboo_max_length or settings.BAMBOO_MAX_LENGTH,
+        cut_loss_mm=previous.cut_loss_mm or settings.CUT_LOSS_MM,
+        status="trial" if previous.status == "trial" else "draft",
+        version=int(previous.version or 1) + 1,
+        active=True,
+        created_by=current_user.get("sub"),
+        plant_id=plant_id,
+    )
 
 
 @router.get("/constants")
@@ -611,12 +688,29 @@ def create_spec(
 
     model = SpecificationSheet(
         customer_name=customer_name,
+        customer_id=uuid.UUID(str(spec.customer_id)) if spec.customer_id else None,
+        customer_name_snapshot=spec.customer_name_snapshot or customer_name,
         tube_size_id=spec.tube_size_id,
         mandrel_id=spec.mandrel_id,
         required_cs=spec.required_cs,
         target_tube_weight=spec.target_tube_weight,
+        id_min_mm=spec.id_min_mm,
+        id_max_mm=spec.id_max_mm,
+        od_min_mm=spec.od_min_mm,
+        od_max_mm=spec.od_max_mm,
+        length_min_mm=spec.length_min_mm,
+        length_max_mm=spec.length_max_mm,
+        weight_min_g=spec.weight_min_g,
+        weight_max_g=spec.weight_max_g,
+        cs_min_n=spec.cs_min_n,
+        cs_max_n=spec.cs_max_n,
+        moisture_min_pct=spec.moisture_min_pct,
+        moisture_max_pct=spec.moisture_max_pct,
         parchment_percent=spec.parchment_percent,
         parchment_color=spec.parchment_color,
+        parchment_allowed=spec.parchment_allowed if spec.parchment_allowed is not None else True,
+        adhesive_percent=spec.adhesive_percent,
+        moisture_loss_percent=spec.moisture_loss_percent,
         adhesive_20100_percent=spec.adhesive_20100_percent,
         adhesive_30100_percent=spec.adhesive_30100_percent,
         shrink_percent=spec.shrink_percent,
@@ -692,30 +786,38 @@ def update_spec(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
-    if spec.status not in ["draft", "trial"]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot edit spec with status '{spec.status}'. Only draft or trial specs can be edited."
-        )
+    if not spec.active:
+        raise HTTPException(status_code=400, detail="Inactive specification versions are read-only")
 
-    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile", "customer_id", "customer_name_snapshot", "id_min_mm", "id_max_mm", "od_min_mm", "od_max_mm", "length_min_mm", "length_max_mm", "weight_min_g", "weight_max_g", "cs_min_n", "cs_max_n", "moisture_min_pct", "moisture_max_pct"})
-    for field, value in updates.items():
-        setattr(spec, field, value)
+    replacement = _replacement_spec_from_payload(
+        previous=spec,
+        payload=payload,
+        plant_id=plant_id,
+        current_user=current_user,
+    )
+    db.add(replacement)
+    db.flush()
 
-    if payload.customer_name_snapshot and not payload.customer_name:
-        spec.customer_name = payload.customer_name_snapshot
+    spec.active = False
+    if spec.status in {"draft", "trial", "approved"}:
+        spec.status = "obsolete"
 
-    _upsert_dynamic_values(spec.id, payload.dynamic_fields, plant_id, db)
+    _upsert_dynamic_values(
+        replacement.id,
+        _merged_dynamic_fields_for_replacement(spec, payload.dynamic_fields),
+        plant_id,
+        db,
+    )
     _upsert_compat_dynamic_values(
-        spec.id,
+        replacement.id,
         _compat_dynamic_values_from_payload(payload),
         plant_id=plant_id,
         db=db,
     )
 
     db.commit()
-    db.refresh(spec)
-    return _serialize_spec(spec)
+    db.refresh(replacement)
+    return _serialize_spec(replacement)
 
 
 class ApproveSpecPayload(BaseModel):
@@ -735,9 +837,6 @@ def approve_spec(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
-
-    if spec.created_by:
-        enforce_maker_checker(current_user, spec.created_by)
 
     duplicate = db.query(SpecificationSheet).filter(
         SpecificationSheet.id != spec.id,

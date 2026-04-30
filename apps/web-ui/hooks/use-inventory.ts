@@ -16,7 +16,28 @@ export function useInventoryTransactions() {
     queryKey: ["inventory-transactions"],
     queryFn: async () => {
       const { data } = await inventoryApi.getTransactions()
-      return data
+      return Array.isArray(data) ? data : Array.isArray(data?.ledger) ? data.ledger : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useInventoryLocations() {
+  return useQuery({
+    queryKey: ["inventory-locations"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getLocations()
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateInventoryLocation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createLocation(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-locations"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })
     },
   })
 }
@@ -28,6 +49,9 @@ export function useCreateTransaction() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
     },
   })
 }
@@ -39,6 +63,9 @@ export function useCreateInward() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
     },
   })
 }
@@ -49,6 +76,20 @@ export function useCreateItem() {
     mutationFn: (data: any) => inventoryApi.createItem(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+    },
+  })
+}
+
+export function useUpdateItem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => inventoryApi.updateItem(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-valuation-summary"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
     },
   })
 }
@@ -117,12 +158,171 @@ export function useInventoryHealthSummary() {
   })
 }
 
+export function useInventoryStatusSummary() {
+  return useQuery({
+    queryKey: ["inventory-status-summary"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInventoryStatusSummary()
+      return data || { rows: [], totals: {} }
+    },
+  })
+}
+
+export function useInventoryLocationOccupancy() {
+  return useQuery({
+    queryKey: ["inventory-location-occupancy"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInventoryLocationOccupancy()
+      return data || { summary: {}, rows: [] }
+    },
+  })
+}
+
+export function useInventoryAging() {
+  return useQuery({
+    queryKey: ["inventory-aging"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInventoryAging()
+      return data || { buckets: [], slow_rows: [] }
+    },
+  })
+}
+
+export function useInventoryGenealogyExceptions() {
+  return useQuery({
+    queryKey: ["inventory-genealogy-exceptions"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInventoryGenealogyExceptions()
+      return data || { rows: [] }
+    },
+  })
+}
+
+export function useInventoryValuationSummary() {
+  return useQuery({
+    queryKey: ["inventory-valuation-summary"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getValuationSummary()
+      return data || { rows: [], totals: {} }
+    },
+  })
+}
+
+export function useInventoryValuationReels() {
+  return useQuery({
+    queryKey: ["inventory-valuation-reels"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getValuationReels()
+      return data || { rows: [], totals: {} }
+    },
+  })
+}
+
 export function useInventoryBalances() {
   return useQuery({
     queryKey: ["inventory-balances"],
     queryFn: async () => {
       const { data } = await inventoryApi.getBalances()
       return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useInventoryStockStatement(params?: any) {
+  return useQuery({
+    queryKey: ["inventory-stock-statement", params || {}],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getStockStatement(params)
+      return data || { rows: [], totals: {} }
+    },
+    enabled: Boolean(params?.start_date && params?.end_date),
+  })
+}
+
+export function useOpeningLoads() {
+  return useQuery({
+    queryKey: ["inventory-opening-loads"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getOpeningLoads()
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateOpeningLoad() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createOpeningLoad(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-opening-loads"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+    },
+  })
+}
+
+export function useStockCertifications() {
+  return useQuery({
+    queryKey: ["inventory-stock-certifications"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getStockCertifications()
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateStockCertification() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createStockCertification(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+    },
+  })
+}
+
+export function useUpdateStockCertification() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => inventoryApi.updateStockCertification(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certification"] })
+    },
+  })
+}
+
+export function useCertifyStockCertification() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: any }) => inventoryApi.certifyStockCertification(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certification"] })
+    },
+  })
+}
+
+export function useCarryForwards() {
+  return useQuery({
+    queryKey: ["inventory-carry-forwards"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getCarryForwards()
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateCarryForward() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: any }) => inventoryApi.createCarryForward(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-carry-forwards"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certification"] })
     },
   })
 }
@@ -169,6 +369,9 @@ export function useCreateReelInward() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
     },
   })
 }
@@ -190,6 +393,7 @@ export function useCreateReelIssue() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
     },
   })
 }

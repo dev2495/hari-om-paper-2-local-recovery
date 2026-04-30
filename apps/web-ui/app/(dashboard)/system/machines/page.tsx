@@ -14,7 +14,20 @@ export default function MachinesPage() {
         { header: "Code", accessorKey: "code" },
         { header: "Name", accessorKey: "name" },
         { header: "Department", accessorKey: "department" },
-        { header: "Capacity", accessorKey: "capacity_value", render: (val: any, row: any) => `${val} ${row.capacity_type?.replace(/_/g, ' ')}` },
+        {
+            header: "Capacity",
+            accessorKey: "capacity_value",
+            render: (val: any, row: any) => {
+                const capacityValue = Number.isFinite(Number(val)) ? Number(val) : 0
+                if (String(row.department).toUpperCase() === "OVEN") {
+                    const batchSize = Number(row.batch_bamboo_capacity || 0)
+                    const cycleHours = Number(row.cycle_time_hours || 0)
+                    const dailyBamboo = capacityValue * batchSize
+                    return `${capacityValue || "-"} batches/day · ${batchSize || "-"} bamboo/batch · ${cycleHours || "-"}h cycle · ${dailyBamboo || 0} bamboo/day`
+                }
+                return `${capacityValue || "-"} ${row.capacity_type?.replace(/_/g, ' ') || "capacity"}`
+            }
+        },
         {
             header: "Status",
             accessorKey: "is_active",

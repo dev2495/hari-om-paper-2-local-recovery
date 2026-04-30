@@ -125,6 +125,8 @@ class Machine(Base):
     department = Column(String(100), nullable=False)
     capacity_type = Column(String(40), nullable=False, default="TUBES_PER_DAY")
     capacity_value = Column(Float, nullable=False, default=0.0)
+    batch_bamboo_capacity = Column(Float, nullable=True)
+    cycle_time_hours = Column(Float, nullable=True)
     id_min_mm = Column(Float, nullable=False, default=0.0)
     id_max_mm = Column(Float, nullable=False, default=0.0)
     od_min_mm = Column(Float, nullable=False, default=0.0)
@@ -206,6 +208,28 @@ class CustomerContact(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     customer = relationship("Customer", back_populates="contacts")
+
+
+class Supplier(Base):
+    __tablename__ = "supplier"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    supplier_code = Column(String(50), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    category = Column(String(80), nullable=False, default="RAW_MATERIAL")
+    contact_name = Column(String(200), nullable=True)
+    contact_phone = Column(String(50), nullable=True)
+    contact_email = Column(String(200), nullable=True)
+    gst_no = Column(String(50), nullable=True)
+    address = Column(String(500), nullable=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "supplier_code", name="uq_supplier_plant_code"),
+        UniqueConstraint("plant_id", "name", name="uq_supplier_plant_name"),
+    )
 
 
 class PackagingBox(Base):

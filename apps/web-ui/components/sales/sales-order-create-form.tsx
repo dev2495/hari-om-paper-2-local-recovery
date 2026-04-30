@@ -64,6 +64,41 @@ function specLabel(spec: any) {
   return parts.join(" · ") || String(spec?.id || "")
 }
 
+function averageDimension(min: unknown, max: unknown) {
+  const low = Number(min)
+  const high = Number(max)
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return null
+  return Math.round((low + high) / 2)
+}
+
+function deriveSizeLabel(spec: any) {
+  return String(
+    spec?.size_label ||
+      [
+        averageDimension(spec?.id_min_mm, spec?.id_max_mm),
+        averageDimension(spec?.od_min_mm, spec?.od_max_mm),
+        averageDimension(spec?.length_min_mm, spec?.length_max_mm),
+      ]
+        .filter((value) => value !== null)
+        .join(" x "),
+  ).trim()
+}
+
+function deriveProductCode(spec: any, fallbackIndex = 1) {
+  const explicit = String(spec?.product_code || spec?.spec_reference || "").trim()
+  if (explicit) return explicit.toUpperCase()
+
+  const dimensions = [
+    averageDimension(spec?.id_min_mm, spec?.id_max_mm),
+    averageDimension(spec?.od_min_mm, spec?.od_max_mm),
+    averageDimension(spec?.length_min_mm, spec?.length_max_mm),
+  ].filter((value) => value !== null)
+  if (dimensions.length === 3) return `FG-${dimensions.join("-")}`.toUpperCase()
+
+  const id = String(spec?.id || "").replace(/[^a-z0-9]/gi, "").slice(0, 8).toUpperCase()
+  return id ? `SPEC-${id}` : `LINE-${fallbackIndex}`
+}
+
 export function SalesOrderCreateForm() {
   const router = useRouter()
   const { showToast } = useApp()
@@ -120,23 +155,7 @@ export function SalesOrderCreateForm() {
 
   function updateSpec(localId: string, specId: string) {
     const selectedSpec = selectedSpecs.get(specId)
-    const derivedSize =
-      String(
-        selectedSpec?.size_label ||
-          [
-            selectedSpec?.id_min_mm && selectedSpec?.id_max_mm
-              ? Math.round((Number(selectedSpec.id_min_mm) + Number(selectedSpec.id_max_mm)) / 2)
-              : null,
-            selectedSpec?.od_min_mm && selectedSpec?.od_max_mm
-              ? Math.round((Number(selectedSpec.od_min_mm) + Number(selectedSpec.od_max_mm)) / 2)
-              : null,
-            selectedSpec?.length_min_mm && selectedSpec?.length_max_mm
-              ? Math.round((Number(selectedSpec.length_min_mm) + Number(selectedSpec.length_max_mm)) / 2)
-              : null,
-          ]
-            .filter((value) => value !== null)
-            .join(" x "),
-      ).trim() || ""
+    const derivedSize = deriveSizeLabel(selectedSpec) || ""
 
     setForm((current) => ({
       ...current,
@@ -145,7 +164,7 @@ export function SalesOrderCreateForm() {
           ? {
               ...line,
               approved_spec_id: specId,
-              product_code: line.product_code || selectedSpec?.product_code || selectedSpec?.spec_reference || "",
+              product_code: line.product_code || deriveProductCode(selectedSpec),
               size_label: derivedSize,
             }
           : line,
@@ -175,8 +194,8 @@ export function SalesOrderCreateForm() {
         lines: form.lines.map((line, index) => ({
           approved_spec_id: line.approved_spec_id,
           line_no: index + 1,
-          product_code: line.product_code || null,
-          size_label: line.size_label || null,
+          product_code: line.product_code || deriveProductCode(selectedSpecs.get(line.approved_spec_id), index + 1),
+          size_label: line.size_label || deriveSizeLabel(selectedSpecs.get(line.approved_spec_id)) || null,
           parchment_required: line.parchment_required,
           parchment_color: line.parchment_required ? line.parchment_color || null : null,
           rate_per_pc: line.rate_per_pc ? Number(line.rate_per_pc) : null,

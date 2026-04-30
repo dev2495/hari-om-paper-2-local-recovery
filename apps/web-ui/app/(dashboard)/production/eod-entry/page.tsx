@@ -3,18 +3,17 @@
 import { useState, useMemo } from "react"
 import {
     CheckCircle2,
-    Circle,
     ChevronRight,
     Factory,
     ClipboardCheck,
     PackageCheck,
     AlertCircle,
-    TrendingUp,
-    History,
+    Search,
     Zap
 } from "lucide-react"
 import { useJobCards, useUpdateJobCard, useValidateJobCard, useCloseJobCard } from "@/hooks/use-production"
 import { useInventoryItems } from "@/hooks/use-inventory"
+import { jobCardRef, jobCardSearchText, jobCardSubtitle } from "@/lib/job-card-display"
 
 export default function EODProductionEntryPage() {
     const { data: jobs, isLoading: isLoadingJobs } = useJobCards()
@@ -26,10 +25,21 @@ export default function EODProductionEntryPage() {
 
     const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
     const [step, setStep] = useState(1) // 1: Select Job, 2: Production Data, 3: Validation & Finish
+    const [search, setSearch] = useState("")
+    const [stateFilter, setStateFilter] = useState("ALL")
 
     const activeJobs = useMemo(() =>
         (jobs || []).filter((j: any) => j.job_state !== "closed"),
         [jobs])
+
+    const visibleJobs = useMemo(() => {
+        const needle = search.trim().toLowerCase()
+        return activeJobs.filter((job: any) => {
+            const state = String(job.job_state || "").toLowerCase()
+            if (stateFilter !== "ALL" && state !== stateFilter.toLowerCase()) return false
+            return !needle || jobCardSearchText(job).includes(needle) || String(job.operator_name || "").toLowerCase().includes(needle)
+        })
+    }, [activeJobs, search, stateFilter])
 
     const selectedJob = useMemo(() =>
         activeJobs.find((j: any) => j.id === selectedJobId),
@@ -135,25 +145,50 @@ export default function EODProductionEntryPage() {
                 {step === 1 && (
                     <section className="glass-card overflow-hidden">
                         <div className="p-6 border-b border-white/5 flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-white tracking-tight uppercase">Open Production Jobs</h2>
-                            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
-                                <Zap className="h-3 w-3 text-amber-500" /> Live Queue
+                            <div>
+                                <h2 className="text-lg font-bold text-white tracking-tight uppercase">Open Production Jobs</h2>
+                                <p className="mt-1 text-[11px] text-slate-500">Search by job card, operator, customer, or order before entering shift actuals.</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                                <div className="flex h-10 items-center gap-2 rounded-xl border border-white/10 bg-slate-950/50 px-3">
+                                    <Search className="h-4 w-4 text-slate-500" />
+                                    <input
+                                        value={search}
+                                        onChange={(event) => setSearch(event.target.value)}
+                                        placeholder="Search jobs..."
+                                        className="w-44 bg-transparent text-sm text-white outline-none placeholder:text-slate-600"
+                                    />
+                                </div>
+                                <select
+                                    value={stateFilter}
+                                    onChange={(event) => setStateFilter(event.target.value)}
+                                    className="h-10 rounded-xl border border-white/10 bg-slate-950/60 px-3 text-xs font-bold uppercase tracking-widest text-slate-300"
+                                >
+                                    <option value="ALL">All states</option>
+                                    <option value="draft">Draft</option>
+                                    <option value="submitted">Submitted</option>
+                                    <option value="validated">Validated</option>
+                                </select>
+                                <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-widest">
+                                    <Zap className="h-3 w-3 text-amber-500" /> {visibleJobs.length} live
+                                </div>
                             </div>
                         </div>
                         <div className="divide-y divide-white/5">
                             {isLoadingJobs ? (
                                 <div className="p-12 text-center text-slate-500 uppercase tracking-widest text-xs italic">Awaiting job queue...</div>
-                            ) : activeJobs.length === 0 ? (
+                            ) : visibleJobs.length === 0 ? (
                                 <div className="p-12 text-center text-slate-500 uppercase tracking-widest text-xs font-bold">No active jobs found for this plant.</div>
-                            ) : activeJobs.map((job: any) => (
+                            ) : visibleJobs.map((job: any) => (
                                 <div key={job.id} className="p-5 flex items-center justify-between group hover:bg-white/5 transition-all">
                                     <div className="space-y-1">
                                         <div className="flex items-center gap-2">
-                                            <span className="text-sm font-bold text-white uppercase tracking-tight">{job.job_card_no}</span>
+                                            <span className="text-sm font-bold text-white uppercase tracking-tight">{jobCardRef(job)}</span>
                                             <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-widest ${job.job_state === "validated" ? "bg-emerald-500/20 text-emerald-400" : "bg-cyan-500/20 text-cyan-400"}`}>
                                                 {job.job_state}
                                             </span>
                                         </div>
+                                        <div className="text-[11px] text-slate-400 font-semibold">{jobCardSubtitle(job)}</div>
                                         <div className="flex items-center gap-4 text-[11px] text-slate-500 font-medium">
                                             <span>Operator: <span className="text-slate-300 uppercase">{job.operator_name}</span></span>
                                             <span>Shift: <span className="text-slate-300 uppercase">{job.shift}</span></span>
@@ -249,7 +284,7 @@ export default function EODProductionEntryPage() {
                                 <div className="space-y-3">
                                     <div className="flex justify-between text-xs">
                                         <span className="text-slate-500">Job Card:</span>
-                                        <span className="text-slate-200 font-bold tracking-tight">{selectedJob.job_card_no}</span>
+                                        <span className="text-slate-200 font-bold tracking-tight">{jobCardRef(selectedJob)}</span>
                                     </div>
                                     <div className="flex justify-between text-xs">
                                         <span className="text-slate-500">Target Qty:</span>

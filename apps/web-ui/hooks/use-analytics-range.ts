@@ -27,12 +27,14 @@ export function useSyncAnalyticsRange(
   } | null,
 ) {
   const { setAvailableRange } = useAnalyticsContext()
+  const startDate = range?.start_date ?? null
+  const endDate = range?.end_date ?? null
 
   useEffect(() => {
-    if (!range || (!range.start_date && !range.end_date)) return
+    if (!startDate && !endDate) return
     setAvailableRange({
-      start_date: range.start_date ?? null,
-      end_date: range.end_date ?? null,
+      start_date: startDate,
+      end_date: endDate,
     })
-  }, [range?.start_date, range?.end_date, setAvailableRange])
+  }, [endDate, setAvailableRange, startDate])
 }

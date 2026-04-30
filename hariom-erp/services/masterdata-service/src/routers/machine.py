@@ -44,6 +44,8 @@ def _apply_machine_updates_with_validation(db_machine: models.Machine, machine_u
         "department": update_data.get("department", db_machine.department),
         "capacity_type": update_data.get("capacity_type", db_machine.capacity_type),
         "capacity_value": update_data.get("capacity_value", db_machine.capacity_value),
+        "batch_bamboo_capacity": update_data.get("batch_bamboo_capacity", db_machine.batch_bamboo_capacity),
+        "cycle_time_hours": update_data.get("cycle_time_hours", db_machine.cycle_time_hours),
         "id_min_mm": update_data.get("id_min_mm", db_machine.id_min_mm),
         "id_max_mm": update_data.get("id_max_mm", db_machine.id_max_mm),
         "od_min_mm": update_data.get("od_min_mm", db_machine.od_min_mm),
@@ -67,6 +69,8 @@ def _serialize_machine(machine: models.Machine) -> dict:
         "department": machine.department,
         "capacity_type": _canonical_capacity_type(machine.department, machine.capacity_type),
         "capacity_value": machine.capacity_value,
+        "batch_bamboo_capacity": machine.batch_bamboo_capacity,
+        "cycle_time_hours": machine.cycle_time_hours,
         "id_min_mm": machine.id_min_mm,
         "id_max_mm": machine.id_max_mm,
         "od_min_mm": machine.od_min_mm,
@@ -254,4 +258,3 @@ def delete_machine(
     db_machine.is_active = False
     db.commit()
     return {"message": "Machine deactivated successfully"}
-

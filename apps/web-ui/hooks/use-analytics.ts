@@ -27,6 +27,8 @@ function toNumber(value: any, fallback = 0) {
 export const analyticsApi = {
   getDashboardOverview: (params?: any) =>
     api.get("/api/analytics/dashboard/overview", { params: withDefinedParams(params) }),
+  getOwnerPack: (params?: any) =>
+    api.get("/api/analytics/reports/owner-pack", { params: withDefinedParams(params) }),
   getProductionTrends: (params?: any) =>
     api.get("/api/analytics/production/trends", { params: withDefinedParams(params) }),
   getShrinkAnalysis: (params?: any) =>
@@ -317,90 +319,9 @@ export function useOwnerPack(params?: any, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ["analytics", "owner-pack", params || {}],
     queryFn: async () => {
-      const [overview, productionTrends, salesRaw, inventoryRaw] = await Promise.all([
-        getSafeData(() => analyticsApi.getDashboardOverview(params), {}),
-        getSafeData(
-          () =>
-            analyticsApi.getProductionTrends({
-              start_date: params?.start_date || params?.startDate,
-              end_date: params?.end_date || params?.endDate,
-              plant: params?.plant,
-            }),
-          [],
-        ),
-        getSafeData(
-          () =>
-            analyticsApi.getSalesTrends({
-              start_date: params?.start_date || params?.startDate,
-              end_date: params?.end_date || params?.endDate,
-              plant: params?.plant,
-            }),
-          {},
-        ),
-        getSafeData(() => analyticsApi.getInventoryValuation(params), {}),
-      ])
-
-      const sales = normalizeSalesReport(salesRaw, params || {})
-      const plantRows = normalizePlantCompare(overview)
-      const inventoryValue =
-        toNumber((overview as any)?.inventory_value) ||
-        plantRows.reduce((sum, row) => sum + toNumber(row.inventory_value), 0)
-      const delayedRows = Array.isArray(sales?.delayed_rows) ? sales.delayed_rows : []
-      const blockedRows = Array.isArray((overview as any)?.blocked_rows)
-        ? (overview as any).blocked_rows
-        : Array.isArray((overview as any)?.blocked_jobs)
-          ? (overview as any).blocked_jobs
-          : []
-      const lowStock = Array.isArray((inventoryRaw as any)?.low_stock)
-        ? (inventoryRaw as any).low_stock
-        : Array.isArray((inventoryRaw as any)?.low_stock_items)
-          ? (inventoryRaw as any).low_stock_items
-          : []
-      const activeHolds = Array.isArray((overview as any)?.active_holds) ? (overview as any).active_holds : []
-
-      return {
-        headline: {
-          backlog_orders: toNumber(sales?.summary?.backlog_orders),
-          delayed_orders: toNumber(sales?.summary?.delayed_orders, delayedRows.length),
-          inventory_value: inventoryValue,
-          low_stock_items: toNumber((inventoryRaw as any)?.low_stock_items, lowStock.length),
-          active_qc_holds: toNumber((overview as any)?.active_qc_holds, activeHolds.length),
-          dispatch_qty: toNumber((overview as any)?.dispatch_qty),
-          active_job_cards: toNumber((overview as any)?.active_jobs),
-          otif_percent: toNumber(sales?.summary?.otif_percent),
-        },
-        production: {
-          summary: {
-            schedule_adherence_percent: toNumber((overview as any)?.schedule_adherence_percent),
-          },
-          blocked_rows: blockedRows,
-          series: Array.isArray(productionTrends) ? productionTrends : [],
-        },
-        sales: {
-          summary: sales.summary,
-          delayed_rows: delayedRows,
-          series: sales.series,
-        },
-        inventory: {
-          summary: {
-            total_value: toNumber((inventoryRaw as any)?.total_value, inventoryValue),
-            low_stock_items: toNumber((inventoryRaw as any)?.low_stock_items, lowStock.length),
-            blocked_qty: toNumber((inventoryRaw as any)?.blocked_qty),
-          },
-          risk_items: {
-            low_stock: lowStock,
-          },
-        },
-        exceptions: {
-          active_holds: activeHolds,
-        },
-        dispatch: {
-          summary: {
-            ready_job_count: toNumber((overview as any)?.ready_job_count),
-          },
-        },
-      }
+      const { data } = await analyticsApi.getOwnerPack(params)
+      return data
     },
-    enabled: options?.enabled ?? true,
+    enabled: options?.enabled !== false,
   })
 }

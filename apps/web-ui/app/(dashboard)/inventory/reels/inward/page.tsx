@@ -5,7 +5,8 @@ import { Barcode, PlusCircle } from "lucide-react"
 import { FormEvent, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
-import { useCreateReelInward, useCreateReelScan, useInventoryItems, useReels } from "@/hooks/use-inventory"
+import { useCreateReelInward, useCreateReelScan, useInventoryItems, useInventoryLocations, useReels } from "@/hooks/use-inventory"
+import { useSuppliers } from "@/hooks/use-master-data"
 
 function getErrorMessage(error: any): string {
   return (
@@ -24,12 +25,15 @@ export default function ReelInwardPage() {
     gsm: "",
     bf: "",
     supplier_name: "",
+    location_id: "",
     inward_weight_kg: "",
     inward_date: dayjs().format("YYYY-MM-DD"),
   })
   const [logScanEvent, setLogScanEvent] = useState(true)
 
   const itemsQuery = useInventoryItems()
+  const suppliersQuery = useSuppliers()
+  const locationsQuery = useInventoryLocations()
   const reelsQuery = useReels()
   const createReelInward = useCreateReelInward()
   const createReelScan = useCreateReelScan()
@@ -43,6 +47,12 @@ export default function ReelInwardPage() {
     const rows = Array.isArray(reelsQuery.data) ? reelsQuery.data : []
     return rows.slice(0, 15)
   }, [reelsQuery.data])
+  const suppliers = useMemo(() => (Array.isArray(suppliersQuery.data) ? suppliersQuery.data : []), [suppliersQuery.data])
+  const locations = useMemo(() => (Array.isArray(locationsQuery.data) ? locationsQuery.data : []), [locationsQuery.data])
+  const locationById = useMemo(
+    () => new Map(locations.map((location: any) => [String(location.id), location])),
+    [locations],
+  )
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
@@ -58,6 +68,7 @@ export default function ReelInwardPage() {
         gsm: form.gsm ? Number(form.gsm) : null,
         bf: form.bf ? Number(form.bf) : null,
         supplier_name: form.supplier_name || null,
+        location_id: form.location_id || null,
         inward_weight_kg: Number(form.inward_weight_kg),
         inward_date: form.inward_date,
       })
@@ -151,11 +162,41 @@ export default function ReelInwardPage() {
           </div>
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Supplier</label>
-            <input
+            <select
+              required
               value={form.supplier_name}
               onChange={(event) => setForm((current) => ({ ...current, supplier_name: event.target.value }))}
               className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
-            />
+            >
+              <option value="">Select supplier</option>
+              {suppliers.map((supplier: any) => (
+                <option key={supplier.id} value={supplier.name}>
+                  {supplier.supplier_code} - {supplier.name}
+                </option>
+              ))}
+            </select>
+            {!suppliers.length ? (
+              <p className="mt-1 text-[11px] text-amber-700">Add suppliers from Master Data before posting live inwards.</p>
+            ) : null}
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Location</label>
+            <select
+              required
+              value={form.location_id}
+              onChange={(event) => setForm((current) => ({ ...current, location_id: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+            >
+              <option value="">Select location</option>
+              {locations.map((location: any) => (
+                <option key={location.id} value={location.id}>
+                  {location.code} - {location.warehouse}
+                </option>
+              ))}
+            </select>
+            {!locations.length ? (
+              <p className="mt-1 text-[11px] text-amber-700">Create locations in System before posting store stock.</p>
+            ) : null}
           </div>
 
           <div>
@@ -213,6 +254,7 @@ export default function ReelInwardPage() {
                 <th className="py-2">Status</th>
                 <th className="py-2">Current kg</th>
                 <th className="py-2">Supplier</th>
+                <th className="py-2">Location</th>
                 <th className="py-2">Inward date</th>
               </tr>
             </thead>
@@ -223,12 +265,13 @@ export default function ReelInwardPage() {
                   <td className="py-2">{reel.status}</td>
                   <td className="py-2">{Number(reel.current_weight_kg || 0).toFixed(2)}</td>
                   <td className="py-2">{reel.supplier_name || "-"}</td>
+                  <td className="py-2">{locationById.get(String(reel.location_id))?.code || "-"}</td>
                   <td className="py-2">{reel.inward_date || "-"}</td>
                 </tr>
               ))}
               {reels.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-slate-500">
+                  <td colSpan={6} className="py-4 text-center text-slate-500">
                     No reels available
                   </td>
                 </tr>

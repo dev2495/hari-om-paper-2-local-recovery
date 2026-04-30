@@ -1,11 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { productionApi } from "@/lib/api"
 
-export function useJobCards() {
+export function useJobCards(params?: any) {
   return useQuery({
-    queryKey: ["job-cards"],
+    queryKey: ["job-cards", params || {}],
     queryFn: async () => {
-      const { data } = await productionApi.getPlanningJobCards()
+      const { data } = await productionApi.getJobCards(params)
       return data
     },
   })
@@ -109,6 +109,17 @@ export function usePlanningJobCard(jobCardId?: string) {
   })
 }
 
+export function useJobCardGenealogy(jobCardId?: string) {
+  return useQuery({
+    queryKey: ["job-card-genealogy", jobCardId],
+    queryFn: async () => {
+      const { data } = await productionApi.getJobCardGenealogy(String(jobCardId))
+      return data
+    },
+    enabled: !!jobCardId,
+  })
+}
+
 export function usePlanningReorder() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -178,6 +189,68 @@ export function usePostStageOutput() {
   })
 }
 
+export function useQualityInspections(params?: any, enabled = true) {
+  return useQuery({
+    queryKey: ["quality-inspections", params || {}],
+    queryFn: async () => {
+      const { data } = await productionApi.getQualityInspections(params)
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+    enabled,
+  })
+}
+
+export function useQualityHolds(params?: any, enabled = true) {
+  return useQuery({
+    queryKey: ["quality-holds", params || {}],
+    queryFn: async () => {
+      const { data } = await productionApi.getQualityHolds(params)
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+    enabled,
+  })
+}
+
+export function useCreateQualityInspection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId?: string }) =>
+      productionApi.createQualityInspection(data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["quality-inspections"] })
+      queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["analytics-owner-pack"] })
+    },
+  })
+}
+
+export function useCreateQualityHold() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId?: string }) =>
+      productionApi.createQualityHold(data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["analytics-owner-pack"] })
+    },
+  })
+}
+
+export function useReleaseQualityHold() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ holdId, plantId }: { holdId: string; plantId?: string }) =>
+      productionApi.releaseQualityHold(holdId, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["analytics-owner-pack"] })
+    },
+  })
+}
+
 export function useSaveStageDraft() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -219,8 +292,8 @@ export function useCreatePlanningSalesOrder() {
 export function useReleaseSyncSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ salesOrderId, data }: { salesOrderId: string; data: any }) =>
-      productionApi.releaseSyncSalesOrder(salesOrderId, data),
+    mutationFn: ({ salesOrderId, data, plantId }: { salesOrderId: string; data: any; plantId?: string }) =>
+      productionApi.releaseSyncSalesOrder(salesOrderId, data, plantId),
     onSuccess: (_response, variables) => {
       queryClient.invalidateQueries({ queryKey: ["planning-board"] })
       queryClient.invalidateQueries({ queryKey: ["planning-queue"] })
@@ -291,6 +364,17 @@ export function useMonthlyCloseState(params?: any, enabled = true) {
     queryKey: ["monthly-close-state", params || {}],
     queryFn: async () => {
       const { data } = await productionApi.getMonthlyCloseState(params)
+      return data
+    },
+    enabled,
+  })
+}
+
+export function useMonthlyCloseHistory(params?: any, enabled = true) {
+  return useQuery({
+    queryKey: ["monthly-close-history", params || {}],
+    queryFn: async () => {
+      const { data } = await productionApi.getMonthlyCloseHistory(params)
       return data
     },
     enabled,

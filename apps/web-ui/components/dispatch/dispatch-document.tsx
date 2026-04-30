@@ -207,11 +207,11 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                     <div className="border-b border-slate-400 w-32 mx-auto"></div>
                 </div>
                 <div>
-                    <p className="text-sm font-semibold mb-8">Transporter's Sign</p>
+                    <p className="text-sm font-semibold mb-8">Transporter&apos;s Sign</p>
                     <div className="border-b border-slate-400 w-32 mx-auto"></div>
                 </div>
                 <div>
-                    <p className="text-sm font-semibold mb-8">Receiver's Sign</p>
+                    <p className="text-sm font-semibold mb-8">Receiver&apos;s Sign</p>
                     <div className="border-b border-slate-400 w-32 mx-auto"></div>
                 </div>
             </div>

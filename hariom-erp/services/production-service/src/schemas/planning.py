@@ -222,6 +222,8 @@ class PlanningBoardLane(BaseModel):
     machine_department: Optional[str] = None
     capacity_value: Optional[float] = None
     capacity_unit: Optional[str] = None
+    batch_bamboo_capacity: Optional[float] = None
+    cycle_time_hours: Optional[float] = None
     current_load: float = 0.0
     warning: Optional[str] = None
     constraints: PlanningBoardMachineConstraint = Field(default_factory=PlanningBoardMachineConstraint)
@@ -647,5 +649,6 @@ class StageActionResponse(BaseModel):
     entry_saved: bool = True
     override_used: bool = False
     override_reason: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
     reel_issue_ids: list[str] = Field(default_factory=list)
     quality_hold_ids: list[str] = Field(default_factory=list)

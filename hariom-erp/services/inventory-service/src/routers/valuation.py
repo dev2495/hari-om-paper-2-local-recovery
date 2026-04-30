@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import ItemMaster, PaperReel
 from ..services import get_all_items_balance
+from ..services.stock_control import compute_stock_statement
 from ..utils.auth import get_current_plant_scope, get_current_user
 
 router = APIRouter(prefix="/inventory/valuation", tags=["inventory-valuation"])
@@ -57,6 +58,46 @@ def valuation_summary(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
+    if start_date or end_date:
+        statement = compute_stock_statement(
+            db=db,
+            plant_scope=plant_scope,
+            start_date=start_date or date(1970, 1, 1),
+            end_date=end_date or date.today(),
+        )
+        rows = [
+            {
+                "item_id": row["item_id"],
+                "item_code": row["item_code"],
+                "name": row["item_name"],
+                "type": row["item_type"],
+                "tracking_mode": row["tracking_mode"],
+                "uom": row["uom"],
+                "balance": row["closing_qty"],
+                "available_qty": row["closing_qty"],
+                "unit_cost": row["unit_cost"],
+                "cost_source": row["cost_source"],
+                "inventory_value": row["closing_value"],
+                "reorder_level": row["reorder_level"],
+                "safety_stock": row["safety_stock"],
+                "lead_time_days": row["lead_time_days"],
+            }
+            for row in statement["rows"]
+        ]
+        total_value = round(sum(float(row["inventory_value"]) for row in rows), 2)
+        return {
+            "as_of": datetime.utcnow().isoformat(),
+            "filters": {
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None,
+            },
+            "rows": rows,
+            "totals": {
+                "inventory_value": total_value,
+                "sku_count": len(rows),
+            },
+        }
+
     plant_id = None if plant_scope.get("scope_all") else plant_scope["selected_plant_id"]
     plant_ids = plant_scope.get("allowed_plants") if plant_scope.get("scope_all") else None
     rows = get_all_items_balance(db=db, plant_id=plant_id, plant_ids=plant_ids)

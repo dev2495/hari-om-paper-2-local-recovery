@@ -6,6 +6,7 @@
 *.swp
 .env
 .env.*
+!deploy/tinypod/.env.tinypod.example
 
 **/__pycache__/
 **/.pytest_cache/
@@ -14,6 +15,7 @@ apps/web-ui/.next/
 apps/web-ui/node_modules/
 apps/web-ui/playwright-report/
 apps/web-ui/test-results/
+apps/web-ui/tsconfig.tsbuildinfo
 apps/web-ui.unreadable.bak/
 .playwright-cli/
 
@@ -51,3 +53,4 @@ scripts/repair_from_sibling.py
 scripts/restart_all.sh
 scripts/run_verification 2.sh
 stop_services.sh
+setup_test_pc/db_dumps/*.dump

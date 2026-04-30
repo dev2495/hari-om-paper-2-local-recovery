@@ -15,6 +15,7 @@ export function normalizeSalesOrder(order: any) {
     const releasedQty = Number(line?.released_qty ?? line?.qty_released ?? line?.planned_release_qty ?? 0)
     const fulfilledQty = Number(line?.fulfilled_qty ?? 0)
     const remainingQty = Number(line?.remaining_qty ?? qty - fulfilledQty)
+    const releaseRemainingQty = Number(line?.release_remaining_qty ?? qty - releasedQty)
 
     return {
       ...line,
@@ -23,6 +24,8 @@ export function normalizeSalesOrder(order: any) {
       rate_per_pc: line?.rate_per_pc ?? null,
       qty,
       released_qty: releasedQty,
+      release_remaining_qty: releaseRemainingQty,
+      release_lots: asArray(line?.release_lots),
       fulfilled_qty: fulfilledQty,
       remaining_qty: remainingQty,
       due_date: line?.due_date || null,
@@ -111,6 +114,7 @@ function normalizeReleasedLines(orders: any[]) {
         status: line.status || order.status,
         qty: Number(line.qty ?? line.quantity ?? line.remaining_qty ?? 0),
         released_qty: Number(line.released_qty || line.qty_released || 0),
+        release_remaining_qty: Number(line.release_remaining_qty ?? line.remaining_qty ?? line.remainingQty ?? line.qty ?? 0),
         remaining_qty: Number(line.remaining_qty ?? line.remainingQty ?? line.qty ?? 0),
         parchment_color: line.parchment_color || line.parchment_pattern || line.parchment || null,
       })),
@@ -121,17 +125,17 @@ export function useReleasedSalesLines() {
   return useQuery({
     queryKey: ["sales", "released-lines"],
     queryFn: async () => {
-      const { data } = await salesApi.getOrders()
+      const { data } = await salesApi.getOrders({ limit: 500 })
       return normalizeReleasedLines(normalizeOrdersPayload(data))
     },
   })
 }
 
-export function useSalesOrders() {
+export function useSalesOrders(params?: any) {
   return useQuery({
-    queryKey: ["sales", "orders"],
+    queryKey: ["sales", "orders", params || {}],
     queryFn: async () => {
-      const { data } = await salesApi.getOrders()
+      const { data } = await salesApi.getOrders(params)
       return normalizeOrdersPayload(data)
     },
   })
@@ -178,8 +182,13 @@ export function useCreateSalesOrder() {
 export function useApproveSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (orderId: string) => salesApi.approveOrder(orderId),
-    onSuccess: (_response, orderId) => {
+    mutationFn: (input: string | { orderId: string; plantId?: string }) => {
+      const orderId = typeof input === "string" ? input : input.orderId
+      const plantId = typeof input === "string" ? undefined : input.plantId
+      return salesApi.approveOrder(orderId, plantId)
+    },
+    onSuccess: (_response, input) => {
+      const orderId = typeof input === "string" ? input : input.orderId
       invalidateSalesQueries(queryClient, orderId)
     },
   })
@@ -188,9 +197,25 @@ export function useApproveSalesOrder() {
 export function useReleaseSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (orderId: string) => salesApi.releaseOrder(orderId),
-    onSuccess: (_response, orderId) => {
+    mutationFn: (input: string | { orderId: string; plantId?: string }) => {
+      const orderId = typeof input === "string" ? input : input.orderId
+      const plantId = typeof input === "string" ? undefined : input.plantId
+      return salesApi.releaseOrder(orderId, plantId)
+    },
+    onSuccess: (_response, input) => {
+      const orderId = typeof input === "string" ? input : input.orderId
       invalidateSalesQueries(queryClient, orderId)
+    },
+  })
+}
+
+export function useReleaseSalesOrderLine() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ lineId, data, plantId }: { lineId: string; data: any; plantId?: string }) => salesApi.releaseOrderLine(lineId, data, plantId),
+    onSuccess: (response) => {
+      const orderId = String(response?.data?.order_id || "")
+      invalidateSalesQueries(queryClient, orderId || undefined)
     },
   })
 }

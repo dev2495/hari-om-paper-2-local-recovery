@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from .database import Base, engine
-from .routers import jobs, planning, reconciliation, reel_issue, reports, dispatch
+from .routers import dispatch, jobs, planning, quality, reconciliation, reel_issue, reports
 
 Base.metadata.create_all(bind=engine)
 
@@ -55,6 +55,7 @@ app.include_router(reel_issue.router)
 app.include_router(reports.router)
 app.include_router(reconciliation.router)
 app.include_router(dispatch.router)
+app.include_router(quality.router)
 
 
 @app.get("/")
@@ -78,6 +79,8 @@ def health_check():
             "/job-cards/{id}/stage-output",
             "/reconciliation/winder-shift",
             "/reconciliation/{job_card_id}/loss-breakup",
+            "/quality/inspections",
+            "/quality/holds",
         ],
     }
 

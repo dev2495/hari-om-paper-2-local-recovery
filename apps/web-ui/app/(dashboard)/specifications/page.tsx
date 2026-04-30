@@ -8,6 +8,7 @@ import { useQuery } from "@tanstack/react-query"
 import { resolveSpecTitle } from "@/components/specs/spec-sheet-utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/context/AuthContext"
 import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data"
 import { specApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
@@ -39,9 +40,11 @@ function statusTone(status: string) {
 }
 
 export default function SpecificationsIndexPage() {
+  const { user } = useAuth()
   const [searchValue, setSearchValue] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all")
   const deferredSearchValue = useDeferredValue(searchValue.trim().toLowerCase())
+  const canManageSpecs = Boolean(user?.roles?.some((role) => role === "Owner" || role === "Admin") || user?.role === "Owner" || user?.role === "Admin")
 
   const { data: specs = [], isLoading } = useQuery({
     queryKey: ["specs"],
@@ -119,12 +122,14 @@ export default function SpecificationsIndexPage() {
               Start from the master-driven spec sheet, keep trial versions attached to the same record, and send the approved snapshot straight into planning and job-card execution.
             </p>
             <div className="mt-5 flex flex-wrap gap-3">
-              <Link href="/specifications/new">
-                <Button className="gap-2">
-                  <FilePlus2 className="h-4 w-4" />
-                  New Specification
-                </Button>
-              </Link>
+              {canManageSpecs ? (
+                <Link href="/specifications/new">
+                  <Button className="gap-2">
+                    <FilePlus2 className="h-4 w-4" />
+                    New Specification
+                  </Button>
+                </Link>
+              ) : null}
               <Link href="/masters/papers">
                 <Button variant="outline" className="gap-2">
                   <Factory className="h-4 w-4" />
@@ -282,9 +287,11 @@ export default function SpecificationsIndexPage() {
                         <ArrowRight className="h-4 w-4" />
                       </Button>
                     </Link>
-                    <Link href={`/specifications/${spec.id}/edit`}>
-                      <Button variant="outline">Edit</Button>
-                    </Link>
+                    {canManageSpecs ? (
+                      <Link href={`/specifications/${spec.id}/edit`}>
+                        <Button variant="outline">Edit</Button>
+                      </Link>
+                    ) : null}
                     <Link href={`/specifications/${spec.id}/print`}>
                       <Button variant="outline" className="gap-2">
                         <Printer className="h-4 w-4" />

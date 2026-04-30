@@ -100,9 +100,25 @@ def health_location_occupancy(
             "batch_count": 0,
             "weight_kg": 0.0,
             "qty": 0.0,
+            "items": {},
         }
         for location in location_rows
     }
+
+    def add_item(bucket: dict[str, Any], item_id: Any, code: str | None, name: str | None, qty: float, weight_kg: float) -> None:
+        key = str(item_id or code or name or "UNKNOWN")
+        item_bucket = bucket["items"].setdefault(
+            key,
+            {
+                "item_id": key,
+                "item_code": code or "UNKNOWN",
+                "item_name": name or "Unknown item",
+                "qty": 0.0,
+                "weight_kg": 0.0,
+            },
+        )
+        item_bucket["qty"] += float(qty or 0.0)
+        item_bucket["weight_kg"] += float(weight_kg or 0.0)
 
     reel_query = _apply_scope(db.query(PaperReel), PaperReel, plant_scope)
     for reel in reel_query.all():
@@ -112,7 +128,16 @@ def health_location_occupancy(
         if not bucket:
             continue
         bucket["reel_count"] += 1
-        bucket["weight_kg"] += float(reel.current_weight_kg or 0.0)
+        weight = float(reel.current_weight_kg or 0.0)
+        bucket["weight_kg"] += weight
+        add_item(
+            bucket,
+            reel.paper_id,
+            getattr(reel.paper, "item_code", None),
+            getattr(reel.paper, "name", None),
+            0.0,
+            weight,
+        )
 
     batch_query = _apply_scope(db.query(StockBatch), StockBatch, plant_scope)
     for batch in batch_query.all():
@@ -122,7 +147,16 @@ def health_location_occupancy(
         if not bucket:
             continue
         bucket["batch_count"] += 1
-        bucket["qty"] += max(0.0, float(get_batch_balance(str(batch.id), db)))
+        qty = max(0.0, float(get_batch_balance(str(batch.id), db)))
+        bucket["qty"] += qty
+        add_item(
+            bucket,
+            batch.item_id,
+            getattr(batch.item, "item_code", None),
+            getattr(batch.item, "name", None),
+            qty,
+            0.0,
+        )
 
     rows = list(by_location.values())
     rows.sort(key=lambda row: (row["warehouse"] or "", row["zone"] or "", row["bin"] or "", row["code"]))
@@ -138,6 +172,18 @@ def health_location_occupancy(
                 **row,
                 "weight_kg": round(float(row["weight_kg"]), 2),
                 "qty": round(float(row["qty"]), 2),
+                "items": [
+                    {
+                        **item_row,
+                        "qty": round(float(item_row["qty"]), 2),
+                        "weight_kg": round(float(item_row["weight_kg"]), 2),
+                    }
+                    for item_row in sorted(
+                        row["items"].values(),
+                        key=lambda item: (float(item["weight_kg"] or 0) + float(item["qty"] or 0)),
+                        reverse=True,
+                    )
+                ],
             }
             for row in rows
         ],

@@ -18,6 +18,8 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 
 import { useAuth } from "@/context/AuthContext"
 import { analyticsApi } from "@/lib/api"
+import { jobCardRef } from "@/lib/job-card-display"
+import { displayPlantScope } from "@/lib/plant-scope"
 import { cn } from "@/lib/utils"
 
 type OwnerIntelligenceSuiteProps = {
@@ -118,6 +120,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
   const [startDate, setStartDate] = useState(daysAgo(29))
   const [endDate, setEndDate] = useState(today())
   const plantScope = activePlant || undefined
+  const plantScopeLabel = displayPlantScope(plantScope, "Plant not selected")
   const userRoles = new Set([user?.role, ...(user?.roles || [])].filter(Boolean))
   const canUseGlobal = userRoles.has("Owner") || userRoles.has("Admin")
 
@@ -176,7 +179,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             </label>
             <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Scope</p>
-              <p className="mt-2 text-sm font-black">{plantScope || "Plant not selected"}</p>
+              <p className="mt-2 text-sm font-black">{plantScopeLabel}</p>
               <p className="mt-1 text-xs text-slate-300">{canUseGlobal ? "Owner/Admin can use Global Analytics" : "Plant-isolated view"}</p>
             </div>
           </div>
@@ -280,7 +283,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
                 </div>
                 {holdRows.slice(0, 3).map((row: any) => (
                   <div key={row.id || row.job_card_id} className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-rose-900">
-                    Hold: {row.job_card_no || String(row.job_card_id || "").slice(0, 8)} · {row.reason || row.status || "-"}
+                    Hold: {jobCardRef(row)} · {row.reason || row.status || "-"}
                   </div>
                 ))}
               </div>

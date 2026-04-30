@@ -72,7 +72,7 @@ def create_stock_move(
     payload: StockMoveCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "QC", "DispatchMaker", "DispatchApprover"])),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Dispatch"])),
 ):
     location = None
     if payload.to_location_id:

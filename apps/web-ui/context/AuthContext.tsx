@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from "react"
 import { getStoredPlant, setStoredPlant } from "@/lib/api"
+import { canonicalPlantScopeValue } from "@/lib/plant-scope"
 
 interface User {
   id: string
@@ -20,14 +21,17 @@ interface User {
 interface AuthContextType {
   user: User | null
   activePlant: string | null
+  activeRole: string | null
   isLoading: boolean
   login: (email: string, password: string) => Promise<User>
   logout: () => Promise<void>
   checkAuth: () => Promise<void>
   setActivePlant: (plantId: string) => void
+  setActiveRole: (role: string) => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+const ACTIVE_ROLE_STORAGE_KEY = "hariom_active_role"
 
 function normalizeAllowedPlants(user: Partial<User> | null | undefined) {
   const rawValues = [...(user?.allowed_plant_ids || []), ...(user?.allowed_plants || [])]
@@ -47,12 +51,21 @@ function normalizeUser(rawUser: any): User {
   }
 }
 
+function userCanUseGlobalPlant(user: Partial<User> | null | undefined) {
+  const roles = new Set([user?.role, ...(user?.roles || [])].filter(Boolean).map((role) => String(role).toLowerCase()))
+  return Boolean(user?.is_owner_all_plants || roles.has("owner") || roles.has("admin"))
+}
+
 function resolveActivePlant(user: User, preferredPlant: string | null) {
   if (preferredPlant) {
-    if (preferredPlant.toUpperCase() === "ALL" && user.is_owner_all_plants) {
-      return "ALL"
+    const canonicalPreferredPlant = canonicalPlantScopeValue(preferredPlant)
+    if (canonicalPreferredPlant.toUpperCase() === "ALL") {
+      return userCanUseGlobalPlant(user) ? "ALL" : user.plant_id || null
     }
-    return preferredPlant
+    return canonicalPreferredPlant
+  }
+  if (userCanUseGlobalPlant(user)) {
+    return "ALL"
   }
   const allowedPlantIds = normalizeAllowedPlants(user)
   if (allowedPlantIds.length > 0) {
@@ -67,16 +80,28 @@ function resolveActivePlant(user: User, preferredPlant: string | null) {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [activePlant, setActivePlantState] = useState<string | null>(null)
+  const [activeRole, setActiveRoleState] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const setActivePlant = (plantId: string) => {
-    setActivePlantState(plantId)
-    setStoredPlant(plantId)
+    const canonicalPlant = canonicalPlantScopeValue(plantId)
+    setActivePlantState(canonicalPlant)
+    setStoredPlant(canonicalPlant)
+  }
+
+  const setActiveRole = (role: string) => {
+    setActiveRoleState(role)
+    try {
+      window.localStorage.setItem(ACTIVE_ROLE_STORAGE_KEY, role)
+    } catch {
+      // Ignore storage errors.
+    }
   }
 
   const checkAuth = async () => {
     try {
       const storedPlant = getStoredPlant()
+      const storedRole = typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_ROLE_STORAGE_KEY) : null
       const response = await fetch("/api/auth/me", {
         cache: "no-store",
         credentials: "include",
@@ -85,17 +110,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (response.ok) {
         const data = normalizeUser(await response.json())
         const nextPlant = resolveActivePlant(data, storedPlant)
+        const availableRoles = [data.role, ...(data.roles || [])].filter(Boolean).map((role) => String(role))
+        const nextRole = storedRole && availableRoles.includes(storedRole) ? storedRole : availableRoles[0] || null
         setUser(data)
         setActivePlantState(nextPlant)
+        setActiveRoleState(nextRole)
         setStoredPlant(nextPlant)
       } else {
         setUser(null)
         setActivePlantState(null)
+        setActiveRoleState(null)
         setStoredPlant(null)
       }
     } catch {
       setUser(null)
       setActivePlantState(null)
+      setActiveRoleState(null)
     } finally {
       setIsLoading(false)
     }
@@ -123,8 +153,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const data = await response.json()
     const normalizedUser = normalizeUser(data.user)
     const nextPlant = resolveActivePlant(normalizedUser, null)
+    const availableRoles = [normalizedUser.role, ...(normalizedUser.roles || [])].filter(Boolean).map((role) => String(role))
+    const nextRole = availableRoles[0] || null
     setUser(normalizedUser)
     setActivePlantState(nextPlant)
+    setActiveRoleState(nextRole)
     setStoredPlant(nextPlant)
     return normalizedUser
   }
@@ -136,7 +169,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     })
     setUser(null)
     setActivePlantState(null)
+    setActiveRoleState(null)
     setStoredPlant(null)
+    try {
+      window.localStorage.removeItem(ACTIVE_ROLE_STORAGE_KEY)
+    } catch {
+      // Ignore storage errors.
+    }
   }
 
   useEffect(() => {
@@ -144,7 +183,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   return (
-    <AuthContext.Provider value={{ user, activePlant, isLoading, login, logout, checkAuth, setActivePlant }}>
+    <AuthContext.Provider value={{ user, activePlant, activeRole, isLoading, login, logout, checkAuth, setActivePlant, setActiveRole }}>
       {children}
     </AuthContext.Provider>
   )

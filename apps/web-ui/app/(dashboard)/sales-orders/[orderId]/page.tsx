@@ -11,6 +11,7 @@ import { useCustomers } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
 import { useSalesOrder } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { jobCardRef } from "@/lib/job-card-display"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -24,7 +25,7 @@ export default function SalesOrderDetailPage() {
 
   const orderQuery = useSalesOrder(orderId)
   const customersQuery = useCustomers()
-  const jobCardsQuery = usePlanningJobCards({ search: orderId, limit: 100 }, Boolean(orderId))
+  const jobCardsQuery = usePlanningJobCards({ sales_order_id: orderId, limit: 250 }, Boolean(orderId))
 
   const customerMap = useMemo(
     () =>
@@ -166,7 +167,7 @@ export default function SalesOrderDetailPage() {
             <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
               {orderJobs.length === 0
                 ? "No job cards are synced from this PO yet."
-                : `${orderJobs.length} planner-linked job card(s) already exist for this PO.`}
+                : `${orderJobs.length} planner-linked job card(s) already exist for this PO. One PO can safely split into many job cards.`}
             </div>
           </div>
         </Panel>
@@ -176,24 +177,42 @@ export default function SalesOrderDetailPage() {
         {orderJobs.length === 0 ? (
           <EmptyState label="No job cards have been synced for this sales order yet." />
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
-            {orderJobs.slice(0, 8).map((job: any) => (
-              <Link
-                key={job.id}
-                href={`/production/job-cards/${job.id}`}
-                className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-950">{job.job_card_ref || String(job.id).slice(0, 8)}</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {job.product_code || "No product code"} · {job.current_stage} · {Number(job.planned_qty || 0).toFixed(0)} pcs
-                    </p>
+          <div className="max-h-[34rem] overflow-y-auto pr-1">
+            <div className="grid gap-4 lg:grid-cols-2">
+              {orderJobs.map((job: any) => (
+                <div
+                  key={job.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{jobCardRef(job)}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {job.product_code || "No product code"} · {job.current_stage} · {Number(job.planned_qty || 0).toFixed(0)} pcs
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Line {String(job.sales_order_line_id || "").slice(0, 8)} · Release {String(job.release_lot_id || "").slice(0, 8)}
+                      </p>
+                    </div>
+                    <StatusBadge value={job.status} />
                   </div>
-                  <StatusBadge value={job.status} />
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <Link
+                      href={`/production/job-cards/${job.id}`}
+                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
+                    >
+                      Job card
+                    </Link>
+                    <Link
+                      href={`/inventory/genealogy?job_card_id=${job.id}`}
+                      className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Full trace
+                    </Link>
+                  </div>
                 </div>
-              </Link>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </Panel>

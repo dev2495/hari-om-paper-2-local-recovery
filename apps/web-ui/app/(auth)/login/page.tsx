@@ -4,11 +4,11 @@ import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
 import { useAuth } from "@/context/AuthContext"
+import { landingPathForRole, resolveLandingRole } from "@/lib/workspace"
 
 function landingPathFor(user: { role?: string | null; roles?: string[] }, fallback: string) {
-  const roles = new Set([user.role, ...(user.roles || [])].filter(Boolean))
-  const isPlannerPrimary = roles.has("Planner") && !["Owner", "Admin", "PlantManager"].some((role) => roles.has(role))
-  return isPlannerPrimary ? "/planning" : fallback
+  const landingRole = resolveLandingRole([user.role, ...(user.roles || [])].filter(Boolean) as string[])
+  return landingPathForRole(landingRole) || fallback
 }
 
 function LoginPageContent() {

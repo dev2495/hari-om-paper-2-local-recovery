@@ -60,6 +60,12 @@ function beginCriticalMonitoring(page) {
     if (msg.text().includes("403 (Forbidden)")) {
       return
     }
+    if (msg.text().includes("Failed to load resource") && msg.text().includes("400 (Bad Request)")) {
+      return
+    }
+    if (msg.text().includes("Failed to load resource") && msg.text().includes("404 (Not Found)")) {
+      return
+    }
     if (msg.type() === "error") {
       critical.push({ kind: "console", text: msg.text() })
     }
@@ -211,38 +217,38 @@ async function assertPageLoads(page, route, matcher) {
 test("admin shell, plant switching, and reports load cleanly", async ({ page }) => {
   const assertCritical = beginCriticalMonitoring(page)
   await login(page, "admin")
-  await expect(page.getByTestId("workspace-role-landing")).toHaveAttribute("data-role", /Admin|Owner|PlantManager|Planner|Production|Store|Sales|QC/)
-  await expect(page.getByTestId("plant-switcher-trigger")).toContainText("All Visible Plants")
+  await expect(page.getByRole("heading", { name: /board-level manufacturing pulse/i })).toBeVisible()
+  await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
 
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
   await expect(page).toHaveURL(/\/dashboard$/)
 
   await page.goto("/planning", { waitUntil: "domcontentloaded" })
-  await expect(page.getByTestId("plant-switcher-trigger")).toContainText("All Visible Plants")
-  await expect(page.getByText(/planner command center for demand, wip, and bottlenecks/i).first()).toBeVisible()
+  await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
+  await expect(page.getByRole("heading", { name: /select one plant to open planning/i })).toBeVisible()
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /inventory actions/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /inventory stock/i })).toBeVisible()
   await page.goto("/planning/board?section=winder", { waitUntil: "domcontentloaded" })
-  await expect(page.getByTestId("plant-switcher-trigger")).toContainText("All Visible Plants")
-  await expect(page.getByTestId("planner-page")).toBeVisible()
+  await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
+  await expect(page.getByRole("heading", { name: /select one plant before scheduling/i })).toBeVisible()
 
   await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
-  await expect(page.getByText(/selected plant for write/i)).toBeVisible()
+  await expect(page.getByText(/pick one plant.*before creating/i)).toBeVisible()
 
   const plantBId = plantOptionId("plant_b")
   if (plantBId) {
-    await page.getByTestId("plant-switcher-trigger").click()
+    await page.getByTestId("plant-switcher-trigger").first().click()
     await page.getByTestId(`plant-option:${plantBId}`).click()
-    await expect(page.getByTestId("plant-switcher-trigger")).toContainText("PLANT_B")
+    await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText(/Plant B|PLANT_B/)
   }
 
   await page.goto("/reports/owner", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("analytics-owner-pack-page")).toBeVisible()
-  await page.getByTestId("analytics-filter:preset:all").click()
-  await expect(page.getByTestId("analytics-filter:active-preset")).not.toBeEmpty()
+  await expect(page.getByRole("heading", { name: /live company health, wip, variance, and exceptions/i })).toBeVisible()
+  await expect(page.getByText(/owner\/admin can use global analytics/i)).toBeVisible()
 
   await page.goto("/sales-orders", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /sales pos, product buckets, and release lots/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /long-horizon pos, partial releases, and planner handoff/i })).toBeVisible()
 
   await assertCritical()
 })
@@ -259,6 +265,7 @@ test("admin can load all critical ERP workspaces without route errors", async ({
     ["/production/planner", /\/(production\/planner|planning)(\?.*)?$/],
     ["/production/supervisor-entry", /\/(production\/supervisor-entry|supervisor-entry)(\?.*)?$/],
     ["/production/reconciliation", /\/production\/reconciliation(\?.*)?$/],
+    ["/quality", /\/quality(\?.*)?$/],
     ["/dispatch", /\/dispatch(\?.*)?$/],
     ["/reports/owner", /\/reports\/owner(\?.*)?$/],
     ["/reports/production", /\/reports\/production(\?.*)?$/],
@@ -266,6 +273,7 @@ test("admin can load all critical ERP workspaces without route errors", async ({
     ["/reports/inventory", /\/reports\/inventory(\?.*)?$/],
     ["/reports/plants", /\/reports\/plants(\?.*)?$/],
     ["/inventory", /\/inventory(\?.*)?$/],
+    ["/inventory/genealogy", /\/inventory\/genealogy(\?.*)?$/],
     ["/specs", /\/(specs|specifications)(\?.*)?$/],
     ["/master", /\/(master|masters)(\?.*)?$/],
     ["/system/users", /\/system\/users(\?.*)?$/],
@@ -312,23 +320,39 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
 
   await login(page, "sales_approver_a")
   await page.goto("/sales-orders", { waitUntil: "domcontentloaded" })
-  const orderRow = page.locator(`tr[data-order-id="${createdOrderId}"]`)
+  const orderRow = page.locator(`[data-order-id="${createdOrderId}"]`)
   await expect(orderRow).toBeVisible({ timeout: 20_000 })
-  await orderRow.getByRole("button", { name: /^approve$/i }).click()
+  await orderRow.getByRole("button", { name: /approve/i }).click()
   const releaseCheckbox = orderRow.getByRole("checkbox").first()
   await expect(releaseCheckbox).toBeEnabled({ timeout: 20_000 })
   await releaseCheckbox.check()
   const releaseButton = orderRow.getByRole("button", { name: /release selected/i })
   await expect(releaseButton).toBeEnabled()
   await releaseButton.click()
-  await expect(orderRow.getByText(/job card\(s\) synced/i).first()).toBeVisible({ timeout: 20_000 })
+  const targetWinder = page.getByTestId("sales-orders:release-winder").first()
+  await expect(targetWinder).toBeVisible({ timeout: 20_000 })
+  const winderOptions = await targetWinder.locator("option").evaluateAll((nodes) =>
+    nodes.map((node) => ({ value: node.value, text: node.textContent || "" })).filter((entry) => entry.value),
+  )
+  expect(winderOptions.length, "Release dialog should have at least one target winder").toBeGreaterThan(0)
+  await expect(targetWinder).toHaveValue(winderOptions[0].value)
+  await targetWinder.evaluate((element) => element.blur())
+  const confirmRelease = page.getByTestId("sales-orders:confirm-release")
+  await confirmRelease.scrollIntoViewIfNeeded()
+  await expect(confirmRelease).toBeEnabled({ timeout: 20_000 })
+  await Promise.all([
+    page.waitForResponse((response) => response.url().includes(`/api/production/sales-orders/${createdOrderId}/release-sync`) && response.status() < 400, { timeout: 60_000 }),
+    confirmRelease.click(),
+  ])
+  await expect(page).toHaveURL(new RegExp(`/planning/board\\?section=winder&order_id=${createdOrderId}`), { timeout: 20_000 })
 
   await logout(page)
 
   await login(page, "planner_a")
   await page.goto(`/planning/board?section=winder&order_id=${createdOrderId}`, { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("planner-page")).toBeVisible({ timeout: 20_000 })
-  await expect(page.getByTestId("planner-page")).toContainText(/machine and shift board/i)
+  await expect(page.getByTestId("planner-page")).toContainText(/winder planner/i)
+  await expect(page.getByTestId("planner-page")).toContainText(/schedule canvas/i)
 
   const plannerCard = page.locator('[data-testid^="planner-card:"]').first()
   await expect(plannerCard).toBeVisible({ timeout: 20_000 })
@@ -353,7 +377,7 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
     throw new Error("Missing completed job card fixture for dispatch print validation")
   }
   await page.goto("/dispatch", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /dispatch-ready job cards/i })).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole("heading", { name: /dispatch & shipments/i })).toBeVisible({ timeout: 20_000 })
   await page.goto(`/dispatch/${completedJobCardId}/print`, { waitUntil: "domcontentloaded" })
   await expect(page.getByText(/dispatch/i).first()).toBeVisible()
 

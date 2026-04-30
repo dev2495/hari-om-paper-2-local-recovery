@@ -397,7 +397,17 @@ export function useEnsureSpecSheetCatalog() {
       existingFields?: Array<{ key: string }>
       plantId?: string
     } = {}) => {
-      const existingKeys = new Set((existingFields || []).map((field) => field.key))
+      let currentFields = existingFields || []
+      try {
+        const { data } = await specApi.getSpecFields()
+        if (Array.isArray(data)) {
+          currentFields = [...currentFields, ...data]
+        }
+      } catch {
+        // If the refresh fails, fall back to the fields already loaded by the page.
+      }
+
+      const existingKeys = new Set(currentFields.map((field) => field.key))
       const created: string[] = []
 
       for (const definition of DEFAULT_SPEC_FIELD_DEFINITIONS) {
@@ -494,7 +504,7 @@ export function useUpdateSpecSheet() {
 
       if ((recipeLayers || []).length > 0) {
         // There is no recipe update API in the backend. A fresh recipe version is the safe additive path.
-        const recipeResponse = await specApi.createRecipe(specId, recipeData || {}, plantId)
+        const recipeResponse = await specApi.createRecipe(spec.id, recipeData || {}, plantId)
         recipe = recipeResponse.data as RecipeSummary
         for (const layer of recipeLayers || []) {
           await specApi.addRecipeLayer(recipe.id, layer, plantId)
@@ -730,6 +740,7 @@ export function useSpecSheetPreview(
       Number(tubeOdMm || 0) > 0 &&
       Number(tubeIdMm || 0) > 0 &&
       Number(targetDryWeightG || 0) > 0,
+    placeholderData: (previousData) => previousData,
   })
 }
 
@@ -818,7 +829,9 @@ export function useSpecSheetSuggestions(
       Number(targetWetWeightG || 0) > 0 &&
       Number(tubeLengthMm || 0) > 0 &&
       Number(tubeOdMm || 0) > 0 &&
+      Number(tubeIdMm || 0) > 0 &&
       Array.isArray(paperCandidates) &&
-      (paperCandidates || []).length > 0,
+      (paperCandidates || []).length >= 3,
+    placeholderData: (previousData) => previousData,
   })
 }

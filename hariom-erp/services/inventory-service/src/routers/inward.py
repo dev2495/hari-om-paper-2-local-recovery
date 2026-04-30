@@ -16,6 +16,7 @@ class InwardCreate(BaseModel):
     item_id: uuid.UUID
     batch_no: str
     qty: float
+    supplier_name: Optional[str] = None
     location: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "UNRESTRICTED"
@@ -92,7 +93,7 @@ def create_inward(
         plant_id=plant_id,
         location_id=batch.location_id,
         stock_status=batch.stock_status,
-        movement_metadata={"batch_no": inward.batch_no},
+        movement_metadata={"batch_no": inward.batch_no, "supplier_name": inward.supplier_name},
         external_ref=inward.external_ref,
     )
     db.add(transaction)

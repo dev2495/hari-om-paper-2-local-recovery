@@ -1,4 +1,4 @@
-import { computePreview } from "./spec-math"
+import { computePreview, requiredPaperG } from "./spec-math"
 
 export type ScalarDynamicField = {
   field_key: string
@@ -657,53 +657,158 @@ export function suggestRecipeRowsFromPapers(
     }
   }
 
-  function walkPlyDistributions(
-    combo: typeof candidates,
-    totalPlyCount: number,
-    cursor: number,
-    remainingPlies: number,
-    counts: number[],
-  ) {
-    const remainingSlots = combo.length - cursor
-    if (remainingSlots <= 0) return
+  if (candidates.length <= 9) {
+    function walkPlyDistributions(
+      combo: typeof candidates,
+      totalPlyCount: number,
+      cursor: number,
+      remainingPlies: number,
+      counts: number[],
+    ) {
+      const remainingSlots = combo.length - cursor
+      if (remainingSlots <= 0) return
 
-    if (remainingSlots === 1) {
-      counts[cursor] = remainingPlies
-      const rows = combo.map((item, index) =>
-        rowFromPaper(item.paper, counts[index], `${item.paper.id}-${totalPlyCount}-${counts.join("-")}-${index}`),
-      )
-      registerSuggestion(
-        `combo-${combo.map((item) => item.paper.id).join("-")}-${counts.join("-")}`,
-        formatRecipeRowsTitle(rows),
-        rows,
-      )
-      return
-    }
-
-    const minForCurrent = 1
-    const maxForCurrent = remainingPlies - (remainingSlots - 1)
-    for (let current = minForCurrent; current <= maxForCurrent; current += 1) {
-      counts[cursor] = current
-      walkPlyDistributions(combo, totalPlyCount, cursor + 1, remainingPlies - current, counts)
-    }
-  }
-
-  function walkCombos(start: number, size: number, picked: typeof candidates) {
-    if (picked.length === size) {
-      for (let totalPlyCount = Math.max(4, size); totalPlyCount <= 18; totalPlyCount += 1) {
-        walkPlyDistributions(picked, totalPlyCount, 0, totalPlyCount, Array.from({ length: picked.length }, () => 1))
+      if (remainingSlots === 1) {
+        counts[cursor] = remainingPlies
+        const rows = combo.map((item, index) =>
+          rowFromPaper(item.paper, counts[index], `${item.paper.id}-${totalPlyCount}-${counts.join("-")}-${index}`),
+        )
+        registerSuggestion(
+          `combo-${combo.map((item) => item.paper.id).join("-")}-${counts.join("-")}`,
+          formatRecipeRowsTitle(rows),
+          rows,
+        )
+        return
       }
-      return
+
+      const minForCurrent = 1
+      const maxForCurrent = remainingPlies - (remainingSlots - 1)
+      for (let current = minForCurrent; current <= maxForCurrent; current += 1) {
+        counts[cursor] = current
+        walkPlyDistributions(combo, totalPlyCount, cursor + 1, remainingPlies - current, counts)
+      }
     }
 
-    for (let index = start; index <= candidates.length - (size - picked.length); index += 1) {
-      walkCombos(index + 1, size, [...picked, candidates[index]])
-    }
-  }
+    function walkCombos(start: number, size: number, picked: typeof candidates) {
+      if (picked.length === size) {
+        for (let totalPlyCount = Math.max(4, size); totalPlyCount <= 18; totalPlyCount += 1) {
+          walkPlyDistributions(picked, totalPlyCount, 0, totalPlyCount, Array.from({ length: picked.length }, () => 1))
+        }
+        return
+      }
 
-  const maxDistinctPapers = Math.min(5, candidates.length)
-  for (let size = 3; size <= maxDistinctPapers; size += 1) {
-    walkCombos(0, size, [])
+      for (let index = start; index <= candidates.length - (size - picked.length); index += 1) {
+        walkCombos(index + 1, size, [...picked, candidates[index]])
+      }
+    }
+
+    const maxDistinctPapers = Math.min(5, candidates.length)
+    for (let size = 3; size <= maxDistinctPapers; size += 1) {
+      walkCombos(0, size, [])
+    }
+  } else {
+    type SearchRow = {
+      paper: any
+      count: number
+      roughPerPly: number
+    }
+    type SearchState = {
+      rows: SearchRow[]
+      totalPlyCount: number
+      roughPaperWeightG: number
+    }
+
+    const targetDryWeightG = targetWetWeightG * wetDivisor
+    const targetPaperWeightG = requiredPaperG(targetDryWeightG, {
+      adhesive_percent: 15,
+      parchment_percent: Number(options?.parchmentPercent ?? 1.5),
+      moisture_loss_percent: Number(options?.dryingPercent ?? 9.0),
+      parchment_allowed: true,
+    })
+    const beamLimit = 96
+    const maxPlies = 18
+    const maxDistinctPapers = 5
+    const createBuckets = () =>
+      Array.from({ length: maxDistinctPapers + 1 }, () =>
+        Array.from({ length: maxPlies + 1 }, () => [] as SearchState[]),
+      )
+
+    let buckets = createBuckets()
+    buckets[0][0] = [{ rows: [], totalPlyCount: 0, roughPaperWeightG: 0 }]
+
+    const score = (state: SearchState) => [
+      Math.abs(state.roughPaperWeightG - targetPaperWeightG),
+      state.totalPlyCount,
+      state.rows.length,
+    ]
+    const trimBucket = (states: SearchState[]) => {
+      if (states.length <= beamLimit) return states
+      return states
+        .sort((left, right) => {
+          const leftScore = score(left)
+          const rightScore = score(right)
+          for (let index = 0; index < leftScore.length; index += 1) {
+            if (leftScore[index] !== rightScore[index]) return leftScore[index] - rightScore[index]
+          }
+          return 0
+        })
+        .slice(0, beamLimit)
+    }
+
+    for (const candidate of candidates) {
+      const next = buckets.map((byPly) => byPly.map((states) => states.slice()))
+      for (let selectedCount = 0; selectedCount < maxDistinctPapers; selectedCount += 1) {
+        for (let plyCount = 0; plyCount < maxPlies; plyCount += 1) {
+          const states = buckets[selectedCount][plyCount]
+          if (!states.length) continue
+          const maxCountForPaper = maxPlies - plyCount
+          for (const state of states) {
+            for (let count = 1; count <= maxCountForPaper; count += 1) {
+              next[selectedCount + 1][plyCount + count].push({
+                rows: [...state.rows, { paper: candidate.paper, count, roughPerPly: candidate.roughPerPly }],
+                totalPlyCount: plyCount + count,
+                roughPaperWeightG: state.roughPaperWeightG + candidate.roughPerPly * count,
+              })
+            }
+          }
+        }
+      }
+
+      for (let selectedCount = 0; selectedCount <= maxDistinctPapers; selectedCount += 1) {
+        for (let plyCount = 0; plyCount <= maxPlies; plyCount += 1) {
+          next[selectedCount][plyCount] = trimBucket(next[selectedCount][plyCount])
+        }
+      }
+      buckets = next
+    }
+
+    const finalStates: SearchState[] = []
+    for (let selectedCount = 3; selectedCount <= maxDistinctPapers; selectedCount += 1) {
+      for (let plyCount = Math.max(4, selectedCount); plyCount <= maxPlies; plyCount += 1) {
+        finalStates.push(...buckets[selectedCount][plyCount])
+      }
+    }
+
+    finalStates
+      .sort((left, right) => {
+        const leftScore = score(left)
+        const rightScore = score(right)
+        for (let index = 0; index < leftScore.length; index += 1) {
+          if (leftScore[index] !== rightScore[index]) return leftScore[index] - rightScore[index]
+        }
+        return 0
+      })
+      .slice(0, 900)
+      .forEach((state, stateIndex) => {
+        const rows = state.rows.map((row, rowIndex) =>
+          rowFromPaper(row.paper, row.count, `${row.paper.id}-${state.totalPlyCount}-${stateIndex}-${rowIndex}`),
+        )
+        registerSuggestion(
+          `beam-${state.rows.map((row) => row.paper.id).join("-")}-${state.rows.map((row) => row.count).join("-")}`,
+          formatRecipeRowsTitle(rows),
+          rows,
+        )
+      })
   }
 
   const ranked = Array.from(suggestions.values())

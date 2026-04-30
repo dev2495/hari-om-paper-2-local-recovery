@@ -312,6 +312,47 @@ export function useDeleteCustomerContact() {
     })
 }
 
+// Suppliers
+export function useSuppliers() {
+    return useQuery({
+        queryKey: ["suppliers"],
+        queryFn: async () => {
+            const { data } = await masterApi.getSuppliers()
+            return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+        },
+    })
+}
+
+export function useCreateSupplier() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createSupplier(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+        },
+    })
+}
+
+export function useUpdateSupplier() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateSupplier(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+        },
+    })
+}
+
+export function useDeleteSupplier() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteSupplier(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+        },
+    })
+}
+
 // Packaging boxes
 export function usePackagingBoxes() {
     return useQuery({

@@ -295,6 +295,26 @@ async def delete_customer(customer_id: str, request: Request, token: str = Depen
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}", request, token)
 
 
+@router.get("/suppliers")
+async def get_suppliers(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/suppliers/", request, token)
+
+
+@router.post("/suppliers")
+async def create_supplier(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/suppliers/", request, token)
+
+
+@router.put("/suppliers/{supplier_id}")
+async def update_supplier(supplier_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{supplier_id}", request, token)
+
+
+@router.delete("/suppliers/{supplier_id}")
+async def delete_supplier(supplier_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{supplier_id}", request, token)
+
+
 @router.get("/customers/{customer_id}/contacts")
 async def get_customer_contacts(customer_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}/contacts", request, token)

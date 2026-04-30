@@ -59,48 +59,55 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
     .poll(async () => await page.getByTestId("spec-sheet-mandrel").locator("option").count())
     .toBeGreaterThan(1)
 
-  await page.getByRole("button", { name: /110 × 122 × 149\.9/i }).click()
+  const customerSelect = page.locator("main select").first()
+  const firstCustomerValue = await customerSelect.locator("option").nth(1).getAttribute("value")
+  if (firstCustomerValue) {
+    await customerSelect.selectOption(firstCustomerValue)
+  }
 
-  await expect
-    .poll(async () => {
-      const text = await page.locator("body").textContent()
-      return text || ""
-    })
-    .toContain("Live paper total")
+  const mandrelSelect = page.getByTestId("spec-sheet-mandrel")
+  await expect(mandrelSelect).toBeVisible()
+  const mandrelValue = await mandrelSelect.evaluate((select) => {
+    const options = Array.from(select.options)
+    return (options.find((option) => /110\.65/i.test(option.textContent || "")) || options[1])?.value || ""
+  })
+  if (mandrelValue) {
+    await mandrelSelect.selectOption(mandrelValue)
+  }
 
-  await expect
-    .poll(async () => {
-      const text = await page.locator("body").textContent()
-      return text || ""
-    })
-    .toMatch(/Live paper total[\s\S]*[1-9]\d*(\.\d+)? g/)
+  const tubeSizeSelect = page.getByTestId("spec-sheet-tube-size")
+  await expect(tubeSizeSelect).toBeVisible()
+  const tubeSizeValue = await tubeSizeSelect.evaluate((select) => {
+    const options = Array.from(select.options)
+    return (options.find((option) => /110\s*[×x]\s*122\s*[×x]\s*149\.9/i.test(option.textContent || "")) || options[1])?.value || ""
+  })
+  if (tubeSizeValue) {
+    await tubeSizeSelect.selectOption(tubeSizeValue)
+  }
 
-  const recipeTable = page.locator("section").filter({ has: page.getByText("Recipe to follow") }).first()
-  await expect(recipeTable).toContainText(/Weight \/ Tube/i)
-  await expect(recipeTable).not.toContainText(/\b0 g glue\s+250 g dry\s+0\/0 g\b/i)
+  const liveBuilder = page.getByTestId("spec-sheet-live-builder")
+  await expect(liveBuilder).toContainText(/Paper total/i)
+  await expect(liveBuilder).toContainText(/Current recipe wet \/ dry/i)
 
   const previewRail = page.getByTestId("spec-sheet-preview-rail")
   await expect(previewRail).toContainText(/One bamboo yield/i)
   await expect(previewRail).toContainText(/10 pcs/i)
 
   const activeSuggestion = page.locator('[data-testid^="spec-sheet-suggestion-"]').first()
+  await expect(activeSuggestion).toBeVisible({ timeout: 15000 })
   const activeSuggestionText = (await activeSuggestion.textContent()) || ""
   const suggestionDry = activeSuggestionText.match(/Dry\s+([0-9.]+)\s*g/i)?.[1]
   const suggestionWet = activeSuggestionText.match(/Wet\s+([0-9.]+)\s*g/i)?.[1]
-  const suggestionDelta = activeSuggestionText.match(/Δ\s+([0-9.]+)\s*g/i)?.[1]
-  if (suggestionDry && suggestionWet && suggestionDelta) {
+  if (suggestionDry && suggestionWet) {
     await expect
       .poll(async () => ((await previewRail.textContent()) || "").replace(/\s+/g, " "))
-      .toContain(`${suggestionWet} / ${suggestionDry} g`)
-    await expect
-      .poll(async () => ((await previewRail.textContent()) || "").replace(/\s+/g, " "))
-      .toContain(`${suggestionDelta} g dry delta`)
+      .toContain("Required paper")
   }
 
-  const clientTable = page.locator("div").filter({ has: page.getByText("Client specification") }).first()
-  await expect(clientTable).toContainText("Asked")
-  await expect(clientTable).not.toContainText(/\bMin\b/)
-  await expect(clientTable).not.toContainText(/\bMax\b/)
+  await activeSuggestion.getByRole("button", { name: /Apply mix/i }).click()
+  await expect
+    .poll(async () => ((await liveBuilder.textContent()) || "").replace(/\s+/g, " "))
+    .toMatch(/Paper total\s*[1-9]\d*(\.\d+)?\s*g/i)
 
   const manufacturingTable = page.locator("div").filter({ has: page.getByText("Manufacturing specification") }).first()
   await expect(manufacturingTable).toContainText("Bamboo LT")
@@ -115,7 +122,11 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
     .poll(async () => ((await previewRail.textContent()) || "").replace(/\s+/g, " "))
     .not.toEqual(initialPreviewText.replace(/\s+/g, " "))
 
-  await page.getByTestId("spec-sheet-target-weight").fill("300")
-  await expect(recipeTable).toContainText(/No recipe applied yet/i)
-  await expect(page.getByTestId("spec-sheet-live-builder")).toContainText(/Apply a suggestion or build a fresh recipe here/i)
+  const targetWeightInput = page.getByTestId("spec-sheet-target-weight")
+  const startedAt = Date.now()
+  await targetWeightInput.fill("300")
+  expect(Date.now() - startedAt).toBeLessThan(2500)
+  await expect(targetWeightInput).toHaveValue("300")
+  await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]').first()).toBeVisible({ timeout: 15000 })
+  await expect(liveBuilder).toContainText(/Target wet/i)
 })

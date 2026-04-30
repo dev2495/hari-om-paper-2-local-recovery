@@ -1,7 +1,7 @@
 "use client"
 
 import { type FormEvent, useEffect, useMemo, useState } from "react"
-import { Pencil, Plus, Trash2, Users } from "lucide-react"
+import { Pencil, Plus, PowerOff, Users } from "lucide-react"
 
 import { CustomerForm } from "@/components/forms/master-forms"
 import { Button } from "@/components/ui/button"
@@ -58,7 +58,7 @@ export default function CustomersPage() {
   const [editingContact, setEditingContact] = useState<any>(null)
   const [contactForm, setContactForm] = useState(blankContact)
 
-  const customers = customersQuery.data || []
+  const customers = useMemo(() => (Array.isArray(customersQuery.data) ? customersQuery.data : []), [customersQuery.data])
   const filteredCustomers = useMemo(
     () =>
       customers.filter((row: any) =>
@@ -120,7 +120,7 @@ export default function CustomersPage() {
     try {
       await deleteCustomer.mutateAsync(id)
       if (selectedCustomerId === id) setSelectedCustomerId(null)
-      showToast("Customer removed", "success")
+      showToast("Customer disabled. Existing records keep their customer snapshot.", "success")
     } catch (error: any) {
       showToast(getErrorMessage(error), "error")
     }
@@ -170,7 +170,7 @@ export default function CustomersPage() {
     if (!selectedCustomerId) return
     try {
       await deleteCustomerContact.mutateAsync({ customerId: selectedCustomerId, contactId })
-      showToast("Directory contact removed", "success")
+      showToast("Directory contact disabled.", "success")
       if (editingContact?.id === contactId) {
         setEditingContact(null)
         setContactForm(blankContact)
@@ -255,8 +255,8 @@ export default function CustomersPage() {
                         <Button variant="ghost" size="icon" onClick={() => setEditingCustomer(row)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeCustomer(row.id)}>
-                          <Trash2 className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="text-amber-700" title="Disable customer" onClick={() => removeCustomer(row.id)}>
+                          <PowerOff className="h-4 w-4" />
                         </Button>
                       </div>
                     </td>
@@ -318,8 +318,8 @@ export default function CustomersPage() {
                         <Button variant="ghost" size="icon" onClick={() => startEditContact(contact)}>
                           <Pencil className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => removeContact(contact.id)}>
-                          <Trash2 className="h-4 w-4" />
+                        <Button variant="ghost" size="icon" className="text-amber-700" title="Disable contact" onClick={() => removeContact(contact.id)}>
+                          <PowerOff className="h-4 w-4" />
                         </Button>
                       </div>
                     </div>

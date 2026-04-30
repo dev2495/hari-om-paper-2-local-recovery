@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useApp } from "@/context/AppContext"
 import { useReelIssues } from "@/hooks/use-inventory"
 import { useMandrels } from "@/hooks/use-master-data"
+import { displayPlantScope } from "@/lib/plant-scope"
 import {
   useCompleteStageEntry,
   useMachines,
@@ -2453,7 +2454,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               <LabeledValue label="Date" value={documentSnapshot?.header?.date || ""} />
               <LabeledValue label="Shift" value={documentSnapshot?.header?.shift || ""} />
-              <LabeledValue label="Plant" value={documentSnapshot?.header?.plant_id || ""} />
+              <LabeledValue label="Plant" value={displayPlantScope(documentSnapshot?.header?.plant_id, "")} />
             </div>
           </div>
           <div className="justify-self-end border border-slate-300 p-3 text-center">
