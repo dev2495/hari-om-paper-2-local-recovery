@@ -146,6 +146,8 @@ def seed_bootstrap_admin():
     try:
         admin_email = os.getenv("BOOTSTRAP_ADMIN_EMAIL", "devarsh@hariom.com")
         admin_password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123")
+        if env_flag("USE_SIMPLE_STAGING_PASSWORDS", default=False):
+            admin_password = "devarsh123"
         admin_name = os.getenv("BOOTSTRAP_ADMIN_NAME", "Devarsh Admin")
         admin_plant_code = os.getenv("BOOTSTRAP_ADMIN_PLANT_ID", "PLANT_A")
         admin_plant = db.query(models.Plant).filter(models.Plant.code == admin_plant_code).first()
@@ -198,6 +200,8 @@ seed_bootstrap_admin()
 def seed_staging_owner_user():
     owner_email = os.getenv("BOOTSTRAP_OWNER_EMAIL", "yash@hariom.com")
     owner_password = os.getenv("BOOTSTRAP_OWNER_PASSWORD", "owner123")
+    if env_flag("USE_SIMPLE_STAGING_PASSWORDS", default=False):
+        owner_password = "yash123"
     owner_name = os.getenv("BOOTSTRAP_OWNER_NAME", "Yash Owner")
     owner_plant_code = os.getenv("BOOTSTRAP_OWNER_PLANT_ID", "PLANT_A")
 

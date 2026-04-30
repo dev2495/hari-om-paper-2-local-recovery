@@ -56,6 +56,8 @@ ENV NODE_ENV=production \
     BOOTSTRAP_ADMIN_NAME="Devarsh Admin" \
     BOOTSTRAP_OWNER_EMAIL=yash@hariom.com \
     BOOTSTRAP_OWNER_NAME="Yash Owner" \
+    RESET_BOOTSTRAP_PASSWORDS=true \
+    USE_SIMPLE_STAGING_PASSWORDS=true \
     SEED_DEMO_USERS=false
 
 EXPOSE 13000
