@@ -30,6 +30,11 @@ Top up `$10` first for short testing and add `$5` if the client test needs a ful
 6. Add the environment variables from `.env.tinypod.example`.
 7. Deploy and use the generated `*.tinypod.app` URL.
 
+If TinyPod only shows the paste-based Compose flow, paste
+`deploy/tinypod/docker-compose.remote.yml`. It uses the public GitHub
+`staging` branch as the remote Docker build context while keeping Postgres in
+the same project.
+
 ## Local Dry Run
 
 ```bash
@@ -55,4 +60,3 @@ bash scripts/tinypod_smoke.sh
 - Keep secrets only in TinyPod env vars.
 - Before destructive testing, use TinyPod backup/export controls or run `pg_dump` from the Postgres container.
 - Final on-prem deployment can reuse this compose wrapper, with the same env variables and a company-server Postgres volume.
-

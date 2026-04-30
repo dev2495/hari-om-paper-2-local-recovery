@@ -1,0 +1,4 @@
+FROM postgres:16-alpine
+
+COPY deploy/tinypod/initdb/ /docker-entrypoint-initdb.d/
+
