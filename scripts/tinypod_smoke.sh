@@ -68,7 +68,7 @@ checks = [
     ("GET", "/api/spec/specifications"),
     ("GET", "/api/sales/orders"),
     ("GET", "/api/production/job-cards"),
-    ("GET", "/api/inventory/all-balances"),
+    ("GET", "/api/inventory/balance"),
     ("GET", "/api/analytics/dashboard/overview"),
 ]
 
