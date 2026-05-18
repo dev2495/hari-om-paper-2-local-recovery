@@ -94,14 +94,14 @@ function LoginPageContent() {
 
             <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Email</span>
+                <span className="mb-2 block text-sm font-medium text-slate-700">Username</span>
                 <input
                   data-testid="login-email"
-                  autoComplete="email"
+                  autoComplete="username"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:bg-white"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  type="email"
+                  type="text"
                   required
                 />
               </label>
