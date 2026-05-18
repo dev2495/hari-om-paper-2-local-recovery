@@ -145,6 +145,28 @@ export function useCreateParchmentVendor() {
     })
 }
 
+export function useUpdateParchmentVendor() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateParchmentVendor(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["parchment-vendors"] })
+            queryClient.invalidateQueries({ queryKey: ["parchments"] })
+        },
+    })
+}
+
+export function useDeleteParchmentVendor() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteParchmentVendor(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["parchment-vendors"] })
+            queryClient.invalidateQueries({ queryKey: ["parchments"] })
+        },
+    })
+}
+
 // Tube Sizes
 export function useTubeSizes() {
     return useQuery({
@@ -323,11 +345,32 @@ export function useSuppliers() {
     })
 }
 
+export function useVendors() {
+    return useQuery({
+        queryKey: ["vendors"],
+        queryFn: async () => {
+            const { data } = await masterApi.getVendors()
+            return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+        },
+    })
+}
+
 export function useCreateSupplier() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (data: any) => masterApi.createSupplier(data),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+        },
+    })
+}
+
+export function useCreateVendor() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createVendor(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["vendors"] })
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
         },
     })
@@ -343,11 +386,33 @@ export function useUpdateSupplier() {
     })
 }
 
+export function useUpdateVendor() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateVendor(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["vendors"] })
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+        },
+    })
+}
+
 export function useDeleteSupplier() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (id: string) => masterApi.deleteSupplier(id),
         onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+        },
+    })
+}
+
+export function useDeleteVendor() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteVendor(id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["vendors"] })
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
         },
     })

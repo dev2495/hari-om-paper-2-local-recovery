@@ -197,6 +197,8 @@ export const masterApi = {
   deleteParchment: (id: string) => api.delete(`/api/master/parchments/${id}`),
   getParchmentVendors: () => api.get("/api/master/parchment/vendors"),
   createParchmentVendor: (data: any) => api.post("/api/master/parchment/vendors", data),
+  updateParchmentVendor: (id: string, data: any) => api.put(`/api/master/parchment/vendors/${id}`, data),
+  deleteParchmentVendor: (id: string) => api.delete(`/api/master/parchment/vendors/${id}`),
 
   getTubeSizes: () => api.get("/api/master/tube-sizes"),
   createTubeSize: (data: any) => api.post("/api/master/tube-sizes", data),
@@ -228,6 +230,10 @@ export const masterApi = {
   createSupplier: (data: any) => api.post("/api/master/suppliers", data),
   updateSupplier: (id: string, data: any) => api.put(`/api/master/suppliers/${id}`, data),
   deleteSupplier: (id: string) => api.delete(`/api/master/suppliers/${id}`),
+  getVendors: () => api.get("/api/master/vendors"),
+  createVendor: (data: any) => api.post("/api/master/vendors", data),
+  updateVendor: (id: string, data: any) => api.put(`/api/master/vendors/${id}`, data),
+  deleteVendor: (id: string) => api.delete(`/api/master/vendors/${id}`),
 
   getPackagingBoxes: () => api.get("/api/master/packaging/boxes"),
   createPackagingBox: (data: any) => api.post("/api/master/packaging/boxes", data),

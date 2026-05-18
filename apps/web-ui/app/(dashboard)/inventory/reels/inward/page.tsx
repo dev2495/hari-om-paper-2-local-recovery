@@ -6,7 +6,7 @@ import { FormEvent, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
 import { useCreateReelInward, useCreateReelScan, useInventoryItems, useInventoryLocations, useReels } from "@/hooks/use-inventory"
-import { useSuppliers } from "@/hooks/use-master-data"
+import { useVendors } from "@/hooks/use-master-data"
 
 function getErrorMessage(error: any): string {
   return (
@@ -32,7 +32,7 @@ export default function ReelInwardPage() {
   const [logScanEvent, setLogScanEvent] = useState(true)
 
   const itemsQuery = useInventoryItems()
-  const suppliersQuery = useSuppliers()
+  const vendorsQuery = useVendors()
   const locationsQuery = useInventoryLocations()
   const reelsQuery = useReels()
   const createReelInward = useCreateReelInward()
@@ -47,7 +47,7 @@ export default function ReelInwardPage() {
     const rows = Array.isArray(reelsQuery.data) ? reelsQuery.data : []
     return rows.slice(0, 15)
   }, [reelsQuery.data])
-  const suppliers = useMemo(() => (Array.isArray(suppliersQuery.data) ? suppliersQuery.data : []), [suppliersQuery.data])
+  const vendors = useMemo(() => (Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []), [vendorsQuery.data])
   const locations = useMemo(() => (Array.isArray(locationsQuery.data) ? locationsQuery.data : []), [locationsQuery.data])
   const locationById = useMemo(
     () => new Map(locations.map((location: any) => [String(location.id), location])),
@@ -60,6 +60,11 @@ export default function ReelInwardPage() {
       showToast("Select a raw paper item", "error")
       return
     }
+    const vendorName = form.supplier_name.trim()
+    if (!vendorName) {
+      showToast("Select a vendor before posting reel inward", "error")
+      return
+    }
 
     try {
       const response = await createReelInward.mutateAsync({
@@ -67,7 +72,7 @@ export default function ReelInwardPage() {
         paper_id: form.paper_id,
         gsm: form.gsm ? Number(form.gsm) : null,
         bf: form.bf ? Number(form.bf) : null,
-        supplier_name: form.supplier_name || null,
+        supplier_name: vendorName,
         location_id: form.location_id || null,
         inward_weight_kg: Number(form.inward_weight_kg),
         inward_date: form.inward_date,
@@ -101,7 +106,7 @@ export default function ReelInwardPage() {
     <div className="space-y-5">
       <section className="rounded-2xl border border-cyan-200/70 bg-gradient-to-r from-slate-900 via-cyan-900 to-cyan-700 p-5 text-white shadow-xl">
         <h1 className="text-2xl font-semibold">Reel Inward (Barcode Assisted)</h1>
-        <p className="mt-1 text-sm text-cyan-100">Scan or type reel code, confirm inward details, and post.</p>
+        <p className="mt-1 text-sm text-cyan-100">Scan or type reel code, confirm vendor, inward details, and post.</p>
       </section>
 
       <section className="glass rounded-2xl border border-white/60 p-5 shadow-xl">
@@ -161,22 +166,22 @@ export default function ReelInwardPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Supplier</label>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor</label>
             <select
               required
               value={form.supplier_name}
               onChange={(event) => setForm((current) => ({ ...current, supplier_name: event.target.value }))}
               className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
             >
-              <option value="">Select supplier</option>
-              {suppliers.map((supplier: any) => (
-                <option key={supplier.id} value={supplier.name}>
-                  {supplier.supplier_code} - {supplier.name}
+              <option value="">Select vendor</option>
+              {vendors.map((vendor: any) => (
+                <option key={vendor.id} value={vendor.name}>
+                  {vendor.supplier_code} - {vendor.name}
                 </option>
               ))}
             </select>
-            {!suppliers.length ? (
-              <p className="mt-1 text-[11px] text-amber-700">Add suppliers from Master Data before posting live inwards.</p>
+            {!vendors.length ? (
+              <p className="mt-1 text-[11px] text-amber-700">Add vendors from Master Data before posting live inwards.</p>
             ) : null}
           </div>
           <div>
@@ -253,7 +258,7 @@ export default function ReelInwardPage() {
                 <th className="py-2">Code</th>
                 <th className="py-2">Status</th>
                 <th className="py-2">Current kg</th>
-                <th className="py-2">Supplier</th>
+                <th className="py-2">Vendor</th>
                 <th className="py-2">Location</th>
                 <th className="py-2">Inward date</th>
               </tr>

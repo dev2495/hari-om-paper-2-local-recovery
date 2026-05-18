@@ -26,6 +26,13 @@ def env(name: str, default: str) -> str:
     return os.getenv(name, default)
 
 
+def public_web_port() -> str:
+    explicit_port = os.getenv("WEB_UI_PORT")
+    if explicit_port:
+        return explicit_port
+    return os.getenv("PORT", "13000")
+
+
 AUTH_PORT = env("AUTH_PORT", "18001")
 MASTER_PORT = env("MASTER_PORT", "18002")
 SPEC_PORT = env("SPEC_PORT", "18003")
@@ -34,7 +41,7 @@ INVENTORY_PORT = env("INVENTORY_PORT", "18005")
 ANALYTICS_PORT = env("ANALYTICS_PORT", "18007")
 SALES_PORT = env("SALES_PORT", "18008")
 BFF_PORT = env("BFF_PORT", "14000")
-WEB_UI_PORT = env("WEB_UI_PORT", "13000")
+WEB_UI_PORT = public_web_port()
 
 AUTH_URL = f"http://127.0.0.1:{AUTH_PORT}"
 MASTER_URL = f"http://127.0.0.1:{MASTER_PORT}"

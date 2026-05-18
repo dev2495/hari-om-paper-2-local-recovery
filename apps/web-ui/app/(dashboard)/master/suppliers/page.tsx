@@ -4,15 +4,15 @@ import { FormEvent, useMemo, useState } from "react"
 import { Building2, Plus, PowerOff, Truck } from "lucide-react"
 
 import { useApp } from "@/context/AppContext"
-import { useCreateSupplier, useDeleteSupplier, useSuppliers } from "@/hooks/use-master-data"
+import { useCreateVendor, useDeleteVendor, useVendors } from "@/hooks/use-master-data"
 
 const categories = ["RAW_MATERIAL", "PACKAGING", "CONSUMABLE", "SERVICE", "OTHER"]
 
 export default function SupplierMasterPage() {
   const { showToast } = useApp()
-  const { data: suppliers = [] } = useSuppliers()
-  const createSupplier = useCreateSupplier()
-  const deleteSupplier = useDeleteSupplier()
+  const { data: vendors = [] } = useVendors()
+  const createVendor = useCreateVendor()
+  const deleteVendor = useDeleteVendor()
   const [form, setForm] = useState({
     supplier_code: "",
     name: "",
@@ -23,14 +23,14 @@ export default function SupplierMasterPage() {
   })
 
   const rows = useMemo(
-    () => (Array.isArray(suppliers) ? suppliers : []).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))),
-    [suppliers],
+    () => (Array.isArray(vendors) ? vendors : []).sort((a: any, b: any) => String(a.name).localeCompare(String(b.name))),
+    [vendors],
   )
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault()
     try {
-      await createSupplier.mutateAsync({
+      await createVendor.mutateAsync({
         ...form,
         supplier_code: form.supplier_code.trim(),
         name: form.name.trim(),
@@ -38,10 +38,10 @@ export default function SupplierMasterPage() {
         contact_phone: form.contact_phone || null,
         gst_no: form.gst_no || null,
       })
-      showToast("Supplier added to master.", "success")
+      showToast("Vendor added to master.", "success")
       setForm({ supplier_code: "", name: "", category: "RAW_MATERIAL", contact_name: "", contact_phone: "", gst_no: "" })
     } catch (error: any) {
-      showToast(error?.response?.data?.detail || "Unable to add supplier", "error")
+      showToast(error?.response?.data?.detail || "Unable to add vendor", "error")
     }
   }
 
@@ -50,14 +50,14 @@ export default function SupplierMasterPage() {
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(8,145,178,0.2),transparent_28%),linear-gradient(135deg,#07111f,#124d61_58%,#7c3f12)] p-7 text-white shadow-2xl shadow-slate-900/15">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Supplier master</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] md:text-4xl">Approved suppliers for inward and purchase flows</h1>
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Vendor master</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em] md:text-4xl">Approved vendors for inward and purchase flows</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-cyan-50/80">
-              Inventory inward screens now use this dropdown so stores do not type supplier names differently on every receipt.
+              Inventory inward screens use this actual vendor dropdown. Parchment companies are maintained separately inside the parchment master.
             </p>
           </div>
           <div className="rounded-[1.5rem] border border-white/15 bg-white/10 px-5 py-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-100/70">Active suppliers</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-100/70">Active vendors</p>
             <p className="mt-2 text-3xl font-semibold">{rows.length}</p>
           </div>
         </div>
@@ -70,22 +70,22 @@ export default function SupplierMasterPage() {
               <Plus className="h-4 w-4" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-slate-950">Add supplier</h2>
+              <h2 className="text-lg font-semibold text-slate-950">Add vendor</h2>
               <p className="text-sm text-slate-500">Owner/admin controlled master data.</p>
             </div>
           </div>
           <div className="mt-5 grid gap-3">
-            <input required value={form.supplier_code} onChange={(e) => setForm((s) => ({ ...s, supplier_code: e.target.value.toUpperCase() }))} placeholder="Supplier code" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
-            <input required value={form.name} onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))} placeholder="Supplier name" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
+            <input required value={form.supplier_code} onChange={(e) => setForm((s) => ({ ...s, supplier_code: e.target.value.toUpperCase() }))} placeholder="Vendor code" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
+            <input required value={form.name} onChange={(e) => setForm((s) => ({ ...s, name: e.target.value }))} placeholder="Vendor name" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
             <select value={form.category} onChange={(e) => setForm((s) => ({ ...s, category: e.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100">
               {categories.map((category) => <option key={category} value={category}>{category.replace(/_/g, " ")}</option>)}
             </select>
             <input value={form.contact_name} onChange={(e) => setForm((s) => ({ ...s, contact_name: e.target.value }))} placeholder="Contact person" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
             <input value={form.contact_phone} onChange={(e) => setForm((s) => ({ ...s, contact_phone: e.target.value }))} placeholder="Phone" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
             <input value={form.gst_no} onChange={(e) => setForm((s) => ({ ...s, gst_no: e.target.value.toUpperCase() }))} placeholder="GST no" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:ring-2 focus:ring-cyan-100" />
-            <button disabled={createSupplier.isPending} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-cyan-950 disabled:opacity-60">
+            <button disabled={createVendor.isPending} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-cyan-950 disabled:opacity-60">
               <Plus className="h-4 w-4" />
-              Save supplier
+              Save vendor
             </button>
           </div>
         </form>
@@ -93,7 +93,7 @@ export default function SupplierMasterPage() {
         <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
             <div>
-              <h2 className="text-lg font-semibold text-slate-950">Supplier register</h2>
+              <h2 className="text-lg font-semibold text-slate-950">Vendor register</h2>
               <p className="text-sm text-slate-500">Used by reel inward, raw material inward, and MRP purchase draft handoff.</p>
             </div>
             <Truck className="h-5 w-5 text-cyan-900" />
@@ -102,7 +102,7 @@ export default function SupplierMasterPage() {
             <table className="min-w-full text-left text-sm">
               <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.18em] text-slate-500">
                 <tr>
-                  <th className="px-4 py-3">Supplier</th>
+                  <th className="px-4 py-3">Vendor</th>
                   <th className="px-4 py-3">Category</th>
                   <th className="px-4 py-3">Contact</th>
                   <th className="px-4 py-3">GST</th>
@@ -131,16 +131,16 @@ export default function SupplierMasterPage() {
                         type="button"
                         onClick={async () => {
                           try {
-                            await deleteSupplier.mutateAsync(supplier.id)
-                            showToast("Supplier deactivated.", "success")
+                            await deleteVendor.mutateAsync(supplier.id)
+                            showToast("Vendor deactivated.", "success")
                           } catch (error: any) {
-                            showToast(error?.response?.data?.detail || error?.message || "Supplier deactivation failed.", "error")
+                            showToast(error?.response?.data?.detail || error?.message || "Vendor deactivation failed.", "error")
                           }
                         }}
-                        disabled={deleteSupplier.isPending}
+                        disabled={deleteVendor.isPending}
                         className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700"
-                        title="Disable supplier"
-                        aria-label="Disable supplier"
+                        title="Disable vendor"
+                        aria-label="Disable vendor"
                       >
                         <PowerOff className="h-4 w-4" />
                       </button>
@@ -149,7 +149,7 @@ export default function SupplierMasterPage() {
                 ))}
                 {!rows.length ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">No suppliers yet. Add approved suppliers before inward entry.</td>
+                    <td colSpan={5} className="px-4 py-10 text-center text-slate-500">No vendors yet. Add approved vendors before inward entry.</td>
                   </tr>
                 ) : null}
               </tbody>

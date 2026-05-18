@@ -45,7 +45,7 @@ function describeDataset(title: string) {
         case "adhesives":
             return "Adhesive chemistry, process parameters, and recipe notes shared across spec and floor execution."
         case "parchments":
-            return "Approved parchment vendors, families, and color options used across sales and specification flows."
+            return "Approved parchment companies and sub parchment options used across sales and specification flows."
         case "mandrels":
             return "Mandrel truth for manufacturing ID guidance, winder setup, and job-card readiness."
         case "tube sizes":
@@ -77,6 +77,7 @@ const WORKSPACE_LINKS = {
         { href: "/masters/parchments", label: "Parchments" },
         { href: "/masters/adhesives", label: "Adhesives" },
         { href: "/masters/customers", label: "Customers" },
+        { href: "/masters/vendors", label: "Vendors" },
         { href: "/masters/packaging", label: "Packaging" },
         { href: "/masters/tools", label: "Tools" },
     ],

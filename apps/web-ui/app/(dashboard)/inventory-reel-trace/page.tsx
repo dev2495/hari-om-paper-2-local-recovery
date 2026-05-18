@@ -50,7 +50,7 @@ export default function InventoryReelTracePage() {
               <div className="flex justify-between gap-4"><dt>Status</dt><dd>{selectedReel.status}</dd></div>
               <div className="flex justify-between gap-4"><dt>Current kg</dt><dd>{Number(selectedReel.current_weight_kg || 0).toFixed(2)}</dd></div>
               <div className="flex justify-between gap-4"><dt>Inward kg</dt><dd>{Number(selectedReel.inward_weight_kg || 0).toFixed(2)}</dd></div>
-              <div className="flex justify-between gap-4"><dt>Supplier</dt><dd>{selectedReel.supplier_name || "-"}</dd></div>
+              <div className="flex justify-between gap-4"><dt>Vendor</dt><dd>{selectedReel.supplier_name || "-"}</dd></div>
             </dl>
           </article>
 
@@ -130,4 +130,3 @@ export default function InventoryReelTracePage() {
     </div>
   )
 }
-

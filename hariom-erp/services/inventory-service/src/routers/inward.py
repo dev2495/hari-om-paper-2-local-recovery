@@ -1,7 +1,7 @@
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -16,7 +16,7 @@ class InwardCreate(BaseModel):
     item_id: uuid.UUID
     batch_no: str
     qty: float
-    supplier_name: Optional[str] = None
+    supplier_name: str = Field(min_length=1, max_length=200)
     location: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "UNRESTRICTED"
@@ -24,6 +24,14 @@ class InwardCreate(BaseModel):
     reference_id: Optional[uuid.UUID] = None
     spec_id: Optional[uuid.UUID] = None
     external_ref: Optional[str] = None
+
+    @field_validator("supplier_name")
+    @classmethod
+    def normalize_supplier_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("vendor is required")
+        return cleaned
 
 
 class InwardResponse(BaseModel):

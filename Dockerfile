@@ -1,11 +1,13 @@
-FROM node:20-bookworm-slim
+FROM public.ecr.aws/docker/library/node:20-bookworm-slim
 
 ENV APP_HOME=/app \
     PATH=/opt/hariom-venv/bin:$PATH \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     BFF_INTERNAL_URL=http://127.0.0.1:14000 \
-    NEXT_PUBLIC_BFF_URL=http://127.0.0.1:14000
+    NEXT_PUBLIC_BFF_URL=http://127.0.0.1:14000 \
+    NEXT_PUBLIC_DEFAULT_LOGIN_EMAIL=devarsh \
+    NEXT_PUBLIC_DEFAULT_LOGIN_PASSWORD=devarsh123
 
 WORKDIR ${APP_HOME}
 
@@ -43,7 +45,6 @@ ENV NODE_ENV=production \
     DB_PORT=5432 \
     DB_USER=hariom \
     DB_ADMIN_DB=postgres \
-    WEB_UI_PORT=13000 \
     BFF_PORT=14000 \
     AUTH_PORT=18001 \
     MASTER_PORT=18002 \
@@ -52,10 +53,10 @@ ENV NODE_ENV=production \
     INVENTORY_PORT=18005 \
     ANALYTICS_PORT=18007 \
     SALES_PORT=18008 \
-    BOOTSTRAP_ADMIN_EMAIL=devarsh@hariom.com \
+    BOOTSTRAP_ADMIN_EMAIL=devarsh \
     BOOTSTRAP_ADMIN_NAME="Devarsh Admin" \
-    BOOTSTRAP_OWNER_EMAIL=yash@hariom.com \
-    BOOTSTRAP_OWNER_NAME="Yash Owner" \
+    BOOTSTRAP_OWNER_EMAIL=yash \
+    BOOTSTRAP_OWNER_NAME="Yash Admin" \
     RESET_BOOTSTRAP_PASSWORDS=true \
     USE_SIMPLE_STAGING_PASSWORDS=true \
     SEED_DEMO_USERS=false
@@ -63,6 +64,6 @@ ENV NODE_ENV=production \
 EXPOSE 13000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=180s --retries=5 \
-    CMD curl -fsS http://127.0.0.1:13000/login >/dev/null || exit 1
+    CMD sh -c 'curl -fsS "http://127.0.0.1:${WEB_UI_PORT:-${PORT:-13000}}/login" >/dev/null || exit 1'
 
 CMD ["bash", "deploy/tinypod/start_single_container.sh"]

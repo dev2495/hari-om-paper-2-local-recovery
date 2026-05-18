@@ -25,6 +25,7 @@ hariom-erp/services/**/*.pre_restore_*/
 *.pid
 .env
 .env.*
-output/
-reports/
-
+/output/
+/reports/
+!apps/web-ui/app/(dashboard)/reports/
+!apps/web-ui/app/(dashboard)/reports/**

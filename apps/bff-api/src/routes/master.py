@@ -132,7 +132,7 @@ async def create_parchment_color(request: Request, token: str = Depends(get_toke
     vendor_name = body.get("vendor_family") or body.get("vendor_name")
     color_name = body.get("color_name")
     if (not vendor_id and not vendor_name) or not color_name:
-        return JSONResponse(status_code=400, content={"detail": "vendor selection and color_name are required"})
+        return JSONResponse(status_code=400, content={"detail": "company selection and sub parchment are required"})
 
     headers = _master_headers(token, request)
 
@@ -235,6 +235,25 @@ async def create_parchment_vendor(request: Request, token: str = Depends(get_tok
     return JSONResponse(status_code=response.status_code, content=response.json())
 
 
+@router.put("/parchment/vendors/{vendor_id}")
+async def update_parchment_vendor(vendor_id: str, request: Request, token: str = Depends(get_token)):
+    headers = _master_headers(token, request)
+    body = await request.json()
+    response = await http_client.put(
+        f"{MASTER_SERVICE_URL}/master/parchment/vendors/{vendor_id}",
+        json=body,
+        headers=headers,
+    )
+    return JSONResponse(status_code=response.status_code, content=response.json())
+
+
+@router.delete("/parchment/vendors/{vendor_id}")
+async def delete_parchment_vendor(vendor_id: str, request: Request, token: str = Depends(get_token)):
+    headers = _master_headers(token, request)
+    response = await http_client.delete(f"{MASTER_SERVICE_URL}/master/parchment/vendors/{vendor_id}", headers=headers)
+    return JSONResponse(status_code=response.status_code, content=response.json())
+
+
 @router.get("/tube-sizes")
 async def get_tube_sizes(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/tube-sizes/", request, token)
@@ -313,6 +332,26 @@ async def update_supplier(supplier_id: str, request: Request, token: str = Depen
 @router.delete("/suppliers/{supplier_id}")
 async def delete_supplier(supplier_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{supplier_id}", request, token)
+
+
+@router.get("/vendors")
+async def get_vendors(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/suppliers/", request, token)
+
+
+@router.post("/vendors")
+async def create_vendor(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/suppliers/", request, token)
+
+
+@router.put("/vendors/{vendor_id}")
+async def update_vendor(vendor_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{vendor_id}", request, token)
+
+
+@router.delete("/vendors/{vendor_id}")
+async def delete_vendor(vendor_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{vendor_id}", request, token)
 
 
 @router.get("/customers/{customer_id}/contacts")

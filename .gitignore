@@ -31,8 +31,10 @@ hariom-erp/.venv-direct/
 *.dataless-orig
 
 EXPORT_REPORT.txt
-output/
-reports/
+/output/
+/reports/
+!apps/web-ui/app/(dashboard)/reports/
+!apps/web-ui/app/(dashboard)/reports/**
 hariom-erp/docs/
 hariom-erp/services/inventory-service/tests/
 hariom-erp/services/auth-service/venv/

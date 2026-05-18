@@ -98,19 +98,6 @@ export function AdhesiveForm({ initialData, onSubmit, onCancel }: MasterFormProp
           <Input type="number" step="0.01" {...register("ph")} />
         </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Color</label>
-        <Input {...register("color")} placeholder="Amber" />
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Recipe / Notes</label>
-        <textarea
-          {...register("recipe_text")}
-          rows={4}
-          className="min-h-24 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          placeholder="Standard mix notes, dilution notes, or viscosity handling"
-        />
-      </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
@@ -145,8 +132,8 @@ export function ParchmentForm({ initialData, onSubmit, onCancel, vendorOptions =
   const selectedVendorId = watch("vendor_id")
   const isCreatingVendor = selectedVendorId === "__new__" || (!selectedVendorId && vendorOptions.length === 0)
   const vendorHelp = useMemo(() => {
-    if (isCreatingVendor) return "Create a new vendor, then attach the parchment color under it."
-    return "Pick one of the approved vendors, then add the parchment color or pattern."
+    if (isCreatingVendor) return "Create a new company, then attach the sub parchment under it."
+    return "Pick one of the approved companies, then add the sub parchment."
   }, [isCreatingVendor])
 
   const submit = handleSubmit((data) => {
@@ -164,7 +151,7 @@ export function ParchmentForm({ initialData, onSubmit, onCancel, vendorOptions =
     <form onSubmit={submit} className="space-y-4">
       {vendorOptions.length > 0 ? (
         <div className="space-y-2">
-          <label className="text-sm font-medium">Vendor</label>
+          <label className="text-sm font-medium">Company</label>
           <select
             {...register("vendor_id", { required: true })}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -174,19 +161,19 @@ export function ParchmentForm({ initialData, onSubmit, onCancel, vendorOptions =
                 {vendor.name}
               </option>
             ))}
-            <option value="__new__">Add new vendor…</option>
+            <option value="__new__">Add new company...</option>
           </select>
           <p className="text-xs text-slate-500">{vendorHelp}</p>
         </div>
       ) : null}
       {isCreatingVendor || vendorOptions.length === 0 ? (
         <div className="space-y-2">
-          <label className="text-sm font-medium">New Vendor Name</label>
+          <label className="text-sm font-medium">New Company Name</label>
           <Input {...register("vendor_name", { required: true })} placeholder="Amma / China / Sagar" />
         </div>
       ) : null}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Color Name</label>
+        <label className="text-sm font-medium">Sub Parchment / Color</label>
         <Input {...register("color_name", { required: true })} placeholder="Blue / Red / Printed / Kraft" />
       </div>
       <div className="space-y-2">
@@ -240,40 +227,21 @@ export function MandrelForm({ initialData, onSubmit, onCancel }: MasterFormProps
   const submit = handleSubmit((data) => {
     const outerDiameter = Number(data.outer_diameter_mm)
     const lengthMm = Number(data.length_mm)
-    const tolerance = Number(data.od_tolerance_mm)
     onSubmit({
-      ...data,
-      mandrel_code: String(data.mandrel_code || "").trim(),
       outer_diameter_mm: Number.isFinite(outerDiameter) ? outerDiameter : undefined,
-      od_tolerance_mm: Number.isFinite(tolerance) ? tolerance : 0.1,
       length_mm: Number.isFinite(lengthMm) ? lengthMm : undefined,
-      material: String(data.material || "").trim() || null,
     })
   })
   return (
     <form onSubmit={submit} className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Mandrel Code</label>
-        <Input {...register("mandrel_code", { required: true })} />
-      </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Outer Diameter (mm)</label>
+          <label className="text-sm font-medium">OD (mm)</label>
           <Input type="number" step="0.01" inputMode="decimal" {...register("outer_diameter_mm", { required: true, valueAsNumber: true })} />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">OD Tolerance (± mm)</label>
-          <Input type="number" step="0.01" inputMode="decimal" placeholder="0.10" {...register("od_tolerance_mm", { valueAsNumber: true })} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
           <label className="text-sm font-medium">Length (mm)</label>
           <Input type="number" step="0.01" inputMode="decimal" {...register("length_mm", { required: true, valueAsNumber: true })} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Material</label>
-          <Input {...register("material")} placeholder="Steel" />
         </div>
       </div>
       <DialogFooter>
@@ -542,7 +510,7 @@ export function PackagingBoxForm({ initialData, onSubmit, onCancel }: MasterForm
           <Input {...register("code", { required: true })} />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Size Label</label>
+          <label className="text-sm font-medium">Color</label>
           <Input {...register("size_label", { required: true })} />
         </div>
       </div>

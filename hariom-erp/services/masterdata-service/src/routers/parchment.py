@@ -25,6 +25,11 @@ class VendorCreate(BaseModel):
     name: str
 
 
+class VendorUpdate(BaseModel):
+    name: Optional[str] = None
+    active: Optional[bool] = None
+
+
 class VendorResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -34,6 +39,13 @@ class VendorResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _clean_company_name(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Parchment company name is required")
+    return cleaned
 
 
 class ColorCreate(BaseModel):
@@ -76,19 +88,100 @@ def create_vendor(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin"])),
 ):
+    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
+    name = _clean_company_name(payload.name)
     existing = db.query(models.ParchmentVendor).filter(
         models.ParchmentVendor.plant_id.in_(plant_values),
-        models.ParchmentVendor.name == payload.name,
+        models.ParchmentVendor.name == name,
     ).first()
     if existing:
         return existing
 
-    model = models.ParchmentVendor(name=payload.name, plant_id=plant_id)
+    model = models.ParchmentVendor(name=name, plant_id=plant_id)
     db.add(model)
     db.commit()
     db.refresh(model)
     return model
+
+
+@router.put("/vendors/{vendor_id}", response_model=VendorResponse)
+def update_vendor(
+    vendor_id: uuid.UUID,
+    payload: VendorUpdate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin"])),
+):
+    del current_user
+    plant_values = accepted_persisted_plant_ids(plant_id)
+    model = db.query(models.ParchmentVendor).filter(
+        models.ParchmentVendor.id == vendor_id,
+        models.ParchmentVendor.plant_id.in_(plant_values),
+    ).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Parchment company not found")
+
+    updates = payload.model_dump(exclude_unset=True)
+    if "name" in updates and updates["name"] is not None:
+        name = _clean_company_name(updates["name"])
+        duplicate = db.query(models.ParchmentVendor).filter(
+            models.ParchmentVendor.id != vendor_id,
+            models.ParchmentVendor.plant_id.in_(plant_values),
+            models.ParchmentVendor.name == name,
+        ).first()
+        if duplicate:
+            raise HTTPException(status_code=409, detail="Parchment company already exists in this plant")
+        model.name = name
+    if "active" in updates:
+        if updates["active"] is False:
+            active_color_count = db.query(models.ParchmentColor).filter(
+                models.ParchmentColor.vendor_id == vendor_id,
+                models.ParchmentColor.plant_id.in_(plant_values),
+                models.ParchmentColor.active == True,
+            ).count()
+            if active_color_count:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot remove parchment company while sub parchment entries exist",
+                )
+        model.active = updates["active"]
+
+    db.commit()
+    db.refresh(model)
+    return model
+
+
+@router.delete("/vendors/{vendor_id}")
+def delete_vendor(
+    vendor_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin"])),
+):
+    del current_user
+    plant_values = accepted_persisted_plant_ids(plant_id)
+    model = db.query(models.ParchmentVendor).filter(
+        models.ParchmentVendor.id == vendor_id,
+        models.ParchmentVendor.plant_id.in_(plant_values),
+    ).first()
+    if not model:
+        raise HTTPException(status_code=404, detail="Parchment company not found")
+
+    active_color_count = db.query(models.ParchmentColor).filter(
+        models.ParchmentColor.vendor_id == vendor_id,
+        models.ParchmentColor.plant_id.in_(plant_values),
+        models.ParchmentColor.active == True,
+    ).count()
+    if active_color_count:
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot remove parchment company while sub parchment entries exist",
+        )
+
+    model.active = False
+    db.commit()
+    return {"message": "Parchment company deactivated successfully"}
 
 
 @router.get("/colors", response_model=List[ColorResponse])
@@ -118,7 +211,7 @@ def create_color(
         models.ParchmentVendor.active == True,
     ).first()
     if not vendor:
-        raise HTTPException(status_code=404, detail="Parchment vendor not found")
+        raise HTTPException(status_code=404, detail="Parchment company not found")
 
     existing = db.query(models.ParchmentColor).filter(
         models.ParchmentColor.vendor_id == payload.vendor_id,
@@ -162,7 +255,7 @@ def update_color(
             models.ParchmentVendor.active == True,
         ).first()
         if not vendor:
-            raise HTTPException(status_code=404, detail="Parchment vendor not found")
+            raise HTTPException(status_code=404, detail="Parchment company not found")
 
     for key, value in payload.model_dump(exclude_unset=True).items():
         setattr(model, key, value)

@@ -16,7 +16,7 @@ const workspaceGroups = [
       { href: "/masters/parchments", title: "Parchment Colors", description: "Control parchment families and options used across sales and spec selection." },
       { href: "/masters/adhesives", title: "Adhesives", description: "Keep adhesive chemistry and recipe options aligned with the fixed glue band logic." },
       { href: "/masters/customers", title: "Customers", description: "Restore customer commercial, tax, address, and dispatch-contact truth." },
-      { href: "/masters/suppliers", title: "Suppliers", description: "Approved supplier dropdown used by RM inward, reel inward, and MRP purchase drafts." },
+      { href: "/masters/vendors", title: "Vendors", description: "Actual vendor dropdown used by RM inward, reel inward, and MRP purchase drafts." },
       { href: "/masters/packaging", title: "Packaging", description: "Boxes, plastic sheets, fadda, and counts used by packing handoff." },
       { href: "/masters/tools", title: "Tools", description: "Notch, punch, die, winder, and packing tooling linked into the spec sheet and job cards." },
     ],

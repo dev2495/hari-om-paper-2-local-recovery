@@ -66,7 +66,7 @@ class ReelInwardCreate(BaseModel):
     paper_id: uuid.UUID
     gsm: Optional[float] = Field(default=None, ge=0)
     bf: Optional[float] = Field(default=None, ge=0)
-    supplier_name: Optional[str] = Field(default=None, max_length=200)
+    supplier_name: str = Field(min_length=1, max_length=200)
     inward_weight_kg: float = Field(gt=0)
     inward_date: date
     unit_cost: Optional[float] = Field(default=None, ge=0)
@@ -81,6 +81,14 @@ class ReelInwardCreate(BaseModel):
             return None
         cleaned = value.strip().upper()
         return cleaned or None
+
+    @field_validator("supplier_name")
+    @classmethod
+    def normalize_supplier_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("vendor is required")
+        return cleaned
 
     @field_validator("cost_source")
     @classmethod

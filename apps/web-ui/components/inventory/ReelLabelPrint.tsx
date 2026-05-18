@@ -42,7 +42,7 @@ export function ReelLabelPrint({
           <h3 className="text-xl font-bold text-slate-900">{reelCode}</h3>
           <dl className="mt-3 space-y-1 text-sm text-slate-700">
             <div className="flex justify-between gap-3">
-              <dt className="font-medium">Supplier</dt>
+              <dt className="font-medium">Vendor</dt>
               <dd>{supplierName || "-"}</dd>
             </div>
             <div className="flex justify-between gap-3">
@@ -66,4 +66,3 @@ export function ReelLabelPrint({
     </section>
   )
 }
-

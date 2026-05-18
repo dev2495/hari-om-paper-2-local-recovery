@@ -159,7 +159,7 @@ export default function InventoryGenealogyPage() {
     {
       label: "Inward reel",
       value: selectedReel?.reel_code || "No reel selected",
-      detail: selectedReel ? `${kg(selectedReel.inward_weight_kg)} received from ${selectedReel.supplier_name || "supplier not captured"}` : "Select a reel to load lineage.",
+      detail: selectedReel ? `${kg(selectedReel.inward_weight_kg)} received from ${selectedReel.supplier_name || "vendor not captured"}` : "Select a reel to load lineage.",
       icon: Boxes,
     },
     {
@@ -461,7 +461,7 @@ export default function InventoryGenealogyPage() {
                   <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-600">
                     <span>Inward {kg(reel.inward_weight_kg)}</span>
                     <span>Current {kg(reel.current_weight_kg)}</span>
-                    <span>{reel.supplier_name || "Supplier -"}</span>
+                    <span>{reel.supplier_name || "Vendor -"}</span>
                     <span>{reel.stock_status || "UNRESTRICTED"}</span>
                   </div>
                 </button>

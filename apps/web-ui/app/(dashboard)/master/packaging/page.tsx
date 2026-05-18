@@ -108,7 +108,7 @@ export default function PackagingMasterPage() {
       title: section.title,
       columns: [
         { header: "Code", accessorKey: "code" },
-        { header: "Size Label", accessorKey: "size_label" },
+        { header: "Color", accessorKey: "size_label" },
         {
           header: "Dimensions",
           accessorKey: "length_mm",

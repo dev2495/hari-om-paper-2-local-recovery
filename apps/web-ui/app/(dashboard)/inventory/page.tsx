@@ -123,7 +123,7 @@ export default function InventoryOverviewPage() {
 
   const actionCards = [
     { href: "/inventory/raw-material-inward", title: "Raw material inward", copy: "Post paper, adhesive, parchment, packing lots.", icon: Warehouse },
-    { href: "/inventory/reels/inward", title: "Reel inward", copy: "Scan paper reels, supplier, weight, and location.", icon: Boxes },
+    { href: "/inventory/reels/inward", title: "Reel inward", copy: "Scan paper reels, vendor, weight, and location.", icon: Boxes },
     { href: "/inventory/production-issue", title: "Production issue", copy: "Issue RM against job card and lot/reel truth.", icon: PackageCheck },
     { href: "/inventory/stock-control", title: "Stock close control", copy: "Opening load, closing certification, and year carry-forward.", icon: FileCheck2 },
     { href: "/inventory/ledger", title: "Ledger and balances", copy: "Audit physical, reserved, available, and transactions.", icon: ClipboardCheck },
@@ -384,7 +384,7 @@ export default function InventoryOverviewPage() {
           <h2 className="mt-1 text-xl font-semibold text-slate-950">Opening, alerts, and closing in one audit chain</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
             <p><b>Opening load</b> is only for go-live or year carry-forward. It posts an auditable OPENING transaction and should not be used for daily GRN.</p>
-            <p><b>Daily GRN / inward</b> creates receipt batches or reels against supplier and location, then issues consume the same ledger.</p>
+            <p><b>Daily GRN / inward</b> creates receipt batches or reels against vendor and location, then issues consume the same ledger.</p>
             <p><b>Close certification</b> freezes book stock for a period, records physical count variance, and carries certified closing into next period opening.</p>
             <p><b>Alerts</b> come from item master reorder level, safety stock, aging, blocked stock, and location pressure. Configure these in item/location masters.</p>
           </div>

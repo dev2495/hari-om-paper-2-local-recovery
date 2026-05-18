@@ -4,7 +4,7 @@ import React from "react"
 import { useForm } from "react-hook-form"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { usePapers } from "@/hooks/use-master-data" // Assuming reels are papers
+import { usePapers, useVendors } from "@/hooks/use-master-data" // Assuming reels are papers
 import { useInventoryItems } from "@/hooks/use-inventory"
 
 interface FormProps {
@@ -14,6 +14,7 @@ interface FormProps {
 export function InwardForm({ onSubmit }: FormProps) {
     const { register, handleSubmit, reset } = useForm()
     const { data: papers } = usePapers()
+    const { data: vendors = [] } = useVendors()
 
     const submitHandler = (data: any) => {
         onSubmit({ ...data, type: 'INWARD' })
@@ -33,6 +34,13 @@ export function InwardForm({ onSubmit }: FormProps) {
             <div className="space-y-2">
                 <label className="text-sm font-medium">Batch Number</label>
                 <Input {...register("batch_number", { required: true })} placeholder="e.g. REEL-230-001" />
+            </div>
+            <div className="space-y-2">
+                <label className="text-sm font-medium">Vendor</label>
+                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" {...register("supplier_name", { required: true })}>
+                    <option value="">Select Vendor</option>
+                    {(vendors || []).map((vendor: any) => <option key={vendor.id} value={vendor.name}>{vendor.supplier_code} ({vendor.name})</option>)}
+                </select>
             </div>
             <div className="space-y-2">
                 <label className="text-sm font-medium">Weight/Qty (Kg)</label>

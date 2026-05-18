@@ -11,6 +11,13 @@ start_postgres() {
   if command -v pg_ctlcluster >/dev/null 2>&1; then
     local version
     version="$(ls /etc/postgresql | sort -V | tail -1)"
+    local data_dir="/var/lib/postgresql/${version}/main"
+    if [[ ! -s "${data_dir}/PG_VERSION" ]]; then
+      echo "[postgres] initializing empty data directory at ${data_dir}" >&2
+      pg_dropcluster --stop "$version" main >/dev/null 2>&1 || true
+      pg_createcluster "$version" main --start >/dev/null
+      return
+    fi
     pg_ctlcluster "$version" main start
     return
   fi
@@ -42,4 +49,3 @@ start_postgres
 ensure_role_and_databases
 
 exec python deploy/tinypod/start_erp.py
-

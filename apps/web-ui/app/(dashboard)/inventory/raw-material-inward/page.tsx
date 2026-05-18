@@ -3,12 +3,12 @@
 import { useMemo, useState } from "react"
 
 import { useCreateInward, useInventoryItems, useInventoryLocations } from "@/hooks/use-inventory"
-import { useSuppliers } from "@/hooks/use-master-data"
+import { useVendors } from "@/hooks/use-master-data"
 
 export default function RawMaterialInwardPage() {
   const { data: items } = useInventoryItems()
   const { data: locations = [] } = useInventoryLocations()
-  const { data: suppliers = [] } = useSuppliers()
+  const { data: vendors = [] } = useVendors()
   const createInward = useCreateInward()
   const [inward, setInward] = useState({ item_id: "", batch_no: "", qty: "", supplier_name: "", location: "" })
   const [submitError, setSubmitError] = useState("")
@@ -30,12 +30,17 @@ export default function RawMaterialInwardPage() {
           onSubmit={async (e) => {
             e.preventDefault()
             setSubmitError("")
+            const vendorName = inward.supplier_name.trim()
+            if (!vendorName) {
+              setSubmitError("Vendor is required before posting inward.")
+              return
+            }
             try {
               await createInward.mutateAsync({
                 item_id: inward.item_id,
                 batch_no: inward.batch_no,
                 qty: Number(inward.qty),
-                supplier_name: inward.supplier_name || null,
+                supplier_name: vendorName,
                 location_id: inward.location || null,
               })
             } catch (error: any) {
@@ -80,13 +85,18 @@ export default function RawMaterialInwardPage() {
             onChange={(e) => setInward((s) => ({ ...s, supplier_name: e.target.value }))}
             className="h-11 rounded-xl border border-slate-200 px-3"
           >
-            <option value="">Select supplier</option>
-            {(suppliers || []).map((supplier: any) => (
-              <option key={supplier.id} value={supplier.name}>
-                {supplier.supplier_code} · {supplier.name}
+            <option value="">Select vendor</option>
+            {(vendors || []).map((vendor: any) => (
+              <option key={vendor.id} value={vendor.name}>
+                {vendor.supplier_code} · {vendor.name}
               </option>
             ))}
           </select>
+          {(vendors || []).length === 0 ? (
+            <p className="md:col-span-6 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Add vendors from Master Data before posting inward.
+            </p>
+          ) : null}
           <select
             required
             value={inward.location}

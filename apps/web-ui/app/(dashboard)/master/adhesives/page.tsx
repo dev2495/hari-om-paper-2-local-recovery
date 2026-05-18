@@ -15,7 +15,6 @@ export default function AdhesivesPage() {
         { header: "Code", accessorKey: "internal_code" },
         { header: "Solid %", accessorKey: "solid_content_percent" },
         { header: "Viscosity", accessorKey: "viscosity" },
-        { header: "Color", accessorKey: "color" },
         { header: "pH", accessorKey: "ph" },
     ]
 
