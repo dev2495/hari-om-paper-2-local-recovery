@@ -360,7 +360,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
   const { register, handleSubmit, watch, setValue } = useForm({
     defaultValues: {
       department: "WINDER",
-      capacity_type: "BAMBOOS_PER_DAY",
+      capacity_type: "METERS_PER_DAY",
       cycle_time_hours: 5.5,
       batch_bamboo_capacity: 500,
       ...initialData,
@@ -374,7 +374,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
     : 0
 
   useEffect(() => {
-    if (department === "WINDER") setValue("capacity_type", "BAMBOOS_PER_DAY")
+    if (department === "WINDER") setValue("capacity_type", "METERS_PER_DAY")
     if (department === "OVEN") setValue("capacity_type", "BATCHES_PER_DAY")
     if (department === "PROCESS") setValue("capacity_type", "TUBES_PER_DAY")
   }, [department, setValue])
@@ -388,7 +388,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
         normalizedDepartment === "OVEN"
           ? "BATCHES_PER_DAY"
           : normalizedDepartment === "WINDER"
-            ? "BAMBOOS_PER_DAY"
+            ? "METERS_PER_DAY"
             : "TUBES_PER_DAY",
       capacity_value: Number(payload.capacity_value || 0),
       id_min_mm: Number(payload.id_min_mm || 1),
@@ -413,7 +413,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
       <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 p-4">
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-800">Capacity contract</p>
         <p className="mt-2 text-sm leading-6 text-cyan-950">
-          Winder is planned in bamboos, oven is planned as batch cycles with bamboo capacity and cycle hours, and process is planned in tubes.
+          Winder is planned in meters made, oven is planned as batch cycles with bamboo capacity and cycle hours, and process is planned in tubes.
         </p>
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -438,7 +438,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
         <div className="space-y-2">
           <label className="text-sm font-medium">Capacity Type</label>
           <select {...register("capacity_type", { required: true })} disabled className="flex h-10 w-full rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            <option value="BAMBOOS_PER_DAY">Bamboos per day</option>
+            <option value="METERS_PER_DAY">Meters per day</option>
             <option value="BATCHES_PER_DAY">Batch cycles per day</option>
             <option value="TUBES_PER_DAY">Tubes per day</option>
           </select>
@@ -446,7 +446,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">
-          {department === "OVEN" ? "Batch cycles per day" : department === "WINDER" ? "Bamboos per day" : "Tubes per day"}
+          {department === "OVEN" ? "Batch cycles per day" : department === "WINDER" ? "Meters per day" : "Tubes per day"}
         </label>
         <Input type="number" step="0.01" inputMode="decimal" {...register("capacity_value", { required: true, valueAsNumber: true })} />
       </div>

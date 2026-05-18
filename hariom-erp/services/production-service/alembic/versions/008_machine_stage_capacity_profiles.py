@@ -30,7 +30,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.CheckConstraint("stage_type IN ('WINDER','OVEN','PROCESS')", name="ck_machine_stage_capacity_stage_type"),
         sa.CheckConstraint(
-            "capacity_unit IN ('BAMBOOS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY')",
+            "capacity_unit IN ('BAMBOOS_PER_DAY','METERS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY')",
             name="ck_machine_stage_capacity_unit",
         ),
         sa.CheckConstraint("capacity_value > 0", name="ck_machine_stage_capacity_positive"),

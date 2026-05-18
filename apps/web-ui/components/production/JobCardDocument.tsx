@@ -67,6 +67,9 @@ function blankWinderEntry() {
     start_time: "",
     end_time: "",
     cycle_time: "",
+    winding_meters_produced: "",
+    accepted_winding_meters: "",
+    reject_winding_meters: "",
     bamboo_count_produced: "",
     accepted_bamboo_count: "",
     reject_bamboo_count: "",
@@ -145,7 +148,6 @@ function blankPackingEntry() {
     qty_per_bundle: "",
     total_packed_qty: "",
     fg_item_id: "",
-    fg_batch_no: "",
     dispatch_date: "",
     dispatched_qty: "",
     pending_qty: "",
@@ -480,6 +482,40 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   const selectedBambooLength = Number(documentSnapshot?.header?.selected_bamboo_length_mm || 0)
   const usableBambooLength = Number(documentSnapshot?.header?.usable_length_mm || manufacturingSpec?.usable_length_mm || 0)
   const trimLossMm = Number(documentSnapshot?.header?.trim_loss_mm || manufacturingSpec?.trim_loss_mm || 0)
+  const selectedBambooLengthM = selectedBambooLength > 0 ? selectedBambooLength / 1000 : 0
+  const bambooToMeters = (value: any) => {
+    const bamboo = Number(value || 0)
+    if (!Number.isFinite(bamboo) || bamboo <= 0) return 0
+    return selectedBambooLengthM > 0 ? bamboo * selectedBambooLengthM : bamboo
+  }
+  const metersToBamboo = (metersValue: any, bambooFallback?: any) => {
+    const meters = Number(metersValue || 0)
+    if (Number.isFinite(meters) && meters > 0 && selectedBambooLengthM > 0) {
+      return Number((meters / selectedBambooLengthM).toFixed(4))
+    }
+    const fallback = Number(bambooFallback || 0)
+    return Number.isFinite(fallback) && fallback > 0 ? fallback : 0
+  }
+  const displayWinderMeters = (metersValue: any, bambooFallback?: any) => {
+    const meters = Number(metersValue || 0)
+    if (Number.isFinite(meters) && meters > 0) return formatNumber(meters, 2)
+    const fallbackMeters = bambooToMeters(bambooFallback)
+    return fallbackMeters > 0 ? formatNumber(fallbackMeters, 2) : ""
+  }
+  const normalizeWinderEntryForSubmit = (entry: any) => {
+    const producedMeters = entry.winding_meters_produced !== "" && entry.winding_meters_produced != null ? Number(entry.winding_meters_produced) : bambooToMeters(entry.bamboo_count_produced)
+    const acceptedMeters = entry.accepted_winding_meters !== "" && entry.accepted_winding_meters != null ? Number(entry.accepted_winding_meters) : bambooToMeters(entry.accepted_bamboo_count)
+    const rejectMeters = entry.reject_winding_meters !== "" && entry.reject_winding_meters != null ? Number(entry.reject_winding_meters) : bambooToMeters(entry.reject_bamboo_count)
+    return {
+      ...entry,
+      winding_meters_produced: Number.isFinite(producedMeters) && producedMeters > 0 ? producedMeters : "",
+      accepted_winding_meters: Number.isFinite(acceptedMeters) && acceptedMeters > 0 ? acceptedMeters : "",
+      reject_winding_meters: Number.isFinite(rejectMeters) && rejectMeters > 0 ? rejectMeters : "",
+      bamboo_count_produced: metersToBamboo(producedMeters, entry.bamboo_count_produced) || "",
+      accepted_bamboo_count: metersToBamboo(acceptedMeters, entry.accepted_bamboo_count) || "",
+      reject_bamboo_count: metersToBamboo(rejectMeters, entry.reject_bamboo_count) || "",
+    }
+  }
   const parchmentFamily = documentSnapshot?.header?.parchment_family || "-"
   const parchmentPattern = documentSnapshot?.header?.parchment_pattern || documentSnapshot?.header?.color || "-"
   const tubeDryWeightG = Number(
@@ -636,7 +672,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     }
     const entry =
       stage === "WINDER"
-        ? { ...(form.entry_snapshot || {}), winder_no: (form.entry_snapshot || {}).winder_no || lineMachineLabel }
+        ? normalizeWinderEntryForSubmit({ ...(form.entry_snapshot || {}), winder_no: (form.entry_snapshot || {}).winder_no || lineMachineLabel })
         : form.entry_snapshot || {}
     const stageMeta = stageRow(stage)
     const payload: Record<string, any> = {
@@ -1301,9 +1337,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Bamboo Count Produced</th>
-              <th className="border border-slate-300 px-2 py-2">Accepted Bamboo Count</th>
-              <th className="border border-slate-300 px-2 py-2">Reject Bamboo Count</th>
+              <th className="border border-slate-300 px-2 py-2">Meters Produced</th>
+              <th className="border border-slate-300 px-2 py-2">Accepted Meters</th>
+              <th className="border border-slate-300 px-2 py-2">Reject Meters</th>
               <th className="border border-slate-300 px-2 py-2">Reject Reason Code</th>
             </tr>
           </thead>
@@ -1311,22 +1347,25 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.bamboo_count_produced} onChange={(next) => updateSnapshotField(stage, "bamboo_count_produced", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.accepted_bamboo_count} onChange={(next) => updateSnapshotField(stage, "accepted_bamboo_count", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.reject_bamboo_count} onChange={(next) => updateSnapshotField(stage, "reject_bamboo_count", next)} /></td>
+                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)} onChange={(next) => updateSnapshotField(stage, "winding_meters_produced", next)} /></td>
+                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "accepted_winding_meters", next)} /></td>
+                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "reject_winding_meters", next)} /></td>
                   <td className="border border-slate-300 px-2 py-2"><TextInput value={entry.reject_reason_code} onChange={(next) => updateSnapshotField(stage, "reject_reason_code", next)} /></td>
                 </>
               ) : (
                 <>
-                  <td className="border border-slate-300 px-2 py-2">{entry.bamboo_count_produced || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.accepted_bamboo_count || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.reject_bamboo_count || ""}</td>
+                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)}</td>
+                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)}</td>
+                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)}</td>
                   <td className="border border-slate-300 px-2 py-2">{entry.reject_reason_code || ""}</td>
                 </>
               )}
             </tr>
           </tbody>
         </table>
+        <div className="mt-2 text-xs font-semibold text-slate-600">
+          Bamboo equivalent: produced {formatNumber(metersToBamboo(entry.winding_meters_produced, entry.bamboo_count_produced), 2)} · accepted {formatNumber(metersToBamboo(entry.accepted_winding_meters, entry.accepted_bamboo_count), 2)} · reject {formatNumber(metersToBamboo(entry.reject_winding_meters, entry.reject_bamboo_count), 2)}
+        </div>
 
         <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Dimension Readings</div>
         <table className="mt-1 w-full border-collapse text-sm">
@@ -1570,7 +1609,6 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderSimpleField(stage, "Qty per Bundle", "qty_per_bundle", "number")}
           {renderSimpleField(stage, "Total Packed Qty", "total_packed_qty", "number")}
           {renderSimpleField(stage, "FG Item ID", "fg_item_id")}
-          {renderSimpleField(stage, "FG Batch No", "fg_batch_no")}
           {renderSimpleField(stage, "Dispatch Date", "dispatch_date", "date")}
           {renderSimpleField(stage, "Dispatched Qty", "dispatched_qty", "number")}
           {renderSimpleField(stage, "Pending Qty", "pending_qty", "number")}
@@ -1727,9 +1765,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-100 text-left">
-                  <th className="border border-slate-300 px-2 py-2">Output Qty</th>
-                  <th className="border border-slate-300 px-2 py-2">Accepted Qty</th>
-                  <th className="border border-slate-300 px-2 py-2">Reject Qty</th>
+                  <th className="border border-slate-300 px-2 py-2">Output Meters</th>
+                  <th className="border border-slate-300 px-2 py-2">Accepted Meters</th>
+                  <th className="border border-slate-300 px-2 py-2">Reject Meters</th>
                   <th className="border border-slate-300 px-2 py-2">Rejection Code</th>
                   <th className="border border-slate-300 px-2 py-2">Start</th>
                   <th className="border border-slate-300 px-2 py-2">End</th>
@@ -1738,9 +1776,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               </thead>
               <tbody>
                 <tr>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.bamboo_count_produced || printValue(winderPrintStage?.input_qty, 0)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.accepted_bamboo_count || printValue(winderPrintStage?.output_qty, 0)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.reject_bamboo_count || printValue(winderPrintStage?.scrap_qty, 0)}</td>
+                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced || winderPrintStage?.input_qty)}</td>
+                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count || winderPrintStage?.output_qty)}</td>
+                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count || winderPrintStage?.scrap_qty)}</td>
                   <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
                   <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.start_time || "-"}</td>
                   <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.end_time || "-"}</td>
@@ -2067,8 +2105,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <PrintField label="Plan Date" value={winderPlan.planDate} />
               <PrintField label="Winder No." value={winderMachineLabel} />
               <PrintField label="Operator" value={winderPrintEntry.operator_name} />
-              <PrintField label="Output Bamboo" value={winderPrintEntry.bamboo_count_produced || formatNumber(winderPrintStage?.input_qty || effectiveTargetBamboo, 0)} />
-              <PrintField label="Accept / Reject" value={`${winderPrintEntry.accepted_bamboo_count || formatNumber(winderPrintStage?.output_qty, 0)} / ${winderPrintEntry.reject_bamboo_count || formatNumber(winderPrintStage?.scrap_qty, 0)}`} />
+              <PrintField label="Output Meters" value={displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced || winderPrintStage?.input_qty || effectiveTargetBamboo)} />
+              <PrintField label="Accept / Reject Meters" value={`${displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count || winderPrintStage?.output_qty)} / ${displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count || winderPrintStage?.scrap_qty)}`} />
               <PrintField label="Start / End" value={`${winderPrintEntry.start_time || "-"} / ${winderPrintEntry.end_time || "-"}`} />
               <PrintField label="QC Sign" value={winderPrintEntry.qc_sign || ""} />
               <PrintField label="Supervisor" value={winderPrintEntry.supervisor_sign || ""} />

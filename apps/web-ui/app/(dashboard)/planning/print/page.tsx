@@ -40,6 +40,15 @@ function plannerSize(job: any) {
     : job?.spec_reference || job?.product_code || "Spec pending"
 }
 
+function winderMeterLoad(job: any) {
+  const requiredCapacity = Number(job?.required_capacity ?? 0)
+  if (Number.isFinite(requiredCapacity) && requiredCapacity > 0) return requiredCapacity
+  const bambooCount = Number(job?.target_bamboo_count ?? 0)
+  const bambooLengthMm = Number(job?.selected_bamboo_length_mm ?? 0)
+  if (bambooCount > 0 && bambooLengthMm > 0) return (bambooCount * bambooLengthMm) / 1000
+  return 0
+}
+
 export default function PlanningPrintPage() {
   const searchParams = useSearchParams()
   const { activePlant, user, isLoading: authLoading } = useAuth()
@@ -129,9 +138,11 @@ export default function PlanningPrintPage() {
             </p>
           </div>
           <div className="border border-slate-400 p-2">
-            <p className="font-bold uppercase">Scheduled Bamboo</p>
+            <p className="font-bold uppercase">{stage === "WINDER" ? "Scheduled Meters" : "Scheduled Bamboo"}</p>
             <p className="mt-1 text-xl font-black">
-              {formatWhole(scheduledRows.reduce((sum: number, job: any) => sum + Number(job.target_bamboo_count || 0), 0))}
+              {stage === "WINDER"
+                ? formatOne(scheduledRows.reduce((sum: number, job: any) => sum + winderMeterLoad(job), 0))
+                : formatWhole(scheduledRows.reduce((sum: number, job: any) => sum + Number(job.target_bamboo_count || 0), 0))}
             </p>
           </div>
           <div className="border border-slate-400 p-2">
@@ -146,7 +157,7 @@ export default function PlanningPrintPage() {
         <table className="mt-2 w-full border-collapse text-xs">
           <thead>
             <tr className="bg-slate-100">
-              {["Date", "Machine", "Shift", "Job", "Customer", "Size", "Tubes", "Bamboo", "Weight", "Remarks"].map((header) => (
+              {["Date", "Machine", "Shift", "Job", "Customer", "Size", "Tubes", stage === "WINDER" ? "Meters" : "Bamboo", "Weight", "Remarks"].map((header) => (
                 <th key={header} className="border border-slate-500 px-2 py-1.5 text-left font-black">{header}</th>
               ))}
             </tr>
@@ -166,7 +177,7 @@ export default function PlanningPrintPage() {
                   <td className="border border-slate-500 px-2 py-1.5">{job.customer_name || "-"}</td>
                   <td className="border border-slate-500 px-2 py-1.5">{plannerSize(job)}</td>
                   <td className="border border-slate-500 px-2 py-1.5 text-right">{formatWhole(job.segment_planned_qty)}</td>
-                  <td className="border border-slate-500 px-2 py-1.5 text-right">{formatWhole(job.target_bamboo_count)}</td>
+                  <td className="border border-slate-500 px-2 py-1.5 text-right">{stage === "WINDER" ? formatOne(winderMeterLoad(job)) : formatWhole(job.target_bamboo_count)}</td>
                   <td className="border border-slate-500 px-2 py-1.5 text-right">{formatOne(job.planned_weight_kg)} kg</td>
                   <td className="border border-slate-500 px-2 py-1.5">Output pending until supervisor entry closes this step.</td>
                 </tr>

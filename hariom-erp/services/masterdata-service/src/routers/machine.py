@@ -22,14 +22,16 @@ router = APIRouter(prefix="/master/machines", tags=["machines"])
 
 def _canonical_capacity_type(department: str, capacity_type: str | None) -> str:
     normalized = str(capacity_type or "").strip().upper()
-    if normalized in {"REELS_PER_DAY", "BAMBOOS_PER_DAY", "BATCHES_PER_DAY", "TUBES_PER_DAY"}:
+    department_key = str(department or "").strip().upper()
+    if department_key == "WINDER" and normalized == "BAMBOOS_PER_DAY":
+        return "METERS_PER_DAY"
+    if normalized in {"REELS_PER_DAY", "BAMBOOS_PER_DAY", "METERS_PER_DAY", "BATCHES_PER_DAY", "TUBES_PER_DAY"}:
         return normalized
 
-    department_key = str(department or "").strip().upper()
     if department_key == "SLITTING":
         return "REELS_PER_DAY"
     if department_key == "WINDER":
-        return "BAMBOOS_PER_DAY"
+        return "METERS_PER_DAY"
     if department_key == "OVEN":
         return "BATCHES_PER_DAY"
     return "TUBES_PER_DAY"

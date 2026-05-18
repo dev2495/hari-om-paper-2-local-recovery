@@ -19,6 +19,7 @@ class MachineDepartment(str, Enum):
 class MachineCapacityType(str, Enum):
     REELS_PER_DAY = "REELS_PER_DAY"
     BAMBOOS_PER_DAY = "BAMBOOS_PER_DAY"
+    METERS_PER_DAY = "METERS_PER_DAY"
     BATCHES_PER_DAY = "BATCHES_PER_DAY"
     TUBES_PER_DAY = "TUBES_PER_DAY"
 
@@ -26,6 +27,7 @@ class MachineCapacityType(str, Enum):
 LEGACY_CAPACITY_TYPE_ALIASES = {
     "REELS_PER_SHIFT": MachineCapacityType.REELS_PER_DAY.value,
     "BAMBOOS_PER_SHIFT": MachineCapacityType.BAMBOOS_PER_DAY.value,
+    "METERS_PER_SHIFT": MachineCapacityType.METERS_PER_DAY.value,
     "BATCHES_PER_SHIFT": MachineCapacityType.BATCHES_PER_DAY.value,
     "TUBES_PER_SHIFT": MachineCapacityType.TUBES_PER_DAY.value,
 }

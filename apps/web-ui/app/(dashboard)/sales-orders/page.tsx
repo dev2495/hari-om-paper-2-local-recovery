@@ -71,6 +71,16 @@ function resolveCustomerLabel(order: any, customerMap: Map<string, string>) {
   )
 }
 
+function formatCapacityUnit(value?: string | null) {
+  const normalized = String(value || "").toUpperCase()
+  if (normalized === "METERS_PER_DAY") return "meters/day"
+  if (normalized === "BAMBOOS_PER_DAY") return "bamboo/day"
+  if (normalized === "BATCHES_PER_DAY") return "batch cycles/day"
+  if (normalized === "TUBES_PER_DAY") return "tubes/day"
+  if (normalized === "REELS_PER_DAY") return "reels/day"
+  return normalized ? normalized.toLowerCase().replace(/_/g, " ") : ""
+}
+
 function buildReleaseRows(order: any, selectedLineIds: string[], defaultMachineId: string) {
   return (order.lines || [])
     .filter((line: any) => selectedLineIds.includes(String(line.id)))
@@ -801,7 +811,7 @@ export default function SalesOrdersPage() {
                               <option value="">Select winder</option>
                               {releaseDialogWinderMachines.map((machine: any) => (
                                 <option key={machine.id} value={machine.id}>
-                                  {machine.code || machine.name} · {machine.capacity_value || "-"} {machine.capacity_unit || ""}
+                                  {machine.code || machine.name} · {machine.capacity_value || "-"} {formatCapacityUnit(machine.capacity_unit || machine.capacity_type)}
                                 </option>
                               ))}
                             </select>

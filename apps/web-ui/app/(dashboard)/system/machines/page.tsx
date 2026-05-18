@@ -25,6 +25,9 @@ export default function MachinesPage() {
                     const dailyBamboo = capacityValue * batchSize
                     return `${capacityValue || "-"} batches/day · ${batchSize || "-"} bamboo/batch · ${cycleHours || "-"}h cycle · ${dailyBamboo || 0} bamboo/day`
                 }
+                if (String(row.department).toUpperCase() === "WINDER") {
+                    return `${capacityValue || "-"} meters/day`
+                }
                 return `${capacityValue || "-"} ${row.capacity_type?.replace(/_/g, ' ') || "capacity"}`
             }
         },

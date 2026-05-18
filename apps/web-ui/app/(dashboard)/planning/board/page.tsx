@@ -152,23 +152,33 @@ function plannerSize(job: any) {
     : job?.spec_reference || job?.product_code || "Spec pending"
 }
 
+function winderMeterLoad(job: any) {
+  const requiredCapacity = Number(job?.required_capacity ?? 0)
+  if (Number.isFinite(requiredCapacity) && requiredCapacity > 0) return requiredCapacity
+  const bambooCount = Number(job?.target_bamboo_count ?? 0)
+  const bambooLengthMm = Number(job?.selected_bamboo_length_mm ?? 0)
+  if (bambooCount > 0 && bambooLengthMm > 0) return (bambooCount * bambooLengthMm) / 1000
+  return 0
+}
+
 function capacityNeedFor(section: string, job: any) {
-  if (section === "winder") return Number(job?.target_bamboo_count ?? job?.required_capacity ?? 0)
+  if (section === "winder") return winderMeterLoad(job)
   return Number(job?.required_capacity ?? 0)
 }
 
 function capacityUnitFor(section: string) {
-  if (section === "winder") return "bamboo"
+  if (section === "winder") return "m"
   if (section === "oven") return "batch"
   return "tubes"
 }
 
-function formatCapacityUnit(value?: string | null) {
+function formatCapacityUnit(value?: string | null, perShift = false) {
   const normalized = String(value || "").toUpperCase()
-  if (normalized === "BAMBOOS_PER_DAY") return "bamboo/day"
-  if (normalized === "BATCHES_PER_DAY") return "batch cycles/day"
-  if (normalized === "TUBES_PER_DAY") return "tubes/day"
-  if (normalized === "REELS_PER_DAY") return "reels/day"
+  if (normalized === "METERS_PER_DAY") return perShift ? "m/shift" : "meters/day"
+  if (normalized === "BAMBOOS_PER_DAY") return perShift ? "bamboo/shift" : "bamboo/day"
+  if (normalized === "BATCHES_PER_DAY") return perShift ? "batch cycles/shift" : "batch cycles/day"
+  if (normalized === "TUBES_PER_DAY") return perShift ? "tubes/shift" : "tubes/day"
+  if (normalized === "REELS_PER_DAY") return perShift ? "reels/shift" : "reels/day"
   return normalized ? normalized.toLowerCase().replace(/_/g, " ") : ""
 }
 
@@ -312,6 +322,7 @@ export default function PlanningBoardPage() {
             .filter((lane: any) => lane.machine_id || lane.shift_code)
             .map((lane: any) => ({
               ...lane,
+              capacity_unit: formatCapacityUnit(lane.capacity_unit, true),
               jobs: (lane.jobs || []).filter((job: any) => matchesPlannerFocus(job, focusedOrderId, focusedJobCardId)),
             }))
             .sort((left: any, right: any) =>
@@ -603,7 +614,7 @@ export default function PlanningBoardPage() {
     {
       label: "Open queue",
       value: queuedJobs.length,
-      hint: `${formatWhole(plannerMetrics.queueLoad)} ${capacityUnitFor(section)} waiting`,
+      hint: `${section === "winder" ? formatLoad(plannerMetrics.queueLoad) : formatWhole(plannerMetrics.queueLoad)} ${capacityUnitFor(section)} waiting`,
       className: "border-cyan-200 bg-cyan-50/90 text-cyan-950",
       icon: Layers3,
     },
@@ -616,7 +627,7 @@ export default function PlanningBoardPage() {
     },
     {
       label: "Free capacity",
-      value: formatWhole(plannerMetrics.freeCapacity),
+      value: section === "winder" ? formatLoad(plannerMetrics.freeCapacity) : formatWhole(plannerMetrics.freeCapacity),
       hint: `${plannerMetrics.utilization}% slot usage`,
       className: "border-emerald-200 bg-emerald-50/90 text-emerald-950",
       icon: TimerReset,
@@ -1389,7 +1400,11 @@ export default function PlanningBoardPage() {
                                         <span className="shrink-0 text-slate-300">|</span>
                                         <span className="truncate">{job.customer_name || "-"}</span>
                                         <span className="shrink-0 text-slate-300">|</span>
-                                        <span>{formatWhole(job.target_bamboo_count)} bmb</span>
+                                        <span>
+                                          {stage === "WINDER"
+                                            ? `${formatLoad(winderMeterLoad(job))} m`
+                                            : `${formatWhole(job.target_bamboo_count)} bmb`}
+                                        </span>
                                       </div>
                                       {otherWinderUsed ? (
                                         <div className="mt-0.5 pl-3">
@@ -1458,8 +1473,10 @@ export default function PlanningBoardPage() {
               <p className="mt-1 text-sm font-semibold text-slate-950">{formatWhole(hoverDetail.job.segment_planned_qty)}</p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
-              <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Bamboo</p>
-              <p className="mt-1 text-sm font-semibold text-slate-950">{formatWhole(hoverDetail.job.target_bamboo_count)}</p>
+              <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">{stage === "WINDER" ? "Meters" : "Bamboo"}</p>
+              <p className="mt-1 text-sm font-semibold text-slate-950">
+                {stage === "WINDER" ? `${formatLoad(winderMeterLoad(hoverDetail.job))} m` : formatWhole(hoverDetail.job.target_bamboo_count)}
+              </p>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-2">
               <p className="text-[9px] uppercase tracking-[0.14em] text-slate-500">Weight</p>

@@ -31,6 +31,22 @@ def _ensure_schema_compatibility():
                 "ON production_job(job_card_no) WHERE job_card_no IS NOT NULL"
             )
         )
+        connection.execute(
+            text("ALTER TABLE machine_stage_capacity_profile DROP CONSTRAINT IF EXISTS ck_machine_stage_capacity_unit")
+        )
+        connection.execute(
+            text(
+                "UPDATE machine_stage_capacity_profile "
+                "SET capacity_value = capacity_value * 1.56, capacity_unit = 'METERS_PER_DAY' "
+                "WHERE stage_type = 'WINDER' AND capacity_unit = 'BAMBOOS_PER_DAY'"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE machine_stage_capacity_profile ADD CONSTRAINT ck_machine_stage_capacity_unit "
+                "CHECK (capacity_unit IN ('BAMBOOS_PER_DAY','METERS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY'))"
+            )
+        )
 
 
 _ensure_schema_compatibility()

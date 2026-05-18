@@ -494,7 +494,7 @@ def ensure_machine(
         "code": code,
         "name": name,
         "department": department,
-        "capacity_type": "TUBES_PER_SHIFT",
+        "capacity_type": "METERS_PER_DAY" if department == "WINDER" else "TUBES_PER_SHIFT",
         "capacity_value": capacity_value,
         "id_min_mm": 50,
         "id_max_mm": 400,
@@ -1833,7 +1833,6 @@ def run_sales_flow(
         token=store_token,
         json_body={
             "item_id": manual_issue_item_id,
-            "batch_no": f"MANUAL-{scenario['name'].upper()}-{datetime.now().strftime('%H%M%S')}",
             "qty": 25.0,
             "reference_type": "INTERNAL",
             "external_ref": f"MANUAL-STOCK-{scenario['name']}-{uuid.uuid4().hex[:8]}",

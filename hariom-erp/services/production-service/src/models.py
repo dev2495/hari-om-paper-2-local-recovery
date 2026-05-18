@@ -284,7 +284,7 @@ class MachineStageCapacityProfile(Base):
             name="ck_machine_stage_capacity_stage_type",
         ),
         CheckConstraint(
-            "capacity_unit IN ('BAMBOOS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY')",
+            "capacity_unit IN ('BAMBOOS_PER_DAY','METERS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY')",
             name="ck_machine_stage_capacity_unit",
         ),
         CheckConstraint("capacity_value > 0", name="ck_machine_stage_capacity_positive"),

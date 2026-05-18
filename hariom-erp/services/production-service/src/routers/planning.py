@@ -82,7 +82,7 @@ STAGE_TO_MACHINE_DEPARTMENT = {
 }
 STAGE_DEFAULT_CAPACITY_UNITS = {
     "SLITTING": "REELS_PER_DAY",
-    "WINDER": "BAMBOOS_PER_DAY",
+    "WINDER": "METERS_PER_DAY",
     "OVEN": "BATCHES_PER_DAY",
     "PROCESS": "TUBES_PER_DAY",
     "PACKING": "TUBES_PER_DAY",
@@ -90,6 +90,8 @@ STAGE_DEFAULT_CAPACITY_UNITS = {
     "DISPATCH": "TUBES_PER_DAY",
 }
 QC_BLOCKING_STATUSES = {"HOLD"}
+WINDER_METER_CAPACITY_UNIT = "METERS_PER_DAY"
+WINDER_BAMBOO_CAPACITY_UNIT = "BAMBOOS_PER_DAY"
 
 
 def _winder_override_warning(job_card: JobCard, machine_id: Optional[uuid.UUID]) -> Optional[str]:
@@ -745,6 +747,14 @@ def _snapshot_mid(min_value: Any, max_value: Any) -> Optional[float]:
     return (min_number + max_number) / 2.0
 
 
+def _snapshot_number(value: Any) -> Optional[float]:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number
+
+
 def _resolve_bamboo_plan_for_length(
     tube_length_mm: Optional[float],
     *,
@@ -784,17 +794,66 @@ def _resolve_bamboo_plan_for_length(
 
 
 def _pcs_per_bamboo_from_snapshot(spec_snapshot: dict[str, Any]) -> Optional[int]:
-    length_mid = _snapshot_mid(spec_snapshot.get("length_min_mm"), spec_snapshot.get("length_max_mm"))
-    bamboo_plan = _resolve_bamboo_plan_for_length(
-        length_mid,
-        bamboo_min=float(spec_snapshot.get("bamboo_min_length") or 1390.0),
-        bamboo_max=float(spec_snapshot.get("bamboo_max_length") or 1560.0),
-        bamboo_increment=float(spec_snapshot.get("bamboo_increment_mm") or 10.0),
-        cut_loss=float(spec_snapshot.get("cut_loss_mm") or 40.0),
-    )
+    bamboo_plan = _winder_bamboo_plan_from_snapshot(spec_snapshot)
     if not bamboo_plan:
         return None
     return max(int(bamboo_plan["tubes_per_bamboo"]), 1)
+
+
+def _winder_bamboo_plan_from_snapshot(spec_snapshot: dict[str, Any]) -> dict[str, float | int] | None:
+    snapshot = spec_snapshot or {}
+    selected_length = _snapshot_number(
+        snapshot.get("selected_bamboo_length_mm")
+        or snapshot.get("selected_bamboo_length")
+        or snapshot.get("bamboo_length_mm")
+    )
+    pcs_per_bamboo = _snapshot_number(snapshot.get("pcs_per_bamboo") or snapshot.get("tubes_per_bamboo"))
+    if selected_length and selected_length > 0 and pcs_per_bamboo and pcs_per_bamboo > 0:
+        return {
+            "tube_length_mm": 0.0,
+            "selected_bamboo_length_mm": selected_length,
+            "usable_length_mm": selected_length,
+            "tubes_per_bamboo": max(int(pcs_per_bamboo), 1),
+            "exact_required_bamboo_length_mm": selected_length,
+            "bamboo_min_length_mm": selected_length,
+            "bamboo_max_length_mm": selected_length,
+            "bamboo_increment_mm": 10.0,
+            "cut_loss_mm": float(snapshot.get("cut_loss_mm") or 40.0),
+        }
+
+    length_mid = _snapshot_mid(snapshot.get("length_min_mm"), snapshot.get("length_max_mm"))
+    if length_mid is None:
+        length_mid = _snapshot_number(snapshot.get("tube_length_mm") or snapshot.get("length_mm"))
+    if length_mid is None:
+        return None
+    bamboo_plan = _resolve_bamboo_plan_for_length(
+        length_mid,
+        bamboo_min=float(snapshot.get("bamboo_min_length") or 1390.0),
+        bamboo_max=float(snapshot.get("bamboo_max_length") or 1560.0),
+        bamboo_increment=float(snapshot.get("bamboo_increment_mm") or 10.0),
+        cut_loss=float(snapshot.get("cut_loss_mm") or 40.0),
+    )
+    return bamboo_plan
+
+
+def _winder_capacity_meters_for_bamboos(bamboo_count: float, spec_snapshot: dict[str, Any]) -> float:
+    bamboo_plan = _winder_bamboo_plan_from_snapshot(spec_snapshot)
+    if not bamboo_plan:
+        return max(float(bamboo_count or 0.0), 0.0)
+    selected_length_mm = max(float(bamboo_plan["selected_bamboo_length_mm"] or 0.0), 0.0)
+    if selected_length_mm <= 0:
+        return max(float(bamboo_count or 0.0), 0.0)
+    return max(float(bamboo_count or 0.0), 0.0) * selected_length_mm / 1000.0
+
+
+def _winder_capacity_meters_for_qty(planned_qty: float, spec_snapshot: dict[str, Any]) -> float:
+    qty = max(float(planned_qty or 0.0), 0.0)
+    bamboo_plan = _winder_bamboo_plan_from_snapshot(spec_snapshot)
+    if not bamboo_plan:
+        return qty
+    pcs_per_bamboo = max(int(bamboo_plan["tubes_per_bamboo"] or 1), 1)
+    bamboo_count = float(math.ceil(qty / pcs_per_bamboo)) if qty > 0 else 0.0
+    return _winder_capacity_meters_for_bamboos(bamboo_count, spec_snapshot)
 
 
 def _planned_load_for_capacity(
@@ -809,7 +868,9 @@ def _planned_load_for_capacity(
         return 1.0 if qty > 0 else 0.0
     if capacity_unit == "BATCHES_PER_DAY":
         return 1.0 if qty > 0 else 0.0
-    if capacity_unit == "BAMBOOS_PER_DAY":
+    if stage == "WINDER" and capacity_unit == WINDER_METER_CAPACITY_UNIT:
+        return _winder_capacity_meters_for_qty(qty, spec_snapshot)
+    if capacity_unit == WINDER_BAMBOO_CAPACITY_UNIT:
         pcs_per_bamboo = _pcs_per_bamboo_from_snapshot(spec_snapshot)
         if pcs_per_bamboo and pcs_per_bamboo > 0:
             return float(math.ceil(qty / pcs_per_bamboo))
@@ -840,10 +901,13 @@ def _execution_load_for_capacity(
     *,
     capacity_unit: str,
     output_qty: float,
+    spec_snapshot: Optional[dict[str, Any]] = None,
 ) -> float:
     qty = max(float(output_qty or 0.0), 0.0)
     if capacity_unit in {"REELS_PER_DAY", "BATCHES_PER_DAY"}:
         return 1.0 if qty > 0 else 0.0
+    if capacity_unit == WINDER_METER_CAPACITY_UNIT:
+        return _winder_capacity_meters_for_bamboos(qty, spec_snapshot or {})
     return qty
 
 
@@ -1199,7 +1263,23 @@ def _capacity_allocation_to_qty(
     capacity_left = max(float(available_capacity or 0.0), 0.0)
     if qty_left <= 0 or capacity_left <= 0:
         return 0.0, 0.0
-    if capacity_unit == "BAMBOOS_PER_DAY":
+    if stage == "WINDER" and capacity_unit == WINDER_METER_CAPACITY_UNIT:
+        bamboo_plan = _winder_bamboo_plan_from_snapshot(spec_snapshot)
+        if not bamboo_plan:
+            qty = min(qty_left, capacity_left)
+            return qty, qty
+        selected_length_mm = max(float(bamboo_plan["selected_bamboo_length_mm"] or 0.0), 0.0)
+        pcs_per_bamboo = max(int(bamboo_plan["tubes_per_bamboo"] or 1), 1)
+        meters_per_bamboo = selected_length_mm / 1000.0
+        if meters_per_bamboo <= 0:
+            return 0.0, 0.0
+        allocatable_bamboo = max(int(math.floor(capacity_left / meters_per_bamboo)), 0)
+        if allocatable_bamboo <= 0:
+            return 0.0, 0.0
+        qty = min(qty_left, float(allocatable_bamboo * pcs_per_bamboo))
+        required_capacity = _winder_capacity_meters_for_qty(qty, spec_snapshot)
+        return qty, required_capacity
+    if capacity_unit == WINDER_BAMBOO_CAPACITY_UNIT:
         pcs_per_bamboo = max(int(_pcs_per_bamboo_from_snapshot(spec_snapshot) or 1), 1)
         allocatable_bamboo = max(int(math.floor(capacity_left)), 0)
         if allocatable_bamboo <= 0:
@@ -1338,7 +1418,8 @@ def _validate_execution_capacity(
         now = datetime.utcnow()
         start_utc, end_utc = _today_utc_window(now)
         completed_rows = (
-            db.query(JobCardStageSegment.output_qty)
+            db.query(JobCardStageSegment.output_qty, JobCard.spec_snapshot)
+            .join(JobCard, JobCard.id == JobCardStageSegment.job_card_id)
             .filter(
                 JobCardStageSegment.stage_type == stage,
                 JobCardStageSegment.machine_id == machine_id,
@@ -1353,12 +1434,14 @@ def _validate_execution_capacity(
             _execution_load_for_capacity(
                 capacity_unit=capacity_unit,
                 output_qty=float(output_row or 0.0),
+                spec_snapshot=spec_snapshot or {},
             )
-            for (output_row,) in completed_rows
+            for output_row, spec_snapshot in completed_rows
         )
         projected = consumed_today + _execution_load_for_capacity(
             capacity_unit=capacity_unit,
             output_qty=float(output_qty or 0.0),
+            spec_snapshot=stage_row.job_card.spec_snapshot or {},
         )
         if projected > capacity:
             raise HTTPException(
@@ -3595,6 +3678,16 @@ def _queue_item_from_stage_row(
         planned_qty=segment_qty,
         spec_snapshot=spec_snapshot,
     )
+    required_capacity = (
+        _required_capacity_for_job(
+            stage="WINDER",
+            planned_qty=segment_qty,
+            spec_snapshot=spec_snapshot,
+            capacity_unit=WINDER_METER_CAPACITY_UNIT,
+        )
+        if stage_row.stage_type == "WINDER"
+        else float(queue_entry.required_capacity or 0.0) if queue_entry.required_capacity is not None else None
+    )
     return QueueJobCardItem(
         queue_id=queue_entry.id,
         segment_id=queue_entry.id,
@@ -3615,7 +3708,7 @@ def _queue_item_from_stage_row(
         machine_id=str(queue_entry.machine_id) if queue_entry.machine_id else None,
         plan_date=queue_entry.plan_date,
         shift_code=queue_entry.shift_code,
-        required_capacity=float(queue_entry.required_capacity or 0.0) if queue_entry.required_capacity is not None else None,
+        required_capacity=required_capacity,
         segment_planned_qty=segment_qty,
         remaining_segments=max(int(remaining_segments or 1), 1),
         planned_qty=segment_qty,

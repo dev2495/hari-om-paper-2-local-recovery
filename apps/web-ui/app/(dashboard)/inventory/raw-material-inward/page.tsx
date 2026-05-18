@@ -10,7 +10,7 @@ export default function RawMaterialInwardPage() {
   const { data: locations = [] } = useInventoryLocations()
   const { data: vendors = [] } = useVendors()
   const createInward = useCreateInward()
-  const [inward, setInward] = useState({ item_id: "", batch_no: "", qty: "", supplier_name: "", location: "" })
+  const [inward, setInward] = useState({ item_id: "", qty: "", supplier_name: "", location: "" })
   const [submitError, setSubmitError] = useState("")
 
   const rmItems = useMemo(
@@ -38,7 +38,6 @@ export default function RawMaterialInwardPage() {
             try {
               await createInward.mutateAsync({
                 item_id: inward.item_id,
-                batch_no: inward.batch_no,
                 qty: Number(inward.qty),
                 supplier_name: vendorName,
                 location_id: inward.location || null,
@@ -47,7 +46,7 @@ export default function RawMaterialInwardPage() {
               setSubmitError(error?.response?.data?.detail || error?.message || "Inward posting failed.")
             }
           }}
-          className="grid gap-3 md:grid-cols-6"
+          className="grid gap-3 md:grid-cols-5"
         >
           <select
             required
@@ -62,13 +61,6 @@ export default function RawMaterialInwardPage() {
               </option>
             ))}
           </select>
-          <input
-            required
-            placeholder="Batch no"
-            value={inward.batch_no}
-            onChange={(e) => setInward((s) => ({ ...s, batch_no: e.target.value }))}
-            className="h-11 rounded-xl border border-slate-200 px-3"
-          />
           <input
             required
             type="number"
@@ -115,7 +107,11 @@ export default function RawMaterialInwardPage() {
           </button>
         </form>
         {submitError ? <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{submitError}</p> : null}
-        {createInward.isSuccess ? <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Inward posted successfully.</p> : null}
+        {createInward.isSuccess ? (
+          <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            Inward posted successfully. Batch {createInward.data?.data?.batch_no}
+          </p>
+        ) : null}
       </section>
     </div>
   )

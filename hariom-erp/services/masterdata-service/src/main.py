@@ -122,8 +122,15 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE machine DROP CONSTRAINT IF EXISTS ck_machine_capacity_type"))
         connection.execute(
             text(
+                "UPDATE machine "
+                "SET capacity_value = capacity_value * 1.56, capacity_type = 'METERS_PER_DAY' "
+                "WHERE department = 'WINDER' AND capacity_type = 'BAMBOOS_PER_DAY'"
+            )
+        )
+        connection.execute(
+            text(
                 "ALTER TABLE machine ADD CONSTRAINT ck_machine_capacity_type "
-                "CHECK (capacity_type IN ('REELS_PER_DAY','BAMBOOS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY'))"
+                "CHECK (capacity_type IN ('REELS_PER_DAY','BAMBOOS_PER_DAY','METERS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY'))"
             )
         )
 

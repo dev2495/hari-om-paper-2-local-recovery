@@ -1,3 +1,5 @@
+from datetime import datetime
+import re
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,9 +14,29 @@ from ..utils.auth import require_role, get_current_plant
 router = APIRouter(prefix="/inward", tags=["inward"])
 
 
+def _clean_batch_token(value: Optional[str]) -> str:
+    token = re.sub(r"[^A-Z0-9]+", "-", (value or "").strip().upper()).strip("-")
+    return token[:32] or "ITEM"
+
+
+def _next_system_batch_no(db: Session, item: ItemMaster, plant_id: str) -> str:
+    date_part = datetime.utcnow().strftime("%y%m%d")
+    item_token = _clean_batch_token(item.item_code or item.name)
+    prefix = f"RM-{item_token}-{date_part}"
+    for sequence in range(1, 10000):
+        candidate = f"{prefix}-{sequence:03d}"
+        exists = db.query(StockBatch.id).filter(
+            StockBatch.plant_id == plant_id,
+            StockBatch.batch_no == candidate,
+        ).first()
+        if not exists:
+            return candidate
+    raise HTTPException(status_code=500, detail="Unable to generate batch number")
+
+
 class InwardCreate(BaseModel):
     item_id: uuid.UUID
-    batch_no: str
+    batch_no: Optional[str] = Field(default=None, max_length=100)
     qty: float
     supplier_name: str = Field(min_length=1, max_length=200)
     location: Optional[str] = None
@@ -73,9 +95,11 @@ def create_inward(
     if stock_status not in {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}:
         raise HTTPException(status_code=400, detail="Invalid stock_status")
 
+    batch_no = (inward.batch_no or "").strip() or _next_system_batch_no(db, item, plant_id)
+
     batch = StockBatch(
         item_id=inward.item_id,
-        batch_no=inward.batch_no,
+        batch_no=batch_no,
         received_qty=inward.qty,
         location=inward.location or (location.code if location else None),
         location_id=inward.location_id,
@@ -101,7 +125,7 @@ def create_inward(
         plant_id=plant_id,
         location_id=batch.location_id,
         stock_status=batch.stock_status,
-        movement_metadata={"batch_no": inward.batch_no, "supplier_name": inward.supplier_name},
+        movement_metadata={"batch_no": batch_no, "supplier_name": inward.supplier_name},
         external_ref=inward.external_ref,
     )
     db.add(transaction)
@@ -111,7 +135,7 @@ def create_inward(
         batch_id=batch.id,
         transaction_id=transaction.id,
         item_id=inward.item_id,
-        batch_no=inward.batch_no,
+        batch_no=batch_no,
         qty_received=inward.qty,
         item_balance=get_item_balance(str(inward.item_id), db),
         batch_balance=get_batch_balance(str(batch.id), db),

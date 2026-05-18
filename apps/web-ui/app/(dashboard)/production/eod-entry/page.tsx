@@ -56,7 +56,6 @@ export default function EODProductionEntryPage() {
         bamboo_scrap_qty: 0,
         tube_scrap_qty: 0,
         fg_item_id: "",
-        fg_batch_no: "",
     })
 
     const handleNextToData = (jobId: string) => {
@@ -70,7 +69,6 @@ export default function EODProductionEntryPage() {
                 bamboo_scrap_qty: job.bamboo_scrap_qty || 0,
                 tube_scrap_qty: job.tube_scrap_qty || 0,
                 fg_item_id: job.fg_item_id || "",
-                fg_batch_no: job.fg_batch_no || "",
             })
         }
         setStep(2)
@@ -104,7 +102,6 @@ export default function EODProductionEntryPage() {
             id: selectedJobId,
             data: {
                 fg_item_id: formData.fg_item_id || selectedJob?.spec_id, // Default to spec if needed
-                fg_batch_no: formData.fg_batch_no || `FG-${new Date().getTime().toString().slice(-6)}`
             }
         })
         setStep(1)
@@ -350,17 +347,6 @@ export default function EODProductionEntryPage() {
                                                 <option key={fg.id} value={fg.id}>{fg.item_code} - {fg.name}</option>
                                             ))}
                                         </select>
-                                    </div>
-
-                                    <div className="space-y-2 text-left">
-                                        <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">FG Lot Number</label>
-                                        <input
-                                            required
-                                            placeholder="e.g., FG-JOB-001"
-                                            value={formData.fg_batch_no}
-                                            onChange={(e) => setFormData(s => ({ ...s, fg_batch_no: e.target.value }))}
-                                            className="h-12 w-full rounded-2xl bg-slate-950/80 border border-slate-800 px-4 text-white outline-none focus:border-cyan-500/30 transition"
-                                        />
                                     </div>
 
                                     <button

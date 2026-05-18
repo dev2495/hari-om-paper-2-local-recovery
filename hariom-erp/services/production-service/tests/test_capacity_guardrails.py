@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 from src.routers.planning import (
+    _capacity_allocation_to_qty,
     _execution_load_for_capacity,
     _extract_oven_cycle_hours,
     _parse_cycle_hours,
@@ -37,6 +38,49 @@ class CapacityGuardrailTests(unittest.TestCase):
             },
         )
         self.assertEqual(load, 35.0)
+
+    def test_planned_load_converts_winder_tubes_to_meter_capacity(self):
+        load = _planned_load_for_capacity(
+            stage="WINDER",
+            capacity_unit="METERS_PER_DAY",
+            planned_qty=450.0,
+            spec_snapshot={
+                "length_min_mm": 115.0,
+                "length_max_mm": 115.0,
+                "bamboo_max_length": 1560,
+                "cut_loss_mm": 40,
+            },
+        )
+        self.assertAlmostEqual(load, 53.9, places=2)
+
+    def test_meter_capacity_allocation_splits_on_full_bamboo_lengths(self):
+        qty, required_capacity = _capacity_allocation_to_qty(
+            "WINDER",
+            "METERS_PER_DAY",
+            {
+                "length_min_mm": 115.0,
+                "length_max_mm": 115.0,
+                "bamboo_max_length": 1560,
+                "cut_loss_mm": 40,
+            },
+            remaining_qty=450.0,
+            available_capacity=30.0,
+        )
+        self.assertEqual(qty, 247.0)
+        self.assertAlmostEqual(required_capacity, 29.26, places=2)
+
+    def test_execution_load_converts_winder_bamboo_output_to_meters(self):
+        load = _execution_load_for_capacity(
+            capacity_unit="METERS_PER_DAY",
+            output_qty=35.0,
+            spec_snapshot={
+                "length_min_mm": 115.0,
+                "length_max_mm": 115.0,
+                "bamboo_max_length": 1560,
+                "cut_loss_mm": 40,
+            },
+        )
+        self.assertAlmostEqual(load, 53.9, places=2)
 
     def test_execution_load_for_oven_batch_capacity(self):
         self.assertEqual(_execution_load_for_capacity(capacity_unit="BATCHES_PER_DAY", output_qty=250.0), 1.0)
