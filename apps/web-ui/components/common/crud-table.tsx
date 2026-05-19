@@ -55,9 +55,9 @@ function describeDataset(title: string) {
         case "box masters":
             return "Outer carton masters used by the spec sheet, packing handoff, and dispatch validation."
         case "plastic sheet masters":
-            return "Plastic sleeve masters with size and commercial rates used across packing and dispatch."
+            return "Plastic sleeve masters with size and weight used across packing and dispatch. Batch pricing is captured during inward."
         case "fadda masters":
-            return "Fadda SKUs and rate references used in the final packing handoff."
+            return "Fadda SKUs used in the final packing handoff. Batch pricing is captured during inward."
         case "tools":
             return "Tooling catalog for notch, punch, die, and process setup references."
         case "plants":
@@ -78,6 +78,7 @@ const WORKSPACE_LINKS = {
         { href: "/masters/adhesives", label: "Adhesives" },
         { href: "/masters/customers", label: "Customers" },
         { href: "/masters/vendors", label: "Vendors" },
+        { href: "/masters/contact-directory", label: "Contacts" },
         { href: "/masters/packaging", label: "Packaging" },
         { href: "/masters/tools", label: "Tools" },
     ],

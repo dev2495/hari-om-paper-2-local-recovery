@@ -266,6 +266,7 @@ export function useCreateCustomer() {
         mutationFn: (data: any) => masterApi.createCustomer(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["customers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -276,6 +277,7 @@ export function useUpdateCustomer() {
         mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateCustomer(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["customers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -286,6 +288,17 @@ export function useDeleteCustomer() {
         mutationFn: (id: string) => masterApi.deleteCustomer(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["customers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
+        },
+    })
+}
+
+export function useContactDirectory() {
+    return useQuery({
+        queryKey: ["contact-directory"],
+        queryFn: async () => {
+            const { data } = await masterApi.getContactDirectory()
+            return Array.isArray(data) ? data : []
         },
     })
 }
@@ -308,6 +321,7 @@ export function useCreateCustomerContact() {
         mutationFn: ({ customerId, data }: { customerId: string; data: any }) => masterApi.createCustomerContact(customerId, data),
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ["customer-contacts", variables.customerId] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -319,6 +333,7 @@ export function useUpdateCustomerContact() {
             masterApi.updateCustomerContact(customerId, contactId, data),
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ["customer-contacts", variables.customerId] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -330,6 +345,7 @@ export function useDeleteCustomerContact() {
             masterApi.deleteCustomerContact(customerId, contactId),
         onSuccess: (_data, variables) => {
             queryClient.invalidateQueries({ queryKey: ["customer-contacts", variables.customerId] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -361,6 +377,7 @@ export function useCreateSupplier() {
         mutationFn: (data: any) => masterApi.createSupplier(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -372,6 +389,7 @@ export function useCreateVendor() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["vendors"] })
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -382,6 +400,7 @@ export function useUpdateSupplier() {
         mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateSupplier(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -393,6 +412,7 @@ export function useUpdateVendor() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["vendors"] })
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -403,6 +423,7 @@ export function useDeleteSupplier() {
         mutationFn: (id: string) => masterApi.deleteSupplier(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }
@@ -414,6 +435,54 @@ export function useDeleteVendor() {
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["vendors"] })
             queryClient.invalidateQueries({ queryKey: ["suppliers"] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
+        },
+    })
+}
+
+export function useVendorContacts(vendorId?: string | null) {
+    return useQuery({
+        queryKey: ["vendor-contacts", vendorId || ""],
+        queryFn: async () => {
+            if (!vendorId) return []
+            const { data } = await masterApi.getVendorContacts(vendorId)
+            return data
+        },
+        enabled: Boolean(vendorId),
+    })
+}
+
+export function useCreateVendorContact() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ vendorId, data }: { vendorId: string; data: any }) => masterApi.createVendorContact(vendorId, data),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["vendor-contacts", variables.vendorId] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
+        },
+    })
+}
+
+export function useUpdateVendorContact() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ vendorId, contactId, data }: { vendorId: string; contactId: string; data: any }) =>
+            masterApi.updateVendorContact(vendorId, contactId, data),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["vendor-contacts", variables.vendorId] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
+        },
+    })
+}
+
+export function useDeleteVendorContact() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ vendorId, contactId }: { vendorId: string; contactId: string }) =>
+            masterApi.deleteVendorContact(vendorId, contactId),
+        onSuccess: (_data, variables) => {
+            queryClient.invalidateQueries({ queryKey: ["vendor-contacts", variables.vendorId] })
+            queryClient.invalidateQueries({ queryKey: ["contact-directory"] })
         },
     })
 }

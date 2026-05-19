@@ -225,6 +225,7 @@ export const masterApi = {
     api.put(`/api/master/customers/${customerId}/contacts/${contactId}`, data),
   deleteCustomerContact: (customerId: string, contactId: string) =>
     api.delete(`/api/master/customers/${customerId}/contacts/${contactId}`),
+  getContactDirectory: () => api.get("/api/master/contact-directory"),
 
   getSuppliers: () => api.get("/api/master/suppliers"),
   createSupplier: (data: any) => api.post("/api/master/suppliers", data),
@@ -234,6 +235,12 @@ export const masterApi = {
   createVendor: (data: any) => api.post("/api/master/vendors", data),
   updateVendor: (id: string, data: any) => api.put(`/api/master/vendors/${id}`, data),
   deleteVendor: (id: string) => api.delete(`/api/master/vendors/${id}`),
+  getVendorContacts: (vendorId: string) => api.get(`/api/master/vendors/${vendorId}/contacts`),
+  createVendorContact: (vendorId: string, data: any) => api.post(`/api/master/vendors/${vendorId}/contacts`, data),
+  updateVendorContact: (vendorId: string, contactId: string, data: any) =>
+    api.put(`/api/master/vendors/${vendorId}/contacts/${contactId}`, data),
+  deleteVendorContact: (vendorId: string, contactId: string) =>
+    api.delete(`/api/master/vendors/${vendorId}/contacts/${contactId}`),
 
   getPackagingBoxes: () => api.get("/api/master/packaging/boxes"),
   createPackagingBox: (data: any) => api.post("/api/master/packaging/boxes", data),

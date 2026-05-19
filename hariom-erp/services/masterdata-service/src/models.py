@@ -221,15 +221,35 @@ class Supplier(Base):
     contact_phone = Column(String(50), nullable=True)
     contact_email = Column(String(200), nullable=True)
     gst_no = Column(String(50), nullable=True)
+    pan_no = Column(String(50), nullable=True)
     address = Column(String(500), nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
+    contacts = relationship("SupplierContact", back_populates="supplier", cascade="all, delete-orphan")
+
     __table_args__ = (
         UniqueConstraint("plant_id", "supplier_code", name="uq_supplier_plant_code"),
         UniqueConstraint("plant_id", "name", name="uq_supplier_plant_name"),
     )
+
+
+class SupplierContact(Base):
+    __tablename__ = "supplier_contact"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("supplier.id"), nullable=False, index=True)
+    department = Column(String(100), nullable=False, default="General")
+    contact_name = Column(String(200), nullable=False)
+    contact_phone = Column(String(50), nullable=True)
+    contact_email = Column(String(200), nullable=True)
+    notes = Column(Text, nullable=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    supplier = relationship("Supplier", back_populates="contacts")
 
 
 class PackagingBox(Base):

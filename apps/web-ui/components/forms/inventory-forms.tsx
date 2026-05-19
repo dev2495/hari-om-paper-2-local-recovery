@@ -32,8 +32,8 @@ export function InwardForm({ onSubmit }: FormProps) {
                 </select>
             </div>
             <div className="space-y-2">
-                <label className="text-sm font-medium">Batch Number</label>
-                <Input {...register("batch_number", { required: true })} placeholder="e.g. REEL-230-001" />
+                <label className="text-sm font-medium">Inward Rate</label>
+                <Input type="number" step="0.01" {...register("unit_cost")} placeholder="Captured on received batch" />
             </div>
             <div className="space-y-2">
                 <label className="text-sm font-medium">Vendor</label>

@@ -107,7 +107,10 @@ def valuation_summary(
 
     for row in rows:
         item = item_map.get(str(row["item_id"]))
-        unit_cost, cost_source = _resolve_item_cost(item)
+        unit_cost = float(row.get("unit_cost") or 0.0)
+        cost_source = str(row.get("cost_source") or "UNAVAILABLE")
+        if unit_cost <= 0:
+            unit_cost, cost_source = _resolve_item_cost(item)
         row["unit_cost"] = round(unit_cost, 4)
         row["cost_source"] = cost_source
         row["inventory_value"] = round(float(row["balance"]) * unit_cost, 2)

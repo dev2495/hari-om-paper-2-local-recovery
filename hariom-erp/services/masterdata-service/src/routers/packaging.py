@@ -28,7 +28,6 @@ class BoxCreate(BaseModel):
     height_mm: float
     size_label: str
     weight_kg: Optional[float] = None
-    rate_per_piece: Optional[float] = None
 
 
 class BoxUpdate(BaseModel):
@@ -38,7 +37,6 @@ class BoxUpdate(BaseModel):
     height_mm: Optional[float] = None
     size_label: Optional[str] = None
     weight_kg: Optional[float] = None
-    rate_per_piece: Optional[float] = None
     active: Optional[bool] = None
 
 
@@ -50,7 +48,6 @@ class BoxResponse(BaseModel):
     height_mm: float
     size_label: str
     weight_kg: Optional[float]
-    rate_per_piece: Optional[float]
     plant_id: str
     active: bool
     created_at: Optional[datetime] = None
@@ -63,16 +60,12 @@ class PlasticSheetCreate(BaseModel):
     sku: str
     size_label: str
     weight_kg: Optional[float] = None
-    rate_per_kg: Optional[float] = None
-    rate_per_piece: Optional[float] = None
 
 
 class PlasticSheetUpdate(BaseModel):
     sku: Optional[str] = None
     size_label: Optional[str] = None
     weight_kg: Optional[float] = None
-    rate_per_kg: Optional[float] = None
-    rate_per_piece: Optional[float] = None
     active: Optional[bool] = None
 
 
@@ -81,8 +74,6 @@ class PlasticSheetResponse(BaseModel):
     sku: str
     size_label: str
     weight_kg: Optional[float]
-    rate_per_kg: Optional[float]
-    rate_per_piece: Optional[float]
     plant_id: str
     active: bool
     created_at: Optional[datetime] = None
@@ -94,15 +85,11 @@ class PlasticSheetResponse(BaseModel):
 class FaddaCreate(BaseModel):
     sku: str
     weight_kg: Optional[float] = None
-    rate_per_kg: Optional[float] = None
-    rate_per_piece: Optional[float] = None
 
 
 class FaddaUpdate(BaseModel):
     sku: Optional[str] = None
     weight_kg: Optional[float] = None
-    rate_per_kg: Optional[float] = None
-    rate_per_piece: Optional[float] = None
     active: Optional[bool] = None
 
 
@@ -110,8 +97,6 @@ class FaddaResponse(BaseModel):
     id: uuid.UUID
     sku: str
     weight_kg: Optional[float]
-    rate_per_kg: Optional[float]
-    rate_per_piece: Optional[float]
     plant_id: str
     active: bool
     created_at: Optional[datetime] = None
@@ -190,7 +175,6 @@ def create_box(
         height_mm=payload.height_mm,
         size_label=payload.size_label.strip(),
         weight_kg=payload.weight_kg,
-        rate_per_piece=payload.rate_per_piece,
         plant_id=plant_id,
     )
     db.add(model)
@@ -278,8 +262,6 @@ def create_plastic_sheet(
         sku=sku,
         size_label=payload.size_label.strip(),
         weight_kg=payload.weight_kg,
-        rate_per_kg=payload.rate_per_kg,
-        rate_per_piece=payload.rate_per_piece,
         plant_id=plant_id,
     )
     db.add(model)
@@ -366,8 +348,6 @@ def create_fadda(
     model = models.PackagingFadda(
         sku=sku,
         weight_kg=payload.weight_kg,
-        rate_per_kg=payload.rate_per_kg,
-        rate_per_piece=payload.rate_per_piece,
         plant_id=plant_id,
     )
     db.add(model)

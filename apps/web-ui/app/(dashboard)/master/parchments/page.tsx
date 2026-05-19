@@ -221,8 +221,8 @@ export default function ParchmentsPage() {
         <CrudTable
           title="Parchments"
           columns={[
-            { header: "Company", accessorKey: "vendor_name" },
             { header: "Sub Parchment", accessorKey: "color_name" },
+            { header: "Company", accessorKey: "vendor_name" },
             { header: "Display", accessorKey: "display_name" },
           ]}
           data={activeColors}

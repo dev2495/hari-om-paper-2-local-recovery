@@ -39,6 +39,8 @@ class InwardCreate(BaseModel):
     batch_no: Optional[str] = Field(default=None, max_length=100)
     qty: float
     supplier_name: str = Field(min_length=1, max_length=200)
+    unit_cost: Optional[float] = Field(default=None, ge=0)
+    cost_source: Optional[str] = None
     location: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "UNRESTRICTED"
@@ -54,6 +56,16 @@ class InwardCreate(BaseModel):
         if not cleaned:
             raise ValueError("vendor is required")
         return cleaned
+
+    @field_validator("cost_source")
+    @classmethod
+    def normalize_cost_source(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip().upper()
+        if normalized not in {"MANUAL", "SUPPLIER", "AVG_BATCH"}:
+            raise ValueError("cost_source must be MANUAL, SUPPLIER, or AVG_BATCH")
+        return normalized
 
 
 class InwardResponse(BaseModel):
@@ -101,6 +113,8 @@ def create_inward(
         item_id=inward.item_id,
         batch_no=batch_no,
         received_qty=inward.qty,
+        unit_cost=inward.unit_cost,
+        cost_source=inward.cost_source or ("SUPPLIER" if inward.unit_cost is not None else None),
         location=inward.location or (location.code if location else None),
         location_id=inward.location_id,
         stock_status=stock_status,
@@ -125,7 +139,12 @@ def create_inward(
         plant_id=plant_id,
         location_id=batch.location_id,
         stock_status=batch.stock_status,
-        movement_metadata={"batch_no": batch_no, "supplier_name": inward.supplier_name},
+        movement_metadata={
+            "batch_no": batch_no,
+            "supplier_name": inward.supplier_name,
+            "unit_cost": inward.unit_cost,
+            "cost_source": inward.cost_source or ("SUPPLIER" if inward.unit_cost is not None else None),
+        },
         external_ref=inward.external_ref,
     )
     db.add(transaction)

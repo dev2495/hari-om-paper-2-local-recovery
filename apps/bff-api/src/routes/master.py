@@ -89,7 +89,7 @@ async def get_parchments(request: Request, token: str = Depends(get_token)):
             "vendor_family": vendor_name,
             "color_name": color.get("color_name"),
             "display_name": (
-                f"{vendor_name} / {color.get('color_name')}"
+                f"{color.get('color_name')} / {vendor_name}"
                 if vendor_name and color.get("color_name")
                 else vendor_name or color.get("color_name")
             ),
@@ -118,8 +118,8 @@ async def get_parchments(request: Request, token: str = Depends(get_token)):
     merged = sorted(
         merged_by_key.values(),
         key=lambda item: (
-            str(item.get("vendor_name") or "").lower(),
             str(item.get("color_name") or "").lower(),
+            str(item.get("vendor_name") or "").lower(),
         ),
     )
     return JSONResponse(content=merged)
@@ -354,6 +354,11 @@ async def delete_vendor(vendor_id: str, request: Request, token: str = Depends(g
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{vendor_id}", request, token)
 
 
+@router.get("/contact-directory")
+async def get_contact_directory(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/contact-directory/", request, token)
+
+
 @router.get("/customers/{customer_id}/contacts")
 async def get_customer_contacts(customer_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/customers/{customer_id}/contacts", request, token)
@@ -379,6 +384,66 @@ async def delete_customer_contact(customer_id: str, contact_id: str, request: Re
     return await proxy_to_service(
         MASTER_SERVICE_URL,
         f"/master/customers/{customer_id}/contacts/{contact_id}",
+        request,
+        token,
+    )
+
+
+@router.get("/suppliers/{supplier_id}/contacts")
+async def get_supplier_contacts(supplier_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{supplier_id}/contacts", request, token)
+
+
+@router.post("/suppliers/{supplier_id}/contacts")
+async def create_supplier_contact(supplier_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{supplier_id}/contacts", request, token)
+
+
+@router.put("/suppliers/{supplier_id}/contacts/{contact_id}")
+async def update_supplier_contact(supplier_id: str, contact_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        MASTER_SERVICE_URL,
+        f"/master/suppliers/{supplier_id}/contacts/{contact_id}",
+        request,
+        token,
+    )
+
+
+@router.delete("/suppliers/{supplier_id}/contacts/{contact_id}")
+async def delete_supplier_contact(supplier_id: str, contact_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        MASTER_SERVICE_URL,
+        f"/master/suppliers/{supplier_id}/contacts/{contact_id}",
+        request,
+        token,
+    )
+
+
+@router.get("/vendors/{vendor_id}/contacts")
+async def get_vendor_contacts(vendor_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{vendor_id}/contacts", request, token)
+
+
+@router.post("/vendors/{vendor_id}/contacts")
+async def create_vendor_contact(vendor_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/suppliers/{vendor_id}/contacts", request, token)
+
+
+@router.put("/vendors/{vendor_id}/contacts/{contact_id}")
+async def update_vendor_contact(vendor_id: str, contact_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        MASTER_SERVICE_URL,
+        f"/master/suppliers/{vendor_id}/contacts/{contact_id}",
+        request,
+        token,
+    )
+
+
+@router.delete("/vendors/{vendor_id}/contacts/{contact_id}")
+async def delete_vendor_contact(vendor_id: str, contact_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        MASTER_SERVICE_URL,
+        f"/master/suppliers/{vendor_id}/contacts/{contact_id}",
         request,
         token,
     )

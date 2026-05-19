@@ -18,7 +18,6 @@ export default function PapersPage() {
     { header: "Ply Bond", accessorKey: "ply_bond" },
     { header: "Bulk Factor", accessorKey: "bulk_factor" },
     { header: "Thickness (mm)", accessorKey: "thickness_mm" },
-    { header: "Price", accessorKey: "price" },
   ]
 
   return (

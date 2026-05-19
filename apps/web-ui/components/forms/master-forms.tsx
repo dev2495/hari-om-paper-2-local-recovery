@@ -50,15 +50,9 @@ export function PaperForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
           <Input type="number" step="0.01" {...register("ply_bond")} />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Price</label>
-          <Input type="number" step="0.01" {...register("price")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Derived Thickness (mm)</label>
-          <Input value={derivedThickness ? derivedThickness.toFixed(4) : ""} readOnly disabled />
-        </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Derived Thickness (mm)</label>
+        <Input value={derivedThickness ? derivedThickness.toFixed(4) : ""} readOnly disabled />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -176,10 +170,6 @@ export function ParchmentForm({ initialData, onSubmit, onCancel, vendorOptions =
         <label className="text-sm font-medium">Sub Parchment / Color</label>
         <Input {...register("color_name", { required: true })} placeholder="Blue / Red / Printed / Kraft" />
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Display Name</label>
-        <Input {...register("display_name")} placeholder="Sagar Blue / Amma White" />
-      </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel
@@ -260,42 +250,12 @@ export function CustomerForm({ initialData, onSubmit, onCancel }: MasterFormProp
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Customer Code</label>
-          <Input {...register("customer_code", { required: true })} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Name</label>
+          <label className="text-sm font-medium">Customer Name</label>
           <Input {...register("name", { required: true })} />
         </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Primary Contact Name</label>
-          <Input {...register("primary_contact_name")} placeholder="Dispatch coordinator" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Primary Contact Phone</label>
-          <Input {...register("primary_contact_phone")} />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Primary Contact Email</label>
-          <Input type="email" {...register("primary_contact_email")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Address</label>
-          <Input {...register("address")} placeholder="Customer address" />
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Billing Address</label>
-          <Input {...register("billing_address")} placeholder="Billing address" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Shipping Address</label>
-          <Input {...register("shipping_address")} placeholder="Shipping address" />
+          <label className="text-sm font-medium">Customer Code</label>
+          <Input {...register("customer_code", { required: true })} />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -308,15 +268,9 @@ export function CustomerForm({ initialData, onSubmit, onCancel }: MasterFormProp
           <Input {...register("gst_no")} />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Dispatch Contact Name</label>
-          <Input {...register("dispatch_contact_name")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Dispatch Contact Phone</label>
-          <Input {...register("dispatch_contact_phone")} />
-        </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Address</label>
+        <Input {...register("address")} placeholder="Customer address" />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -528,15 +482,9 @@ export function PackagingBoxForm({ initialData, onSubmit, onCancel }: MasterForm
           <Input type="number" step="0.01" {...register("height_mm", { required: true })} />
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Weight (kg)</label>
-          <Input type="number" step="0.0001" {...register("weight_kg")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Rate / Piece</label>
-          <Input type="number" step="0.0001" {...register("rate_per_piece")} />
-        </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Weight (kg)</label>
+        <Input type="number" step="0.0001" {...register("weight_kg")} />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -562,19 +510,9 @@ export function PlasticSheetForm({ initialData, onSubmit, onCancel }: MasterForm
           <Input {...register("size_label", { required: true })} />
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Weight (kg)</label>
-          <Input type="number" step="0.0001" {...register("weight_kg")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Rate / Kg</label>
-          <Input type="number" step="0.0001" {...register("rate_per_kg")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Rate / Piece</label>
-          <Input type="number" step="0.0001" {...register("rate_per_piece")} />
-        </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Weight (kg)</label>
+        <Input type="number" step="0.0001" {...register("weight_kg")} />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -594,19 +532,9 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
         <label className="text-sm font-medium">SKU</label>
         <Input {...register("sku", { required: true })} />
       </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Weight (kg)</label>
-          <Input type="number" step="0.0001" {...register("weight_kg")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Rate / Kg</label>
-          <Input type="number" step="0.0001" {...register("rate_per_kg")} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Rate / Piece</label>
-          <Input type="number" step="0.0001" {...register("rate_per_piece")} />
-        </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Weight (kg)</label>
+        <Input type="number" step="0.0001" {...register("weight_kg")} />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>

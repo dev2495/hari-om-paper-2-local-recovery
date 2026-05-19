@@ -82,7 +82,7 @@ class CustomerResponse(BaseModel):
 
 
 class CustomerContactCreate(BaseModel):
-    department: str
+    department: Optional[str] = "General"
     contact_name: str
     contact_phone: Optional[str] = None
     contact_email: Optional[EmailStr] = None
@@ -340,7 +340,7 @@ def create_customer_contact(
         raise HTTPException(status_code=404, detail="Customer not found")
     model = models.CustomerContact(
         customer_id=customer_id,
-        department=payload.department.strip(),
+        department=(payload.department or "General").strip() or "General",
         contact_name=payload.contact_name.strip(),
         contact_phone=payload.contact_phone,
         contact_email=str(payload.contact_email) if payload.contact_email else None,

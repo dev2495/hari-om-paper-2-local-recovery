@@ -430,7 +430,7 @@ export function SalesOrderCreateForm() {
                           <option value="">{line.parchment_required ? "Select parchment color" : "Not required for this line"}</option>
                           {(parchments || []).map((parchment: any) => (
                             <option key={parchment.id} value={parchment.color_name}>
-                              {parchment.vendor_name} · {parchment.color_name}
+                              {parchment.color_name} / {parchment.vendor_name}
                             </option>
                           ))}
                         </select>

@@ -59,6 +59,18 @@ def ensure_runtime_schema() -> None:
       )
     )
     connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS stock_batch "
+        "ADD COLUMN IF NOT EXISTS unit_cost DOUBLE PRECISION"
+      )
+    )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS stock_batch "
+        "ADD COLUMN IF NOT EXISTS cost_source VARCHAR(20)"
+      )
+    )
+    connection.execute(
       text("UPDATE stock_batch SET stock_status = 'UNRESTRICTED' WHERE stock_status IS NULL")
     )
 

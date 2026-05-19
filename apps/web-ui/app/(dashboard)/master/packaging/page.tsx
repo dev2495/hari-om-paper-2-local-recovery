@@ -30,13 +30,13 @@ const PACKING_SECTIONS = [
     key: "plastics",
     label: "Plastic Sheets",
     title: "Plastic sheet masters",
-    subtitle: "Plastic sleeves and rate cards used by the spec and dispatch flows.",
+    subtitle: "Plastic sleeves used by the spec and dispatch flows. Inward captures batch pricing.",
   },
   {
     key: "fadda",
     label: "Fadda",
     title: "Fadda masters",
-    subtitle: "Fadda SKUs and rates used during final packing and dispatch.",
+    subtitle: "Fadda SKUs used during final packing and dispatch. Inward captures batch pricing.",
   },
 ] as const
 
@@ -74,8 +74,6 @@ export default function PackagingMasterPage() {
           { header: "SKU", accessorKey: "sku" },
           { header: "Size Label", accessorKey: "size_label" },
           { header: "Weight (kg)", accessorKey: "weight_kg" },
-          { header: "Rate / Kg", accessorKey: "rate_per_kg" },
-          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
         ],
         data: plasticsQuery.data || [],
         isLoading: plasticsQuery.isLoading,
@@ -92,8 +90,6 @@ export default function PackagingMasterPage() {
         columns: [
           { header: "SKU", accessorKey: "sku" },
           { header: "Weight (kg)", accessorKey: "weight_kg" },
-          { header: "Rate / Kg", accessorKey: "rate_per_kg" },
-          { header: "Rate / Piece", accessorKey: "rate_per_piece" },
         ],
         data: faddaQuery.data || [],
         isLoading: faddaQuery.isLoading,
@@ -115,7 +111,6 @@ export default function PackagingMasterPage() {
           render: (_value: any, row: any) => `${row.length_mm} x ${row.width_mm} x ${row.height_mm} mm`,
         },
         { header: "Weight (kg)", accessorKey: "weight_kg" },
-        { header: "Rate / Piece", accessorKey: "rate_per_piece" },
       ],
       data: boxesQuery.data || [],
       isLoading: boxesQuery.isLoading,

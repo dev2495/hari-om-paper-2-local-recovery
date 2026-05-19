@@ -152,6 +152,8 @@ class StockBatch(Base):
     location = Column(String(100), nullable=True)
     location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True)
     stock_status = Column(String(20), nullable=False, default="UNRESTRICTED")
+    unit_cost = Column(Float, nullable=True)
+    cost_source = Column(String(20), nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     spec_id = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)

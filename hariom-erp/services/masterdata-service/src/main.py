@@ -3,7 +3,7 @@ from sqlalchemy import text
 
 from . import models
 from .database import engine
-from .routers import adhesive, customer, machine, mandrel, packaging, paper, parchment, supplier, tool, tube_size
+from .routers import adhesive, contact_directory, customer, machine, mandrel, packaging, paper, parchment, supplier, tool, tube_size
 
 app = FastAPI(
     title="Hari Om Paper ERP - Master Data Service",
@@ -18,6 +18,7 @@ app.include_router(tube_size.router)
 app.include_router(mandrel.router)
 app.include_router(customer.router)
 app.include_router(supplier.router)
+app.include_router(contact_directory.router)
 app.include_router(machine.router)
 app.include_router(packaging.router)
 app.include_router(tool.router)
@@ -172,6 +173,47 @@ def _ensure_schema_compatibility() -> None:
         )
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_customer_contact_customer_id ON customer_contact (customer_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_customer_contact_plant_id ON customer_contact (plant_id)"))
+        connection.execute(
+            text(
+                """
+                INSERT INTO customer_contact (
+                    id, customer_id, department, contact_name, contact_phone, contact_email,
+                    notes, plant_id, active, created_at
+                )
+                SELECT
+                    (
+                        substr(md5(customer.id::text || '-primary'), 1, 8) || '-' ||
+                        substr(md5(customer.id::text || '-primary'), 9, 4) || '-' ||
+                        substr(md5(customer.id::text || '-primary'), 13, 4) || '-' ||
+                        substr(md5(customer.id::text || '-primary'), 17, 4) || '-' ||
+                        substr(md5(customer.id::text || '-primary'), 21, 12)
+                    )::uuid,
+                    customer.id,
+                    'General',
+                    COALESCE(NULLIF(customer.primary_contact_name, ''), customer.name),
+                    COALESCE(NULLIF(customer.primary_contact_phone, ''), NULLIF(customer.contact_phone, '')),
+                    COALESCE(NULLIF(customer.primary_contact_email, ''), NULLIF(customer.contact_email, '')),
+                    NULL,
+                    customer.plant_id,
+                    TRUE,
+                    NOW()
+                FROM customer
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM customer_contact
+                    WHERE customer_contact.customer_id = customer.id
+                    AND customer_contact.active = TRUE
+                )
+                AND (
+                    NULLIF(customer.primary_contact_name, '') IS NOT NULL
+                    OR NULLIF(customer.primary_contact_phone, '') IS NOT NULL
+                    OR NULLIF(customer.primary_contact_email, '') IS NOT NULL
+                    OR NULLIF(customer.contact_phone, '') IS NOT NULL
+                    OR NULLIF(customer.contact_email, '') IS NOT NULL
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+        )
 
         connection.execute(
             text(
@@ -185,6 +227,7 @@ def _ensure_schema_compatibility() -> None:
                     contact_phone VARCHAR(50),
                     contact_email VARCHAR(200),
                     gst_no VARCHAR(50),
+                    pan_no VARCHAR(50),
                     address VARCHAR(500),
                     plant_id VARCHAR(50) NOT NULL,
                     active BOOLEAN DEFAULT TRUE,
@@ -193,8 +236,68 @@ def _ensure_schema_compatibility() -> None:
                 """
             )
         )
+        connection.execute(text("ALTER TABLE supplier ADD COLUMN IF NOT EXISTS pan_no VARCHAR(50)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_plant_code ON supplier (plant_id, supplier_code)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_supplier_plant_name ON supplier (plant_id, name)"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS supplier_contact (
+                    id UUID PRIMARY KEY,
+                    supplier_id UUID NOT NULL REFERENCES supplier(id),
+                    department VARCHAR(100) NOT NULL DEFAULT 'General',
+                    contact_name VARCHAR(200) NOT NULL,
+                    contact_phone VARCHAR(50),
+                    contact_email VARCHAR(200),
+                    notes TEXT,
+                    plant_id VARCHAR(50) NOT NULL,
+                    active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                )
+                """
+            )
+        )
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_contact_supplier_id ON supplier_contact (supplier_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_supplier_contact_plant_id ON supplier_contact (plant_id)"))
+        connection.execute(
+            text(
+                """
+                INSERT INTO supplier_contact (
+                    id, supplier_id, department, contact_name, contact_phone, contact_email,
+                    notes, plant_id, active, created_at
+                )
+                SELECT
+                    (
+                        substr(md5(supplier.id::text || '-primary'), 1, 8) || '-' ||
+                        substr(md5(supplier.id::text || '-primary'), 9, 4) || '-' ||
+                        substr(md5(supplier.id::text || '-primary'), 13, 4) || '-' ||
+                        substr(md5(supplier.id::text || '-primary'), 17, 4) || '-' ||
+                        substr(md5(supplier.id::text || '-primary'), 21, 12)
+                    )::uuid,
+                    supplier.id,
+                    'General',
+                    COALESCE(NULLIF(supplier.contact_name, ''), supplier.name),
+                    NULLIF(supplier.contact_phone, ''),
+                    NULLIF(supplier.contact_email, ''),
+                    NULL,
+                    supplier.plant_id,
+                    TRUE,
+                    NOW()
+                FROM supplier
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM supplier_contact
+                    WHERE supplier_contact.supplier_id = supplier.id
+                    AND supplier_contact.active = TRUE
+                )
+                AND (
+                    NULLIF(supplier.contact_name, '') IS NOT NULL
+                    OR NULLIF(supplier.contact_phone, '') IS NOT NULL
+                    OR NULLIF(supplier.contact_email, '') IS NOT NULL
+                )
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+        )
 
         connection.execute(
             text(
@@ -269,6 +372,7 @@ def _seed_default_suppliers() -> None:
             "contact_phone": "+91 00000 00001",
             "contact_email": "store-a@hariom.local",
             "gst_no": None,
+            "pan_no": None,
             "address": "Plant A approved raw material supplier",
         },
         {
@@ -281,6 +385,7 @@ def _seed_default_suppliers() -> None:
             "contact_phone": "+91 00000 00002",
             "contact_email": "parchment-a@hariom.local",
             "gst_no": None,
+            "pan_no": None,
             "address": "Plant A approved parchment supplier",
         },
         {
@@ -293,6 +398,7 @@ def _seed_default_suppliers() -> None:
             "contact_phone": "+91 00000 00003",
             "contact_email": "store-b@hariom.local",
             "gst_no": None,
+            "pan_no": None,
             "address": "Plant B approved raw material supplier",
         },
         {
@@ -305,6 +411,7 @@ def _seed_default_suppliers() -> None:
             "contact_phone": "+91 00000 00004",
             "contact_email": "parchment-b@hariom.local",
             "gst_no": None,
+            "pan_no": None,
             "address": "Plant B approved parchment supplier",
         },
     )
@@ -312,11 +419,11 @@ def _seed_default_suppliers() -> None:
         """
         INSERT INTO supplier (
             id, plant_id, supplier_code, name, category, contact_name, contact_phone,
-            contact_email, gst_no, address, active, created_at
+            contact_email, gst_no, pan_no, address, active, created_at
         )
         VALUES (
             :id, :plant_id, :supplier_code, :name, :category, :contact_name, :contact_phone,
-            :contact_email, :gst_no, :address, TRUE, NOW()
+            :contact_email, :gst_no, :pan_no, :address, TRUE, NOW()
         )
         ON CONFLICT (plant_id, supplier_code) DO UPDATE SET
             name = EXCLUDED.name,
@@ -325,6 +432,7 @@ def _seed_default_suppliers() -> None:
             contact_phone = EXCLUDED.contact_phone,
             contact_email = EXCLUDED.contact_email,
             gst_no = EXCLUDED.gst_no,
+            pan_no = EXCLUDED.pan_no,
             address = EXCLUDED.address,
             active = TRUE
         """

@@ -68,6 +68,24 @@ def get_available_batch_qty(batch_id: str, db: Session) -> float:
     return round(physical - reserved, 2)
 
 
+def get_batch_weighted_cost(item_id: str, db: Session) -> tuple[float, str]:
+    batches = db.query(StockBatch).filter(StockBatch.item_id == item_id).all()
+    total_qty = 0.0
+    total_value = 0.0
+    for batch in batches:
+        unit_cost = float(getattr(batch, "unit_cost", 0.0) or 0.0)
+        if unit_cost <= 0:
+            continue
+        balance = max(0.0, get_batch_balance(str(batch.id), db))
+        if balance <= 0:
+            continue
+        total_qty += balance
+        total_value += balance * unit_cost
+    if total_qty <= 0:
+        return 0.0, "UNAVAILABLE"
+    return total_value / total_qty, "AVG_BATCH"
+
+
 def get_item_ledger(item_id: str, db: Session) -> List[Dict]:
     item = db.query(ItemMaster).filter(ItemMaster.id == item_id).first()
     if item and item.tracking_mode == TrackingMode.REEL:
@@ -222,6 +240,10 @@ def get_all_items_balance(
         physical = get_item_balance(str(item.id), db)
         reserved = get_reserved_qty(db=db, item_id=str(item.id))
         available = physical - reserved
+        batch_cost, batch_cost_source = get_batch_weighted_cost(str(item.id), db)
+        item_cost = float(getattr(item, "unit_cost", 0.0) or 0.0)
+        resolved_cost = batch_cost if batch_cost > 0 else item_cost
+        resolved_source = batch_cost_source if batch_cost > 0 else getattr(item, "cost_source", None)
         balances.append(
             {
                 "item_id": str(item.id),
@@ -230,8 +252,8 @@ def get_all_items_balance(
                 "type": item.type.value,
                 "tracking_mode": item.tracking_mode.value,
                 "uom": item.uom.value,
-                "unit_cost": round(float(getattr(item, "unit_cost", 0.0) or 0.0), 4),
-                "cost_source": getattr(item, "cost_source", None),
+                "unit_cost": round(resolved_cost, 4),
+                "cost_source": resolved_source,
                 "reorder_level": round(float(getattr(item, "reorder_level", 0.0) or 0.0), 2),
                 "safety_stock": round(float(getattr(item, "safety_stock", 0.0) or 0.0), 2),
                 "lead_time_days": round(float(getattr(item, "lead_time_days", 0.0) or 0.0), 1),
@@ -261,6 +283,8 @@ def get_batch_details(batch_id: str, db: Session) -> Optional[Dict]:
         "item_name": batch.item.name,
         "spec_id": str(batch.spec_id) if batch.spec_id else None,
         "received_qty": batch.received_qty,
+        "unit_cost": round(float(getattr(batch, "unit_cost", 0.0) or 0.0), 4),
+        "cost_source": getattr(batch, "cost_source", None),
         "current_balance": round(physical, 2),
         "reserved_qty": round(reserved, 2),
         "dispatch_allocated_qty": round(reserved, 2),
@@ -285,6 +309,8 @@ def get_item_batches(item_id: str, db: Session) -> List[Dict]:
                 "batch_no": batch.batch_no,
                 "spec_id": str(batch.spec_id) if batch.spec_id else None,
                 "received_qty": batch.received_qty,
+                "unit_cost": round(float(getattr(batch, "unit_cost", 0.0) or 0.0), 4),
+                "cost_source": getattr(batch, "cost_source", None),
                 "current_balance": round(physical, 2),
                 "reserved_qty": round(reserved, 2),
                 "dispatch_allocated_qty": round(reserved, 2),

@@ -10,7 +10,7 @@ export default function RawMaterialInwardPage() {
   const { data: locations = [] } = useInventoryLocations()
   const { data: vendors = [] } = useVendors()
   const createInward = useCreateInward()
-  const [inward, setInward] = useState({ item_id: "", qty: "", supplier_name: "", location: "" })
+  const [inward, setInward] = useState({ item_id: "", qty: "", unit_cost: "", supplier_name: "", location: "" })
   const [submitError, setSubmitError] = useState("")
 
   const rmItems = useMemo(
@@ -35,18 +35,24 @@ export default function RawMaterialInwardPage() {
               setSubmitError("Vendor is required before posting inward.")
               return
             }
+            if (!inward.unit_cost) {
+              setSubmitError("Inward rate is required so this batch carries its purchase price.")
+              return
+            }
             try {
               await createInward.mutateAsync({
                 item_id: inward.item_id,
                 qty: Number(inward.qty),
                 supplier_name: vendorName,
+                unit_cost: Number(inward.unit_cost),
+                cost_source: "SUPPLIER",
                 location_id: inward.location || null,
               })
             } catch (error: any) {
               setSubmitError(error?.response?.data?.detail || error?.message || "Inward posting failed.")
             }
           }}
-          className="grid gap-3 md:grid-cols-5"
+          className="grid gap-3 md:grid-cols-6"
         >
           <select
             required
@@ -84,6 +90,16 @@ export default function RawMaterialInwardPage() {
               </option>
             ))}
           </select>
+          <input
+            required
+            type="number"
+            min="0.01"
+            step="0.01"
+            placeholder="Inward rate"
+            value={inward.unit_cost}
+            onChange={(e) => setInward((s) => ({ ...s, unit_cost: e.target.value }))}
+            className="h-11 rounded-xl border border-slate-200 px-3"
+          />
           {(vendors || []).length === 0 ? (
             <p className="md:col-span-6 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
               Add vendors from Master Data before posting inward.

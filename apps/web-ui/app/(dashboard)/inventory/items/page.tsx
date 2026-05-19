@@ -8,7 +8,6 @@ import { useCreateItem, useInventoryBalances, useInventoryItems, useUpdateItem }
 
 const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
-const formatCurrency = (value: unknown) => `₹${formatNumber(value, 0)}`
 
 const itemTypes = ["RAW_PAPER", "ADHESIVE", "PARCHMENT", "FINISHED_GOOD"]
 const uoms = ["KG", "PCS"]
@@ -26,15 +25,11 @@ export default function InventoryItemsPage() {
     type: "RAW_PAPER",
     tracking_mode: "REEL",
     uom: "KG",
-    unit_cost: "",
-    cost_source: "MANUAL",
     reorder_level: "",
     safety_stock: "",
     lead_time_days: "",
   })
   const [policyForm, setPolicyForm] = useState({
-    unit_cost: "",
-    cost_source: "MANUAL",
     reorder_level: "",
     safety_stock: "",
     lead_time_days: "",
@@ -61,20 +56,16 @@ export default function InventoryItemsPage() {
       type: form.type,
       tracking_mode: form.tracking_mode,
       uom: form.uom,
-      unit_cost: form.unit_cost ? Number(form.unit_cost) : null,
-      cost_source: form.unit_cost ? form.cost_source : null,
       reorder_level: form.reorder_level ? Number(form.reorder_level) : 0,
       safety_stock: form.safety_stock ? Number(form.safety_stock) : 0,
       lead_time_days: form.lead_time_days ? Number(form.lead_time_days) : 0,
     })
-    setForm((current) => ({ ...current, item_code: "", name: "", unit_cost: "", reorder_level: "", safety_stock: "", lead_time_days: "" }))
+    setForm((current) => ({ ...current, item_code: "", name: "", reorder_level: "", safety_stock: "", lead_time_days: "" }))
   }
 
   useEffect(() => {
     if (!selectedItem) return
     setPolicyForm({
-      unit_cost: selectedItem.unit_cost ? String(selectedItem.unit_cost) : "",
-      cost_source: selectedItem.cost_source || "MANUAL",
       reorder_level: selectedItem.reorder_level ? String(selectedItem.reorder_level) : "",
       safety_stock: selectedItem.safety_stock ? String(selectedItem.safety_stock) : "",
       lead_time_days: selectedItem.lead_time_days ? String(selectedItem.lead_time_days) : "",
@@ -89,8 +80,6 @@ export default function InventoryItemsPage() {
       await updateItem.mutateAsync({
         id: selectedItem.id,
         data: {
-          unit_cost: policyForm.unit_cost ? Number(policyForm.unit_cost) : null,
-          cost_source: policyForm.unit_cost ? policyForm.cost_source : null,
           reorder_level: policyForm.reorder_level ? Number(policyForm.reorder_level) : 0,
           safety_stock: policyForm.safety_stock ? Number(policyForm.safety_stock) : 0,
           lead_time_days: policyForm.lead_time_days ? Number(policyForm.lead_time_days) : 0,
@@ -107,9 +96,9 @@ export default function InventoryItemsPage() {
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Inventory master</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Items and costing rules</h1>
+            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Items and stock policy</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-cyan-50/78">
-              Create RM, FG, adhesive, and parchment items with tracking mode, UOM, and cost source used by valuation and MRP.
+              Create RM, FG, adhesive, and parchment items with tracking mode, UOM, reorder, safety, and lead-time controls.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-4 xl:w-[560px]">
@@ -164,20 +153,6 @@ export default function InventoryItemsPage() {
                 {trackingModes.map((mode) => <option key={mode} value={mode} disabled={mode === "REEL" && form.type !== "RAW_PAPER"}>{mode}</option>)}
               </select>
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
-                Unit cost
-                <input type="number" step="0.01" value={form.unit_cost} onChange={(event) => setForm((current) => ({ ...current, unit_cost: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" placeholder="0.00" />
-              </label>
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
-                Cost source
-                <select value={form.cost_source} onChange={(event) => setForm((current) => ({ ...current, cost_source: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700">
-                  <option value="MANUAL">Manual</option>
-                  <option value="SUPPLIER">Supplier</option>
-                  <option value="AVG_BATCH">Average batch</option>
-                </select>
-              </label>
-            </div>
             <div className="grid grid-cols-3 gap-3">
               <label className="space-y-1 text-sm font-semibold text-slate-700">
                 Reorder
@@ -204,8 +179,8 @@ export default function InventoryItemsPage() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-800/70">Governance</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Cost and MRP policy</h2>
-              <p className="mt-1 text-xs leading-5 text-slate-600">Select a row to edit cost, reorder, safety stock, and lead time used by MRP and stock-close risk.</p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">MRP policy</h2>
+              <p className="mt-1 text-xs leading-5 text-slate-600">Select a row to edit reorder, safety stock, and lead time used by MRP and stock-close risk.</p>
             </div>
             <div className="rounded-2xl bg-cyan-950 p-3 text-white">
               <PencilLine className="h-5 w-5" />
@@ -216,14 +191,6 @@ export default function InventoryItemsPage() {
               <div className="rounded-2xl border border-cyan-200 bg-white px-3 py-2">
                 <p className="text-sm font-semibold text-slate-950">{selectedItem.item_code}</p>
                 <p className="text-xs text-slate-500">{selectedItem.name}</p>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <input type="number" step="0.01" value={policyForm.unit_cost} onChange={(event) => setPolicyForm((current) => ({ ...current, unit_cost: event.target.value }))} className="h-11 rounded-xl border border-cyan-200 px-3 text-sm outline-none focus:border-cyan-700" placeholder="Unit cost" />
-                <select value={policyForm.cost_source} onChange={(event) => setPolicyForm((current) => ({ ...current, cost_source: event.target.value }))} className="h-11 rounded-xl border border-cyan-200 px-3 text-sm outline-none focus:border-cyan-700">
-                  <option value="MANUAL">Manual</option>
-                  <option value="SUPPLIER">Supplier</option>
-                  <option value="AVG_BATCH">Average batch</option>
-                </select>
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <input type="number" step="0.001" value={policyForm.reorder_level} onChange={(event) => setPolicyForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 rounded-xl border border-cyan-200 px-3 text-sm outline-none focus:border-cyan-700" placeholder="Reorder" />
@@ -260,16 +227,15 @@ export default function InventoryItemsPage() {
                   <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Tracking</th>
                   <th className="px-4 py-3 text-right">Available</th>
-                  <th className="px-4 py-3 text-right">Unit cost</th>
                   <th className="px-4 py-3">Policy</th>
                   <th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {isLoading ? (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Loading items...</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Loading items...</td></tr>
                 ) : itemRows.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">No items found.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No items found.</td></tr>
                 ) : (
                   itemRows.map((item: any) => {
                     const balance = balanceMap.get(String(item.id)) || {}
@@ -282,10 +248,9 @@ export default function InventoryItemsPage() {
                         <td className="px-4 py-3 text-slate-700">{item.type}</td>
                         <td className="px-4 py-3 text-slate-700">{item.tracking_mode}</td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-950">{formatNumber(balance.available_qty ?? balance.balance ?? 0)} {item.uom}</td>
-                        <td className="px-4 py-3 text-right">{formatCurrency(item.unit_cost)}</td>
                         <td className="px-4 py-3 text-xs text-slate-600">
                           <p>R {formatNumber(item.reorder_level, 2)} · S {formatNumber(item.safety_stock, 2)}</p>
-                          <p>Lead {formatNumber(item.lead_time_days, 1)} d · {item.cost_source || "-"}</p>
+                          <p>Lead {formatNumber(item.lead_time_days, 1)} d</p>
                         </td>
                         <td className="px-4 py-3">
                           <button type="button" onClick={() => setSelectedItemId(item.id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900">

@@ -32,7 +32,6 @@ class PaperCreate(BaseModel):
     bf: Optional[float] = None
     ply_bond: Optional[float] = None
     bulk_factor: Optional[float] = None
-    price: Optional[float] = None
     thickness_mm: Optional[float] = None
 
 
@@ -43,7 +42,6 @@ class PaperUpdate(BaseModel):
     bf: Optional[float] = None
     ply_bond: Optional[float] = None
     bulk_factor: Optional[float] = None
-    price: Optional[float] = None
     thickness_mm: Optional[float] = None
     active: Optional[bool] = None
 
@@ -56,7 +54,6 @@ class PaperResponse(BaseModel):
     bf: Optional[float]
     thickness_mm: Optional[float]
     ply_bond: Optional[float]
-    price: Optional[float]
     bulk_factor: Optional[float]
     plant_id: str
     active: bool
@@ -75,7 +72,6 @@ def _serialize_paper(model: models.PaperMaster) -> PaperResponse:
         "bf": model.bf,
         "thickness_mm": _derived_thickness(model.gsm, model.bulk_factor),
         "ply_bond": model.ply_bond,
-        "price": model.price,
         "bulk_factor": model.bulk_factor,
         "plant_id": model.plant_id,
         "active": model.active,
@@ -141,7 +137,6 @@ def create_paper(
         strength_type=resolved_strength_type,
         strength_value=resolved_strength_value,
         category="KRAFT",
-        price=paper.price,
         bulk_factor=paper.bulk_factor,
         plant_id=plant_id,
     )
@@ -190,8 +185,6 @@ def update_paper(
         db_paper.ply_bond = update_data["ply_bond"]
     if "bulk_factor" in update_data:
         db_paper.bulk_factor = update_data["bulk_factor"]
-    if "price" in update_data:
-        db_paper.price = update_data["price"]
     if "bf" in update_data and update_data["bf"] is not None:
         db_paper.strength_value = int(round(update_data["bf"]))
         db_paper.bf = update_data["bf"]
