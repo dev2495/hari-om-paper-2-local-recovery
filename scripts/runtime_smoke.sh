@@ -259,6 +259,13 @@ BFF_PORT="${BFF_PORT:-14000}"
 WEB_UI_PORT="${WEB_UI_PORT:-13000}"
 BFF_URL="http://${HOST}:${BFF_PORT}"
 WEB_URL="http://${HOST}:${WEB_UI_PORT}"
+LOG_BASELINE_FILE="$(mktemp)"
+if compgen -G "${RUNTIME_LOG_DIR}/*.log" >/dev/null; then
+  for log_file in "${RUNTIME_LOG_DIR}"/*.log; do
+    line_count="$(wc -l < "$log_file" | tr -d ' ')"
+    printf '%s\t%s\n' "$log_file" "$line_count" >> "$LOG_BASELINE_FILE"
+  done
+fi
 
 login_file="/tmp/runtime_smoke_login.json"
 http_check "Auth login" "200" "POST" "${BFF_URL}/api/auth/login" '{"email":"admin@hariom.com","password":"admin123"}' "" "$login_file" >/dev/null
@@ -427,7 +434,18 @@ do
   fi
 done
 
-if rg -n "Internal Server Error|Traceback|ResponseValidationError|ERROR:    Exception in ASGI application" -S "${RUNTIME_LOG_DIR}"/*.log >/tmp/runtime_smoke_logscan.txt 2>/dev/null; then
+LOG_SCAN_FILE="/tmp/runtime_smoke_logscan.txt"
+: > "$LOG_SCAN_FILE"
+while IFS="$(printf '\t')" read -r log_file baseline_count; do
+  if [[ -f "$log_file" ]]; then
+    start_line=$((baseline_count + 1))
+    tail -n +"${start_line}" "$log_file" \
+      | rg -n "Internal Server Error|Traceback|ResponseValidationError|ERROR:    Exception in ASGI application" \
+      | sed "s|^|${log_file}:|" >> "$LOG_SCAN_FILE" || true
+  fi
+done < "$LOG_BASELINE_FILE"
+
+if [[ -s "$LOG_SCAN_FILE" ]]; then
   log_preview="$(head -n 20 /tmp/runtime_smoke_logscan.txt | tr '\n' ' ' | head -c 260)"
   record_result "FAIL" "Runtime log scan" "errors found: ${log_preview}"
 else

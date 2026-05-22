@@ -6,9 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/context/AuthContext"
 import { landingPathForRole, resolveLandingRole } from "@/lib/workspace"
 
-const defaultLoginEmail = process.env.NEXT_PUBLIC_DEFAULT_LOGIN_EMAIL || "devarsh"
-const defaultLoginPassword = process.env.NEXT_PUBLIC_DEFAULT_LOGIN_PASSWORD || "devarsh123"
-
 function landingPathFor(user: { role?: string | null; roles?: string[] }, fallback: string) {
   const landingRole = resolveLandingRole([user.role, ...(user.roles || [])].filter(Boolean) as string[])
   return landingPathForRole(landingRole) || fallback
@@ -20,8 +17,8 @@ function LoginPageContent() {
   const explicitNextPath = searchParams?.get("next")
   const nextPath = explicitNextPath || "/dashboard"
   const { login, user, isLoading } = useAuth()
-  const [email, setEmail] = useState(defaultLoginEmail)
-  const [password, setPassword] = useState(defaultLoginPassword)
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,7 +85,7 @@ function LoginPageContent() {
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-500">Sign in</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Access the live ERP</h2>
               <p className="mt-3 text-sm leading-6 text-slate-600">
-                Use your existing account. The demo admin credentials are prefilled for validation runs.
+                Use the username and password assigned to your ERP account.
               </p>
             </div>
 

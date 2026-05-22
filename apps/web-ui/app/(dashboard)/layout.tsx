@@ -14,6 +14,7 @@ import {
   LogOut,
   Menu,
   Package,
+  BookOpen,
   ScrollText,
   Search,
   ShieldCheck,
@@ -58,6 +59,12 @@ const navigationUnits: NavGroup[] = [
         href: "/dashboard",
         icon: Gauge,
         description: "Control room overview, alerts, and operating posture.",
+      },
+      {
+        name: "Guide",
+        href: "/help",
+        icon: BookOpen,
+        description: "Flow maps, field rules, and operator checklists for each workspace.",
       },
     ],
   },
@@ -339,6 +346,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const shellMaxWidthClass = wideWorkspace ? "max-w-none" : "max-w-[1680px]"
   const showAdminControls = userRoles.has("Owner") || userRoles.has("Admin")
   const PageIcon = pageLink?.icon
+  const helpHref = `/help?route=${encodeURIComponent(pathname)}`
 
   const handleLogout = async () => {
     await logout()
@@ -616,6 +624,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="ml-auto flex items-center gap-2">
+              <Link
+                href={helpHref}
+                className="hidden h-10 items-center gap-2 rounded-full border border-cyan-100 bg-cyan-50 px-3 text-xs font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-200 hover:bg-white sm:inline-flex"
+                title="Open page guide"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                Guide
+              </Link>
               <BooksLockedChip />
               <RoleSwitcher compact />
               <NotificationCenter />

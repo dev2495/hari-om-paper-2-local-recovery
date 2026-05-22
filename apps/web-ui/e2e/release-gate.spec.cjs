@@ -214,6 +214,30 @@ async function assertPageLoads(page, route, matcher) {
   await expect(page.locator("body")).not.toContainText(/not found|application error|unexpected application error/i)
 }
 
+test("login page keeps credentials private and contextual guide pages work", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  await page.context().clearCookies()
+  await page.goto("/login", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("login-email")).toHaveValue("")
+  await expect(page.getByTestId("login-password")).toHaveValue("")
+  await expect(page.locator("body")).not.toContainText(/devarsh123|yash123|demo admin credentials|prefilled/i)
+
+  await login(page, "admin")
+  await page.goto("/help?route=/inventory/production-issue", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("guide-page")).toBeVisible()
+  await expect(page.getByRole("heading", { name: /production issue and wip movement guide/i })).toBeVisible()
+  await expect(page.getByTestId("guide-flow-svg")).toBeVisible()
+  await expect(page.getByText(/issue movement must reference a job card/i)).toBeVisible()
+
+  await page.goto("/purchase", { waitUntil: "domcontentloaded" })
+  await page.getByRole("link", { name: /^guide$/i }).click()
+  await expect(page).toHaveURL(/\/help\?route=%2Fpurchase$/)
+  await expect(page.getByRole("heading", { name: /purchase and vendor guide/i })).toBeVisible()
+  await expect(page.getByText(/batch price belongs to inward stock/i)).toBeVisible()
+
+  await assertCritical()
+})
+
 test("admin shell, plant switching, and reports load cleanly", async ({ page }) => {
   const assertCritical = beginCriticalMonitoring(page)
   await login(page, "admin")

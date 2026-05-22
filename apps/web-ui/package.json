@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "help:validate": "node scripts/validate-help-coverage.cjs",
     "lint": "next lint --dir app --dir components --dir hooks --dir lib",
     "start": "next start"
   },

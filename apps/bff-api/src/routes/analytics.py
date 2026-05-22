@@ -6,6 +6,7 @@ from src.services.http_client import proxy_to_service
 
 router = APIRouter()
 ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://127.0.0.1:18007")
+REPORT_TIMEOUT = float(os.getenv("BFF_REPORT_HTTP_TIMEOUT_SECONDS", "90"))
 
 
 @router.get("/dashboard/overview")
@@ -20,52 +21,52 @@ async def get_dashboard_owner(request: Request, token: str = Depends(get_token))
 
 @router.get("/reports/owner-pack")
 async def get_owner_pack(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/owner-pack/html")
 async def get_owner_pack_html(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack/html", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack/html", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/owner-pack/pdf")
 async def get_owner_pack_pdf(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack/pdf", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/owner-pack/pdf", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/production")
 async def get_production_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/production", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/production", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/sales")
 async def get_sales_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/sales", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/sales", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/quality")
 async def get_quality_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/quality", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/quality", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/dispatch")
 async def get_dispatch_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/dispatch", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/dispatch", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/inventory-health")
 async def get_inventory_health_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/inventory-health", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/inventory-health", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/plant-compare")
 async def get_plant_compare_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/plant-compare", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/plant-compare", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/reports/exceptions")
 async def get_exception_report(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/exceptions", request, token)
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/reports/exceptions", request, token, timeout=REPORT_TIMEOUT)
 
 
 @router.get("/production/trends")

@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 import httpx
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 
 
 HTTP_TIMEOUT = float(os.getenv("BFF_HTTP_TIMEOUT_SECONDS", "30"))
@@ -33,6 +33,7 @@ async def proxy_to_service(
     *,
     json_body: Any | None = None,
     force_method: str | None = None,
+    timeout: float | httpx.Timeout | None = None,
 ) -> Response:
     raw_body = await request.body()
     request_kwargs: dict[str, Any] = {
@@ -45,8 +46,15 @@ async def proxy_to_service(
         request_kwargs["json"] = json_body
     elif raw_body:
         request_kwargs["content"] = raw_body
+    if timeout is not None:
+        request_kwargs["timeout"] = timeout
 
-    response = await http_client.request(**request_kwargs)
+    try:
+        response = await http_client.request(**request_kwargs)
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail=f"Upstream service timed out for {service_path}") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"Upstream service unavailable for {service_path}") from exc
     return Response(
         content=response.content,
         status_code=response.status_code,
