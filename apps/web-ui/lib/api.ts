@@ -308,6 +308,18 @@ export const salesApi = {
   releaseOrderLine: (lineId: string, data: any, plantId?: string) => api.post(`/api/sales/orders/lines/${lineId}/release`, data, withPlantHeader(plantId)),
 }
 
+function clampPlanningListParams(params?: any) {
+  if (!params || typeof params !== "object" || Array.isArray(params)) return params
+  const next = { ...params }
+  if (next.limit !== undefined && next.limit !== null) {
+    const parsed = Number(next.limit)
+    if (Number.isFinite(parsed)) {
+      next.limit = Math.min(500, Math.max(1, Math.trunc(parsed)))
+    }
+  }
+  return next
+}
+
 export const productionApi = {
   getJobs: () => api.get("/api/production/jobs"),
   createJob: (data: any) => api.post("/api/production/jobs", data),
@@ -324,7 +336,7 @@ export const productionApi = {
   releaseSyncSalesOrder: (salesOrderId: string, data: any, plantId?: string) =>
     api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
-  getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params }),
+  getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params: clampPlanningListParams(params) }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
   getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {

@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..models import ProductionJob, ReelIssue
-from ..utils.auth import get_current_user, require_role, get_current_plant
+from ..utils.auth import get_current_user, require_role, get_current_plant, get_current_plant_scope
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 settings = get_settings()
@@ -33,6 +33,21 @@ def _reference_search_terms(value: str) -> list[str]:
     if compact and compact != text:
         terms.append(compact)
     return list(dict.fromkeys(term for term in terms if term))
+
+
+def _to_uuid(value) -> uuid.UUID:
+    if isinstance(value, uuid.UUID):
+        return value
+    return uuid.UUID(str(value))
+
+
+def _apply_plant_scope_filter(query, column, plant_scope: dict):
+    if plant_scope.get("scope_all"):
+        allowed_plants = plant_scope.get("allowed_plants") or []
+        if allowed_plants:
+            return query.filter(column.in_([_to_uuid(value) for value in allowed_plants]))
+        return query
+    return query.filter(column == _to_uuid(plant_scope["selected_plant_id"]))
 
 
 class JobCreate(BaseModel):
@@ -263,10 +278,10 @@ def get_jobs(
     state: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    plant_id: str = Depends(get_current_plant),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
-    query = db.query(ProductionJob).filter(ProductionJob.plant_id == plant_id)
+    query = _apply_plant_scope_filter(db.query(ProductionJob), ProductionJob.plant_id, plant_scope)
     if date:
         query = query.filter(ProductionJob.date == date)
     if shift:
