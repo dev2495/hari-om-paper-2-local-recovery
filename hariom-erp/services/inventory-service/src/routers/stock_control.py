@@ -706,3 +706,116 @@ def create_carry_forward(
         "line_count": len(carry.lines or []),
         "opening_value": round(sum(float(line.opening_value or 0.0) for line in carry.lines or []), 2),
     }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Gap 5: post-opening from carry-forward — one-click conversion of the CF
+# proof document into an actual InventoryOpeningLoad + ledger OPENING txns
+# for next-period seeding.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/carry-forwards/{cf_id}/post-opening")
+def post_opening_from_carry_forward(
+    cf_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Store", "Owner"])),
+):
+    cf = db.query(InventoryCarryForward).filter(
+        InventoryCarryForward.id == cf_id,
+        InventoryCarryForward.plant_id == plant_id,
+    ).first()
+    if not cf:
+        raise HTTPException(status_code=404, detail="Carry-forward not found")
+
+    # Idempotency: if a CF-derived opening load already exists, return it.
+    existing = db.query(InventoryOpeningLoad).filter(
+        InventoryOpeningLoad.plant_id == plant_id,
+        InventoryOpeningLoad.document_no == f"OPEN-FROM-{cf.document_no}",
+    ).first()
+    if existing:
+        return {
+            "opening_load_id": str(existing.id),
+            "document_no": existing.document_no,
+            "carry_forward_id": str(cf.id),
+            "status": existing.status,
+            "line_count": len(existing.lines or []),
+            "message": "Opening load already created from this carry-forward (idempotent)",
+            "already_existed": True,
+        }
+
+    if not (cf.lines or []):
+        raise HTTPException(status_code=400, detail="Carry-forward has no lines to post")
+
+    header = InventoryOpeningLoad(
+        plant_id=plant_id,
+        document_no=f"OPEN-FROM-{cf.document_no}",
+        effective_date=cf.opening_date,
+        status="POSTED",
+        notes=f"Auto-posted from carry-forward {cf.document_no}",
+        created_by=_actor(current_user),
+    )
+    db.add(header)
+    db.flush()
+
+    posted_lines = 0
+    for idx, line in enumerate(cf.lines or [], start=1):
+        if not line.item_id:
+            continue
+        opening_qty = float(line.opening_qty or 0.0)
+        if opening_qty <= 0:
+            continue
+        line_row = InventoryOpeningLoadLine(
+            opening_load_id=header.id,
+            item_id=line.item_id,
+            qty=opening_qty,
+            unit_cost=float(line.unit_cost or 0.0),
+            stock_status="UNRESTRICTED",
+            notes=f"From CF {cf.document_no} line {idx}",
+        )
+        db.add(line_row)
+        # Ledger posting
+        batch = StockBatch(
+            item_id=line.item_id,
+            batch_no=f"OPEN-{cf.document_no}-{idx:03d}",
+            received_qty=opening_qty,
+            stock_status="UNRESTRICTED",
+            plant_id=plant_id,
+        )
+        db.add(batch)
+        db.flush()
+        external_ref = f"OPENING:CF:{cf.id}:{idx}"
+        db.add(
+            StockTransaction(
+                item_id=line.item_id,
+                batch_id=batch.id,
+                transaction_type=TransactionType.OPENING,
+                qty_change=opening_qty,
+                reference_type=ReferenceType.ADJUSTMENT,
+                reference_id=cf.id,
+                plant_id=plant_id,
+                stock_status="UNRESTRICTED",
+                movement_metadata={"carry_forward_id": str(cf.id), "carry_forward_doc": cf.document_no},
+                external_ref=external_ref,
+            )
+        )
+        posted_lines += 1
+
+    cf.status = "POSTED"
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Failed to post opening load") from exc
+    db.refresh(header)
+    return {
+        "opening_load_id": str(header.id),
+        "document_no": header.document_no,
+        "carry_forward_id": str(cf.id),
+        "status": header.status,
+        "line_count": posted_lines,
+        "effective_date": header.effective_date.isoformat(),
+        "message": f"Posted {posted_lines} opening lines from carry-forward {cf.document_no}",
+        "already_existed": False,
+    }

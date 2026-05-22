@@ -35,8 +35,6 @@ class AdhesiveCreate(BaseModel):
     solid_content_percent: Optional[float] = None
     viscosity: Optional[float] = None
     ph: Optional[float] = None
-    color: Optional[str] = None
-    recipe_text: Optional[str] = None
 
 
 class AdhesiveUpdate(BaseModel):
@@ -46,8 +44,6 @@ class AdhesiveUpdate(BaseModel):
     solid_content_percent: Optional[float] = None
     viscosity: Optional[float] = None
     ph: Optional[float] = None
-    color: Optional[str] = None
-    recipe_text: Optional[str] = None
     active: Optional[bool] = None
 
 
@@ -59,8 +55,6 @@ class AdhesiveResponse(BaseModel):
     solid_content_percent: Optional[float]
     viscosity: Optional[float]
     ph: Optional[float]
-    color: Optional[str]
-    recipe_text: Optional[str]
     plant_id: str
     active: bool
     created_at: Optional[datetime] = None
@@ -78,8 +72,6 @@ def _serialize_adhesive(model: models.AdhesiveMaster) -> AdhesiveResponse:
         "solid_content_percent": model.solid_content_percent,
         "viscosity": model.viscosity,
         "ph": model.ph,
-        "color": model.color,
-        "recipe_text": model.recipe_text,
         "plant_id": model.plant_id,
         "active": model.active,
         "created_at": model.created_at,
@@ -126,8 +118,6 @@ def create_adhesive(
         solid_content_percent=payload.solid_content_percent,
         viscosity=payload.viscosity,
         ph=payload.ph,
-        color=payload.color,
-        recipe_text=payload.recipe_text,
         plant_id=plant_id,
     )
     db.add(model)
@@ -180,7 +170,7 @@ def update_adhesive(
             raise HTTPException(status_code=409, detail="Adhesive code already exists in this plant")
         model.internal_code = code
 
-    for key in ("solid_content_percent", "viscosity", "ph", "color", "recipe_text", "active"):
+    for key in ("solid_content_percent", "viscosity", "ph", "active"):
         if key in update_data:
             setattr(model, key, update_data[key])
 

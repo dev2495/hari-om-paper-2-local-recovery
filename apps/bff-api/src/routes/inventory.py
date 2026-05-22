@@ -407,3 +407,58 @@ async def get_health_aging(request: Request, token: str = Depends(get_token)):
 @router.get("/health/genealogy-exceptions")
 async def get_health_genealogy_exceptions(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/genealogy-exceptions", request, token)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Lifecycle gaps — new BFF endpoints
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/transactions/aggregate-by-item")
+async def get_transactions_aggregate(request: Request, token: str = Depends(get_token)):
+    """Gap 1: aggregate ISSUE_PRODUCTION etc. per item across a date range."""
+    return await proxy_to_service(
+        INVENTORY_SERVICE_URL, "/transactions/aggregate-by-item", request, token
+    )
+
+
+@router.post("/fg-inward/manual")
+async def manual_fg_inward(request: Request, token: str = Depends(get_token)):
+    """Gap 7: manual FG inward for rework / returns / adjustments."""
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/fg-inward/manual", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_MANUAL_FG_INWARD",
+        title=f"Manual FG inward: {payload.get('batch_no') or payload.get('item_id') or 'item'}",
+        message=str(payload.get("message") or "Manual FG inward recorded outside job-close flow."),
+        href="/inventory/fg-inward",
+        recipient_roles=["Owner", "Admin", "Store", "Dispatch", "Sales"],
+        payload={"batch_id": str(payload.get("batch_id") or ""), "transaction_id": str(payload.get("transaction_id") or "")},
+    )
+    return response
+
+
+@router.post("/stock-control/carry-forwards/{cf_id}/post-opening")
+async def post_opening_from_cf(cf_id: str, request: Request, token: str = Depends(get_token)):
+    """Gap 5: auto-create an opening load from a carry-forward document."""
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/stock-control/carry-forwards/{cf_id}/post-opening",
+        request,
+        token,
+    )
+    payload = response_body_json(response) or {}
+    if not payload.get("already_existed"):
+        await emit_from_response(
+            response,
+            token=token,
+            event_type="INVENTORY_CF_OPENING_POSTED",
+            title=f"Opening load posted from CF: {payload.get('document_no') or cf_id}",
+            message=str(payload.get("message") or "Carry-forward proof was converted into a posted opening load."),
+            href="/inventory/stock-control",
+            recipient_roles=["Owner", "Admin", "Store", "Planner"],
+            payload={"opening_load_id": str(payload.get("opening_load_id") or ""), "carry_forward_id": cf_id},
+        )
+    return response

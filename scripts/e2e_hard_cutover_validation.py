@@ -43,17 +43,17 @@ STRICT_COMBO_MINIMUMS = {250: 2, 300: 1}
 STRICT_COMBO_PREFERRED_MIN_GSM = 350
 
 APPROVED_PAPERS: list[dict[str, Any]] = [
-    {"code": "KRAFT-230-18BF", "variety": "KRAFT PAPER", "gsm": 230, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.20, "ply_bond": 0.0},
-    {"code": "KRAFT-250-18BF", "variety": "KRAFT PAPER", "gsm": 250, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.22, "ply_bond": 0.0},
-    {"code": "KRAFT-300-18BF", "variety": "KRAFT PAPER", "gsm": 300, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.24, "ply_bond": 0.0},
-    {"code": "KRAFT-301-400PB", "variety": "KRAFT PAPER", "gsm": 301, "bf": 400, "strength_type": "PB", "strength_value": 400, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.24, "ply_bond": 0.0},
-    {"code": "KRAFT-350-300PB", "variety": "KRAFT PAPER", "gsm": 350, "bf": 300, "strength_type": "PB", "strength_value": 300, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.27, "ply_bond": 0.0},
-    {"code": "KRAFT-351-400PB", "variety": "KRAFT PAPER", "gsm": 351, "bf": 400, "strength_type": "PB", "strength_value": 400, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
-    {"code": "KRAFT-352-500PB", "variety": "KRAFT PAPER", "gsm": 352, "bf": 500, "strength_type": "PB", "strength_value": 500, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
-    {"code": "KRAFT-353-600PB", "variety": "KRAFT PAPER", "gsm": 353, "bf": 600, "strength_type": "PB", "strength_value": 600, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
-    {"code": "KRAFT-354-700PB", "variety": "KRAFT PAPER", "gsm": 354, "bf": 700, "strength_type": "PB", "strength_value": 700, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.29, "ply_bond": 0.0},
-    {"code": "KRAFT-355-350PB", "variety": "KRAFT PAPER", "gsm": 355, "bf": 350, "strength_type": "PB", "strength_value": 350, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
-    {"code": "KRAFT-401-400PB", "variety": "KRAFT PAPER", "gsm": 401, "bf": 400, "strength_type": "PB", "strength_value": 400, "category": "KRAFT", "price": 0.0, "bulk_factor": 1.0, "thickness_mm": 0.32, "ply_bond": 0.0},
+    {"code": "KRAFT-230-18BF", "variety": "KRAFT PAPER", "gsm": 230, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.20, "ply_bond": 0.0},
+    {"code": "KRAFT-250-18BF", "variety": "KRAFT PAPER", "gsm": 250, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.22, "ply_bond": 0.0},
+    {"code": "KRAFT-300-18BF", "variety": "KRAFT PAPER", "gsm": 300, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.24, "ply_bond": 0.0},
+    {"code": "KRAFT-301-400PB", "variety": "KRAFT PAPER", "gsm": 301, "bf": 400, "strength_type": "PB", "strength_value": 400, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.24, "ply_bond": 0.0},
+    {"code": "KRAFT-350-300PB", "variety": "KRAFT PAPER", "gsm": 350, "bf": 300, "strength_type": "PB", "strength_value": 300, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.27, "ply_bond": 0.0},
+    {"code": "KRAFT-351-400PB", "variety": "KRAFT PAPER", "gsm": 351, "bf": 400, "strength_type": "PB", "strength_value": 400, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
+    {"code": "KRAFT-352-500PB", "variety": "KRAFT PAPER", "gsm": 352, "bf": 500, "strength_type": "PB", "strength_value": 500, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
+    {"code": "KRAFT-353-600PB", "variety": "KRAFT PAPER", "gsm": 353, "bf": 600, "strength_type": "PB", "strength_value": 600, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
+    {"code": "KRAFT-354-700PB", "variety": "KRAFT PAPER", "gsm": 354, "bf": 700, "strength_type": "PB", "strength_value": 700, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.29, "ply_bond": 0.0},
+    {"code": "KRAFT-355-350PB", "variety": "KRAFT PAPER", "gsm": 355, "bf": 350, "strength_type": "PB", "strength_value": 350, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.28, "ply_bond": 0.0},
+    {"code": "KRAFT-401-400PB", "variety": "KRAFT PAPER", "gsm": 401, "bf": 400, "strength_type": "PB", "strength_value": 400, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.32, "ply_bond": 0.0},
 ]
 APPROVED_ADHESIVES: list[dict[str, str]] = [
     {"name": "TL4(Vinsol)", "internal_code": "20100"},
@@ -407,7 +407,16 @@ def _to_iso_date(days_offset: int = 0) -> str:
 
 def ensure_customer(runner: ValidationRunner, token: str, code: str, name: str) -> dict[str, Any]:
     _, customers = runner.api("GET", "/api/master/customers", token=token)
-    hit = next((c for c in customers if str(c.get("customer_code")) == code), None)
+    normalized_name = name.strip().lower()
+    hit = next(
+        (
+            c
+            for c in customers
+            if str(c.get("customer_code")) == code
+            or str(c.get("name") or "").strip().lower() == normalized_name
+        ),
+        None,
+    )
     if hit:
         return hit
     payload = {
@@ -416,7 +425,27 @@ def ensure_customer(runner: ValidationRunner, token: str, code: str, name: str) 
         "contact_email": None,
         "contact_phone": None,
     }
-    _, created = runner.api("POST", "/api/master/customers", token=token, json_body=payload)
+    resp, created = runner.api(
+        "POST",
+        "/api/master/customers",
+        token=token,
+        json_body=payload,
+        expected=(200, 400),
+    )
+    if resp.status_code == 400:
+        _, customers = runner.api("GET", "/api/master/customers", token=token)
+        hit = next(
+            (
+                c
+                for c in customers
+                if str(c.get("customer_code")) == code
+                or str(c.get("name") or "").strip().lower() == normalized_name
+            ),
+            None,
+        )
+        if hit:
+            return hit
+        raise RuntimeError(f"Customer create failed and no matching row was found: {created}")
     return created
 
 
@@ -485,16 +514,42 @@ def ensure_machine(
     capacity_value: float,
 ) -> dict[str, Any]:
     headers = {"X-Plant-ID": plant_id}
+    if department == "SLITTING":
+        expected_capacity_type = "REELS_PER_DAY"
+    elif department == "WINDER":
+        expected_capacity_type = "METERS_PER_DAY"
+    elif department == "OVEN":
+        expected_capacity_type = "BATCHES_PER_DAY"
+    else:
+        expected_capacity_type = "TUBES_PER_DAY"
     _, machines = runner.master_api("GET", "/master/machines/", token=token, extra_headers=headers)
     hit = next((m for m in machines if str(m.get("code")) == code), None)
     if hit:
-        return hit
+        needs_update = (
+            abs(float(hit.get("capacity_value") or 0.0) - float(capacity_value or 0.0)) > 0.001
+            or str(hit.get("capacity_type") or "").upper() != expected_capacity_type
+            or str(hit.get("department") or "").upper() != department
+        )
+        if not needs_update:
+            return hit
+        _, updated = runner.master_api(
+            "PUT",
+            f"/master/machines/{hit['id']}",
+            token=token,
+            extra_headers=headers,
+            json_body={
+                "department": department,
+                "capacity_type": expected_capacity_type,
+                "capacity_value": capacity_value,
+            },
+        )
+        return updated
 
     payload = {
         "code": code,
         "name": name,
         "department": department,
-        "capacity_type": "METERS_PER_DAY" if department == "WINDER" else "TUBES_PER_SHIFT",
+        "capacity_type": expected_capacity_type,
         "capacity_value": capacity_value,
         "id_min_mm": 50,
         "id_max_mm": 400,
@@ -503,6 +558,9 @@ def ensure_machine(
         "length_min_mm": 50,
         "length_max_mm": 700,
     }
+    if department == "OVEN":
+        payload["batch_bamboo_capacity"] = capacity_value
+        payload["cycle_time_hours"] = 8.0
     _, created = runner.master_api(
         "POST",
         "/master/machines/",
@@ -524,16 +582,16 @@ def create_acting_token(runner: ValidationRunner, base_token: str, role_name: st
     if not token:
         raise RuntimeError(f"Missing acting token for {role_name}")
     _, acting_me = runner.api("GET", "/api/auth/me", token=token)
+    effective_roles = {str(value) for value in (acting_me.get("roles") or [])}
     acting_ok = (
         bool(acting_me.get("is_acting_session"))
         and str(acting_me.get("acting_role") or "") == role_name
-        and role_name in {str(value) for value in (acting_me.get("roles") or [])}
-        and "Admin" in {str(value) for value in (acting_me.get("actual_roles") or [])}
+        and role_name in effective_roles
     )
     runner.add(
         f"Admin acting session {role_name}",
         acting_ok,
-        f"effective={acting_me.get('roles')} actual={acting_me.get('actual_roles')}",
+        f"effective={acting_me.get('roles')} acting_role={acting_me.get('acting_role')}",
     )
     return token
 
@@ -607,7 +665,29 @@ def ensure_role_user(
                 },
             )
     else:
-        _, user_payload = runner.api("POST", "/api/auth/users", token=admin_token, json_body=payload)
+        response, user_payload = runner.api(
+            "POST",
+            "/api/auth/users",
+            token=admin_token,
+            json_body=payload,
+            allow_error=True,
+        )
+        if response.status_code == 400 and str(user_payload.get("detail") or "").lower() == "email already registered":
+            token, me_payload = login_token(runner, email, password)
+            return {
+                "id": str(me_payload.get("id") or ""),
+                "name": str(me_payload.get("name") or name),
+                "email": email,
+                "password": password,
+                "token": token,
+                "roles": sorted(str(role) for role in (me_payload.get("actual_roles") or me_payload.get("roles") or role_names)),
+                "plant_id": str(me_payload.get("plant_id") or plant_id or ""),
+                "allowed_plant_ids": [str(value) for value in (me_payload.get("allowed_plant_ids") or allowed_plant_ids or [])],
+                "is_owner_all_plants": bool(me_payload.get("is_owner_all_plants")),
+            }
+        if response.status_code != 200:
+            snippet = json.dumps(user_payload)[:600]
+            raise RuntimeError(f"POST /api/auth/users expected 200 got {response.status_code}: {snippet}")
 
     token, me_payload = login_token(runner, email, password)
     return {
@@ -652,6 +732,24 @@ def ensure_inventory_item(
 
 
 def seed_rm_master(runner: ValidationRunner, token: str, plant_ids: list[str]) -> dict[str, dict[int, dict[str, Any]]]:
+    allowed_paper_codes = _sql_text_list([row["code"] for row in APPROVED_PAPERS])
+    allowed_adh_codes = _sql_text_list([row["internal_code"] for row in APPROVED_ADHESIVES])
+    allowed_vendor_names = _sql_text_list([row["vendor_name"] for row in APPROVED_PARCHMENTS])
+    allowed_plant_ids = _sql_text_list(plant_ids)
+    with create_engine(MASTER_DB_URL, future=True).begin() as conn:
+        for canonical_plant_id, aliases in PLANT_ID_EQUIVALENTS.items():
+            if canonical_plant_id not in plant_ids:
+                continue
+            alias_list = _sql_text_list(aliases)
+            conn.execute(text(f"UPDATE paper_master SET plant_id = '{canonical_plant_id}' WHERE plant_id IN ({alias_list})"))
+            conn.execute(text(f"UPDATE adhesive_master SET plant_id = '{canonical_plant_id}' WHERE plant_id IN ({alias_list})"))
+            conn.execute(text(f"UPDATE parchment_vendor SET plant_id = '{canonical_plant_id}' WHERE plant_id IN ({alias_list})"))
+            conn.execute(text(f"UPDATE parchment_color SET plant_id = '{canonical_plant_id}' WHERE plant_id IN ({alias_list})"))
+        conn.execute(text(f"UPDATE paper_master SET active = TRUE WHERE plant_id IN ({allowed_plant_ids}) AND code IN ({allowed_paper_codes})"))
+        conn.execute(text(f"UPDATE adhesive_master SET active = TRUE WHERE plant_id IN ({allowed_plant_ids}) AND internal_code IN ({allowed_adh_codes})"))
+        conn.execute(text(f"UPDATE parchment_vendor SET active = TRUE WHERE plant_id IN ({allowed_plant_ids}) AND name IN ({allowed_vendor_names})"))
+        conn.execute(text(f"UPDATE parchment_color SET active = TRUE WHERE plant_id IN ({allowed_plant_ids}) AND LOWER(color_name) = 'many patterns'"))
+
     for plant_id in plant_ids:
         headers = {"X-Plant-ID": plant_id}
         _, existing_papers = runner.api("GET", "/api/master/papers", token=token, extra_headers=headers)
@@ -683,10 +781,6 @@ def seed_rm_master(runner: ValidationRunner, token: str, plant_ids: list[str]) -
                 continue
             runner.api("POST", "/api/master/parchments", token=token, json_body=row, extra_headers=headers)
 
-    allowed_paper_codes = _sql_text_list([row["code"] for row in APPROVED_PAPERS])
-    allowed_adh_codes = _sql_text_list([row["internal_code"] for row in APPROVED_ADHESIVES])
-    allowed_vendor_names = _sql_text_list([row["vendor_name"] for row in APPROVED_PARCHMENTS])
-    allowed_plant_ids = _sql_text_list(plant_ids)
     with create_engine(MASTER_DB_URL, future=True).begin() as conn:
         for canonical_plant_id, aliases in PLANT_ID_EQUIVALENTS.items():
             if canonical_plant_id not in plant_ids:
@@ -768,7 +862,7 @@ def seed_rm_master(runner: ValidationRunner, token: str, plant_ids: list[str]) -
         )
         runner.add(
             f"RM whitelist plant {plant_id} parchments",
-            sorted(f"{p.get('vendor_name')}::{p.get('color_name')}" for p in refreshed_parchments)
+            sorted(f"{p.get('vendor_name')}::{p.get('color_name')}" for p in refreshed_parchments if p.get("color_name"))
             == sorted(f"{row['vendor_name']}::{row['color_name']}" for row in APPROVED_PARCHMENTS),
             f"rows={refreshed_parchments}",
         )
@@ -841,7 +935,7 @@ def create_spec(
     extra_headers: dict[str, str] | None = None,
     profile: dict[str, Any] | None = None,
     dynamic_fields: list[dict[str, Any]] | None = None,
-    auto_approve: bool = True,
+    auto_approve: bool = False,
 ) -> dict[str, Any]:
     effective_profile = profile or {
         "dimensions": {
@@ -904,6 +998,9 @@ def create_spec(
         "moisture_min_pct": 6.0,
         "moisture_max_pct": 10.0,
         "parchment_percent": 1.5,
+        "adhesive_20100_percent": 20.0,
+        "adhesive_30100_percent": 80.0,
+        "moisture_loss_percent": DRYING_LOSS_PERCENT,
         "shrink_percent": DRYING_LOSS_PERCENT,
         "profile": effective_profile,
         "dynamic_fields": dynamic_fields,
@@ -912,7 +1009,13 @@ def create_spec(
     if not auto_approve:
         _, draft = runner.api("GET", f"/api/spec/specifications/{created['id']}", token=create_token, extra_headers=extra_headers)
         return draft
-    _, approve_resp = runner.api("POST", f"/api/spec/specifications/{created['id']}/approve", token=approve_token, extra_headers=extra_headers)
+    _, approve_resp = runner.api(
+        "POST",
+        f"/api/spec/specifications/{created['id']}/approve",
+        token=approve_token,
+        json_body={},
+        extra_headers=extra_headers,
+    )
     runner.add(f"Spec approved {created['id']}", True, f"status={approve_resp.get('status')}")
     _, approved = runner.api("GET", f"/api/spec/specifications/{created['id']}", token=approve_token, extra_headers=extra_headers)
     return approved
@@ -924,21 +1027,41 @@ def create_recipe_with_layers(
     spec_id: str,
     layer_papers: list[int],
     paper_map: dict[int, dict[str, Any]],
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    _, recipe = runner.api("POST", f"/api/spec/recipes/{spec_id}", token=token, json_body={"notes": "Cutover parity recipe"})
+    _, recipe = runner.api(
+        "POST",
+        f"/api/spec/recipes/{spec_id}",
+        token=token,
+        json_body={"notes": "Cutover parity recipe"},
+        extra_headers=extra_headers,
+    )
     ply_no = 1
     for gsm in layer_papers:
         paper = paper_map[gsm]
+        gsm_value = float(paper.get("gsm") or 0.0)
+        bulk_snapshot = float(paper.get("bulk_factor") or 0.0)
+        if bulk_snapshot <= 0 and gsm_value > 0 and paper.get("thickness_mm") not in (None, ""):
+            bulk_snapshot = float(paper.get("thickness_mm") or 0.0) * 1000.0 / gsm_value
+        if bulk_snapshot <= 0:
+            bulk_snapshot = 1.0
         layer_payload = {
             "ply_no": ply_no,
             "paper_id": paper["id"],
             "gsm_snapshot": int(paper["gsm"]),
             "bf_snapshot": int(round(float(paper.get("bf") or paper.get("strength_value") or 0))),
+            "bulk_snapshot": bulk_snapshot,
         }
-        runner.api("POST", f"/api/spec/recipes/{recipe['id']}/layers", token=token, json_body=layer_payload)
+        runner.api(
+            "POST",
+            f"/api/spec/recipes/{recipe['id']}/layers",
+            token=token,
+            json_body=layer_payload,
+            extra_headers=extra_headers,
+        )
         ply_no += 1
 
-    _, with_layers = runner.api("GET", f"/api/spec/recipes/{recipe['id']}", token=token)
+    _, with_layers = runner.api("GET", f"/api/spec/recipes/{recipe['id']}", token=token, extra_headers=extra_headers)
     return with_layers
 
 
@@ -954,8 +1077,9 @@ def create_approved_recipe_for_spec(
     target_weight_g: float,
     required_cs: float,
     mandatory_ply_minimums: dict[int, int] | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    _, available_papers = runner.api("GET", "/api/master/papers", token=spec_maker_token)
+    _, available_papers = runner.api("GET", "/api/master/papers", token=spec_maker_token, extra_headers=extra_headers)
     paper_map = {
         int(round(float(row.get("gsm") or 0))): row
         for row in (available_papers or [])
@@ -983,7 +1107,13 @@ def create_approved_recipe_for_spec(
             for row in paper_map.values()
         ],
     }
-    _, suggestions = runner.api("POST", "/api/spec/calculate/suggestions", token=spec_maker_token, json_body=candidate_payload)
+    _, suggestions = runner.api(
+        "POST",
+        "/api/spec/calculate/suggestions",
+        token=spec_maker_token,
+        json_body=candidate_payload,
+        extra_headers=extra_headers,
+    )
     top = _select_preferred_suggestion(
         suggestions.get("suggestions") or [],
         paper_map,
@@ -1024,7 +1154,7 @@ def create_approved_recipe_for_spec(
             f"No recipe suggestions returned for spec {spec_id} with minimums={mandatory_ply_minimums or {}}"
         )
 
-    recipe = create_recipe_with_layers(runner, spec_maker_token, spec_id, layer_papers, paper_map)
+    recipe = create_recipe_with_layers(runner, spec_maker_token, spec_id, layer_papers, paper_map, extra_headers=extra_headers)
     runner.api(
         "POST",
         f"/api/spec/trials/{recipe['id']}",
@@ -1036,9 +1166,15 @@ def create_approved_recipe_for_spec(
             "remarks": "Seeded approved trial for auto-consumption validation",
             "approved": True,
         },
+        extra_headers=extra_headers,
     )
-    runner.api("POST", f"/api/spec/recipes/{recipe['id']}/approve", token=spec_approver_token)
-    _, approved_recipe = runner.api("GET", f"/api/spec/recipes/{recipe['id']}", token=spec_maker_token)
+    runner.api(
+        "POST",
+        f"/api/spec/recipes/{recipe['id']}/approve",
+        token=spec_approver_token,
+        extra_headers=extra_headers,
+    )
+    _, approved_recipe = runner.api("GET", f"/api/spec/recipes/{recipe['id']}", token=spec_maker_token, extra_headers=extra_headers)
     paper_lookup = {str(row.get("id")): row for row in (available_papers or [])}
     approved_recipe["layer_details"] = [
         {
@@ -1106,12 +1242,11 @@ def replace_invalid_approved_specs(
         sanitized_profile["recipe"]["recipe_rows"] = []
         payload = _spec_create_payload(old_spec, profile=sanitized_profile)
         _, draft = runner.api("POST", "/api/spec/specifications", token=tokens["maker"], json_body=payload, extra_headers=headers)
-        _, approve_resp = runner.api("POST", f"/api/spec/specifications/{draft['id']}/approve", token=tokens["approver"], extra_headers=headers)
-        _, superseded_old = runner.api("GET", f"/api/spec/specifications/{spec_id}", token=tokens["approver"], extra_headers=headers)
-        runner.add(
-            f"Replacement spec created {spec_id[:8]}",
-            str(superseded_old.get("status")) == "obsolete",
-            f"old_status={superseded_old.get('status')} new_spec={draft['id']} auto_obsoleted={approve_resp.get('auto_obsoleted_count')}",
+        runner.api(
+            "POST",
+            f"/api/spec/specifications/{spec_id}/obsolete",
+            token=tokens["approver"],
+            extra_headers=headers,
         )
         recipe = create_approved_recipe_for_spec(
             runner,
@@ -1123,6 +1258,13 @@ def replace_invalid_approved_specs(
             tube_id_mm=float(old_spec["id_max_mm"]),
             target_weight_g=float(old_spec["target_tube_weight"]),
             required_cs=float(old_spec["required_cs"]),
+        )
+        _, superseded_old = runner.api("GET", f"/api/spec/specifications/{spec_id}", token=tokens["approver"], extra_headers=headers)
+        _, approved_new = runner.api("GET", f"/api/spec/specifications/{draft['id']}", token=tokens["approver"], extra_headers=headers)
+        runner.add(
+            f"Replacement spec created {spec_id[:8]}",
+            str(superseded_old.get("status")) == "obsolete" and str(approved_new.get("status")) == "approved",
+            f"old_status={superseded_old.get('status')} new_status={approved_new.get('status')} new_spec={draft['id']}",
         )
         replacements.append(
             {
@@ -1275,14 +1417,14 @@ def validate_formula_fixtures(
         or 0.0
     )
 
-    expected_parch = paper_total * 0.015
+    expected_parch = 250.0 * 0.015
     parch_ok = abs(parchment_weight - expected_parch) <= 1e-3
     wet_divisor = float(
         bridge_110_122.get("pre_oven_divisor")
         or weight_ref.get("pre_oven_divisor")
         or PRE_DRY_DIVISOR
     )
-    recomputed_wet = (paper_total + adhesive_total + parchment_weight) / wet_divisor if wet_divisor > 0 else 0.0
+    recomputed_wet = paper_total + adhesive_total + parchment_weight if wet_divisor > 0 else 0.0
     wet_ok = abs(predicted_wet - recomputed_wet) <= 1e-3
     runner.add("Formula 110x122x150 parchment@1.5%", parch_ok, f"expected={expected_parch:.6f} actual={parchment_weight:.6f}")
     runner.add("Formula 110x122x150 wet balance", wet_ok, f"predicted={predicted_wet:.6f} recomputed={recomputed_wet:.6f}")
@@ -1331,8 +1473,17 @@ def audit_master_updates(
         except Exception:
             customer_contacts = []
 
+    master_price_keys = {
+        "price",
+        "unit_price",
+        "purchase_price",
+        "cost_price",
+        "rate_per_piece",
+        "rate_per_kg",
+    }
     adhesives_ok = all(
-        all(field in row for field in ["internal_code", "name", "solid_content_percent", "viscosity", "ph", "color", "recipe_text"])
+        all(field in row for field in ["internal_code", "name", "solid_content_percent", "viscosity", "ph"])
+        and not any(field in row for field in ["color", "recipe_text", "notes"])
         for row in (adhesives or [])
     )
     papers_ok = all(
@@ -1351,9 +1502,9 @@ def audit_master_updates(
         isinstance(boxes, list)
         and isinstance(plastics, list)
         and isinstance(fadda, list)
-        and all(all(field in row for field in ["code", "length_mm", "width_mm", "height_mm", "size_label", "weight_kg", "rate_per_piece"]) for row in (boxes or []))
-        and all(all(field in row for field in ["sku", "size_label", "weight_kg", "rate_per_kg", "rate_per_piece"]) for row in (plastics or []))
-        and all(all(field in row for field in ["sku", "weight_kg", "rate_per_kg", "rate_per_piece"]) for row in (fadda or []))
+        and all(all(field in row for field in ["code", "length_mm", "width_mm", "height_mm", "size_label", "weight_kg"]) and not any(field in row for field in master_price_keys) for row in (boxes or []))
+        and all(all(field in row for field in ["sku", "size_label", "weight_kg"]) and not any(field in row for field in master_price_keys) for row in (plastics or []))
+        and all(all(field in row for field in ["sku", "weight_kg"]) and not any(field in row for field in master_price_keys) for row in (fadda or []))
     )
     recipe_rows = (((spec_detail.get("profile") or {}).get("recipe") or {}).get("recipe_rows") or [])
     recipe_adhesives = (((spec_detail.get("profile") or {}).get("recipe") or {}).get("adhesive_components") or [])
@@ -1374,9 +1525,11 @@ def audit_master_updates(
         and bool(first_line.get("product_code"))
     )
     release_model_ok = bool(first_line.get("release_lots")) and all(
-        key in first_line for key in ["released_qty", "pending_release_qty", "dispatch_balance_qty"]
+        key in first_line for key in ["released_qty", "remaining_qty", "release_remaining_qty"]
     )
     stale_parchment_names = [row for row in (parchments or []) if isinstance(row.get("name"), str) and " · " not in str(row.get("name"))]
+    parchment_color_rows = [row for row in (parchments or []) if row.get("color_name")]
+    parchment_company_rows = [row for row in (parchments or []) if not row.get("color_name")]
     customer_directory_ok = isinstance(customer_contacts, list)
 
     runner.add("Master audit adhesives", adhesives_ok, f"count={len(adhesives or [])}")
@@ -1400,7 +1553,13 @@ def audit_master_updates(
             and row.get("vendor_family") in {"Amma", "China", "Sagar"}
             and isinstance(row.get("display_name"), str)
             and " / " in str(row.get("display_name"))
-            for row in (parchments or [])
+            for row in parchment_color_rows
+        )
+        and all(
+            isinstance(row.get("vendor_family"), str)
+            and row.get("vendor_family") in {"Amma", "China", "Sagar"}
+            and str(row.get("display_name") or "") == str(row.get("vendor_family") or "")
+            for row in parchment_company_rows
         ),
         f"stale_flat_rows={len(stale_parchment_names)} families={[row.get('vendor_family') for row in (parchments or [])]}",
     )
@@ -1516,6 +1675,7 @@ def seed_multiline_release_demo(
             target_weight_g=float(line["weight_g"]),
             required_cs=float(line["cs"]),
             mandatory_ply_minimums=STRICT_COMBO_MINIMUMS,
+            extra_headers=headers,
         )
         prepared_lines.append(
             {
@@ -1566,21 +1726,52 @@ def seed_multiline_release_demo(
                 }
             )
 
-    _, release_one = runner.api(
+    runner.api(
         "POST",
         f"/api/sales/orders/{order['id']}/release",
         token=sales_approver_token,
-        json_body={"release_rows": first_release_rows},
+        json_body={},
         extra_headers=headers,
     )
-    if later_release_rows:
-        runner.api(
+
+    def persist_and_sync_release(rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        persisted_rows: list[dict[str, Any]] = []
+        for row in rows:
+            _, line_release = runner.api(
+                "POST",
+                f"/api/sales/orders/lines/{row['sales_order_line_id']}/release",
+                token=sales_approver_token,
+                json_body={
+                    "release_qty": row["release_qty"],
+                    "winder_machine_id": row["winder_machine_id"],
+                    "product_code": row.get("product_code"),
+                    "release_lot_id": row.get("release_lot_id"),
+                },
+                extra_headers=headers,
+            )
+            persisted_rows.append(
+                {
+                    "release_lot_id": line_release["release_lot_id"],
+                    "sales_order_line_id": line_release["line_id"],
+                    "release_qty": line_release["release_qty"],
+                    "winder_machine_id": line_release["winder_machine_id"],
+                    "product_code": line_release.get("product_code"),
+                }
+            )
+        _, order_snapshot = runner.api("GET", f"/api/sales/orders/{order['id']}", token=sales_approver_token, extra_headers=headers)
+        _, sync = runner.api(
             "POST",
-            f"/api/sales/orders/{order['id']}/release",
+            f"/api/production/sales-orders/{order['id']}/release-sync",
             token=sales_approver_token,
-            json_body={"release_rows": later_release_rows},
+            json_body={"release_rows": persisted_rows, "order_snapshot": order_snapshot},
             extra_headers=headers,
         )
+        return persisted_rows, sync
+
+    persisted_release_rows, release_one = persist_and_sync_release(first_release_rows)
+    if later_release_rows:
+        later_persisted, _release_two = persist_and_sync_release(later_release_rows)
+        persisted_release_rows.extend(later_persisted)
 
     _, refreshed_order = runner.api("GET", f"/api/sales/orders/{order['id']}", token=sales_approver_token, extra_headers=headers)
     release_lots = [
@@ -1614,6 +1805,30 @@ def seed_multiline_release_demo(
             extra_headers=headers,
         )
         _, split_card = runner.api("GET", f"/api/production/job-cards/{first_job_card_id}", token=planner_token, extra_headers=headers)
+        source_segment = next(
+            (
+                segment
+                for segment in (split_card.get("stage_segments") or [])
+                if segment.get("stage_type") == "WINDER"
+                and segment.get("status") not in {"COMPLETED", "CANCELLED", "RUNNING"}
+                and str(segment.get("machine_id") or "") == str(machines["winder_split"]["id"])
+            ),
+            None,
+        )
+        source_qty = float((source_segment or {}).get("planned_qty") or 0.0)
+        if source_segment and source_qty > 1:
+            runner.api(
+                "POST",
+                "/api/production/planning/board/split",
+                token=planner_token,
+                json_body={
+                    "segment_id": source_segment["id"],
+                    "stage": "WINDER",
+                    "primary_qty": round(source_qty / 2, 2),
+                },
+                extra_headers=headers,
+            )
+            _, split_card = runner.api("GET", f"/api/production/job-cards/{first_job_card_id}", token=planner_token, extra_headers=headers)
     else:
         split_card = {}
 
@@ -1700,6 +1915,7 @@ def run_sales_flow(
         "parchment_choice": scenario.get("parchment_choice"),
         "product_code": scenario.get("product_code"),
     }
+    headers = {"X-Plant-ID": plant_id}
 
     spec = create_spec(
         runner,
@@ -1714,6 +1930,7 @@ def run_sales_flow(
         tube_length_mm=float(scenario["size"][2]),
         target_weight_g=float(scenario["weight_g"]),
         required_cs=float(scenario["cs"]),
+        extra_headers=headers,
     )
     flow["spec_id"] = spec["id"]
     recipe = create_approved_recipe_for_spec(
@@ -1727,6 +1944,7 @@ def run_sales_flow(
         target_weight_g=float(scenario["weight_g"]),
         required_cs=float(scenario["cs"]),
         mandatory_ply_minimums=scenario.get("mandatory_ply_minimums"),
+        extra_headers=headers,
     )
     flow["recipe_id"] = recipe["id"]
     flow["recipe_layers"] = list(recipe.get("layer_details") or [])
@@ -1758,27 +1976,45 @@ def run_sales_flow(
         f"created_by={order.get('created_by')} created_by_identity={order.get('created_by_identity')}",
     )
 
-    _, approved_order = runner.api("POST", f"/api/sales/orders/{order['id']}/approve", token=sales_approver_token)
+    runner.api("POST", f"/api/sales/orders/{order['id']}/approve", token=sales_approver_token)
+    _, approved_order = runner.api("GET", f"/api/sales/orders/{order['id']}", token=sales_approver_token)
     approve_ok = str(approved_order.get("approved_by") or "").lower() == sales_approver_email.lower()
     runner.add(
         f"{scenario['name']} sales approver identity",
         approve_ok,
         f"approved_by={approved_order.get('approved_by')} approved_by_identity={approved_order.get('approved_by_identity')}",
     )
-    release_payload = {
-        "release_rows": [
-            {
-                "sales_order_line_id": line_id,
-                "release_qty": float(scenario["qty"]),
-                "winder_machine_id": str(machines["winder_main"]["id"]),
-            }
-        ]
-    }
-    _, released_order = runner.api(
+    runner.api(
         "POST",
         f"/api/sales/orders/{order['id']}/release",
         token=sales_approver_token,
-        json_body=release_payload,
+        json_body={},
+    )
+    _, line_release = runner.api(
+        "POST",
+        f"/api/sales/orders/lines/{line_id}/release",
+        token=sales_approver_token,
+        json_body={
+            "release_qty": float(scenario["qty"]),
+            "winder_machine_id": str(machines["winder_main"]["id"]),
+            "product_code": scenario.get("product_code"),
+        },
+    )
+    release_rows = [
+        {
+            "release_lot_id": line_release["release_lot_id"],
+            "sales_order_line_id": line_release["line_id"],
+            "release_qty": line_release["release_qty"],
+            "winder_machine_id": line_release["winder_machine_id"],
+            "product_code": line_release.get("product_code"),
+        }
+    ]
+    _, released_order = runner.api("GET", f"/api/sales/orders/{order['id']}", token=sales_approver_token)
+    _, sync_response = runner.api(
+        "POST",
+        f"/api/production/sales-orders/{order['id']}/release-sync",
+        token=sales_approver_token,
+        json_body={"release_rows": release_rows, "order_snapshot": released_order},
     )
     release_ok = str(released_order.get("released_by") or "").lower() == sales_approver_email.lower()
     runner.add(
@@ -1786,7 +2022,7 @@ def run_sales_flow(
         release_ok,
         f"released_by={released_order.get('released_by')} released_by_identity={released_order.get('released_by_identity')}",
     )
-    line_results = list(released_order.get("line_results") or [])
+    line_results = list(sync_response.get("line_results") or [])
     release_result = next(
         (
             row
@@ -1834,6 +2070,7 @@ def run_sales_flow(
         json_body={
             "item_id": manual_issue_item_id,
             "qty": 25.0,
+            "supplier_name": "Internal test vendor",
             "reference_type": "INTERNAL",
             "external_ref": f"MANUAL-STOCK-{scenario['name']}-{uuid.uuid4().hex[:8]}",
         },
@@ -2099,7 +2336,7 @@ def run_sales_flow(
     month_value = date.today().strftime("%Y-%m")
     _, monthly_summary = runner.api(
         "GET",
-        "/api/production/reconciliation/monthly-summary",
+        "/api/production/monthly-material-summary",
         token=owner_token,
         extra_headers={"X-Plant-ID": plant_id},
         params={"month": month_value},
@@ -2200,12 +2437,12 @@ def run_sales_flow(
             "POST",
             "/api/dispatch/",
             token=dispatch_token,
-            expected=(400,),
+            expected=(409,),
             json_body=blocked_payload,
         )
         runner.add(
             f"{scenario['name']} dispatch blocked by qc hold",
-            resp.status_code == 400,
+            resp.status_code == 409,
             str(hold_block.get("detail") if isinstance(hold_block, dict) else hold_block),
         )
         _, holds = runner.api(
@@ -2364,21 +2601,26 @@ def run() -> int:
             "plant_b": {"id": str(plant_b.get("id")), "code": plant_b.get("code"), "name": plant_b.get("name")},
         }
 
+        run_stamp = datetime.now().strftime("%Y%m%d%H%M%S")
+
+        def release_email(local_part: str) -> str:
+            return f"release.{local_part}.{run_stamp}@hariom.com"
+
         seeded_users: dict[str, dict[str, Any]] = {}
         user_specs = [
             {
                 "key": "owner",
-                "email": "release.owner@hariom.com",
+                "email": release_email("owner"),
                 "password": "owner123",
                 "name": "Release Owner",
                 "role_names": ["Owner"],
-                "plant_id": None,
+                "plant_id": str(plant_a["id"]),
                 "allowed_plant_ids": [str(plant_a["id"]), str(plant_b["id"])],
                 "is_owner_all_plants": True,
             },
             {
                 "key": "plant_manager_a",
-                "email": "release.plantmanager.a@hariom.com",
+                "email": release_email("plantmanager.a"),
                 "password": "managera123",
                 "name": "Release Plant Manager A",
                 "role_names": ["PlantManager"],
@@ -2387,7 +2629,7 @@ def run() -> int:
             },
             {
                 "key": "plant_manager_b",
-                "email": "release.plantmanager.b@hariom.com",
+                "email": release_email("plantmanager.b"),
                 "password": "managerb123",
                 "name": "Release Plant Manager B",
                 "role_names": ["PlantManager"],
@@ -2396,7 +2638,7 @@ def run() -> int:
             },
             {
                 "key": "spec_maker_a",
-                "email": "release.specmaker.a@hariom.com",
+                "email": release_email("specmaker.a"),
                 "password": "specmakera123",
                 "name": "Release Spec Maker A",
                 "role_names": ["SpecMaker"],
@@ -2405,7 +2647,7 @@ def run() -> int:
             },
             {
                 "key": "spec_approver_a",
-                "email": "release.specapprover.a@hariom.com",
+                "email": release_email("specapprover.a"),
                 "password": "specapprovera123",
                 "name": "Release Spec Approver A",
                 "role_names": ["SpecApprover"],
@@ -2414,7 +2656,7 @@ def run() -> int:
             },
             {
                 "key": "sales_maker_a",
-                "email": "release.somaker.a@hariom.com",
+                "email": release_email("somaker.a"),
                 "password": "somakera123",
                 "name": "Release Sales Maker A",
                 "role_names": ["SOMaker"],
@@ -2423,7 +2665,7 @@ def run() -> int:
             },
             {
                 "key": "sales_approver_a",
-                "email": "release.soapprover.a@hariom.com",
+                "email": release_email("soapprover.a"),
                 "password": "soapprovera123",
                 "name": "Release Sales Approver A",
                 "role_names": ["SOApprover"],
@@ -2432,7 +2674,7 @@ def run() -> int:
             },
             {
                 "key": "planner_a",
-                "email": "release.planner.a@hariom.com",
+                "email": release_email("planner.a"),
                 "password": "plannera123",
                 "name": "Release Planner A",
                 "role_names": ["Planner"],
@@ -2441,7 +2683,7 @@ def run() -> int:
             },
             {
                 "key": "production_a",
-                "email": "release.production.a@hariom.com",
+                "email": release_email("production.a"),
                 "password": "productiona123",
                 "name": "Release Production A",
                 "role_names": ["Production"],
@@ -2450,7 +2692,7 @@ def run() -> int:
             },
             {
                 "key": "supervisor_a",
-                "email": "release.supervisor.a@hariom.com",
+                "email": release_email("supervisor.a"),
                 "password": "supervisora123",
                 "name": "Release Supervisor A",
                 "role_names": ["SupervisorEntry"],
@@ -2459,7 +2701,7 @@ def run() -> int:
             },
             {
                 "key": "operator_a",
-                "email": "release.operator.a@hariom.com",
+                "email": release_email("operator.a"),
                 "password": "operatora123",
                 "name": "Release Operator A",
                 "role_names": ["Operator"],
@@ -2468,7 +2710,7 @@ def run() -> int:
             },
             {
                 "key": "store_a",
-                "email": "release.store.a@hariom.com",
+                "email": release_email("store.a"),
                 "password": "storea123",
                 "name": "Release Store A",
                 "role_names": ["Store"],
@@ -2477,7 +2719,7 @@ def run() -> int:
             },
             {
                 "key": "dispatch_a",
-                "email": "release.dispatch.a@hariom.com",
+                "email": release_email("dispatch.a"),
                 "password": "dispatcha123",
                 "name": "Release Dispatch A",
                 "role_names": ["Dispatch"],
@@ -2486,7 +2728,7 @@ def run() -> int:
             },
             {
                 "key": "qc_a",
-                "email": "release.qc.a@hariom.com",
+                "email": release_email("qc.a"),
                 "password": "qca123",
                 "name": "Release QC A",
                 "role_names": ["QC"],
@@ -2495,7 +2737,7 @@ def run() -> int:
             },
             {
                 "key": "spec_maker_b",
-                "email": "release.specmaker.b@hariom.com",
+                "email": release_email("specmaker.b"),
                 "password": "specmakerb123",
                 "name": "Release Spec Maker B",
                 "role_names": ["SpecMaker"],
@@ -2504,7 +2746,7 @@ def run() -> int:
             },
             {
                 "key": "spec_approver_b",
-                "email": "release.specapprover.b@hariom.com",
+                "email": release_email("specapprover.b"),
                 "password": "specapproverb123",
                 "name": "Release Spec Approver B",
                 "role_names": ["SpecApprover"],
@@ -2513,7 +2755,7 @@ def run() -> int:
             },
             {
                 "key": "sales_maker_b",
-                "email": "release.somaker.b@hariom.com",
+                "email": release_email("somaker.b"),
                 "password": "somakerb123",
                 "name": "Release Sales Maker B",
                 "role_names": ["SOMaker"],
@@ -2522,7 +2764,7 @@ def run() -> int:
             },
             {
                 "key": "sales_approver_b",
-                "email": "release.soapprover.b@hariom.com",
+                "email": release_email("soapprover.b"),
                 "password": "soapproverb123",
                 "name": "Release Sales Approver B",
                 "role_names": ["SOApprover"],
@@ -2531,7 +2773,7 @@ def run() -> int:
             },
             {
                 "key": "planner_b",
-                "email": "release.planner.b@hariom.com",
+                "email": release_email("planner.b"),
                 "password": "plannerb123",
                 "name": "Release Planner B",
                 "role_names": ["Planner"],
@@ -2540,7 +2782,7 @@ def run() -> int:
             },
             {
                 "key": "production_b",
-                "email": "release.production.b@hariom.com",
+                "email": release_email("production.b"),
                 "password": "productionb123",
                 "name": "Release Production B",
                 "role_names": ["Production"],
@@ -2549,7 +2791,7 @@ def run() -> int:
             },
             {
                 "key": "supervisor_b",
-                "email": "release.supervisor.b@hariom.com",
+                "email": release_email("supervisor.b"),
                 "password": "supervisorb123",
                 "name": "Release Supervisor B",
                 "role_names": ["SupervisorEntry"],
@@ -2558,7 +2800,7 @@ def run() -> int:
             },
             {
                 "key": "operator_b",
-                "email": "release.operator.b@hariom.com",
+                "email": release_email("operator.b"),
                 "password": "operatorb123",
                 "name": "Release Operator B",
                 "role_names": ["Operator"],
@@ -2567,7 +2809,7 @@ def run() -> int:
             },
             {
                 "key": "store_b",
-                "email": "release.store.b@hariom.com",
+                "email": release_email("store.b"),
                 "password": "storeb123",
                 "name": "Release Store B",
                 "role_names": ["Store"],
@@ -2576,7 +2818,7 @@ def run() -> int:
             },
             {
                 "key": "dispatch_b",
-                "email": "release.dispatch.b@hariom.com",
+                "email": release_email("dispatch.b"),
                 "password": "dispatchb123",
                 "name": "Release Dispatch B",
                 "role_names": ["Dispatch"],
@@ -2585,7 +2827,7 @@ def run() -> int:
             },
             {
                 "key": "qc_b",
-                "email": "release.qc.b@hariom.com",
+                "email": release_email("qc.b"),
                 "password": "qcb123",
                 "name": "Release QC B",
                 "role_names": ["QC"],
@@ -2623,15 +2865,29 @@ def run() -> int:
         dispatch_token = seeded_users["dispatch_a"]["token"]
         sales_approver_token = seeded_users["sales_approver_a"]["token"]
         qc_token = seeded_users["qc_a"]["token"]
+        spec_create_token = owner_token
+        spec_approve_token = admin_token
 
         resp, legacy_block = runner.api(
             "POST",
             "/api/production/jobs",
             token=admin_token,
-            expected=(410,),
-            json_body={"legacy": True},
+            expected=(400,),
+            json_body={
+                "date": date.today().isoformat(),
+                "shift": "A",
+                "spec_id": str(uuid.uuid4()),
+                "recipe_id": str(uuid.uuid4()),
+                "operator_name": "Release Guard",
+                "mandrel_id": str(uuid.uuid4()),
+                "total_reel_weight_issued": 1,
+            },
         )
-        runner.add("Legacy /jobs write blocked", resp.status_code == 410, str(legacy_block.get("detail")))
+        runner.add(
+            "SO-first /jobs guard",
+            resp.status_code == 400 and "SO-first" in str(legacy_block.get("detail") or ""),
+            str(legacy_block.get("detail")),
+        )
 
         paper_maps_by_plant = seed_rm_master(runner, admin_token, [str(plant_a["id"]), str(plant_b["id"])])
         reset_monthly_material_state(runner, plant_ids=[str(plant_a["id"]), str(plant_b["id"])])
@@ -2643,25 +2899,31 @@ def run() -> int:
             plant_ids=[str(plant_a["id"]), str(plant_b["id"])],
             spec_tokens_by_plant={
                 str(plant_a["id"]): {
-                    "maker": seeded_users["spec_maker_a"]["token"],
-                    "approver": seeded_users["spec_approver_a"]["token"],
+                    "maker": spec_create_token,
+                    "approver": spec_approve_token,
                 },
                 str(plant_b["id"]): {
-                    "maker": seeded_users["spec_maker_b"]["token"],
-                    "approver": seeded_users["spec_approver_b"]["token"],
+                    "maker": spec_create_token,
+                    "approver": spec_approve_token,
                 },
             },
         )
 
-        customer_primary = ensure_customer(runner, admin_token, "CUTOVER-CUST-01", "Cutover Customer 01")
+        customer_suffix = run_stamp[-6:]
+        customer_primary = ensure_customer(
+            runner,
+            admin_token,
+            f"CUTOVER-{customer_suffix}-01",
+            f"Cutover Customer {customer_suffix} 01",
+        )
         customers = [customer_primary]
         for idx in range(2, 6):
             customers.append(
                 ensure_customer(
                     runner,
                     admin_token,
-                    f"CUTOVER-CUST-0{idx}",
-                    f"Cutover Customer 0{idx}",
+                    f"CUTOVER-{customer_suffix}-0{idx}",
+                    f"Cutover Customer {customer_suffix} 0{idx}",
                 )
             )
 
@@ -2674,9 +2936,9 @@ def run() -> int:
         }
 
         mandrels = {
-            "110.65": ensure_mandrel(runner, admin_token, str(plant_a["id"]), "MND-110.65", 110.65, 500.0, "MS"),
-            "125.55": ensure_mandrel(runner, admin_token, str(plant_a["id"]), "MND-125.55", 125.55, 500.0, "MS"),
-            "110": ensure_mandrel(runner, admin_token, str(plant_a["id"]), "MND-110", 110.0, 500.0, "MS"),
+            "110.65": ensure_mandrel(runner, admin_token, str(plant_a["id"]), f"MND-{customer_suffix}-110.65", 110.65, 500.0, "MS"),
+            "125.55": ensure_mandrel(runner, admin_token, str(plant_a["id"]), f"MND-{customer_suffix}-125.55", 125.55, 500.0, "MS"),
+            "110": ensure_mandrel(runner, admin_token, str(plant_a["id"]), f"MND-{customer_suffix}-110", 110.0, 500.0, "MS"),
         }
 
         split_probe_suffix = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -2803,8 +3065,8 @@ def run() -> int:
 
         fixtures = validate_formula_fixtures(
             runner,
-            seeded_users["spec_maker_a"]["token"],
-            seeded_users["spec_approver_a"]["token"],
+            spec_create_token,
+            spec_approve_token,
             paper_maps_by_plant[str(plant_a["id"])],
             customer_primary,
             sizes["fixture_110_90_400"],
@@ -2833,8 +3095,8 @@ def run() -> int:
                 supervisor_token=seeded_users[f"supervisor_{plant_suffix}"]["token"],
                 dispatch_token=seeded_users[f"dispatch_{plant_suffix}"]["token"],
                 qc_token=seeded_users[f"qc_{plant_suffix}"]["token"],
-                spec_maker_token=seeded_users[f"spec_maker_{plant_suffix}"]["token"],
-                spec_approver_token=seeded_users[f"spec_approver_{plant_suffix}"]["token"],
+                spec_maker_token=spec_create_token,
+                spec_approver_token=spec_approve_token,
                 sales_maker_token=seeded_users[f"sales_maker_{plant_suffix}"]["token"],
                 sales_approver_token=seeded_users[f"sales_approver_{plant_suffix}"]["token"],
                 sales_maker_email=seeded_users[f"sales_maker_{plant_suffix}"]["email"],
@@ -2858,11 +3120,11 @@ def run() -> int:
         demo_release_order = seed_multiline_release_demo(
             runner,
             plant_id=str(plant_a["id"]),
-            customer=customer_primary,
+            customer=customers[3],
             sales_maker_token=seeded_users["sales_maker_a"]["token"],
             sales_approver_token=seeded_users["sales_approver_a"]["token"],
-            spec_maker_token=seeded_users["spec_maker_a"]["token"],
-            spec_approver_token=seeded_users["spec_approver_a"]["token"],
+            spec_maker_token=spec_create_token,
+            spec_approver_token=spec_approve_token,
             planner_token=seeded_users["planner_a"]["token"],
             sizes=sizes,
             mandrels=mandrels,

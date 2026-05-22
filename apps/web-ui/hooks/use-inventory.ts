@@ -11,11 +11,11 @@ export function useInventoryItems() {
   })
 }
 
-export function useInventoryTransactions() {
+export function useInventoryTransactions(params?: { item_id?: string; date_from?: string; date_to?: string; transaction_type?: string }) {
   return useQuery({
-    queryKey: ["inventory-transactions"],
+    queryKey: ["inventory-transactions", params || {}],
     queryFn: async () => {
-      const { data } = await inventoryApi.getTransactions()
+      const { data } = await inventoryApi.getTransactions(params)
       return Array.isArray(data) ? data : Array.isArray(data?.ledger) ? data.ledger : Array.isArray(data?.items) ? data.items : []
     },
   })
@@ -406,5 +406,52 @@ export function useCloseReelIssue() {
       queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
     },
+  })
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Lifecycle gap hooks
+// ──────────────────────────────────────────────────────────────────────────
+
+export function useManualFgInward() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId?: string }) =>
+      inventoryApi.createManualFgInward(data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+    },
+  })
+}
+
+export function usePostOpeningFromCarryForward() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ cfId, plantId }: { cfId: string; plantId?: string }) =>
+      inventoryApi.postOpeningFromCarryForward(cfId, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-opening-loads"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-carry-forwards"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+    },
+  })
+}
+
+export function useTransactionsAggregateByItem(params?: { start_date?: string; end_date?: string; transaction_types?: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["inventory-tx-aggregate", params],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getTransactionsAggregateByItem({
+        start_date: String(params?.start_date),
+        end_date: String(params?.end_date),
+        transaction_types: params?.transaction_types,
+      })
+      return Array.isArray(data) ? data : []
+    },
+    enabled: enabled && Boolean(params?.start_date) && Boolean(params?.end_date),
   })
 }

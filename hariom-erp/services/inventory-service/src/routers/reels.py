@@ -235,7 +235,7 @@ def create_reel_inward(
     if payload.location_id:
         location = db.query(InventoryLocation).filter(
             InventoryLocation.id == payload.location_id,
-            InventoryLocation.plant_id == plant_uuid,
+            InventoryLocation.plant_id == plant_id,
         ).first()
         if not location:
             raise HTTPException(status_code=404, detail="Inventory location not found")
@@ -249,7 +249,7 @@ def create_reel_inward(
 
     paper = db.query(ItemMaster).filter(
         ItemMaster.id == payload.paper_id,
-        ItemMaster.plant_id == plant_uuid,
+        ItemMaster.plant_id == plant_id,
     ).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper item not found in this plant")
@@ -399,7 +399,7 @@ def slit_reel(
         if child.location_id:
             location = db.query(InventoryLocation).filter(
                 InventoryLocation.id == child.location_id,
-                InventoryLocation.plant_id == plant_uuid,
+                InventoryLocation.plant_id == plant_id,
             ).first()
             if not location:
                 raise HTTPException(status_code=404, detail="Child reel location not found")

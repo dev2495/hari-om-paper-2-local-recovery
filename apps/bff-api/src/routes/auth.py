@@ -282,7 +282,7 @@ async def get_notifications(request: Request):
     token = extract_token(request)
     try:
         response = await http_client.get(
-            f"{AUTH_SERVICE_URL}/notifications",
+            f"{AUTH_SERVICE_URL}/notifications/",
             headers={"Authorization": f"Bearer {token}"},
             params=dict(request.query_params),
         )

@@ -20,6 +20,7 @@ class LayerCreate(BaseModel):
     paper_id: uuid.UUID
     gsm_snapshot: int
     bf_snapshot: int
+    bulk_snapshot: Optional[float] = None
 
 class RecipeResponse(BaseModel):
     id: uuid.UUID
@@ -40,6 +41,7 @@ class LayerResponse(BaseModel):
     paper_id: uuid.UUID
     gsm_snapshot: int
     bf_snapshot: int
+    bulk_snapshot: Optional[float] = None
 
     class Config:
         from_attributes = True
@@ -128,7 +130,8 @@ def add_layer(
         ply_no=layer.ply_no,
         paper_id=layer.paper_id,
         gsm_snapshot=layer.gsm_snapshot,
-        bf_snapshot=layer.bf_snapshot
+        bf_snapshot=layer.bf_snapshot,
+        bulk_snapshot=layer.bulk_snapshot,
     )
     
     db.add(db_layer)

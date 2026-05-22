@@ -19,7 +19,6 @@ DEFAULT_BOXES = [
         "height_mm": 460.0,
         "size_label": "680X370X460",
         "weight_kg": 0.0,
-        "rate_per_piece": 0.0,
     },
     {
         "code": "G-120",
@@ -28,18 +27,17 @@ DEFAULT_BOXES = [
         "height_mm": 490.0,
         "size_label": "560X420X490",
         "weight_kg": 0.0,
-        "rate_per_piece": 0.0,
     },
 ]
 
 DEFAULT_PLASTICS = [
-    {"sku": "PL-680", "size_label": "680X370", "weight_kg": 0.0, "rate_per_kg": 0.0, "rate_per_piece": 0.0},
-    {"sku": "PL-560", "size_label": "560X420", "weight_kg": 0.0, "rate_per_kg": 0.0, "rate_per_piece": 0.0},
+    {"sku": "PL-680", "size_label": "680X370", "weight_kg": 0.0},
+    {"sku": "PL-560", "size_label": "560X420", "weight_kg": 0.0},
 ]
 
 DEFAULT_FADDA = [
-    {"sku": "FAD-01", "weight_kg": 0.0, "rate_per_kg": 0.0, "rate_per_piece": 0.0},
-    {"sku": "FAD-09", "weight_kg": 0.0, "rate_per_kg": 0.0, "rate_per_piece": 0.0},
+    {"sku": "FAD-01", "weight_kg": 0.0},
+    {"sku": "FAD-09", "weight_kg": 0.0},
 ]
 
 
@@ -83,9 +81,9 @@ def _upsert_boxes(cur, plant_ids: Iterable[str]) -> int:
             cur.execute(
                 """
                 INSERT INTO packaging_box
-                    (id, code, length_mm, width_mm, height_mm, size_label, weight_kg, rate_per_piece, plant_id, active)
+                    (id, code, length_mm, width_mm, height_mm, size_label, weight_kg, plant_id, active)
                 VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, %s, %s, TRUE)
+                    (%s, %s, %s, %s, %s, %s, %s, %s, TRUE)
                 ON CONFLICT (plant_id, code)
                 DO UPDATE SET
                     length_mm = EXCLUDED.length_mm,
@@ -93,7 +91,6 @@ def _upsert_boxes(cur, plant_ids: Iterable[str]) -> int:
                     height_mm = EXCLUDED.height_mm,
                     size_label = EXCLUDED.size_label,
                     weight_kg = EXCLUDED.weight_kg,
-                    rate_per_piece = EXCLUDED.rate_per_piece,
                     active = TRUE
                 """,
                 (
@@ -104,7 +101,6 @@ def _upsert_boxes(cur, plant_ids: Iterable[str]) -> int:
                     row["height_mm"],
                     row["size_label"],
                     row["weight_kg"],
-                    row["rate_per_piece"],
                     plant_id,
                 ),
             )
@@ -119,15 +115,13 @@ def _upsert_plastics(cur, plant_ids: Iterable[str]) -> int:
             cur.execute(
                 """
                 INSERT INTO packaging_plastic_sheet
-                    (id, sku, size_label, weight_kg, rate_per_kg, rate_per_piece, plant_id, active)
+                    (id, sku, size_label, weight_kg, plant_id, active)
                 VALUES
-                    (%s, %s, %s, %s, %s, %s, %s, TRUE)
+                    (%s, %s, %s, %s, %s, TRUE)
                 ON CONFLICT (plant_id, sku)
                 DO UPDATE SET
                     size_label = EXCLUDED.size_label,
                     weight_kg = EXCLUDED.weight_kg,
-                    rate_per_kg = EXCLUDED.rate_per_kg,
-                    rate_per_piece = EXCLUDED.rate_per_piece,
                     active = TRUE
                 """,
                 (
@@ -135,8 +129,6 @@ def _upsert_plastics(cur, plant_ids: Iterable[str]) -> int:
                     row["sku"],
                     row["size_label"],
                     row["weight_kg"],
-                    row["rate_per_kg"],
-                    row["rate_per_piece"],
                     plant_id,
                 ),
             )
@@ -151,22 +143,18 @@ def _upsert_fadda(cur, plant_ids: Iterable[str]) -> int:
             cur.execute(
                 """
                 INSERT INTO packaging_fadda
-                    (id, sku, weight_kg, rate_per_kg, rate_per_piece, plant_id, active)
+                    (id, sku, weight_kg, plant_id, active)
                 VALUES
-                    (%s, %s, %s, %s, %s, %s, TRUE)
+                    (%s, %s, %s, %s, TRUE)
                 ON CONFLICT (plant_id, sku)
                 DO UPDATE SET
                     weight_kg = EXCLUDED.weight_kg,
-                    rate_per_kg = EXCLUDED.rate_per_kg,
-                    rate_per_piece = EXCLUDED.rate_per_piece,
                     active = TRUE
                 """,
                 (
                     str(uuid.uuid4()),
                     row["sku"],
                     row["weight_kg"],
-                    row["rate_per_kg"],
-                    row["rate_per_piece"],
                     plant_id,
                 ),
             )

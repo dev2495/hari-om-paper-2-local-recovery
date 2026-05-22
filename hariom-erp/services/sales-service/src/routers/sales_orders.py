@@ -138,6 +138,31 @@ class DispatchValidationResponse(BaseModel):
     valid: bool
 
 
+def _timeline_event(
+    *,
+    event_id: str,
+    event_type: str,
+    title: str,
+    message: str,
+    created_at: Optional[datetime],
+    actor: Optional[str] = None,
+    line_id: Optional[uuid.UUID] = None,
+    qty: Optional[float] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    return {
+        "id": event_id,
+        "event_type": event_type,
+        "title": title,
+        "message": message,
+        "created_at": created_at,
+        "actor": actor or "system",
+        "line_id": str(line_id) if line_id else None,
+        "qty": round(float(qty), 2) if qty is not None else None,
+        "metadata": metadata or {},
+    }
+
+
 def _serialize_line(line: SalesOrderLine) -> dict:
     release_lots = [lot for lot in getattr(line, "release_lots", []) if str(lot.status or "").lower() != "cancelled"]
     released_qty = sum(float(lot.released_qty or 0.0) for lot in release_lots)
@@ -332,6 +357,147 @@ def list_sales_orders(
 
     orders = query.order_by(SalesOrder.created_at.desc()).offset(offset).limit(limit).all()
     return [_serialize_order(order) for order in orders]
+
+
+@router.get("/{order_id}/timeline")
+def get_sales_order_timeline(
+    order_id: uuid.UUID,
+    depth: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    query = apply_plant_scope(
+        db.query(SalesOrder)
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.dispatch_logs),
+        )
+        .filter(SalesOrder.id == order_id),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    order = query.first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+
+    events = [
+        _timeline_event(
+            event_id=f"{order.id}:created",
+            event_type="SALES_ORDER_CREATED",
+            title="Sales order created",
+            message="Commercial demand entered into the queue.",
+            created_at=order.created_at,
+            actor=order.created_by,
+            metadata={"order_no": order.order_no, "status": order.status.value},
+        )
+    ]
+    warnings = []
+
+    if order.approved_at:
+        events.append(
+            _timeline_event(
+                event_id=f"{order.id}:approved",
+                event_type="SALES_ORDER_APPROVED",
+                title="Sales order approved",
+                message="Maker-checker approval completed.",
+                created_at=order.approved_at,
+                actor=order.approved_by,
+                metadata={"order_no": order.order_no, "status": order.status.value},
+            )
+        )
+
+    if order.released_at:
+        events.append(
+            _timeline_event(
+                event_id=f"{order.id}:released",
+                event_type="SALES_ORDER_RELEASED",
+                title="Released to production",
+                message="Order is eligible for planning sync and job-card creation.",
+                created_at=order.released_at,
+                actor=order.released_by,
+                metadata={"order_no": order.order_no, "status": order.status.value},
+            )
+        )
+
+    if not order.lines:
+        warnings.append("Sales order has no lines.")
+
+    for line in sorted(order.lines, key=lambda item: int(item.line_no or 0)):
+        events.append(
+            _timeline_event(
+                event_id=f"{line.id}:line",
+                event_type="SALES_ORDER_LINE_CREATED",
+                title=f"Line {int(line.line_no or 0)} entered",
+                message=f"{round(float(line.qty or 0.0), 2)} pcs requested for {line.product_code or 'product'}.",
+                created_at=order.created_at,
+                actor=order.created_by,
+                line_id=line.id,
+                qty=line.qty,
+                metadata={
+                    "approved_spec_id": str(line.approved_spec_id),
+                    "product_code": line.product_code,
+                    "parchment_color": line.parchment_color,
+                    "due_date": str(line.due_date),
+                },
+            )
+        )
+
+        release_lots = [lot for lot in getattr(line, "release_lots", []) if str(lot.status or "").lower() != "cancelled"]
+        released_qty = sum(float(lot.released_qty or 0.0) for lot in release_lots)
+        if released_qty - float(line.qty or 0.0) > 0.001:
+            warnings.append(f"Line {int(line.line_no or 0)} released qty exceeds order qty.")
+
+        for lot in sorted(release_lots, key=lambda item: item.created_at or datetime.min):
+            events.append(
+                _timeline_event(
+                    event_id=f"{lot.id}:release",
+                    event_type="SALES_ORDER_LINE_RELEASED",
+                    title=f"Line {int(line.line_no or 0)} released",
+                    message=f"{round(float(lot.released_qty or 0.0), 2)} pcs released to planning.",
+                    created_at=lot.released_at or lot.created_at,
+                    actor=lot.released_by_identity or lot.released_by,
+                    line_id=line.id,
+                    qty=lot.released_qty,
+                    metadata={
+                        "release_lot_id": str(lot.id),
+                        "job_card_id": str(lot.job_card_id) if lot.job_card_id else None,
+                        "winder_machine_id": str(lot.winder_machine_id) if lot.winder_machine_id else None,
+                        "product_code": lot.product_code,
+                        "status": lot.status,
+                    },
+                )
+            )
+
+        if float(line.fulfilled_qty or 0.0) - float(line.qty or 0.0) > 0.001:
+            warnings.append(f"Line {int(line.line_no or 0)} fulfilled qty exceeds order qty.")
+
+        for log in sorted(getattr(line, "dispatch_logs", []), key=lambda item: item.created_at or datetime.min):
+            events.append(
+                _timeline_event(
+                    event_id=f"{log.id}:dispatch",
+                    event_type="SALES_ORDER_DISPATCH_RECORDED",
+                    title=f"Line {int(line.line_no or 0)} dispatched",
+                    message=f"{round(float(log.qty or 0.0), 2)} pcs recorded against dispatch {log.dispatch_line_ref}.",
+                    created_at=log.created_at,
+                    actor="dispatch",
+                    line_id=line.id,
+                    qty=log.qty,
+                    metadata={"dispatch_line_ref": log.dispatch_line_ref},
+                )
+            )
+
+    events = sorted(events, key=lambda event: event.get("created_at") or datetime.min)
+    return {
+        "order_id": str(order.id),
+        "order_no": order.order_no,
+        "plant_id": str(order.plant_id),
+        "status": order.status.value,
+        "depth": depth or "summary",
+        "events": events,
+        "items": events,
+        "warnings": warnings,
+    }
 
 
 @router.get("/{order_id}", response_model=SalesOrderResponse)

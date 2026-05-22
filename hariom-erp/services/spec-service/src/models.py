@@ -115,6 +115,7 @@ class TrialResult(Base):
     __tablename__ = "trial_results"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     recipe_id = Column(UUID(as_uuid=True), ForeignKey('recipe_header.id'), nullable=False)
     
     # Actual measured values

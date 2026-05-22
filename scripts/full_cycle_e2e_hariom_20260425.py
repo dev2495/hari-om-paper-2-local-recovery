@@ -55,6 +55,24 @@ def pick(rows: list[dict[str, Any]], predicate, label: str) -> dict[str, Any]:
     raise RuntimeError(f"Unable to find required row: {label}")
 
 
+def ensure_winder_meter_capacity(api: E2EClient, machine: dict[str, Any], capacity_meters_per_day: float) -> dict[str, Any]:
+    if str(machine.get("department") or "").upper() != "WINDER":
+        return machine
+    if (
+        str(machine.get("capacity_type") or "").upper() == "METERS_PER_DAY"
+        and float(machine.get("capacity_value") or 0.0) >= capacity_meters_per_day
+    ):
+        return machine
+    return api.request(
+        "PUT",
+        f"/api/production/machines/{machine['id']}",
+        json_body={
+            "capacity_type": "METERS_PER_DAY",
+            "capacity_value": capacity_meters_per_day,
+        },
+    )
+
+
 def expand_recipe_rows(groups: list[dict[str, Any]], paper_by_code: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     expanded: list[dict[str, Any]] = []
     ply_no = 1
@@ -268,23 +286,25 @@ def main() -> int:
     fg_location = pick(locations, lambda row: str(row.get("code") or "").upper().startswith("FG"), "FG location")
     winder_1 = pick(machines, lambda row: row.get("department") == "WINDER" and "01" in str(row.get("name") or ""), "Winder 1")
     wrong_winder = pick(machines, lambda row: row.get("department") == "WINDER" and row["id"] != winder_1["id"], "non-Winder-1")
+    winder_1 = ensure_winder_meter_capacity(api, winder_1, 10000.0)
+    wrong_winder = ensure_winder_meter_capacity(api, wrong_winder, 10000.0)
     oven_1 = pick(machines, lambda row: row.get("department") == "OVEN", "oven")
     process_1 = pick(machines, lambda row: row.get("department") == "PROCESS", "process")
     paper_by_code = {str(row["code"]): row for row in papers}
 
     groups_a = [
-        {"paper_code": "231", "gsm": 230, "plies": 1, "bulk_factor": 1.50},
-        {"paper_code": "221", "gsm": 220, "plies": 2, "bulk_factor": 1.50},
-        {"paper_code": "301", "gsm": 300, "plies": 3, "bulk_factor": 1.50},
-        {"paper_code": "350", "gsm": 350, "plies": 3, "bulk_factor": 1.55},
-        {"paper_code": "351", "gsm": 350, "plies": 3, "bulk_factor": 1.50},
-        {"paper_code": "355", "gsm": 355, "plies": 2, "bulk_factor": 1.55},
+        {"paper_code": "KRAFT-230-18BF", "gsm": 230, "plies": 1, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-250-18BF", "gsm": 250, "plies": 2, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-300-18BF", "gsm": 300, "plies": 3, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-350-300PB", "gsm": 350, "plies": 3, "bulk_factor": 1.55},
+        {"paper_code": "KRAFT-351-400PB", "gsm": 351, "plies": 3, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-355-350PB", "gsm": 355, "plies": 2, "bulk_factor": 1.55},
     ]
     groups_b = [
-        {"paper_code": "231", "gsm": 230, "plies": 1, "bulk_factor": 1.50},
-        {"paper_code": "301", "gsm": 300, "plies": 2, "bulk_factor": 1.50},
-        {"paper_code": "351", "gsm": 350, "plies": 3, "bulk_factor": 1.50},
-        {"paper_code": "350", "gsm": 350, "plies": 8, "bulk_factor": 1.55},
+        {"paper_code": "KRAFT-230-18BF", "gsm": 230, "plies": 1, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-300-18BF", "gsm": 300, "plies": 2, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-351-400PB", "gsm": 351, "plies": 3, "bulk_factor": 1.50},
+        {"paper_code": "KRAFT-350-300PB", "gsm": 350, "plies": 8, "bulk_factor": 1.55},
     ]
 
     sample_a = create_sample_spec(

@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from ..database import get_db
 from ..models import TrialResult, RecipeHeader
-from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
+from ..utils.auth import accepted_persisted_plant_ids, apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/trials", tags=["trials"])
 
@@ -43,7 +43,7 @@ def create_trial(
     # Verify recipe exists and belongs to plant
     recipe = db.query(RecipeHeader).filter(
         RecipeHeader.id == recipe_id,
-        RecipeHeader.plant_id == plant_id
+        RecipeHeader.plant_id.in_(accepted_persisted_plant_ids(plant_id))
     ).first()
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
@@ -65,6 +65,7 @@ def create_trial(
             )
     
     db_trial = TrialResult(
+        plant_id=recipe.plant_id,
         recipe_id=recipe_id,
         actual_cs=trial.actual_cs,
         actual_weight=trial.actual_weight,

@@ -273,3 +273,32 @@ async def import_monthly_actuals(request: Request, token: str = Depends(get_toke
 @router.post("/approve-monthly-close")
 async def approve_monthly_close(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/monthly-close/approve", request, token)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Lifecycle gaps — new BFF endpoints
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/period-state/{month}")
+async def get_period_state(month: str, request: Request, token: str = Depends(get_token)):
+    """Gap 4: joint cert+reco posture for a month."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, f"/reconciliation/period-state/{month}", request, token
+    )
+
+
+@router.get("/weekly-drift")
+async def get_weekly_drift(request: Request, token: str = Depends(get_token)):
+    """Gap 9: read-only early-warning drift for a 7-day window."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/reconciliation/weekly-drift", request, token
+    )
+
+
+@router.get("/books-state")
+async def get_books_state(request: Request, token: str = Depends(get_token)):
+    """Gap 10: workspace-wide books-locked posture."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/reconciliation/books-state", request, token
+    )

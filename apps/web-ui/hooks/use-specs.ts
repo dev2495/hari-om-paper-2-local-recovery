@@ -589,6 +589,7 @@ export function useCloneSpecSheet() {
             paper_id: layer.paper_id,
             gsm_snapshot: layer.gsm_snapshot,
             bf_snapshot: layer.bf_snapshot,
+            bulk_snapshot: layer.bulk_snapshot,
           }, plantId)
         }
       }

@@ -91,12 +91,19 @@ def create_mandrel(
     )
     plant_values = accepted_persisted_plant_ids(plant_id)
     existing = db.query(models.Mandrel).filter(
-        models.Mandrel.plant_id.in_(plant_values),
         models.Mandrel.mandrel_code == mandrel_code,
-        models.Mandrel.active == True,
     ).first()
     if existing:
-        raise HTTPException(status_code=409, detail="Mandrel with this OD and length already exists for this plant")
+        if existing.plant_id in plant_values and not existing.active:
+            existing.outer_diameter_mm = mandrel.outer_diameter_mm
+            existing.od_tolerance_mm = mandrel.od_tolerance_mm
+            existing.length_mm = mandrel.length_mm
+            existing.material = mandrel.material
+            existing.active = True
+            db.commit()
+            db.refresh(existing)
+            return existing
+        raise HTTPException(status_code=409, detail="Mandrel code already exists")
 
     payload = mandrel.model_dump()
     payload["mandrel_code"] = mandrel_code

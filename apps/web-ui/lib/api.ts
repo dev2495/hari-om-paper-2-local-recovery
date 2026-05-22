@@ -370,6 +370,13 @@ export const productionApi = {
     api.post("/api/production/import-monthly-actuals", payload, withPlantHeader(plantId)),
   approveMonthlyClose: (payload: any, plantId?: string) =>
     api.post("/api/production/approve-monthly-close", payload, withPlantHeader(plantId)),
+  // Lifecycle gap endpoints
+  getPeriodState: (month: string, plantId?: string) =>
+    api.get(`/api/production/period-state/${month}`, withPlantHeader(plantId)),
+  getWeeklyDrift: (params: { week_start: string }, plantId?: string) =>
+    api.get("/api/production/weekly-drift", { ...withPlantHeader(plantId), params }),
+  getBooksState: (plantId?: string) =>
+    api.get("/api/production/books-state", withPlantHeader(plantId)),
 }
 
 export const inventoryApi = {
@@ -403,7 +410,7 @@ export const inventoryApi = {
   createInward: (data: any) => api.post("/api/inventory/inward", data),
   createIssue: (data: any) => api.post("/api/inventory/issue", data),
   createFgInward: (data: any) => api.post("/api/inventory/fg-inward", data),
-  createDispatch: (data: any) => api.post("/api/inventory/dispatch", data),
+  createDispatch: (data: any, plantId?: string) => api.post("/api/inventory/dispatch", data, withPlantHeader(plantId)),
   getReservations: (params?: any) => api.get("/api/inventory/reservations", { params }),
   createReservation: (data: any) => api.post("/api/inventory/reservations", data),
   releaseReservation: (id: string) => api.post(`/api/inventory/reservations/${id}/release`, {}),
@@ -417,10 +424,17 @@ export const inventoryApi = {
   createReelIssue: (data: any) => api.post("/api/inventory/reel-issues", data),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
   closeReelIssue: (id: string, data: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data),
+  // Lifecycle gap endpoints
+  createManualFgInward: (data: any, plantId?: string) =>
+    api.post("/api/inventory/fg-inward/manual", data, withPlantHeader(plantId)),
+  postOpeningFromCarryForward: (cfId: string, plantId?: string) =>
+    api.post(`/api/inventory/stock-control/carry-forwards/${cfId}/post-opening`, {}, withPlantHeader(plantId)),
+  getTransactionsAggregateByItem: (params: { start_date: string; end_date: string; transaction_types?: string }, plantId?: string) =>
+    api.get("/api/inventory/transactions/aggregate-by-item", { ...withPlantHeader(plantId), params }),
 }
 
 export const dispatchApi = {
-  getReadyJobs: () => api.get("/api/dispatch/ready-jobs"),
+  getReadyJobs: (plantId?: string) => api.get("/api/dispatch/ready-jobs", withPlantHeader(plantId)),
   getDispatch: (id: string) => api.get(`/api/dispatch/${id}`),
   getDispatchByJob: (jobCardId: string) => api.get(`/api/dispatch/by-job/${jobCardId}`),
   createOrUpdateDispatch: (data: any) => api.post("/api/dispatch", data),

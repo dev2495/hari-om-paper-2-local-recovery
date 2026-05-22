@@ -417,7 +417,48 @@ export function useApproveMonthlyClose() {
       queryClient.invalidateQueries({ queryKey: ["monthly-material-summary"] })
       queryClient.invalidateQueries({ queryKey: ["monthly-close-state"] })
       queryClient.invalidateQueries({ queryKey: ["plant-retally-summary"] })
+      queryClient.invalidateQueries({ queryKey: ["period-state"] })
+      queryClient.invalidateQueries({ queryKey: ["books-state"] })
     },
+  })
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Lifecycle gap hooks
+// ──────────────────────────────────────────────────────────────────────────
+
+export function usePeriodState(month?: string, plantId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["period-state", month, plantId],
+    queryFn: async () => {
+      const { data } = await productionApi.getPeriodState(String(month), plantId)
+      return data
+    },
+    enabled: enabled && Boolean(month),
+    refetchInterval: 30_000,
+  })
+}
+
+export function useWeeklyDrift(weekStart?: string, plantId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["weekly-drift", weekStart, plantId],
+    queryFn: async () => {
+      const { data } = await productionApi.getWeeklyDrift({ week_start: String(weekStart) }, plantId)
+      return data
+    },
+    enabled: enabled && Boolean(weekStart),
+  })
+}
+
+export function useBooksState(plantId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["books-state", plantId],
+    queryFn: async () => {
+      const { data } = await productionApi.getBooksState(plantId)
+      return data
+    },
+    enabled,
+    refetchInterval: 60_000,
   })
 }
 

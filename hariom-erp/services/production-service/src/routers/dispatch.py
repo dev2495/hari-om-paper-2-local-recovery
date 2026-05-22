@@ -28,6 +28,11 @@ class DispatchPayload(BaseModel):
     job_card_id: uuid.UUID
     dispatch_snapshot: dict
     status: str = Field(..., pattern="^(DRAFT|SEALED)$")
+    dispatch_request_id: Optional[str] = None
+    sales_order_line_id: Optional[uuid.UUID] = None
+    fg_item_id: Optional[uuid.UUID] = None
+    fg_batch_id: Optional[uuid.UUID] = None
+    dispatch_qty: Optional[float] = None
 
 class DispatchResponse(DispatchPayload):
     id: uuid.UUID
@@ -158,6 +163,32 @@ def create_or_update_dispatch(
         raise HTTPException(status_code=404, detail="Job Card not found")
 
     dispatch_snapshot = dict(payload.dispatch_snapshot or {})
+    if payload.dispatch_request_id:
+        dispatch_snapshot["dispatch_request_id"] = str(payload.dispatch_request_id)
+    if payload.sales_order_line_id:
+        dispatch_snapshot.setdefault("sales_order_line_id", str(payload.sales_order_line_id))
+    if payload.fg_item_id:
+        dispatch_snapshot.setdefault("fg_item_id", str(payload.fg_item_id))
+    if payload.fg_batch_id:
+        dispatch_snapshot.setdefault("fg_batch_id", str(payload.fg_batch_id))
+        dispatch_snapshot.setdefault("inventory_batch_id", str(payload.fg_batch_id))
+    if payload.dispatch_qty is not None:
+        dispatch_snapshot.setdefault("dispatch_qty", float(payload.dispatch_qty))
+        dispatch_snapshot.setdefault("qty", float(payload.dispatch_qty))
+    request_id = str(dispatch_snapshot.get("dispatch_request_id") or "").strip()
+    if request_id:
+        request_owner = (
+            db.query(Dispatch)
+            .filter(
+                Dispatch.dispatch_snapshot["dispatch_request_id"].astext == request_id,
+            )
+            .first()
+        )
+        if request_owner and request_owner.job_card_id != payload.job_card_id:
+            raise HTTPException(status_code=409, detail="dispatch_request_id already belongs to another job card")
+        if request_owner and request_owner.status == "SEALED":
+            return request_owner
+
     # Check if a dispatch already exists
     dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id).first()
 

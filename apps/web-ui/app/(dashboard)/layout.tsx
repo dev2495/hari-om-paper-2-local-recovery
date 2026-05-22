@@ -24,6 +24,7 @@ import {
 import { useEffect, useMemo, useState } from "react"
 
 import { PlantSwitcher } from "@/components/PlantSwitcher"
+import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { NotificationCenter } from "@/components/workspace/notification-center"
@@ -111,6 +112,13 @@ const navigationUnits: NavGroup[] = [
     title: "Supply Chain",
     items: [
       {
+        name: "Stock Lifecycle",
+        href: "/inventory/lifecycle",
+        icon: Layers,
+        description: "Opening → daily → cert → carry-forward → reco → lock. The flow hub.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+      },
+      {
         name: "Inventory",
         href: "/inventory",
         icon: Package,
@@ -123,6 +131,13 @@ const navigationUnits: NavGroup[] = [
         icon: Layers,
         description: "Reel lineage, slit children, issue scans, and trace exceptions.",
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager", "Dispatch"],
+      },
+      {
+        name: "Manual FG",
+        href: "/inventory/fg-inward",
+        icon: Package,
+        description: "Rework yield, returns, and adjustments — manual FG inward outside the job-close flow.",
+        roles: ["Owner", "Admin", "Store", "PlantManager"],
       },
       {
         name: "MRP",
@@ -186,6 +201,13 @@ const navigationUnits: NavGroup[] = [
         href: "/system/users",
         icon: ShieldCheck,
         description: "Users, plants, machine setup, and platform governance.",
+        roles: ["Owner", "Admin"],
+      },
+      {
+        name: "Audit",
+        href: "/system/audit",
+        icon: FileText,
+        description: "Who did what — login, mutation, permission and report trail.",
         roles: ["Owner", "Admin"],
       },
     ],
@@ -594,6 +616,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
 
             <div className="ml-auto flex items-center gap-2">
+              <BooksLockedChip />
               <RoleSwitcher compact />
               <NotificationCenter />
               {showAdminControls ? <PlantSwitcher compact /> : null}

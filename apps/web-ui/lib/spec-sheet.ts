@@ -144,6 +144,7 @@ export type RecipeLayer = {
   paper_id: string
   gsm_snapshot: number
   bf_snapshot: number
+  bulk_snapshot?: number | null
 }
 
 export type RecipeDetail = RecipeSummary & {

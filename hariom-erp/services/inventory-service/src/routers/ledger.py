@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from ..database import get_db
-from ..models import ReferenceType, StockTransaction, TransactionType
+from ..models import ItemMaster, ReferenceType, StockTransaction, TransactionType
 from ..utils.auth import get_current_user, get_current_plant_scope
 from ..services import get_item_ledger, get_batch_ledger
 
@@ -200,3 +201,76 @@ def get_ledger(
             "transaction_count": len(ledger),
             "ledger": ledger
         }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Gap 1: aggregate-by-item — sum of ISSUE_PRODUCTION (+ ISSUE_FROM_REEL) per
+# item across a date range. Used by production-service to surface ledger
+# consumption in the monthly reconciliation table.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.get("/transactions/aggregate-by-item")
+def aggregate_transactions_by_item(
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    transaction_types: str = Query("ISSUE_PRODUCTION,ISSUE_FROM_REEL"),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Sum |qty_change| per item across the given transaction types and range.
+
+    Response: [{ item_id, item_code, item_name, item_type, issued_kg, txn_count }]
+    """
+    types_requested = {t.strip().upper() for t in (transaction_types or "").split(",") if t.strip()}
+    valid_types = {t.value for t in TransactionType}
+    type_filter = [t for t in types_requested if t in valid_types]
+    if not type_filter:
+        type_filter = ["ISSUE_PRODUCTION"]
+
+    start_dt = datetime.combine(start_date, time.min)
+    end_dt = datetime.combine(end_date, time.max)
+
+    query = (
+        db.query(
+            ItemMaster.id.label("item_id"),
+            ItemMaster.item_code.label("item_code"),
+            ItemMaster.name.label("item_name"),
+            ItemMaster.type.label("item_type"),
+            func.coalesce(func.sum(func.abs(StockTransaction.qty_change)), 0.0).label("issued_kg"),
+            func.count(StockTransaction.id).label("txn_count"),
+        )
+        .join(ItemMaster, ItemMaster.id == StockTransaction.item_id)
+        .filter(
+            StockTransaction.transaction_type.in_(type_filter),
+            StockTransaction.created_at >= start_dt,
+            StockTransaction.created_at <= end_dt,
+        )
+    )
+
+    if plant_scope.get("scope_all"):
+        allowed = plant_scope.get("allowed_plants") or []
+        if allowed:
+            query = query.filter(StockTransaction.plant_id.in_(allowed))
+    else:
+        query = query.filter(StockTransaction.plant_id == plant_scope["selected_plant_id"])
+
+    rows = query.group_by(
+        ItemMaster.id, ItemMaster.item_code, ItemMaster.name, ItemMaster.type
+    ).all()
+
+    out = []
+    for row in rows:
+        item_type_value = row.item_type.value if row.item_type and hasattr(row.item_type, "value") else (str(row.item_type) if row.item_type else None)
+        out.append(
+            {
+                "item_id": str(row.item_id),
+                "item_code": row.item_code,
+                "item_name": row.item_name,
+                "item_type": item_type_value,
+                "issued_kg": float(row.issued_kg or 0.0),
+                "txn_count": int(row.txn_count or 0),
+            }
+        )
+    return out

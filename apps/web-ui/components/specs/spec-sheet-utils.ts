@@ -18,6 +18,7 @@ export type SpecEditorRecipeRow = {
   gsm: number
   bf_per_ply: number
   thickness_per_ply: number
+  bulkFactor: number
   ply_bond: number
   ply_count: number
   positions_text: string
@@ -280,6 +281,7 @@ function canonicalRowFromPaper(paper: any, plyCount: number, rowIndex: number): 
     gsm: Number(paper?.gsm || 0),
     bf_per_ply: Number(paper?.bf || paper?.strength_value || 0),
     thickness_per_ply: Number(paper?.thickness_mm ?? estimateThicknessMm(Number(paper?.gsm || 0))),
+    bulkFactor: Number(paper?.bulk_factor || 1),
     ply_bond: Number(paper?.ply_bond || 0),
     ply_count: plyCount,
     positions_text: rowIndex === 0 ? "Inner" : `Layer ${rowIndex + 1}`,
@@ -573,6 +575,7 @@ export function parseSpecState(spec: any, recipe: any, adhesives: any[] = []): S
           gsm: Number(row?.gsm || 0),
           bf_per_ply: Number(row?.bf_per_ply ?? row?.bfPerPly ?? 0),
           thickness_per_ply: Number(row?.thickness_per_ply ?? row?.thicknessPerPly ?? estimateThicknessMm(Number(row?.gsm || 0))),
+          bulkFactor: Number(row?.bulkFactor ?? row?.bulk_factor ?? 1),
           ply_bond: Number(row?.ply_bond ?? row?.plyBond ?? 0),
           ply_count: Number(row?.ply_count ?? row?.plyCount ?? 1),
           positions_text: String(row?.positions_text ?? row?.positionsText ?? `Layer ${index + 1}`),
@@ -586,6 +589,7 @@ export function parseSpecState(spec: any, recipe: any, adhesives: any[] = []): S
           gsm: Number(layer?.gsm_snapshot || 0),
           bf_per_ply: Number(layer?.bf_snapshot || 0),
           thickness_per_ply: estimateThicknessMm(Number(layer?.gsm_snapshot || 0)),
+          bulkFactor: Number(layer?.bulk_snapshot || 1),
           ply_bond: 0,
           ply_count: 1,
           positions_text: `Layer ${index + 1}`,
@@ -763,6 +767,7 @@ export function buildRecipeLayers(state: SpecEditorState) {
         paper_id: row.paper_id,
         gsm_snapshot: Number(row.gsm || 0),
         bf_snapshot: Number(row.bf_per_ply || 0),
+        bulk_snapshot: Number(row.bulkFactor || 1),
       }
       plyNo += 1
       return payload

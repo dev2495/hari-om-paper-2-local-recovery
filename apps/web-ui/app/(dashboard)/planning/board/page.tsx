@@ -3,11 +3,14 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import type { MouseEvent } from "react"
-import { useEffect, useMemo, useState } from "react"
-import { useSearchParams } from "next/navigation"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowRight,
   CalendarClock,
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
   Factory,
   GripVertical,
   Layers3,
@@ -207,6 +210,10 @@ function dayKey(value: string) {
   return dayjs(value).format("ddd DD MMM")
 }
 
+function monthKey(value: string) {
+  return dayjs(value).format("MMMM YYYY")
+}
+
 function matchesPlannerFocus(job: any, focusedOrderId?: string, focusedJobCardId?: string) {
   if (focusedJobCardId && String(job?.job_card_id || job?.id || "") !== focusedJobCardId) {
     return false
@@ -238,6 +245,7 @@ type HoverDetail = {
 
 export default function PlanningBoardPage() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const { showToast } = useApp()
   const { activePlant, user, isLoading: authLoading } = useAuth()
   const [draggedJob, setDraggedJob] = useState<any | null>(null)
@@ -245,9 +253,11 @@ export default function PlanningBoardPage() {
   const [splitQty, setSplitQty] = useState("")
   const [queueFilter, setQueueFilter] = useState("all")
   const [hoverDetail, setHoverDetail] = useState<HoverDetail | null>(null)
+  const [dateDraft, setDateDraft] = useState("")
 
   const section = String(searchParams?.get("section") || "winder").toLowerCase()
   const isSummaryView = section === "summary"
+  const plannerView = String(searchParams?.get("view") || "schedule").toLowerCase() === "calendar" ? "calendar" : "schedule"
   const stage = isSummaryView ? "WINDER" : SECTION_STAGE_MAP[section] || "WINDER"
   const startDate = searchParams?.get("plan_date") || dayjs().format("YYYY-MM-DD")
   const focusedOrderId = String(searchParams?.get("order_id") || "")
@@ -262,6 +272,24 @@ export default function PlanningBoardPage() {
   const previousWindowDate = dayjs(startDate).subtract(3, "day").format("YYYY-MM-DD")
   const todayWindowDate = dayjs().format("YYYY-MM-DD")
   const nextWindowDate = dayjs(startDate).add(3, "day").format("YYYY-MM-DD")
+  const maxPlannerDate = dayjs().add(3, "month").format("YYYY-MM-DD")
+  const monthStartDate = dayjs(startDate).startOf("month").format("YYYY-MM-DD")
+  const previousMonthDate = dayjs(startDate).subtract(1, "month").startOf("month").format("YYYY-MM-DD")
+  const nextMonthDate = dayjs(startDate).add(1, "month").startOf("month").format("YYYY-MM-DD")
+
+  const boardHref = useCallback((next: { section?: string; date?: string; view?: string } = {}) => {
+    const params = new URLSearchParams()
+    params.set("section", next.section || section)
+    params.set("plan_date", next.date || startDate)
+    if ((next.view || plannerView) === "calendar") params.set("view", "calendar")
+    if (focusedOrderId) params.set("order_id", focusedOrderId)
+    if (focusedJobCardId) params.set("job_card_id", focusedJobCardId)
+    return `/planning/board?${params.toString()}`
+  }, [focusedJobCardId, focusedOrderId, plannerView, section, startDate])
+
+  useEffect(() => {
+    setDateDraft(dayjs(startDate).isValid() ? dayjs(startDate).format("YYYY-MM-DD") : dayjs().format("YYYY-MM-DD"))
+  }, [startDate])
 
   const board0 = usePlanningBoard(stage, day0, true, scopedPlantId, canQuery)
   const board1 = usePlanningBoard(stage, day1, true, scopedPlantId, canQuery)
@@ -426,17 +454,17 @@ export default function PlanningBoardPage() {
       {
         key: "summary",
         value: "SUMMARY",
-        href: `/planning/board?section=summary&plan_date=${startDate}${focusedOrderId ? `&order_id=${focusedOrderId}` : ""}${focusedJobCardId ? `&job_card_id=${focusedJobCardId}` : ""}`,
+        href: boardHref({ section: "summary" }),
       },
       ...Object.entries(SECTION_STAGE_MAP)
         .filter(([key]) => key !== "slitting" || allVisibleJobs.some((job: any) => job.current_stage === "SLITTING"))
         .map(([key, value]) => ({
           key,
           value,
-          href: `/planning/board?section=${key}&plan_date=${startDate}${focusedOrderId ? `&order_id=${focusedOrderId}` : ""}${focusedJobCardId ? `&job_card_id=${focusedJobCardId}` : ""}`,
+          href: boardHref({ section: key }),
         })),
     ],
-    [allVisibleJobs, focusedJobCardId, focusedOrderId, startDate],
+    [allVisibleJobs, boardHref],
   )
 
   const stageCounts = useMemo(() => {
@@ -653,6 +681,55 @@ export default function PlanningBoardPage() {
     () => allJobCards.filter((job: any) => String(job.status || "").toUpperCase() !== "COMPLETED"),
     [allJobCards],
   )
+  const monthCalendarDays = useMemo(() => {
+    const monthStart = dayjs(startDate).startOf("month")
+    const gridStart = monthStart.subtract(monthStart.day(), "day")
+    const jobsByDate = new Map<string, any[]>()
+    for (const job of activeJobCards) {
+      const planDate = job.active_segment_plan_date || job.plan_date || job.due_date || job.created_at
+      if (!planDate || !dayjs(planDate).isValid()) continue
+      const key = dayjs(planDate).format("YYYY-MM-DD")
+      const bucket = jobsByDate.get(key) || []
+      bucket.push(job)
+      jobsByDate.set(key, bucket)
+    }
+    return Array.from({ length: 42 }, (_, index) => {
+      const dateValue = gridStart.add(index, "day")
+      const key = dateValue.format("YYYY-MM-DD")
+      const jobs = jobsByDate.get(key) || []
+      const scheduled = jobs.filter((job: any) => Boolean(job.active_segment_machine_id)).length
+      const blocked = jobs.filter((job: any) => Boolean(job.blocked_reason) || !job.planner_gate_ready).length
+      const stageLoad = jobs.reduce((acc: Record<string, number>, job: any) => {
+        const stageName = String(job.current_stage || "UNKNOWN").toUpperCase()
+        acc[stageName] = (acc[stageName] || 0) + 1
+        return acc
+      }, {})
+      return {
+        date: key,
+        inMonth: dateValue.isSame(monthStart, "month"),
+        isToday: dateValue.isSame(dayjs(), "day"),
+        isBeyondPlanningLimit: dateValue.isAfter(dayjs(maxPlannerDate), "day"),
+        jobs,
+        scheduled,
+        unscheduled: Math.max(jobs.length - scheduled, 0),
+        blocked,
+        stageLoad,
+      }
+    })
+  }, [activeJobCards, maxPlannerDate, startDate])
+  const calendarMonthMetrics = useMemo(() => {
+    const currentMonthRows = monthCalendarDays.filter((row) => row.inMonth)
+    const jobs = currentMonthRows.flatMap((row) => row.jobs)
+    const scheduled = currentMonthRows.reduce((sum, row) => sum + row.scheduled, 0)
+    const blocked = currentMonthRows.reduce((sum, row) => sum + row.blocked, 0)
+    return {
+      jobs: jobs.length,
+      scheduled,
+      unscheduled: Math.max(jobs.length - scheduled, 0),
+      blocked,
+      busyDays: currentMonthRows.filter((row) => row.jobs.length > 0).length,
+    }
+  }, [monthCalendarDays])
   const completedJobCards = useMemo(
     () => allJobCards.filter((job: any) => String(job.status || "").toUpperCase() === "COMPLETED"),
     [allJobCards],
@@ -769,6 +846,215 @@ export default function PlanningBoardPage() {
     }
   }
 
+  function applyDateDraft(targetView = plannerView) {
+    const parsed = dayjs(dateDraft)
+    if (!parsed.isValid()) {
+      showToast("Select a valid planner date.", "error")
+      return
+    }
+    if (parsed.isAfter(dayjs(maxPlannerDate), "day")) {
+      showToast("Planner future window is limited to the next 3 months.", "error")
+      return
+    }
+    router.push(boardHref({ date: parsed.format("YYYY-MM-DD"), view: targetView }))
+  }
+
+  const plannerControls = (
+    <div className="mt-3 grid gap-2 rounded-[1.15rem] border border-white/80 bg-white/70 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.72)] lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center">
+      <div className="flex flex-wrap items-center gap-2">
+        {[
+          { key: "schedule", label: "3-day board" },
+          { key: "calendar", label: "Month calendar" },
+        ].map((item) => {
+          const active = plannerView === item.key
+          return (
+            <Link
+              key={item.key}
+              href={boardHref({ view: item.key })}
+              className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ${
+                active
+                  ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                  : "border-slate-200 bg-white/80 text-slate-700 hover:-translate-y-0.5 hover:bg-white"
+              }`}
+            >
+              {item.label}
+            </Link>
+          )
+        })}
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,13rem)_auto_auto] sm:items-end">
+        <label className="grid gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Planner start date</span>
+          <input
+            type="date"
+            value={dateDraft}
+            max={maxPlannerDate}
+            onChange={(event) => setDateDraft(event.target.value)}
+            className="h-9 rounded-full border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-800 outline-none transition focus:border-slate-400"
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => applyDateDraft(plannerView)}
+          className="h-9 rounded-full border border-slate-950 bg-slate-950 px-4 text-xs font-semibold text-white transition hover:-translate-y-0.5 active:translate-y-0"
+        >
+          Show window
+        </button>
+        <p className="text-[11px] leading-4 text-slate-500">
+          Future planning is capped at {formatDate(maxPlannerDate, "DD MMM YYYY")}.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+        {plannerView === "calendar" ? (
+          <>
+            <Link
+              href={boardHref({ date: previousMonthDate, view: "calendar" })}
+              className="inline-flex h-9 items-center gap-1 rounded-full border border-slate-200 bg-white/85 px-3 text-[11px] font-semibold text-slate-700 transition hover:-translate-y-0.5"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Prior month
+            </Link>
+            <Link
+              href={boardHref({ date: dayjs(nextMonthDate).isAfter(dayjs(maxPlannerDate), "day") ? maxPlannerDate : nextMonthDate, view: "calendar" })}
+              className={`inline-flex h-9 items-center gap-1 rounded-full border px-3 text-[11px] font-semibold transition ${
+                dayjs(nextMonthDate).isAfter(dayjs(maxPlannerDate), "day")
+                  ? "border-slate-200 bg-slate-100 text-slate-400"
+                  : "border-slate-200 bg-white/85 text-slate-700 hover:-translate-y-0.5"
+              }`}
+            >
+              Next month
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Link>
+          </>
+        ) : (
+          [
+            { label: "Previous 3 days", date: previousWindowDate },
+            { label: "Today window", date: todayWindowDate },
+            { label: "Next 3 days", date: dayjs(nextWindowDate).isAfter(dayjs(maxPlannerDate), "day") ? maxPlannerDate : nextWindowDate },
+          ].map((control) => (
+            <Link
+              key={control.label}
+              href={boardHref({ date: control.date, view: "schedule" })}
+              className="rounded-full border border-slate-200 bg-white/85 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-white"
+            >
+              {control.label}
+            </Link>
+          ))
+        )}
+      </div>
+    </div>
+  )
+
+  const calendarBoard = (
+    <section className="overflow-hidden rounded-[1.65rem] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+      <div className="border-b border-slate-200 bg-slate-50/70 px-4 py-4">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${stageTheme.pill}`}>
+              <CalendarDays className="h-3.5 w-3.5" />
+              Monthly planning map
+            </div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{monthKey(monthStartDate)}</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              A month-level control surface for future planning. Pick any valid day to open its 3-day machine window.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-5 xl:w-[44rem]">
+            {[
+              ["Jobs", calendarMonthMetrics.jobs],
+              ["Scheduled", calendarMonthMetrics.scheduled],
+              ["Unscheduled", calendarMonthMetrics.unscheduled],
+              ["Blocked", calendarMonthMetrics.blocked],
+              ["Busy days", calendarMonthMetrics.busyDays],
+            ].map(([label, value]) => (
+              <div key={String(label)} className="rounded-[1rem] border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
+                <p className="mt-1 text-xl font-semibold leading-none text-slate-950">{value}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4">
+        <div className="grid grid-cols-7 gap-2">
+          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
+            <div key={label} className="rounded-full bg-slate-100 px-3 py-2 text-center text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {label}
+            </div>
+          ))}
+          {monthCalendarDays.map((day) => {
+            const dominantStage = Object.entries(day.stageLoad).sort((left, right) => Number(right[1]) - Number(left[1]))[0]?.[0]
+            const canOpenDay = !day.isBeyondPlanningLimit
+            return (
+              <Link
+                key={day.date}
+                href={canOpenDay ? boardHref({ date: day.date, view: "schedule" }) : boardHref({ date: maxPlannerDate, view: "schedule" })}
+                className={`group min-h-[150px] rounded-[1.25rem] border p-3 transition-all duration-300 ${
+                  day.isToday
+                    ? "border-slate-950 bg-slate-950 text-white shadow-[0_18px_44px_rgba(15,23,42,0.18)]"
+                    : day.inMonth
+                      ? "border-slate-200 bg-white hover:-translate-y-1 hover:border-slate-300 hover:shadow-[0_18px_42px_rgba(15,23,42,0.08)]"
+                      : "border-slate-100 bg-slate-50/70 text-slate-400"
+                } ${day.isBeyondPlanningLimit ? "pointer-events-none opacity-50" : ""}`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${day.isToday ? "text-white/60" : "text-slate-400"}`}>
+                      {dayjs(day.date).format("MMM")}
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold leading-none">{dayjs(day.date).format("DD")}</p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${day.isToday ? "bg-white/15 text-white" : "bg-slate-100 text-slate-600"}`}>
+                    {day.jobs.length}
+                  </span>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className={`h-1.5 overflow-hidden rounded-full ${day.isToday ? "bg-white/15" : "bg-slate-100"}`}>
+                    <div
+                      className={`h-full rounded-full ${day.blocked ? "bg-rose-500" : day.scheduled ? "bg-emerald-500" : stageTheme.fill}`}
+                      style={{ width: `${Math.min(100, Math.max(8, day.jobs.length * 14))}%` }}
+                    />
+                  </div>
+                  <div className={`grid grid-cols-3 gap-1 text-[10px] ${day.isToday ? "text-white/75" : "text-slate-500"}`}>
+                    <span>{day.scheduled} planned</span>
+                    <span>{day.unscheduled} queue</span>
+                    <span className={day.blocked ? "font-semibold text-rose-600" : ""}>{day.blocked} blocked</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-1">
+                  {day.jobs.slice(0, 3).map((job: any) => (
+                    <div
+                      key={job.id || job.job_card_id || job.segment_id}
+                      className={`truncate rounded-lg px-2 py-1.5 text-[10px] font-semibold ${
+                        day.isToday ? "bg-white/12 text-white" : "bg-slate-50 text-slate-700"
+                      }`}
+                    >
+                      {jobCardRef(job)} · {String(job.current_stage || "-").toUpperCase()}
+                    </div>
+                  ))}
+                  {day.jobs.length > 3 ? (
+                    <p className={`text-[10px] font-semibold ${day.isToday ? "text-white/55" : "text-slate-400"}`}>
+                      {day.jobs.length - 3} more jobs
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className={`mt-3 text-[10px] font-semibold uppercase tracking-[0.14em] ${day.isToday ? "text-white/50" : "text-slate-400"}`}>
+                  {dominantStage || (day.isBeyondPlanningLimit ? "Beyond 3 months" : "Open day")}
+                </div>
+              </Link>
+            )
+          })}
+        </div>
+      </div>
+    </section>
+  )
+
   if (loading) {
     return <EmptyState label="Loading planner workspace..." />
   }
@@ -858,6 +1144,7 @@ export default function PlanningBoardPage() {
               <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
+          {plannerControls}
         </section>
 
         <div className="grid gap-3 xl:grid-cols-[1fr_0.9fr]">
@@ -1048,27 +1335,11 @@ export default function PlanningBoardPage() {
                 </div>
               ) : null}
             </div>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {[
-                { label: "Previous 3 days", date: previousWindowDate },
-                { label: "Today window", date: todayWindowDate },
-                { label: "Next 3 days", date: nextWindowDate },
-              ].map((control) => (
-                <Link
-                  key={control.label}
-                  href={`/planning/board?section=${section}&plan_date=${control.date}${focusedOrderId ? `&order_id=${focusedOrderId}` : ""}${focusedJobCardId ? `&job_card_id=${focusedJobCardId}` : ""}`}
-                  className="rounded-full border border-white/80 bg-white/70 px-3 py-1.5 text-[11px] font-semibold text-slate-700 transition hover:-translate-y-0.5 hover:bg-white"
-                >
-                  {control.label}
-                </Link>
-              ))}
-              <span className="text-[11px] text-slate-500">
-                Past windows keep scheduled rows visible until the step output is entered and the job moves forward.
-              </span>
-            </div>
+            {plannerControls}
           </div>
         </section>
 
+        {plannerView === "calendar" ? calendarBoard : (
         <div className="grid h-[calc(100vh-9rem)] min-h-[650px] gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
           <aside className="min-h-0">
             <section className="flex h-full min-h-0 flex-col rounded-[1.65rem] border border-slate-200 bg-white p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
@@ -1441,6 +1712,7 @@ export default function PlanningBoardPage() {
             </div>
           </section>
         </div>
+        )}
       </div>
 
       {hoverDetail ? (

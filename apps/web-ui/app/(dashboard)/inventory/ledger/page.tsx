@@ -1,10 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
-import { ArrowRight, ClipboardList, MapPin, PackageSearch, Search } from "lucide-react"
+import { useSearchParams } from "next/navigation"
+import { useMemo, useState, useEffect } from "react"
+import { ArrowLeft, ArrowRight, ClipboardList, MapPin, PackageSearch, Search, Workflow } from "lucide-react"
 
-import { useInventoryBalances, useInventoryLocationOccupancy, useInventoryTransactions } from "@/hooks/use-inventory"
+import { useInventoryBalances, useInventoryLocationOccupancy, useInventoryTransactions, useInventoryItems } from "@/hooks/use-inventory"
 
 const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
@@ -20,9 +21,29 @@ function normalizeRows(raw: any) {
 }
 
 export default function InventoryLedgerPage() {
+  const search = useSearchParams()
+  const drillItemId = search?.get("item_id") || undefined
+  const drillStart = search?.get("start") || undefined
+  const drillEnd = search?.get("end") || undefined
+  const drillFrom = search?.get("from") || undefined
+
   const balancesQuery = useInventoryBalances()
-  const transactionsQuery = useInventoryTransactions()
+  const transactionsQuery = useInventoryTransactions(
+    drillItemId
+      ? {
+          item_id: drillItemId,
+          date_from: drillStart || undefined,
+          date_to: drillEnd || undefined,
+        }
+      : undefined,
+  )
   const occupancyQuery = useInventoryLocationOccupancy()
+  const itemsQuery = useInventoryItems()
+  const drillItem = useMemo(() => {
+    if (!drillItemId) return null
+    const items = Array.isArray(itemsQuery.data) ? itemsQuery.data : []
+    return items.find((it: any) => String(it.id) === drillItemId) || null
+  }, [itemsQuery.data, drillItemId])
   const { data: balancesRaw } = balancesQuery
   const { data: transactionsRaw } = transactionsQuery
   const { data: occupancyRaw } = occupancyQuery
@@ -73,6 +94,39 @@ export default function InventoryLedgerPage() {
 
   return (
     <div className="space-y-5">
+      {drillItemId ? (
+        <section className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-950 shadow-sm">
+          <Workflow className="h-4 w-4" />
+          Drill view ·{" "}
+          <span className="font-mono font-bold text-cyan-900">
+            {drillItem?.item_code || drillItemId}
+          </span>
+          {drillItem?.name ? ` · ${drillItem.name}` : null}
+          {drillStart && drillEnd ? (
+            <span className="text-cyan-800">
+              · {drillStart} → {drillEnd}
+            </span>
+          ) : null}
+          <span className="ml-auto text-[11px] uppercase tracking-[0.12em] text-cyan-800">
+            {transactions.length} txn(s)
+          </span>
+          {drillFrom ? (
+            <Link
+              href={drillFrom === "reconciliation" ? "/production/reconciliation" : `/${drillFrom}`}
+              className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-900 hover:bg-white"
+            >
+              <ArrowLeft className="h-3 w-3" /> Back to {drillFrom}
+            </Link>
+          ) : (
+            <Link
+              href="/inventory/ledger"
+              className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-900 hover:bg-white"
+            >
+              Clear drill <ArrowRight className="h-3 w-3" />
+            </Link>
+          )}
+        </section>
+      ) : null}
       <section className="rounded-[2rem] border border-slate-200 bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl">
         <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Inventory audit</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">

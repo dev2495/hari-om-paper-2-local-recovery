@@ -150,3 +150,135 @@ def create_fg_inward(
         item_balance=get_item_balance(str(fg_inward.item_id), db),
         message=f"FG inward recorded: {fg_inward.qty} {item.uom.value} of {item.name}",
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Gap 7: manual FG-inward — for rework / customer return / adjustment events
+# that don't have a production_job_id behind them.
+# ──────────────────────────────────────────────────────────────────────────
+
+
+VALID_MANUAL_REASONS = {"REWORK", "RETURN", "ADJUSTMENT", "OPENING", "OTHER"}
+
+
+class ManualFGInwardCreate(BaseModel):
+    item_id: uuid.UUID
+    qty: float
+    reason_code: str = "REWORK"
+    notes: Optional[str] = None
+    reference: Optional[str] = None
+    batch_no: Optional[str] = None
+    location_id: Optional[uuid.UUID] = None
+    stock_status: str = "UNRESTRICTED"
+
+
+@router.post("/manual", response_model=FGInwardResponse)
+def create_manual_fg_inward(
+    payload: ManualFGInwardCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner", "SupervisorEntry", "Production"])),
+):
+    reason = (payload.reason_code or "REWORK").strip().upper()
+    if reason not in VALID_MANUAL_REASONS:
+        raise HTTPException(status_code=400, detail=f"Invalid reason_code; must be one of {sorted(VALID_MANUAL_REASONS)}")
+
+    if payload.qty <= 0:
+        raise HTTPException(status_code=400, detail="qty must be greater than zero")
+
+    item = db.query(ItemMaster).filter(
+        ItemMaster.id == payload.item_id,
+        ItemMaster.plant_id == plant_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    if item.type != ItemType.FINISHED_GOOD:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Item {item.name} is not a finished good. Type: {item.type.value}",
+        )
+
+    location_id = payload.location_id
+    if location_id:
+        location = db.query(InventoryLocation).filter(
+            InventoryLocation.id == location_id,
+            InventoryLocation.plant_id == plant_id,
+        ).first()
+        if not location:
+            raise HTTPException(status_code=404, detail="Inventory location not found")
+
+    stock_status = payload.stock_status.strip().upper()
+    if stock_status not in {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}:
+        raise HTTPException(status_code=400, detail="Invalid stock_status")
+
+    batch_no = (payload.batch_no or "").strip() or _next_system_fg_batch_no(db, item, plant_id)
+    timestamp_token = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+    external_ref = f"FG:MANUAL:{reason}:{timestamp_token}"
+
+    # idempotency: if reference provided, use it
+    if payload.reference:
+        external_ref = f"FG:MANUAL:{reason}:{payload.reference}"
+        existing_txn = db.query(StockTransaction).filter(
+            StockTransaction.external_ref == external_ref,
+            StockTransaction.plant_id == plant_id,
+        ).first()
+        if existing_txn:
+            existing_batch = db.query(StockBatch).filter(StockBatch.id == existing_txn.batch_id).first()
+            return FGInwardResponse(
+                batch_id=existing_txn.batch_id,
+                transaction_id=existing_txn.id,
+                item_id=existing_txn.item_id,
+                batch_no=existing_batch.batch_no if existing_batch else batch_no,
+                qty_received=abs(existing_txn.qty_change),
+                location_id=existing_batch.location_id if existing_batch else None,
+                stock_status=existing_batch.stock_status if existing_batch else stock_status,
+                item_balance=get_item_balance(str(existing_txn.item_id), db),
+                message="Manual FG inward already posted (idempotent)",
+            )
+
+    batch = StockBatch(
+        item_id=payload.item_id,
+        batch_no=batch_no,
+        received_qty=payload.qty,
+        location_id=location_id,
+        stock_status=stock_status,
+        spec_id=None,
+        plant_id=plant_id,
+    )
+    db.add(batch)
+    db.flush()
+
+    transaction = StockTransaction(
+        item_id=payload.item_id,
+        batch_id=batch.id,
+        transaction_type=TransactionType.FG_INWARD,
+        qty_change=payload.qty,
+        # Manual FG inward — no production_job_id; use a synthetic reference.
+        reference_type=ReferenceType.ADJUSTMENT if reason in {"ADJUSTMENT", "OPENING", "OTHER"} else ReferenceType.PRODUCTION_JOB,
+        reference_id=payload.item_id,  # self-reference for adjustments
+        plant_id=plant_id,
+        location_id=location_id,
+        stock_status=stock_status,
+        movement_metadata={
+            "batch_no": batch_no,
+            "manual": True,
+            "reason_code": reason,
+            "notes": payload.notes or "",
+            "ref": payload.reference or "",
+        },
+        external_ref=external_ref,
+    )
+    db.add(transaction)
+    db.commit()
+
+    return FGInwardResponse(
+        batch_id=batch.id,
+        transaction_id=transaction.id,
+        item_id=payload.item_id,
+        batch_no=batch_no,
+        qty_received=payload.qty,
+        location_id=location_id,
+        stock_status=stock_status,
+        item_balance=get_item_balance(str(payload.item_id), db),
+        message=f"Manual FG inward ({reason}) recorded: {payload.qty} {item.uom.value} of {item.name}",
+    )

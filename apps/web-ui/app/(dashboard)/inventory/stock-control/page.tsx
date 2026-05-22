@@ -27,9 +27,11 @@ import {
   useInventoryItems,
   useInventoryStockStatement,
   useOpeningLoads,
+  usePostOpeningFromCarryForward,
   useStockCertifications,
   useUpdateStockCertification,
 } from "@/hooks/use-inventory"
+import { useBooksState, usePeriodState } from "@/hooks/use-production"
 import { inventoryApi } from "@/lib/api"
 import { displayPlantScope } from "@/lib/plant-scope"
 
@@ -79,6 +81,10 @@ export default function InventoryStockControlPage() {
   const updateCertification = useUpdateStockCertification()
   const certifyCertification = useCertifyStockCertification()
   const createCarryForward = useCreateCarryForward()
+  const postOpeningFromCf = usePostOpeningFromCarryForward()
+  const booksStateQuery = useBooksState(activePlant || "", true)
+  const currentMonthIso = monthStart().slice(0, 7)
+  const periodStateQuery = usePeriodState(currentMonthIso, activePlant || "", true)
 
   const certificationDetailQuery = useQuery({
     queryKey: ["inventory-stock-certification", selectedCertificationId],
@@ -214,6 +220,54 @@ export default function InventoryStockControlPage() {
       {writeBlocked ? (
         <section className="rounded-[1.4rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
           Select one concrete plant before posting opening stock, certifying closing stock, or generating carry-forward. Global scope remains read-only for audit review.
+        </section>
+      ) : null}
+
+      {/* Flow context — links back to the Lifecycle hub */}
+      <section className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-cyan-200 bg-cyan-50/60 px-4 py-2.5 text-[12.5px] font-semibold text-cyan-950 shadow-sm">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-white px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-800">Step 3–4 of 6</span>
+        <span>You are in <strong>Stock certification</strong> · <strong>Carry-forward</strong></span>
+        <Link
+          href="/inventory/lifecycle"
+          className="ml-auto inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-900 hover:bg-white"
+        >
+          ← Lifecycle hub
+        </Link>
+        <Link
+          href="/production/reconciliation"
+          className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-900 hover:bg-white"
+        >
+          Next: Monthly reco →
+        </Link>
+      </section>
+
+      {booksStateQuery.data?.locked_through ? (
+        <section className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-emerald-200 bg-emerald-50/80 px-4 py-3 text-sm font-semibold text-emerald-900 shadow-sm">
+          <BadgeCheck className="h-4 w-4" />
+          Books locked through {String(booksStateQuery.data.locked_through)}
+          {booksStateQuery.data.locked_by ? ` · ${booksStateQuery.data.locked_by}` : null}
+          <Link href="/production/reconciliation" className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-emerald-900 hover:bg-emerald-100">
+            Reconciliation <ArrowRight className="h-3 w-3" />
+          </Link>
+        </section>
+      ) : null}
+
+      {periodStateQuery.data && !writeBlocked ? (
+        <section className={`flex flex-wrap items-center gap-3 rounded-[1.4rem] border px-4 py-3 text-sm font-semibold shadow-sm ${
+          periodStateQuery.data.can_approve_reco
+            ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+            : periodStateQuery.data.stock_cert_status === "CERTIFIED" || periodStateQuery.data.stock_cert_status === "CARRIED_FORWARD"
+            ? "border-amber-200 bg-amber-50 text-amber-900"
+            : "border-rose-200 bg-rose-50 text-rose-900"
+        }`}>
+          <Scale className="h-4 w-4" />
+          Period <strong>{currentMonthIso}</strong> · Stock cert: <strong>{periodStateQuery.data.stock_cert_status || "missing"}</strong> · Reco: <strong>{periodStateQuery.data.reco_status}</strong>
+          {periodStateQuery.data.blockers?.length ? (
+            <span className="ml-2">· {periodStateQuery.data.blockers.length} blocker(s)</span>
+          ) : null}
+          <Link href="/production/reconciliation" className="ml-auto inline-flex items-center gap-1 rounded-full border border-current px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] hover:bg-white/70">
+            Open reco <ArrowRight className="h-3 w-3" />
+          </Link>
         </section>
       ) : null}
 
@@ -367,15 +421,42 @@ export default function InventoryStockControlPage() {
         <div className="space-y-4">
           <ChartCard eyebrow="Formal proof trail" title="Opening loads and year carry-forward" description="This is the audit trail users can show for opening/closing stock continuity.">
             <div className="space-y-3">
-              {carryForwards.slice(0, 4).map((row: any) => (
-                <div key={row.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-950">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="font-semibold">{row.document_no}</p>
-                    <BadgeCheck className="h-4 w-4" />
+              {carryForwards.slice(0, 4).map((row: any) => {
+                const cfStatus = String(row.status || "").toUpperCase()
+                const isPosted = cfStatus === "POSTED"
+                return (
+                  <div key={row.id} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-950">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-semibold">{row.document_no}</p>
+                      <BadgeCheck className="h-4 w-4" />
+                    </div>
+                    <p className="mt-1 text-xs opacity-75">Opening {row.opening_date} · {formatCompactCurrency(Number(row.opening_value || 0))} · {row.line_count} lines</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
+                        isPosted
+                          ? "border-emerald-700 bg-white text-emerald-900"
+                          : "border-amber-300 bg-white text-amber-900"
+                      }`}>
+                        {cfStatus}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => postOpeningFromCf.mutate({ cfId: row.id, plantId: activePlant || "" })}
+                        disabled={isPosted || writeBlocked || postOpeningFromCf.isPending}
+                        className={`ml-auto inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] shadow-sm transition ${
+                          isPosted || writeBlocked
+                            ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                            : "bg-emerald-700 text-white hover:bg-emerald-800"
+                        }`}
+                        title={isPosted ? "Opening already posted from this carry-forward" : "Post next-period opening from this proof"}
+                      >
+                        <FilePlus2 className="h-3 w-3" />
+                        {isPosted ? "Posted" : postOpeningFromCf.isPending ? "Posting…" : "Post opening"}
+                      </button>
+                    </div>
                   </div>
-                  <p className="mt-1 text-xs opacity-75">Opening {row.opening_date} · {formatCompactCurrency(Number(row.opening_value || 0))}</p>
-                </div>
-              ))}
+                )
+              })}
               {!carryForwards.length ? <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">No carry-forward documents generated yet.</p> : null}
             </div>
             <div className="mt-4 space-y-2">

@@ -1,23 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { dispatchApi, inventoryApi, masterApi } from "@/lib/api"
 
-export function useReadyJobs() {
+function isConcretePlant(plantId?: string | null) {
+  return Boolean(plantId && String(plantId).toUpperCase() !== "ALL")
+}
+
+export function useReadyJobs(plantId?: string | null) {
   return useQuery({
-    queryKey: ["ready-jobs"],
+    queryKey: ["ready-jobs", plantId || null],
     queryFn: async () => {
-      const { data } = await dispatchApi.getReadyJobs()
+      const { data } = await dispatchApi.getReadyJobs(plantId || undefined)
       return data
     },
+    enabled: isConcretePlant(plantId),
   })
 }
 
-export function useDispatches() {
+export function useDispatches(plantId?: string | null) {
   return useQuery({
-    queryKey: ["dispatches"],
+    queryKey: ["dispatches", plantId || null],
     queryFn: async () => {
-      const { data } = await dispatchApi.getReadyJobs()
+      const { data } = await dispatchApi.getReadyJobs(plantId || undefined)
       return Array.isArray(data) ? data : []
     },
+    enabled: isConcretePlant(plantId),
   })
 }
 
@@ -56,12 +62,13 @@ export function useCreateOrUpdateDispatch() {
   })
 }
 
-export function useCreateDispatch() {
+export function useCreateDispatch(plantId?: string | null) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (data: any) => inventoryApi.createDispatch(data),
+    mutationFn: (data: any) => inventoryApi.createDispatch(data, plantId || undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dispatches"] })
+      queryClient.invalidateQueries({ queryKey: ["ready-jobs"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
     },
   })

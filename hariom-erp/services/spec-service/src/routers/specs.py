@@ -532,17 +532,23 @@ def _upsert_dynamic_values(
         ).all()
     }
 
+    deduped_entries: dict[str, Optional[str]] = {}
     for entry in dynamic_fields:
-        field = field_map.get(entry.field_key)
+        key = str(entry.field_key or "").strip()
+        if key:
+            deduped_entries[key] = entry.value
+
+    for field_key, entry_value in deduped_entries.items():
+        field = field_map.get(field_key)
         if not field:
             field = _ensure_dynamic_field(
-                key=entry.field_key,
+                key=field_key,
                 plant_id=plant_id,
-                label=_default_dynamic_label(entry.field_key),
-                field_type=_guess_field_type(entry.value),
+                label=_default_dynamic_label(field_key),
+                field_type=_guess_field_type(entry_value),
                 db=db,
             )
-            field_map[entry.field_key] = field
+            field_map[field_key] = field
 
         value_model = db.query(SpecDynamicFieldValue).filter(
             SpecDynamicFieldValue.spec_id == spec_id,
@@ -554,12 +560,12 @@ def _upsert_dynamic_values(
                 spec_id=spec_id,
                 plant_id=plant_id,
                 field_id=field.id,
-                value=entry.value
+                value=entry_value
             )
             db.add(value_model)
         else:
             value_model.plant_id = plant_id
-            value_model.value = entry.value
+            value_model.value = entry_value
 
 
 def _upsert_compat_dynamic_values(
@@ -569,6 +575,8 @@ def _upsert_compat_dynamic_values(
     plant_id: str,
     db: Session,
 ):
+    if compat_values:
+        db.flush()
     for key, raw_value in compat_values.items():
         field = _ensure_dynamic_field(key=key, plant_id=plant_id, db=db)
         stored_value = _normalize_dynamic_value(raw_value)

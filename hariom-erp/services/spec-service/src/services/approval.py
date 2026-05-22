@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import RecipeHeader, SpecificationSheet
@@ -29,6 +30,25 @@ class ApprovalService:
         if not spec:
             raise HTTPException(status_code=404, detail="Specification not found")
 
+        existing_approved = (
+            self.db.query(SpecificationSheet)
+            .filter(
+                SpecificationSheet.id != spec.id,
+                SpecificationSheet.plant_id == spec.plant_id,
+                SpecificationSheet.customer_id == spec.customer_id,
+                SpecificationSheet.tube_size_id == spec.tube_size_id,
+                SpecificationSheet.target_tube_weight == spec.target_tube_weight,
+                SpecificationSheet.required_cs == spec.required_cs,
+                SpecificationSheet.status == "approved",
+            )
+            .first()
+        )
+        if existing_approved:
+            raise HTTPException(
+                status_code=409,
+                detail="An approved specification already exists for this customer, tube size, weight, and CS key",
+            )
+
         recipe.status = "approved"
         recipe.approved_by = approved_by
 
@@ -46,7 +66,14 @@ class ApprovalService:
         )
         spec.approved_cs = float(approved_trial.actual_cs) if approved_trial else float(spec.required_cs or 0)
 
-        self.db.commit()
+        try:
+            self.db.commit()
+        except IntegrityError as exc:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="An approved specification already exists for this customer, tube size, weight, and CS key",
+            ) from exc
         self.db.refresh(recipe)
         self.db.refresh(spec)
 

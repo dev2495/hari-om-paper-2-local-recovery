@@ -1647,7 +1647,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }
 
   const buildRecipeLayers = () => {
-    const layers: Array<{ ply_no: number; paper_id: string; gsm_snapshot: number; bf_snapshot: number }> = []
+    const layers: Array<{ ply_no: number; paper_id: string; gsm_snapshot: number; bf_snapshot: number; bulk_snapshot?: number }> = []
     const usedPlyNumbers = new Set<number>()
     let nextSequentialPly = 1
 
@@ -1676,6 +1676,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           paper_id: row.paper_id,
           gsm_snapshot: Number(paper?.gsm || 0),
           bf_snapshot: Number(paper?.bf ?? paper?.strength_value ?? row.bfPerPly ?? 0),
+          bulk_snapshot: Number(paper?.bulk_factor || row.bulkFactor || 1),
         })
       }
     }

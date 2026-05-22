@@ -12,6 +12,19 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
+from ..services.consumption import (
+    PAPER_EXPECTED_CONSUMPTION_FACTOR as _CONSUMPTION_PAPER_EXPECTED_FACTOR,
+    PAPER_STANDARD_WASTAGE_PERCENT as _CONSUMPTION_PAPER_WASTAGE_PCT,
+    VARIANCE_TOLERANCE_DEFAULT_KG as _CONSUMPTION_DEFAULT_TOL,
+    VARIANCE_TOLERANCE_KG_BY_TYPE as _CONSUMPTION_TOL_BY_TYPE,
+    aggregate_provisional_rows as _consumption_aggregate_provisional,
+    compose_streams_for_period as _consumption_compose_streams,
+    is_raw_paper_item as _consumption_is_raw_paper,
+    paper_catalog_codes as _consumption_paper_catalog_codes,
+    provisional_rows_for_job_card as _consumption_provisional_for_job,
+    summarize_streams as _consumption_summarize,
+    tolerance_for_item_type as _consumption_tolerance_for,
+)
 from ..models import (
     JobCard,
     JobCardStage,
@@ -28,8 +41,13 @@ from ..utils.auth import get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/reconciliation", tags=["reconciliation"])
 settings = get_settings()
-PAPER_EXPECTED_CONSUMPTION_FACTOR = 1.07
-PAPER_STANDARD_WASTAGE_PERCENT = 7.0
+
+# Re-export constants from the centralized consumption service (Gap 8).
+# Local names retained so external callers / tests don't break.
+PAPER_EXPECTED_CONSUMPTION_FACTOR = _CONSUMPTION_PAPER_EXPECTED_FACTOR
+PAPER_STANDARD_WASTAGE_PERCENT = _CONSUMPTION_PAPER_WASTAGE_PCT
+VARIANCE_TOLERANCE_KG_BY_TYPE: dict[str, float] = _CONSUMPTION_TOL_BY_TYPE
+VARIANCE_TOLERANCE_DEFAULT_KG = _CONSUMPTION_DEFAULT_TOL
 
 
 class ShiftMaterialLedgerPayload(BaseModel):
@@ -129,6 +147,7 @@ class MonthlyMaterialActualRow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     item_code: str
+    item_id: Optional[str] = None
     item_name: Optional[str] = None
     item_type: Optional[str] = None
     item_uom: Optional[str] = None
@@ -138,24 +157,37 @@ class MonthlyMaterialActualRow(BaseModel):
     expected_consumption_factor: float = 1.0
     theoretical_consumption_kg: float
     provisional_theory_consumption_kg: float
+    # Gap 1: third stream — sum of ISSUE_PRODUCTION StockTransaction for the period.
+    ledger_issued_kg: float = 0.0
     actual_consumption_kg: float
     actual_month_end_consumption_kg: float
     variance_kg: float
     variance_percent: float
+    # Gap 1: derived comparisons for the operator
+    ledger_vs_theoretical_kg: float = 0.0
+    ledger_vs_actual_kg: float = 0.0
     theoretical_cost: float
     actual_cost: float
     variance_cost: float
     advisory_allocated_order_qty: float
+    notes: Optional[str] = None
+    # Gap 2/3: tolerance enforcement signal
+    tolerance_kg: float = VARIANCE_TOLERANCE_DEFAULT_KG
+    over_tolerance: bool = False
+    needs_explanation: bool = False
 
 
 class MonthlyMaterialSummaryResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     month_start: date
+    month_end: date
     scope_all: bool
     plant_count: int
     total_theoretical_consumption_kg: float
     total_provisional_theory_consumption_kg: float
+    # Gap 1: ledger total
+    total_ledger_issued_kg: float = 0.0
     total_actual_consumption_kg: float
     total_actual_month_end_consumption_kg: float
     total_variance_kg: float
@@ -163,7 +195,70 @@ class MonthlyMaterialSummaryResponse(BaseModel):
     total_theoretical_cost: float
     total_actual_cost: float
     total_variance_cost: float
+    # Gap 2/3: aggregate flags
+    rows_over_tolerance: int = 0
+    rows_needing_explanation: int = 0
     rows: list[MonthlyMaterialActualRow] = Field(default_factory=list)
+
+
+class PeriodStateBlocker(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    code: str
+    item_code: Optional[str] = None
+    detail: str
+
+
+class PeriodStateResponse(BaseModel):
+    """Gap 4 — joint posture of cert and reco for one period."""
+    model_config = ConfigDict(extra="forbid")
+
+    month_start: date
+    month_end: date
+    plant_id: Optional[str] = None
+    reco_status: str
+    reco_locked_at: Optional[str] = None
+    stock_cert_status: Optional[str] = None  # DRAFT | CERTIFIED | CARRIED_FORWARD | None
+    stock_cert_id: Optional[str] = None
+    stock_cert_certified_at: Optional[str] = None
+    can_approve_reco: bool
+    blockers: list[PeriodStateBlocker] = Field(default_factory=list)
+
+
+class WeeklyDriftRow(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    item_code: str
+    item_name: Optional[str] = None
+    item_type: Optional[str] = None
+    theoretical_kg: float
+    ledger_issued_kg: float
+    running_variance_kg: float
+    running_variance_percent: float
+    over_tolerance: bool = False
+
+
+class WeeklyDriftResponse(BaseModel):
+    """Gap 9 — read-only early warning."""
+    model_config = ConfigDict(extra="forbid")
+    week_start: date
+    week_end: date
+    plant_id: Optional[str] = None
+    total_theoretical_kg: float
+    total_ledger_kg: float
+    total_running_variance_kg: float
+    rows_over_tolerance: int = 0
+    rows: list[WeeklyDriftRow] = Field(default_factory=list)
+
+
+class BooksStateResponse(BaseModel):
+    """Gap 10 — books-locked posture for the workspace header."""
+    model_config = ConfigDict(extra="forbid")
+    plant_id: Optional[str] = None
+    locked_through: Optional[date] = None
+    locked_by: Optional[str] = None
+    locked_at: Optional[str] = None
+    current_month_status: str
+    current_cert_status: Optional[str] = None
+    last_reco_month: Optional[date] = None
 
 
 class MonthlyCloseApprovePayload(BaseModel):
@@ -346,21 +441,107 @@ def _fetch_inventory_item_catalog(token: str, plant_id: str) -> dict[str, dict[s
     return catalog
 
 
+# ──────────────────────────────────────────────────────────────────────────
+# Gap 1 + 4: cross-service ledger / certification fetches
+# ──────────────────────────────────────────────────────────────────────────
+
+def _fetch_ledger_consumption(
+    token: str,
+    plant_id: str,
+    period_start: date,
+    period_end: date,
+) -> dict[str, dict[str, Any]]:
+    """Sum ISSUE_PRODUCTION transactions per item across the period.
+
+    Returns: { ITEM_CODE: { item_id, item_code, ledger_issued_kg } }
+    Resilient — returns empty dict if the inventory service is unreachable.
+    """
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{settings.INVENTORY_SERVICE_URL}/transactions/aggregate-by-item",
+                params={
+                    "start_date": period_start.isoformat(),
+                    "end_date": period_end.isoformat(),
+                    "transaction_types": "ISSUE_PRODUCTION,ISSUE_FROM_REEL",
+                },
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+        if response.status_code != 200:
+            return {}
+        rows = response.json() or []
+        out: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            code = str(row.get("item_code") or "").strip().upper()
+            if not code:
+                continue
+            out[code] = {
+                "item_id": row.get("item_id"),
+                "item_code": code,
+                "ledger_issued_kg": float(row.get("issued_kg") or 0.0),
+            }
+        return out
+    except httpx.HTTPError:
+        return {}
+
+
+def _fetch_stock_certification_for_period(
+    token: str,
+    plant_id: str,
+    period_start: date,
+    period_end: date,
+) -> Optional[dict[str, Any]]:
+    """Find the most-recent certification whose period_end falls in [start, end)."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{settings.INVENTORY_SERVICE_URL}/stock-control/certifications",
+                params={
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
+                },
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+        if response.status_code != 200:
+            return None
+        rows = response.json() or []
+        if not rows:
+            return None
+        # Pick the latest whose period_end is within the month
+        candidates = [
+            r
+            for r in rows
+            if r.get("period_end")
+            and period_start.isoformat() <= str(r.get("period_end")) <= (period_end + _DAY).isoformat()
+        ]
+        if not candidates:
+            # fallback: latest cert anywhere within month
+            candidates = [r for r in rows if r.get("period_end") and str(r.get("period_end")) >= period_start.isoformat()]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda r: str(r.get("period_end") or ""), reverse=True)
+        return candidates[0]
+    except httpx.HTTPError:
+        return None
+
+
+from datetime import timedelta as _td
+_DAY = _td(days=1)
+
+
+def _tolerance_for(item_type: Optional[str]) -> float:
+    """Thin wrapper kept for backward compatibility — delegates to ConsumptionExpectationService."""
+    return _consumption_tolerance_for(item_type)
+
+
 def _paper_catalog_codes(paper_catalog: dict[str, dict[str, Any]]) -> set[str]:
-    codes: set[str] = set()
-    for paper_id, row in (paper_catalog or {}).items():
-        for value in (paper_id, row.get("code")):
-            code = str(value or "").strip().upper()
-            if code:
-                codes.add(code)
-    return codes
+    """Delegates to ConsumptionExpectationService (Gap 8)."""
+    return _consumption_paper_catalog_codes(paper_catalog)
 
 
 def _is_raw_paper_item(item_code: str, item_name: Optional[str], inventory_item: dict[str, Any], paper_codes: set[str]) -> bool:
-    item_type = str(inventory_item.get("type") or "").strip().upper()
-    code = str(item_code or "").strip().upper()
-    name = str(item_name or inventory_item.get("name") or "").strip().upper()
-    return item_type == "RAW_PAPER" or code in paper_codes or code.startswith("KRAFT") or "PAPER" in name
+    """Delegates to ConsumptionExpectationService (Gap 8)."""
+    return _consumption_is_raw_paper(item_code, item_name, inventory_item, paper_codes)
 
 
 def _job_card_activity_date(job_card: JobCard) -> date:
@@ -404,54 +585,13 @@ def _provisional_material_rows(
     job_card: JobCard,
     paper_catalog: dict[str, dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    material_snapshot = dict(getattr(job_card, "material_plan_snapshot", {}) or {})
-    bom_snapshot = dict(material_snapshot.get("bom_snapshot") or material_snapshot.get("theoretical_consumption") or {})
-    paper_rows = list((((bom_snapshot.get("raw_materials") or {}).get("papers")) or []))
-    if not paper_rows:
-        return []
+    """Per-job-card BOM theoretical rows.
 
-    planned_output_qty = float(material_snapshot.get("planned_output_qty") or getattr(job_card, "planned_qty", 0.0) or 0.0)
-    produced_qty = _job_card_produced_qty(job_card)
-    if produced_qty <= 0 or planned_output_qty <= 0:
-        return []
-
-    ratio = max(0.0, min(1.5, produced_qty / planned_output_qty))
-    target_bamboo_count = material_snapshot.get("target_bamboo_count")
-    pcs_per_bamboo = material_snapshot.get("pcs_per_bamboo")
-    provisional_bamboo_count = None
-    try:
-        if target_bamboo_count:
-            provisional_bamboo_count = float(target_bamboo_count) * ratio
-        elif pcs_per_bamboo:
-            provisional_bamboo_count = produced_qty / max(float(pcs_per_bamboo), 1.0)
-    except (TypeError, ValueError):
-        provisional_bamboo_count = None
-    if not provisional_bamboo_count or provisional_bamboo_count <= 0:
-        return []
-
-    advisory_allocated_order_qty = produced_qty
-    rows: list[dict[str, Any]] = []
-    for paper_row in paper_rows:
-        paper_id = str(paper_row.get("paper_id") or "")
-        catalog_row = paper_catalog.get(paper_id, {})
-        code = str(catalog_row.get("code") or paper_id or "UNKNOWN").strip().upper()
-        if not code:
-            code = "UNKNOWN"
-        name_parts = [
-            str(catalog_row.get("variety") or "").strip(),
-            f"GSM {catalog_row.get('gsm')}" if catalog_row.get("gsm") is not None else "",
-        ]
-        item_name = " · ".join([part for part in name_parts if part]) or None
-        theoretical_kg = float(paper_row.get("weight_kg") or 0.0) * provisional_bamboo_count
-        rows.append(
-            {
-                "item_code": code,
-                "item_name": item_name,
-                "theoretical_consumption_kg": round(theoretical_kg, 6),
-                "advisory_allocated_order_qty": round(advisory_allocated_order_qty, 4),
-            }
-        )
-    return rows
+    Now delegates to ConsumptionExpectationService (Gap 8). Output shape preserved
+    so existing callers (weekly drift, monthly summary) continue to work unchanged.
+    """
+    rows = _consumption_provisional_for_job(job_card, paper_catalog)
+    return [row.to_dict() for row in rows]
 
 
 def _calculate_reconciliation(
@@ -741,9 +881,11 @@ def _build_monthly_material_summary(
 ) -> MonthlyMaterialSummaryResponse:
     month_end = _next_month(month_start)
     machine_scope_plant = "ALL" if plant_scope.get("scope_all") else str(plant_scope["selected_plant_id"])
-    paper_catalog = _fetch_paper_catalog(current_user.get("token", ""), machine_scope_plant)
+    token = current_user.get("token", "")
+    paper_catalog = _fetch_paper_catalog(token, machine_scope_plant)
     paper_codes = _paper_catalog_codes(paper_catalog)
-    inventory_catalog = _fetch_inventory_item_catalog(current_user.get("token", ""), machine_scope_plant)
+    inventory_catalog = _fetch_inventory_item_catalog(token, machine_scope_plant)
+    ledger_map = _fetch_ledger_consumption(token, machine_scope_plant, month_start, month_end)
 
     provisional_query = _apply_scope(db.query(MonthlyMaterialProvisional), MonthlyMaterialProvisional, plant_scope).filter(
         MonthlyMaterialProvisional.month_start == month_start
@@ -784,71 +926,37 @@ def _build_monthly_material_summary(
         if not bucket.get("item_name") and row.item_name:
             bucket["item_name"] = row.item_name
 
-    inventory_item_codes = {
-        code
-        for code, item in inventory_catalog.items()
-        if str(item.get("type") or "").strip().upper() != "FINISHED_GOOD"
-    }
-    item_codes = sorted(set(provisional_map.keys()) | set(actual_map.keys()) | inventory_item_codes)
-    rows: list[MonthlyMaterialActualRow] = []
-    total_theoretical = 0.0
-    total_provisional_theory = 0.0
-    total_actual = 0.0
-    total_theoretical_cost = 0.0
-    total_actual_cost = 0.0
-    for item_code in item_codes:
-        provisional = provisional_map.get(item_code, {})
-        actual = actual_map.get(item_code, {})
-        inventory_item = inventory_catalog.get(item_code, {})
-        exact_theory_kg = float(provisional.get("theoretical_consumption_kg") or 0.0)
-        row_name = actual.get("item_name") or provisional.get("item_name") or inventory_item.get("name")
-        is_paper = _is_raw_paper_item(item_code, str(row_name or ""), inventory_item, paper_codes)
-        expected_factor = PAPER_EXPECTED_CONSUMPTION_FACTOR if is_paper and exact_theory_kg > 0 else 1.0
-        theoretical_kg = round(exact_theory_kg * expected_factor, 6)
-        standard_wastage_kg = round(theoretical_kg - exact_theory_kg, 6) if is_paper and exact_theory_kg > 0 else None
-        actual_kg = float(actual.get("actual_consumption_kg") or 0.0)
-        unit_cost = float(inventory_item.get("unit_cost") or 0.0)
-        theoretical_cost = theoretical_kg * unit_cost
-        actual_cost = float(actual.get("actual_cost") or 0.0)
-        variance_kg = round(actual_kg - theoretical_kg, 4)
-        variance_cost = round(actual_cost - theoretical_cost, 4)
-        variance_percent = round((variance_kg / theoretical_kg) * 100.0, 2) if theoretical_kg > 0 else (0.0 if actual_kg == 0 else 100.0)
-        total_theoretical += theoretical_kg
-        total_provisional_theory += exact_theory_kg
-        total_actual += actual_kg
-        total_theoretical_cost += theoretical_cost
-        total_actual_cost += actual_cost
-        rows.append(
-            MonthlyMaterialActualRow(
-                item_code=item_code,
-                item_name=row_name,
-                item_type=str(inventory_item.get("type") or "").strip().upper() or None,
-                item_uom=str(inventory_item.get("uom") or "").strip().upper() or None,
-                unit_cost=round(unit_cost, 4),
-                exact_output_paper_kg=round(exact_theory_kg, 4) if is_paper and exact_theory_kg > 0 else None,
-                standard_wastage_kg=round(standard_wastage_kg, 4) if standard_wastage_kg is not None else None,
-                expected_consumption_factor=round(expected_factor, 4),
-                theoretical_consumption_kg=round(theoretical_kg, 4),
-                provisional_theory_consumption_kg=round(exact_theory_kg, 4),
-                actual_consumption_kg=round(actual_kg, 4),
-                actual_month_end_consumption_kg=round(actual_kg, 4),
-                variance_kg=variance_kg,
-                variance_percent=variance_percent,
-                theoretical_cost=round(theoretical_cost, 2),
-                actual_cost=round(actual_cost, 2),
-                variance_cost=variance_cost,
-                advisory_allocated_order_qty=round(float(provisional.get("advisory_allocated_order_qty") or 0.0), 4),
-            )
-        )
+    # Gap 8: delegate row composition + totals to ConsumptionExpectationService.
+    streams = _consumption_compose_streams(
+        provisional_map=provisional_map,
+        actual_map=actual_map,
+        ledger_map=ledger_map,
+        inventory_catalog=inventory_catalog,
+        paper_codes=paper_codes,
+    )
+    rows: list[MonthlyMaterialActualRow] = [
+        MonthlyMaterialActualRow(**stream.to_actual_row_dict()) for stream in streams
+    ]
+    totals = _consumption_summarize(streams)
+    total_theoretical = totals["total_theoretical_consumption_kg"]
+    total_provisional_theory = totals["total_provisional_theory_consumption_kg"]
+    total_ledger = totals["total_ledger_issued_kg"]
+    total_actual = totals["total_actual_consumption_kg"]
+    total_theoretical_cost = totals["total_theoretical_cost"]
+    total_actual_cost = totals["total_actual_cost"]
+    rows_over_tolerance = totals["rows_over_tolerance"]
+    rows_needing_explanation = totals["rows_needing_explanation"]
 
     allowed_plants = plant_scope.get("allowed_plants") or []
     plant_count = len(allowed_plants) if plant_scope.get("scope_all") else (1 if plant_scope.get("selected_plant_id") else 0)
     return MonthlyMaterialSummaryResponse(
         month_start=month_start,
+        month_end=month_end,
         scope_all=bool(plant_scope.get("scope_all")),
         plant_count=plant_count,
         total_theoretical_consumption_kg=round(total_theoretical, 4),
         total_provisional_theory_consumption_kg=round(total_provisional_theory, 4),
+        total_ledger_issued_kg=round(total_ledger, 4),
         total_actual_consumption_kg=round(total_actual, 4),
         total_actual_month_end_consumption_kg=round(total_actual, 4),
         total_variance_kg=round(total_actual - total_theoretical, 4),
@@ -856,6 +964,8 @@ def _build_monthly_material_summary(
         total_theoretical_cost=round(total_theoretical_cost, 2),
         total_actual_cost=round(total_actual_cost, 2),
         total_variance_cost=round(total_actual_cost - total_theoretical_cost, 2),
+        rows_over_tolerance=rows_over_tolerance,
+        rows_needing_explanation=rows_needing_explanation,
         rows=rows,
     )
 
@@ -1149,6 +1259,110 @@ def list_monthly_close_history(
     )
 
 
+def _compute_period_state(
+    *,
+    db: Session,
+    plant_scope: dict,
+    current_user: dict,
+    month_start: date,
+) -> PeriodStateResponse:
+    """Gap 4: joint cert + reco posture for one period."""
+    month_end = _next_month(month_start)
+    plant_id_str: Optional[str] = None
+    reco_status = "OPEN"
+    reco_locked_at: Optional[str] = None
+
+    if not plant_scope.get("scope_all"):
+        plant_uuid = _to_uuid(plant_scope["selected_plant_id"])
+        plant_id_str = str(plant_scope["selected_plant_id"])
+        close_row = (
+            db.query(MonthlyMaterialClose)
+            .filter(
+                MonthlyMaterialClose.plant_id == plant_uuid,
+                MonthlyMaterialClose.month_start == month_start,
+            )
+            .first()
+        )
+        if close_row:
+            reco_status = close_row.status or "OPEN"
+            reco_locked_at = close_row.locked_at.isoformat() if close_row.locked_at else None
+
+    machine_scope_plant = "ALL" if plant_scope.get("scope_all") else (plant_id_str or "")
+    cert = _fetch_stock_certification_for_period(
+        current_user.get("token", ""), machine_scope_plant, month_start, month_end - _DAY
+    )
+    stock_cert_status: Optional[str] = None
+    stock_cert_id: Optional[str] = None
+    stock_cert_certified_at: Optional[str] = None
+    if cert:
+        stock_cert_status = str(cert.get("status") or "").upper() or None
+        stock_cert_id = str(cert.get("id") or "") or None
+        stock_cert_certified_at = cert.get("certified_at")
+
+    blockers: list[PeriodStateBlocker] = []
+    if stock_cert_status not in ("CERTIFIED", "CARRIED_FORWARD"):
+        blockers.append(
+            PeriodStateBlocker(
+                code="CERT_NOT_CERTIFIED",
+                detail=(
+                    f"Stock certification for {month_start.isoformat()} is "
+                    f"{stock_cert_status or 'missing'}. Physical count must be certified before monthly close."
+                ),
+            )
+        )
+
+    # Variance reason blockers (Gap 2/3)
+    summary = _build_monthly_material_summary(
+        db=db,
+        plant_scope=plant_scope,
+        current_user=current_user,
+        month_start=month_start,
+    )
+    for row in summary.rows:
+        if row.needs_explanation:
+            blockers.append(
+                PeriodStateBlocker(
+                    code="VARIANCE_NEEDS_NOTE",
+                    item_code=row.item_code,
+                    detail=(
+                        f"{row.item_code}: variance {row.variance_kg:+.2f} kg exceeds tolerance "
+                        f"{row.tolerance_kg:.2f} kg — please add an explanation note."
+                    ),
+                )
+            )
+
+    can_approve = (reco_status == "DRAFT" or reco_status == "OPEN") and len(blockers) == 0
+
+    return PeriodStateResponse(
+        month_start=month_start,
+        month_end=month_end,
+        plant_id=plant_id_str,
+        reco_status=reco_status,
+        reco_locked_at=reco_locked_at,
+        stock_cert_status=stock_cert_status,
+        stock_cert_id=stock_cert_id,
+        stock_cert_certified_at=stock_cert_certified_at,
+        can_approve_reco=can_approve,
+        blockers=blockers,
+    )
+
+
+@router.get("/period-state/{month}", response_model=PeriodStateResponse)
+def get_period_state(
+    month: str,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    month_start = _parse_month_start(month)
+    return _compute_period_state(
+        db=db,
+        plant_scope=plant_scope,
+        current_user=current_user,
+        month_start=month_start,
+    )
+
+
 @router.post("/monthly-close/approve", response_model=MonthlyCloseStateResponse)
 def approve_monthly_close(
     payload: MonthlyCloseApprovePayload,
@@ -1160,6 +1374,23 @@ def approve_monthly_close(
         raise HTTPException(status_code=400, detail="Monthly close approval requires one selected plant")
 
     month_start = _parse_month_start(payload.month)
+
+    # Gap 2/3 + Gap 4 enforcement: gather blockers and reject hard if any exist.
+    state = _compute_period_state(
+        db=db,
+        plant_scope=plant_scope,
+        current_user=current_user,
+        month_start=month_start,
+    )
+    if state.blockers:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "message": "Monthly close blocked. Resolve all blockers and try again.",
+                "blockers": [b.model_dump() for b in state.blockers],
+            },
+        )
+
     plant_uuid = _to_uuid(plant_scope["selected_plant_id"])
     close_row = (
         db.query(MonthlyMaterialClose)
@@ -1186,6 +1417,136 @@ def approve_monthly_close(
     db.commit()
     db.refresh(close_row)
     return _serialize_monthly_close_state(close_row=close_row, month_start=month_start, plant_scope=plant_scope)
+
+
+# ─── Gap 9: weekly drift ───────────────────────────────────────────────────
+
+
+@router.get("/weekly-drift", response_model=WeeklyDriftResponse)
+def get_weekly_drift(
+    week_start: str = Query(...),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    try:
+        start = date.fromisoformat(week_start)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="week_start must be YYYY-MM-DD")
+    end = start + _td(days=7)
+
+    machine_scope_plant = "ALL" if plant_scope.get("scope_all") else str(plant_scope["selected_plant_id"])
+    token = current_user.get("token", "")
+    inventory_catalog = _fetch_inventory_item_catalog(token, machine_scope_plant)
+    ledger_map = _fetch_ledger_consumption(token, machine_scope_plant, start, end)
+
+    # Build a simple provisional sum for the week by scanning job cards active in window.
+    job_cards = _month_scope_job_cards(db, plant_scope, start, end)
+    paper_catalog = _fetch_paper_catalog(token, machine_scope_plant)
+    provisional_rows: dict[str, float] = {}
+    for job in job_cards:
+        for prov in _provisional_material_rows(job, paper_catalog):
+            code = str(prov.get("item_code") or "").strip().upper()
+            if not code:
+                continue
+            provisional_rows[code] = provisional_rows.get(code, 0.0) + float(prov.get("theoretical_consumption_kg") or 0.0)
+
+    item_codes = sorted(set(provisional_rows.keys()) | set(ledger_map.keys()))
+    rows: list[WeeklyDriftRow] = []
+    total_theory = 0.0
+    total_ledger = 0.0
+    rows_over_tolerance = 0
+    for code in item_codes:
+        theory_kg = provisional_rows.get(code, 0.0)
+        ledger_kg = float(ledger_map.get(code, {}).get("ledger_issued_kg") or 0.0)
+        running_variance = round(ledger_kg - theory_kg, 4)
+        running_variance_pct = round((running_variance / theory_kg) * 100.0, 2) if theory_kg > 0 else 0.0
+        inv_item = inventory_catalog.get(code, {})
+        item_type = str(inv_item.get("type") or "").strip().upper() or None
+        over_tol = abs(running_variance) > _tolerance_for(item_type)
+        if over_tol:
+            rows_over_tolerance += 1
+        total_theory += theory_kg
+        total_ledger += ledger_kg
+        rows.append(
+            WeeklyDriftRow(
+                item_code=code,
+                item_name=inv_item.get("name"),
+                item_type=item_type,
+                theoretical_kg=round(theory_kg, 4),
+                ledger_issued_kg=round(ledger_kg, 4),
+                running_variance_kg=running_variance,
+                running_variance_percent=running_variance_pct,
+                over_tolerance=over_tol,
+            )
+        )
+
+    return WeeklyDriftResponse(
+        week_start=start,
+        week_end=end - _td(days=1),
+        plant_id=None if plant_scope.get("scope_all") else str(plant_scope.get("selected_plant_id") or ""),
+        total_theoretical_kg=round(total_theory, 4),
+        total_ledger_kg=round(total_ledger, 4),
+        total_running_variance_kg=round(total_ledger - total_theory, 4),
+        rows_over_tolerance=rows_over_tolerance,
+        rows=rows,
+    )
+
+
+# ─── Gap 10: workspace books-state ─────────────────────────────────────────
+
+
+@router.get("/books-state", response_model=BooksStateResponse)
+def get_books_state(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    plant_id_str: Optional[str] = None
+    locked_through: Optional[date] = None
+    locked_by: Optional[str] = None
+    locked_at: Optional[str] = None
+    last_reco_month: Optional[date] = None
+
+    if not plant_scope.get("scope_all"):
+        plant_uuid = _to_uuid(plant_scope["selected_plant_id"])
+        plant_id_str = str(plant_scope["selected_plant_id"])
+        # Latest APPROVED close for this plant
+        approved = (
+            db.query(MonthlyMaterialClose)
+            .filter(
+                MonthlyMaterialClose.plant_id == plant_uuid,
+                MonthlyMaterialClose.status == "APPROVED",
+            )
+            .order_by(MonthlyMaterialClose.month_start.desc())
+            .first()
+        )
+        if approved:
+            last_reco_month = approved.month_start
+            # locked_through = month_end - 1 day of approved month
+            month_end = _next_month(approved.month_start) - _DAY
+            locked_through = month_end
+            locked_by = approved.approved_by
+            locked_at = approved.approved_at.isoformat() if approved.approved_at else None
+
+    today = date.today()
+    current_month_start = date(today.year, today.month, 1)
+    state = _compute_period_state(
+        db=db,
+        plant_scope=plant_scope,
+        current_user=current_user,
+        month_start=current_month_start,
+    )
+
+    return BooksStateResponse(
+        plant_id=plant_id_str,
+        locked_through=locked_through,
+        locked_by=locked_by,
+        locked_at=locked_at,
+        current_month_status=state.reco_status,
+        current_cert_status=state.stock_cert_status,
+        last_reco_month=last_reco_month,
+    )
 
 
 @router.get("/monthly-summary", response_model=MonthlyMaterialSummaryResponse)
