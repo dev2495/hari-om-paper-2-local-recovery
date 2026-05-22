@@ -18,6 +18,7 @@ from ..utils.auth import get_current_plant, require_role
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 settings = get_settings()
 QC_BLOCKING_STATUSES = {"HOLD"}
+DISPATCH_ACCESS_ROLES = ["Admin", "Owner", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]
 
 
 def _plant_uuid(value: str) -> uuid.UUID:
@@ -167,7 +168,7 @@ def create_or_update_dispatch(
     payload: DispatchPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
+    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
     # Check if job card exists
     plant_uuid = _plant_uuid(plant_id)
@@ -306,7 +307,7 @@ def get_dispatch(
     dispatch_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
+    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
     dispatch = (
         db.query(Dispatch)
@@ -323,7 +324,7 @@ def get_dispatch_by_job_card(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
+    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
     dispatch = (
         db.query(Dispatch)
@@ -337,7 +338,7 @@ def get_dispatch_by_job_card(
 def get_ready_jobs_for_dispatch(
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store", "PlantManager", "Supervisor", "Logistics"]))
+    current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
     """
     Returns job cards that are candidates for dispatch, meaning they have reached

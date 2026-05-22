@@ -419,6 +419,9 @@ test("real seeded users enforce route separation and role guards", async ({ page
   await login(page, "owner")
   await page.goto("/reports/plants", { waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: /cross-plant comparison/i })).toBeVisible()
+  await page.goto("/dispatch", { waitUntil: "domcontentloaded" })
+  await expect(page.getByRole("heading", { name: /dispatch & shipments/i })).toBeVisible()
+  await expect(page.locator("body")).not.toContainText(/forbidden|access denied|not authorized/i)
   await logout(page)
 
   await login(page, "store_b")
