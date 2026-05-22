@@ -10,10 +10,12 @@ from ..models import (
     PaperReel,
     ReelIssue,
     ReelIssueStatus,
+    StockBatch,
     StockTransaction,
     TrackingMode,
     TransactionType,
 )
+from .stock_calc import get_batch_balance
 
 
 def _enum_value(value: Any) -> str:
@@ -62,6 +64,52 @@ def _unit_cost_for_item(item: ItemMaster) -> tuple[float, str]:
     if unit_cost <= 0:
         return 0.0, "UNAVAILABLE"
     return unit_cost, source
+
+
+def batch_weighted_unit_cost_for_item(
+    db: Session,
+    item: ItemMaster,
+    balance_getter=get_batch_balance,
+) -> tuple[float, str]:
+    batches = db.query(StockBatch).filter(StockBatch.item_id == item.id).all()
+    weighted_value = 0.0
+    weighted_qty = 0.0
+    missing_cost = False
+
+    for batch in batches:
+        balance = float(balance_getter(str(batch.id), db) or 0.0)
+        if balance <= 0:
+            continue
+        unit_cost = getattr(batch, "unit_cost", None)
+        if unit_cost is None or float(unit_cost or 0.0) <= 0:
+            missing_cost = True
+            continue
+        weighted_qty += balance
+        weighted_value += balance * float(unit_cost)
+
+    if weighted_qty <= 0:
+        return 0.0, "COST_MISSING" if missing_cost else "UNAVAILABLE"
+    return round(weighted_value / weighted_qty, 6), "AVG_BATCH"
+
+
+def reel_weighted_unit_cost_for_item(db: Session, item: ItemMaster) -> tuple[float, str]:
+    reels = db.query(PaperReel).filter(PaperReel.paper_id == item.id).all()
+    weighted_value = 0.0
+    weighted_qty = 0.0
+    missing_cost = False
+    for reel in reels:
+        qty = float(getattr(reel, "current_weight_kg", 0.0) or 0.0)
+        if qty <= 0:
+            continue
+        unit_cost = getattr(reel, "unit_cost", None)
+        if unit_cost is None or float(unit_cost or 0.0) <= 0:
+            missing_cost = True
+            continue
+        weighted_qty += qty
+        weighted_value += qty * float(unit_cost)
+    if weighted_qty <= 0:
+        return 0.0, "COST_MISSING" if missing_cost else "UNAVAILABLE"
+    return round(weighted_value / weighted_qty, 6), "AVG_REEL"
 
 
 def _risk_level(closing_qty: float, reorder_level: float, safety_stock: float) -> str:
@@ -214,7 +262,10 @@ def compute_stock_statement(
             if tracking_mode == TrackingMode.REEL.value
             else _bulk_quantities(db, item_id, start_date, end_date)
         )
-        unit_cost, cost_source = _unit_cost_for_item(item)
+        if tracking_mode == TrackingMode.REEL.value:
+            unit_cost, cost_source = reel_weighted_unit_cost_for_item(db, item)
+        else:
+            unit_cost, cost_source = batch_weighted_unit_cost_for_item(db, item)
         closing_qty = round(float(quantities["closing_qty"] or 0.0), 3)
         opening_qty = round(float(quantities["opening_qty"] or 0.0), 3)
         inward_qty = round(float(quantities["inward_qty"] or 0.0), 3)

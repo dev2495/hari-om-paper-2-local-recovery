@@ -3,13 +3,28 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { ArrowRight, PackageCheck, RefreshCw, Search } from "lucide-react"
 
-import { useCreateTransaction, useInventoryItems } from "@/hooks/use-inventory"
+import {
+  useCreateTransaction,
+  useInventoryItemBalance,
+  useInventoryItems,
+  useInventoryLocations,
+  useIssueBatchToWip,
+} from "@/hooks/use-inventory"
 import { usePlanningJobCards } from "@/hooks/use-production"
 import { jobCardRef, jobCardSearchText, jobCardSubtitle } from "@/lib/job-card-display"
 
+const STAGE_OPTIONS = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"]
+
+function normalizeStage(value: any) {
+  const normalized = String(value || "").trim().toUpperCase()
+  return STAGE_OPTIONS.includes(normalized) ? normalized : "PROCESS"
+}
+
 export default function InventoryProductionIssuePage() {
   const { data: items = [], isLoading } = useInventoryItems()
+  const { data: locations = [] } = useInventoryLocations()
   const createIssue = useCreateTransaction()
+  const issueBatchToWip = useIssueBatchToWip()
   const [jobSearch, setJobSearch] = useState("")
   const [itemSearch, setItemSearch] = useState("")
   const deferredJobSearch = useDeferredValue(jobSearch.trim())
@@ -21,14 +36,19 @@ export default function InventoryProductionIssuePage() {
     true,
   )
   const [formData, setFormData] = useState({
+    movement_mode: "WIP",
     item_id: "",
+    batch_id: "",
     qty: "",
     production_job_id: "",
+    stage: "PROCESS",
+    wip_location_id: "",
     reason_code: "NON_RECIPE_CONSUMABLE",
     external_ref: "",
     notes: "",
     allow_raw_paper_exception: false,
   })
+  const itemBalanceQuery = useInventoryItemBalance(formData.item_id, Boolean(formData.item_id))
 
   const rawItems = useMemo(() => {
     const needle = itemSearch.trim().toLowerCase()
@@ -52,6 +72,27 @@ export default function InventoryProductionIssuePage() {
   const selectedItem = rawItems.find((item: any) => String(item.id) === formData.item_id)
   const selectedItemType = String(selectedItem?.type || selectedItem?.category || "").toUpperCase()
   const selectedJob = openJobCards.find((job: any) => String(job.id) === formData.production_job_id)
+  const itemBatches = useMemo(() => {
+    const rows = Array.isArray(itemBalanceQuery.data?.batches) ? itemBalanceQuery.data.batches : []
+    return rows.filter((batch: any) => {
+      const status = String(batch.stock_status || "").toUpperCase()
+      return Number(batch.available_qty ?? batch.current_balance ?? 0) > 0 && ["UNRESTRICTED", "WIP"].includes(status)
+    })
+  }, [itemBalanceQuery.data])
+  const selectedBatch = itemBatches.find((batch: any) => String(batch.batch_id) === formData.batch_id)
+  const wipLocations = useMemo(() => {
+    return (Array.isArray(locations) ? locations : []).filter((location: any) =>
+      [location.purpose, location.location_type, location.code, location.name]
+        .filter(Boolean)
+        .join(" ")
+        .toUpperCase()
+        .includes("WIP"),
+    )
+  }, [locations])
+  const isWipMode = formData.movement_mode === "WIP"
+  const actionPending = isWipMode ? issueBatchToWip.isPending : createIssue.isPending
+  const actionError = isWipMode ? issueBatchToWip.isError : createIssue.isError
+  const actionSuccess = isWipMode ? issueBatchToWip.isSuccess : createIssue.isSuccess
 
   useEffect(() => {
     if (selectedItemType !== "RAW_PAPER" && formData.allow_raw_paper_exception) {
@@ -59,22 +100,46 @@ export default function InventoryProductionIssuePage() {
     }
   }, [formData.allow_raw_paper_exception, selectedItemType])
 
+  useEffect(() => {
+    setFormData((current) => ({ ...current, batch_id: "" }))
+  }, [formData.item_id])
+
+  useEffect(() => {
+    if (selectedJob) {
+      setFormData((current) => ({ ...current, stage: normalizeStage(selectedJob.current_stage || current.stage) }))
+    }
+  }, [selectedJob])
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!formData.item_id || !formData.qty || !formData.production_job_id) return
 
-    await createIssue.mutateAsync({
-      item_id: formData.item_id,
-      qty: Number(formData.qty),
-      production_job_id: formData.production_job_id,
-      reason_code: formData.reason_code,
-      allow_raw_paper_exception: Boolean(formData.allow_raw_paper_exception),
-      external_ref: formData.external_ref || jobCardRef(selectedJob),
-      notes: formData.notes || undefined,
-    })
+    if (isWipMode) {
+      if (!formData.batch_id) return
+      await issueBatchToWip.mutateAsync({
+        item_id: formData.item_id,
+        batch_id: formData.batch_id,
+        qty: Number(formData.qty),
+        job_card_id: formData.production_job_id,
+        stage: formData.stage,
+        wip_location_id: formData.wip_location_id || undefined,
+        external_ref: formData.external_ref || `${jobCardRef(selectedJob)}:${selectedBatch?.batch_no || "WIP"}`,
+      })
+    } else {
+      await createIssue.mutateAsync({
+        item_id: formData.item_id,
+        qty: Number(formData.qty),
+        production_job_id: formData.production_job_id,
+        reason_code: formData.reason_code,
+        allow_raw_paper_exception: Boolean(formData.allow_raw_paper_exception),
+        external_ref: formData.external_ref || jobCardRef(selectedJob),
+        notes: formData.notes || undefined,
+      })
+    }
 
     setFormData((current) => ({
       ...current,
+      batch_id: "",
       qty: "",
       external_ref: "",
       notes: "",
@@ -89,7 +154,7 @@ export default function InventoryProductionIssuePage() {
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-amber-200">Store to Production</p>
             <h1 className="mt-2 text-3xl font-semibold">Production Issue</h1>
             <p className="mt-2 max-w-3xl text-sm text-cyan-50/80">
-              Issue adhesive, parchment, packing, or controlled raw-paper exceptions against an actual job card. Stock and batch sufficiency are checked by the inventory service.
+              Issue material from a selected batch into WIP against a job card. Controlled manual issue remains available for corrections only.
             </p>
           </div>
           <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-xs uppercase tracking-[0.18em]">
@@ -105,11 +170,30 @@ export default function InventoryProductionIssuePage() {
           </div>
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Issue Material</h2>
-            <p className="text-sm text-slate-500">Posts to the inventory issue ledger through the live BFF.</p>
+            <p className="text-sm text-slate-500">Default posting creates Store Out and WIP In ledger rows from the same batch.</p>
           </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
+          <div className="lg:col-span-2">
+            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 text-sm font-semibold text-slate-600">
+              <button
+                type="button"
+                onClick={() => setFormData((current) => ({ ...current, movement_mode: "WIP" }))}
+                className={`rounded-lg px-4 py-2 transition ${isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-slate-50"}`}
+              >
+                Issue to WIP
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData((current) => ({ ...current, movement_mode: "MANUAL" }))}
+                className={`rounded-lg px-4 py-2 transition ${!isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-slate-50"}`}
+              >
+                Manual exception
+              </button>
+            </div>
+          </div>
+
           <label className="space-y-2 text-sm font-medium text-slate-700">
             Search Materials
             <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
@@ -127,7 +211,7 @@ export default function InventoryProductionIssuePage() {
             Material
             <select
               value={formData.item_id}
-              onChange={(event) => setFormData((current) => ({ ...current, item_id: event.target.value }))}
+              onChange={(event) => setFormData((current) => ({ ...current, item_id: event.target.value, batch_id: "" }))}
               className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
               required
             >
@@ -139,6 +223,25 @@ export default function InventoryProductionIssuePage() {
               ))}
             </select>
           </label>
+
+          {isWipMode ? (
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Batch / Lot
+              <select
+                value={formData.batch_id}
+                onChange={(event) => setFormData((current) => ({ ...current, batch_id: event.target.value }))}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                required
+              >
+                <option value="">{itemBalanceQuery.isLoading ? "Loading batches..." : "Select available batch"}</option>
+                {itemBatches.map((batch: any) => (
+                  <option key={batch.batch_id} value={batch.batch_id}>
+                    {batch.batch_no || batch.batch_id} - {Number(batch.available_qty ?? 0).toLocaleString("en-IN")} available - {batch.stock_status}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
 
           <label className="space-y-2 text-sm font-medium text-slate-700">
             Quantity / Weight
@@ -185,19 +288,53 @@ export default function InventoryProductionIssuePage() {
             </select>
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
-            Reason Code
-            <select
-              value={formData.reason_code}
-              onChange={(event) => setFormData((current) => ({ ...current, reason_code: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
-              required
-            >
-              <option value="NON_RECIPE_CONSUMABLE">Non-recipe consumable</option>
-              <option value="DIRECT_CORRECTION">Direct stock correction</option>
-              <option value="CONTROLLED_FALLBACK">Controlled fallback issue</option>
-            </select>
-          </label>
+          {isWipMode ? (
+            <>
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                Production Stage
+                <select
+                  value={formData.stage}
+                  onChange={(event) => setFormData((current) => ({ ...current, stage: event.target.value }))}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                  required
+                >
+                  {STAGE_OPTIONS.map((stage) => (
+                    <option key={stage} value={stage}>{stage}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="space-y-2 text-sm font-medium text-slate-700">
+                WIP Location
+                <select
+                  value={formData.wip_location_id}
+                  onChange={(event) => setFormData((current) => ({ ...current, wip_location_id: event.target.value }))}
+                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                >
+                  <option value="">System WIP bucket</option>
+                  {wipLocations.map((location: any) => (
+                    <option key={location.id} value={location.id}>
+                      {location.code || location.name || location.id} - {location.warehouse || location.purpose || "WIP"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            <label className="space-y-2 text-sm font-medium text-slate-700">
+              Reason Code
+              <select
+                value={formData.reason_code}
+                onChange={(event) => setFormData((current) => ({ ...current, reason_code: event.target.value }))}
+                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                required
+              >
+                <option value="NON_RECIPE_CONSUMABLE">Non-recipe consumable</option>
+                <option value="DIRECT_CORRECTION">Direct stock correction</option>
+                <option value="CONTROLLED_FALLBACK">Controlled fallback issue</option>
+              </select>
+            </label>
+          )}
 
           <label className="space-y-2 text-sm font-medium text-slate-700">
             External Reference
@@ -209,17 +346,26 @@ export default function InventoryProductionIssuePage() {
             />
           </label>
 
-          <label className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-900 lg:col-span-2">
-            <input
-              type="checkbox"
-              checked={formData.allow_raw_paper_exception}
-              onChange={(event) => setFormData((current) => ({ ...current, allow_raw_paper_exception: event.target.checked }))}
-              disabled={selectedItemType !== "RAW_PAPER"}
-              className="h-4 w-4 rounded border-amber-300"
-            />
-            Allow raw-paper manual exception. Normal raw paper must go through RM issue-to-section/reel issue, not this exception screen.
-          </label>
+          {!isWipMode ? (
+            <label className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-900 lg:col-span-2">
+              <input
+                type="checkbox"
+                checked={formData.allow_raw_paper_exception}
+                onChange={(event) => setFormData((current) => ({ ...current, allow_raw_paper_exception: event.target.checked }))}
+                disabled={selectedItemType !== "RAW_PAPER"}
+                className="h-4 w-4 rounded border-amber-300"
+              />
+              Allow raw-paper manual exception. Normal raw paper must go through RM issue-to-section/reel issue, not this exception screen.
+            </label>
+          ) : null}
         </div>
+
+        {isWipMode && selectedBatch ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+            Batch <span className="font-semibold">{selectedBatch.batch_no || selectedBatch.batch_id}</span> has{" "}
+            {Number(selectedBatch.available_qty ?? 0).toLocaleString("en-IN")} available at {selectedBatch.location || "store"}.
+          </div>
+        ) : null}
 
         {selectedJob ? (
           <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-950">
@@ -238,13 +384,13 @@ export default function InventoryProductionIssuePage() {
           />
         </label>
 
-        {createIssue.isError ? (
+        {actionError ? (
           <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             Issue failed. Check stock balance, item selection, and service logs.
           </div>
         ) : null}
 
-        {createIssue.isSuccess ? (
+        {actionSuccess ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
             Material issue posted successfully.
           </div>
@@ -253,11 +399,11 @@ export default function InventoryProductionIssuePage() {
         <div className="flex justify-end">
           <button
             type="submit"
-            disabled={createIssue.isPending}
+            disabled={actionPending}
             className="inline-flex items-center gap-2 rounded-xl bg-cyan-900 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {createIssue.isPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-            Post Issue
+            {actionPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            {isWipMode ? "Post WIP Issue" : "Post Manual Issue"}
           </button>
         </div>
       </form>

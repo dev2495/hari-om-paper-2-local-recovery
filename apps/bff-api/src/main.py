@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.routes import analytics, auth, dispatch, inventory, master, production, sales, spec, workspace
+from src.routes import analytics, auth, dispatch, inventory, master, production, purchase, sales, spec, workspace
 
 app = FastAPI(
     title="Hari Om Paper - BFF API",
@@ -27,6 +27,7 @@ app.include_router(spec.router, prefix="/api/spec", tags=["Specifications"])
 app.include_router(sales.router, prefix="/api/sales", tags=["Sales"])
 app.include_router(production.router, prefix="/api/production", tags=["Production"])
 app.include_router(inventory.router, prefix="/api/inventory", tags=["Inventory"])
+app.include_router(purchase.router, prefix="/api/purchase", tags=["Purchase"])
 app.include_router(dispatch.router, prefix="/api/dispatch", tags=["Dispatch"])
 app.include_router(analytics.router, prefix="/api/analytics", tags=["Analytics"])
 app.include_router(workspace.router, prefix="/api/workspace", tags=["Workspace"])

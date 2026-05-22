@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import dayjs from "dayjs"
-import { ClipboardCheck, Factory, Search, TimerReset, Truck } from "lucide-react"
+import { ArrowRight, ClipboardCheck, Factory, Layers3, PackageCheck, Search, ShieldCheck, TimerReset, Truck } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
@@ -14,6 +14,16 @@ function formatDate(value?: string | null) {
   if (!value) return "-"
   const parsed = dayjs(value)
   return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(value)
+}
+
+function stageValue(job: any) {
+  return String(job.current_stage || job.stage || "UNASSIGNED").toUpperCase()
+}
+
+function activeQualityHolds(job: any) {
+  return Array.isArray(job?.quality_holds)
+    ? job.quality_holds.filter((hold: any) => String(hold?.status || "").toUpperCase() === "HOLD").length
+    : 0
 }
 
 export default function JobCardsPage() {
@@ -49,9 +59,14 @@ export default function JobCardsPage() {
       if (!job.due_date) return false
       return dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day")
     })
-    const dispatchReady = openCards.filter((job: any) => String(job.current_stage || "").toUpperCase() === "DISPATCH")
-    const blocked = openCards.filter((job: any) => Boolean(job.blocked_reason))
-    return { openCards, dueRisk, dispatchReady, blocked }
+    const dispatchReady = openCards.filter((job: any) => stageValue(job) === "DISPATCH")
+    const activeHolds = openCards.reduce((sum: number, job: any) => sum + activeQualityHolds(job), 0)
+    const blocked = openCards.filter((job: any) => Boolean(job.blocked_reason) || activeQualityHolds(job) > 0 || stageValue(job) === "QC")
+    const stageCounts = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"].map((stage) => ({
+      stage,
+      count: openCards.filter((job: any) => stageValue(job) === stage).length,
+    }))
+    return { openCards, dueRisk, dispatchReady, blocked, activeHolds, stageCounts }
   }, [jobCards])
 
   return (
@@ -76,12 +91,46 @@ export default function JobCardsPage() {
         }
       />
 
-      <MetricRail>
+      <MetricRail className="2xl:grid-cols-5">
         <MetricCard label="Open Cards" value={metrics.openCards.length} detail="Still active across production stages" icon={ClipboardCheck} tone="cyan" />
         <MetricCard label="Due Risk" value={metrics.dueRisk.length} detail="Due today or tomorrow" icon={TimerReset} tone="amber" />
+        <MetricCard label="WIP Stages" value={metrics.stageCounts.filter((row) => row.count > 0).length} detail="Active stage buckets with open job cards" icon={Layers3} tone="violet" />
+        <MetricCard label="QC Holds" value={metrics.activeHolds} detail="Active holds attached to job cards" icon={ShieldCheck} tone={metrics.activeHolds ? "rose" : "emerald"} />
         <MetricCard label="Dispatch Ready" value={metrics.dispatchReady.length} detail="Already at dispatch stage" icon={Truck} tone="emerald" />
-        <MetricCard label="Blocked" value={metrics.blocked.length} detail="Needs planner or supervisor intervention" icon={Factory} tone="rose" />
       </MetricRail>
+
+      <Panel
+        title="WIP and QC Movement Snapshot"
+        subtitle="Open production is grouped by stage so WIP movement, QC holds, and dispatch readiness are visible before opening a card."
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link href="/inventory/production-issue" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300 hover:text-cyan-900">
+              <PackageCheck className="h-3.5 w-3.5" />
+              Issue to WIP
+            </Link>
+            <Link href="/quality" className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-slate-800">
+              Quality desk <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        }
+      >
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
+          {metrics.stageCounts.map((row) => (
+            <div key={row.stage} className="rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{row.stage.replace(/_/g, " ")}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{row.count}</p>
+              <p className="mt-1 text-xs text-slate-500">
+                {row.stage === "QC" ? "Final gate cards" : row.stage === "DISPATCH" ? "Ready for dispatch check" : "WIP in this stage"}
+              </p>
+            </div>
+          ))}
+        </div>
+        {metrics.blocked.length ? (
+          <div className="mt-4 rounded-[1.15rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            {metrics.blocked.length} open card(s) have a blocker, active quality hold, or final QC stage. Use the quality desk before dispatch.
+          </div>
+        ) : null}
+      </Panel>
 
       <Panel
         title="Job Card Queue"

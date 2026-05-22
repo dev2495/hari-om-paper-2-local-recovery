@@ -38,6 +38,7 @@ class InwardCreate(BaseModel):
     item_id: uuid.UUID
     batch_no: Optional[str] = Field(default=None, max_length=100)
     qty: float
+    supplier_id: uuid.UUID
     supplier_name: str = Field(min_length=1, max_length=200)
     unit_cost: Optional[float] = Field(default=None, ge=0)
     cost_source: Optional[str] = None
@@ -115,6 +116,8 @@ def create_inward(
         received_qty=inward.qty,
         unit_cost=inward.unit_cost,
         cost_source=inward.cost_source or ("SUPPLIER" if inward.unit_cost is not None else None),
+        supplier_id=inward.supplier_id,
+        supplier_name_snapshot=inward.supplier_name,
         location=inward.location or (location.code if location else None),
         location_id=inward.location_id,
         stock_status=stock_status,
@@ -141,6 +144,7 @@ def create_inward(
         stock_status=batch.stock_status,
         movement_metadata={
             "batch_no": batch_no,
+            "supplier_id": str(inward.supplier_id),
             "supplier_name": inward.supplier_name,
             "unit_cost": inward.unit_cost,
             "cost_source": inward.cost_source or ("SUPPLIER" if inward.unit_cost is not None else None),

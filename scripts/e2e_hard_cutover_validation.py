@@ -41,6 +41,7 @@ DRYING_LOSS_PERCENT = 9.5
 PRE_DRY_DIVISOR = 1.0 - (DRYING_LOSS_PERCENT / 100.0)
 STRICT_COMBO_MINIMUMS = {250: 2, 300: 1}
 STRICT_COMBO_PREFERRED_MIN_GSM = 350
+TEST_SUPPLIER_ID = "00000000-0000-0000-0000-00000000feed"
 
 APPROVED_PAPERS: list[dict[str, Any]] = [
     {"code": "KRAFT-230-18BF", "variety": "KRAFT PAPER", "gsm": 230, "bf": 18, "strength_type": "BF", "strength_value": 18, "category": "KRAFT", "bulk_factor": 1.0, "thickness_mm": 0.20, "ply_bond": 0.0},
@@ -2070,7 +2071,10 @@ def run_sales_flow(
         json_body={
             "item_id": manual_issue_item_id,
             "qty": 25.0,
+            "supplier_id": TEST_SUPPLIER_ID,
             "supplier_name": "Internal test vendor",
+            "unit_cost": 1.0,
+            "cost_source": "SUPPLIER",
             "reference_type": "INTERNAL",
             "external_ref": f"MANUAL-STOCK-{scenario['name']}-{uuid.uuid4().hex[:8]}",
         },
@@ -2153,8 +2157,11 @@ def run_sales_flow(
         "paper_id": raw_paper_item_id,
         "gsm": 230,
         "bf": 18,
+        "supplier_id": TEST_SUPPLIER_ID,
         "supplier_name": "RM Seed Supplier",
         "inward_weight_kg": 500.0,
+        "unit_cost": 45.0,
+        "cost_source": "SUPPLIER",
         "inward_date": _to_iso_date(0),
     }
     _, reel = runner.api("POST", "/api/inventory/reels/inward", token=store_token, json_body=reel_payload)
@@ -2212,6 +2219,16 @@ def run_sales_flow(
     )
     flow["planned_winder_machine_id"] = planned_winder.get("machine_id")
     flow["planned_winder_shift_code"] = planned_winder.get("shift_code")
+
+    pass_readings = {
+        "id": float(scenario["size"][0]),
+        "od": float(scenario["size"][1]),
+        "length": float(scenario["size"][2]),
+        "weight": float(scenario["weight_g"]),
+        "cs": float(scenario["cs"]),
+    }
+    oven_qc_readings = {"moisture_after": 7.4}
+
     runner.api(
         "POST",
         f"/api/production/job-cards/{job['id']}/stage-output",
@@ -2224,6 +2241,7 @@ def run_sales_flow(
             "output_qty": float(scenario["qty"]),
             "scrap_qty": 0.0,
             "reel_issue_ids": [issue["id"]],
+            "quality_checks": pass_readings,
             "entry_snapshot": {"note": "WINDER complete"},
         },
     )
@@ -2245,6 +2263,7 @@ def run_sales_flow(
             "input_qty": float(scenario["qty"]),
             "output_qty": float(scenario["qty"]),
             "scrap_qty": 0.0,
+            "quality_checks": oven_qc_readings,
             "entry_snapshot": {
                 "cycle_time_hours": 5.5,
                 "bamboo_count_in": float(scenario["qty"]),
@@ -2275,6 +2294,7 @@ def run_sales_flow(
             "input_qty": float(scenario["qty"]),
             "output_qty": float(scenario["qty"]),
             "scrap_qty": 0.0,
+            "quality_checks": pass_readings,
             "entry_snapshot": {"note": "PROCESS complete"},
         },
     )
@@ -2290,6 +2310,7 @@ def run_sales_flow(
             "input_qty": float(scenario["qty"]),
             "output_qty": float(scenario["qty"]),
             "scrap_qty": 0.0,
+            "quality_checks": pass_readings,
             "entry_snapshot": {
                 "fg_item_id": fg_item_id,
                 "fg_batch_no": fg_batch,
@@ -2299,20 +2320,13 @@ def run_sales_flow(
     )
     flow["fg_batch_no"] = fg_batch
 
-    pass_readings = {
-        "id": float(scenario["size"][0]),
-        "od": float(scenario["size"][1]),
-        "length": float(scenario["size"][2]),
-        "weight": float(scenario["weight_g"]),
-        "cs": float(scenario["cs"]),
-    }
     _, inspection = runner.api(
         "POST",
         "/api/production/quality/inspections",
         token=qc_token,
         json_body={
             "job_card_id": job["id"],
-            "stage_type": "PACKING",
+            "stage_type": "QC",
             "readings": pass_readings if not scenario.get("qc_hold") else {**pass_readings, "weight": float(scenario["weight_g"]) + 999.0},
             "create_hold_on_fail": True,
         },
@@ -2331,6 +2345,20 @@ def run_sales_flow(
             f"{scenario['name']} qc inspection pass",
             str(inspection.get("status")) == "PASS",
             f"inspection={inspection.get('id')} status={inspection.get('status')}",
+        )
+        runner.api(
+            "POST",
+            f"/api/production/job-cards/{job['id']}/stage-output",
+            token=supervisor_token,
+            json_body={
+                "stage": "QC",
+                "save_mode": "complete",
+                "input_qty": float(scenario["qty"]),
+                "output_qty": float(scenario["qty"]),
+                "scrap_qty": 0.0,
+                "quality_checks": pass_readings,
+                "entry_snapshot": {"note": "Final QC complete"},
+            },
         )
 
     month_value = date.today().strftime("%Y-%m")
@@ -2465,6 +2493,36 @@ def run_sales_flow(
             f"hold_id={hold_id} status={hold_release.get('status')}",
         )
         flow["quality_hold_id"] = hold_id
+        _, pass_after_release = runner.api(
+            "POST",
+            "/api/production/quality/inspections",
+            token=qc_token,
+            json_body={
+                "job_card_id": job["id"],
+                "stage_type": "QC",
+                "readings": pass_readings,
+                "create_hold_on_fail": True,
+            },
+        )
+        runner.add(
+            f"{scenario['name']} final qc after release",
+            str(pass_after_release.get("status")) == "PASS",
+            f"inspection={pass_after_release.get('id')} status={pass_after_release.get('status')}",
+        )
+        runner.api(
+            "POST",
+            f"/api/production/job-cards/{job['id']}/stage-output",
+            token=supervisor_token,
+            json_body={
+                "stage": "QC",
+                "save_mode": "complete",
+                "input_qty": float(scenario["qty"]),
+                "output_qty": float(scenario["qty"]),
+                "scrap_qty": 0.0,
+                "quality_checks": pass_readings,
+                "entry_snapshot": {"note": "Final QC complete after hold release"},
+            },
+        )
 
     dispatch_payload = {
         "job_card_id": job["id"],

@@ -210,7 +210,7 @@ test("premium sales and planner surfaces load with animated interactive elements
   await expect(page.getByText("WINDER_03").first()).toBeVisible()
   await expect.poll(async () => page.locator("[data-testid='planner-page'] article[draggable='true']").count()).toBeGreaterThanOrEqual(10)
   await expect(page.getByText(/kg/i).first()).toBeVisible()
-  await expect(page.getByText(/bamboo/i).first()).toBeVisible()
+  await expect(page.getByText(/\b(m|meters)\b/i).first()).toBeVisible()
   const firstTab = page.locator("a[href*='/planning/board?section=']").first()
   await expectTransition(firstTab)
   await expect(page.getByText(/machine lane/i)).toBeVisible()

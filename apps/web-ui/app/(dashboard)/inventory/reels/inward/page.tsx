@@ -1,6 +1,7 @@
 "use client"
 
 import dayjs from "dayjs"
+import Link from "next/link"
 import { Barcode, PlusCircle } from "lucide-react"
 import { FormEvent, useMemo, useState } from "react"
 
@@ -24,11 +25,12 @@ export default function ReelInwardPage() {
     paper_id: "",
     gsm: "",
     bf: "",
-    supplier_name: "",
+    supplier_id: "",
     location_id: "",
     inward_weight_kg: "",
     unit_cost: "",
     inward_date: dayjs().format("YYYY-MM-DD"),
+    stock_status: "UNRESTRICTED",
   })
   const itemsQuery = useInventoryItems()
   const vendorsQuery = useVendors()
@@ -47,6 +49,10 @@ export default function ReelInwardPage() {
   }, [reelsQuery.data])
   const vendors = useMemo(() => (Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []), [vendorsQuery.data])
   const locations = useMemo(() => (Array.isArray(locationsQuery.data) ? locationsQuery.data : []), [locationsQuery.data])
+  const selectedVendor = useMemo(
+    () => vendors.find((vendor: any) => String(vendor.id) === form.supplier_id) || null,
+    [form.supplier_id, vendors],
+  )
   const locationById = useMemo(
     () => new Map(locations.map((location: any) => [String(location.id), location])),
     [locations],
@@ -58,8 +64,7 @@ export default function ReelInwardPage() {
       showToast("Select a raw paper item", "error")
       return
     }
-    const vendorName = form.supplier_name.trim()
-    if (!vendorName) {
+    if (!selectedVendor) {
       showToast("Select a vendor before posting reel inward", "error")
       return
     }
@@ -74,12 +79,14 @@ export default function ReelInwardPage() {
         paper_id: form.paper_id,
         gsm: form.gsm ? Number(form.gsm) : null,
         bf: form.bf ? Number(form.bf) : null,
-        supplier_name: vendorName,
+        supplier_id: form.supplier_id,
+        supplier_name: selectedVendor.name,
         location_id: form.location_id || null,
         inward_weight_kg: Number(form.inward_weight_kg),
         unit_cost: Number(form.unit_cost),
         cost_source: "SUPPLIER",
         inward_date: form.inward_date,
+        stock_status: form.stock_status,
       })
 
       showToast("Reel inward posted", "success")
@@ -98,8 +105,15 @@ export default function ReelInwardPage() {
   return (
     <div className="space-y-5">
       <section className="rounded-2xl border border-cyan-200/70 bg-gradient-to-r from-slate-900 via-cyan-900 to-cyan-700 p-5 text-white shadow-xl">
-        <h1 className="text-2xl font-semibold">Reel Inward (Barcode Assisted)</h1>
-        <p className="mt-1 text-sm text-cyan-100">Confirm vendor, rate, weight, and location. The system generates the reel code.</p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold">Reel Inward (Barcode Assisted)</h1>
+            <p className="mt-1 text-sm text-cyan-100">Confirm vendor id, rate, weight, location, and optional incoming QC hold. The system generates the reel code.</p>
+          </div>
+          <Link href="/purchase" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-white/10">
+            Purchase flow
+          </Link>
+        </div>
       </section>
 
       <section className="glass rounded-2xl border border-white/60 p-5 shadow-xl">
@@ -167,13 +181,13 @@ export default function ReelInwardPage() {
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor</label>
             <select
               required
-              value={form.supplier_name}
-              onChange={(event) => setForm((current) => ({ ...current, supplier_name: event.target.value }))}
+              value={form.supplier_id}
+              onChange={(event) => setForm((current) => ({ ...current, supplier_id: event.target.value }))}
               className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
             >
               <option value="">Select vendor</option>
               {vendors.map((vendor: any) => (
-                <option key={vendor.id} value={vendor.name}>
+                <option key={vendor.id} value={vendor.id}>
                   {vendor.supplier_code} - {vendor.name}
                 </option>
               ))}
@@ -199,6 +213,21 @@ export default function ReelInwardPage() {
             </select>
             {!locations.length ? (
               <p className="mt-1 text-[11px] text-amber-700">Create locations in System before posting store stock.</p>
+            ) : null}
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">Receipt stock status</label>
+            <select
+              value={form.stock_status}
+              onChange={(event) => setForm((current) => ({ ...current, stock_status: event.target.value }))}
+              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+            >
+              <option value="UNRESTRICTED">Unrestricted stock</option>
+              <option value="QC_HOLD">Incoming QC hold</option>
+              <option value="BLOCKED">Blocked stock</option>
+            </select>
+            {form.stock_status === "QC_HOLD" ? (
+              <p className="mt-1 text-[11px] text-amber-700">Reel remains held until incoming QC is cleared.</p>
             ) : null}
           </div>
 

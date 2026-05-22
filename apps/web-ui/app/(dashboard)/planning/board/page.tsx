@@ -1056,12 +1056,16 @@ export default function PlanningBoardPage() {
   )
 
   if (loading) {
-    return <EmptyState label="Loading planner workspace..." />
+    return (
+      <div data-testid="planner-page">
+        <EmptyState label="Loading planner workspace..." />
+      </div>
+    )
   }
 
   if (needsConcretePlant || requiresExplicitPlant) {
     return (
-      <div className={`rounded-[1.75rem] border bg-gradient-to-br ${stageTheme.tint} p-6 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}>
+      <div data-testid="planner-page" className={`rounded-[1.75rem] border bg-gradient-to-br ${stageTheme.tint} p-6 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}>
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="max-w-2xl">
             <div className={`inline-flex rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] ${stageTheme.pill}`}>

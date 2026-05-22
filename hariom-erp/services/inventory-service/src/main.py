@@ -13,6 +13,7 @@ from .routers import (
     items,
     ledger,
     locations,
+    purchase,
     reel_issues,
     reels,
     reservations,
@@ -32,6 +33,20 @@ def ensure_runtime_schema() -> None:
         "IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transactiontype') THEN "
         "BEGIN ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'MOVE'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
         "BEGIN ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'OPENING'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "END IF; "
+        "END $$;"
+      )
+    )
+    connection.execute(
+      text(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'referencetype') THEN "
+        "BEGIN ALTER TYPE referencetype ADD VALUE IF NOT EXISTS 'PURCHASE'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE referencetype ADD VALUE IF NOT EXISTS 'PRODUCTION_JOB'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE referencetype ADD VALUE IF NOT EXISTS 'DISPATCH'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE referencetype ADD VALUE IF NOT EXISTS 'SALES_ORDER'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE referencetype ADD VALUE IF NOT EXISTS 'INTERNAL'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE referencetype ADD VALUE IF NOT EXISTS 'ADJUSTMENT'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
         "END IF; "
         "END $$;"
       )
@@ -68,6 +83,18 @@ def ensure_runtime_schema() -> None:
       text(
         "ALTER TABLE IF EXISTS stock_batch "
         "ADD COLUMN IF NOT EXISTS cost_source VARCHAR(20)"
+      )
+    )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS stock_batch "
+        "ADD COLUMN IF NOT EXISTS supplier_id UUID"
+      )
+    )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS stock_batch "
+        "ADD COLUMN IF NOT EXISTS supplier_name_snapshot VARCHAR(200)"
       )
     )
     connection.execute(
@@ -154,6 +181,18 @@ def ensure_runtime_schema() -> None:
       text(
         "ALTER TABLE IF EXISTS paper_reels "
         "ADD COLUMN IF NOT EXISTS cost_source VARCHAR(20)"
+      )
+    )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS paper_reels "
+        "ADD COLUMN IF NOT EXISTS supplier_id UUID"
+      )
+    )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS paper_reels "
+        "ADD COLUMN IF NOT EXISTS supplier_name_snapshot VARCHAR(200)"
       )
     )
     connection.execute(
@@ -300,6 +339,7 @@ app.include_router(fg_inward.router)
 app.include_router(dispatch.router)
 app.include_router(reservations.router)
 app.include_router(locations.router)
+app.include_router(purchase.router)
 app.include_router(reels.router)
 app.include_router(reel_issues.router)
 app.include_router(stock_moves.router)

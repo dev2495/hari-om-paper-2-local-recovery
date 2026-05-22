@@ -187,6 +187,8 @@ def _load_scope_snapshot(token: str, plant_scope: dict) -> dict[str, Any]:
             if not card_id:
                 continue
             detail = service_get(f"{PRODUCTION_SERVICE_URL}/job-cards/{card_id}", token, plant_id=plant_id)
+            if not isinstance(detail, dict):
+                detail = dict(summary)
             detail["plant_id"] = plant_id
             job_cards.append(detail)
 

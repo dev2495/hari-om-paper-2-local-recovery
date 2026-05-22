@@ -462,3 +462,24 @@ async def post_opening_from_cf(cf_id: str, request: Request, token: str = Depend
             payload={"opening_load_id": str(payload.get("opening_load_id") or ""), "carry_forward_id": cf_id},
         )
     return response
+
+
+@router.post("/stock-moves/wip-issue")
+async def issue_batch_to_wip(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-moves/wip-issue", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_WIP_ISSUE_POSTED",
+        title=f"Material issued to WIP: {payload.get('stage') or 'stage'}",
+        message=str(payload.get("message") or "Store stock moved into production WIP against a job card."),
+        href="/inventory/production-issue",
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Production"],
+        payload={
+            "job_card_id": str(payload.get("job_card_id") or ""),
+            "batch_id": str(payload.get("batch_id") or ""),
+            "wip_transaction_id": str(payload.get("wip_transaction_id") or ""),
+        },
+    )
+    return response

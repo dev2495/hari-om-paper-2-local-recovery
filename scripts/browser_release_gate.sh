@@ -52,16 +52,17 @@ export PLAYWRIGHT_BASE_URL="${WEB_URL}"
 
 echo "Browser gate using Web UI: ${WEB_URL}"
 echo "Skipping blocking curl readiness probes and handing readiness over to Playwright navigation."
+echo "Running browser gate serially because tests share live seeded users and auth sessions."
 
 if [[ -x "${WEB_UI_DIR}/node_modules/.bin/playwright" ]]; then
   echo "using local Playwright from ${WEB_UI_DIR}/node_modules"
   (
     cd "${WEB_UI_DIR}"
-    ./node_modules/.bin/playwright test --config "${CONFIG_PATH}"
+    ./node_modules/.bin/playwright test --config "${CONFIG_PATH}" --workers=1
   )
 elif node -e "require.resolve('@playwright/test')" >/dev/null 2>&1; then
   node -e "console.log('using root-resolved @playwright/test')"
-  npx playwright test --config "${CONFIG_PATH}"
+  npx playwright test --config "${CONFIG_PATH}" --workers=1
 else
   echo "Playwright dependency is not installed locally."
   echo "Rebuild web-ui dependencies before running the browser release gate."

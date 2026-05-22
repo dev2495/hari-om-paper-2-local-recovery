@@ -117,7 +117,9 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await expect(page.getByText("Recipe").first()).toBeVisible()
 
   const initialPreviewText = (await previewRail.textContent()) || ""
-  await page.getByTestId("spec-sheet-recipe-ply-1").fill("3")
+  const firstPlyInput = page.getByTestId("spec-sheet-recipe-ply-1")
+  const firstPlyValue = await firstPlyInput.inputValue()
+  await firstPlyInput.fill(firstPlyValue === "3" ? "4" : "3")
   await expect
     .poll(async () => ((await previewRail.textContent()) || "").replace(/\s+/g, " "))
     .not.toEqual(initialPreviewText.replace(/\s+/g, " "))

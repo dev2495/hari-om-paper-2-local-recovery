@@ -1,4 +1,6 @@
 from typing import Any, Optional
+import hashlib
+import json
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_
@@ -10,7 +12,7 @@ import uuid
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import Dispatch, JobCard, PackingRecord, QualityHold, SalesOrder
+from ..models import Dispatch, DispatchIdempotency, JobCard, PackingRecord, QualityHold, SalesOrder
 from ..utils.auth import get_current_plant, require_role
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
@@ -23,6 +25,17 @@ def _plant_uuid(value: str) -> uuid.UUID:
         return uuid.UUID(str(value))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"Invalid plant_id: {value}") from exc
+
+
+def _request_hash(payload: "DispatchPayload") -> str:
+    payload_data = payload.model_dump(mode="json") if hasattr(payload, "model_dump") else payload.dict()
+    blob = json.dumps(payload_data, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _safe_flag_modified(instance: Any, key: str) -> None:
+    if hasattr(instance, "_sa_instance_state"):
+        flag_modified(instance, key)
 
 class DispatchPayload(BaseModel):
     job_card_id: uuid.UUID
@@ -177,6 +190,35 @@ def create_or_update_dispatch(
         dispatch_snapshot.setdefault("qty", float(payload.dispatch_qty))
     request_id = str(dispatch_snapshot.get("dispatch_request_id") or "").strip()
     if request_id:
+        request_hash = _request_hash(payload)
+        idem = (
+            db.query(DispatchIdempotency)
+            .filter(
+                DispatchIdempotency.plant_id == plant_uuid,
+                DispatchIdempotency.request_id == request_id,
+            )
+            .first()
+        )
+        if idem:
+            if idem.job_card_id != payload.job_card_id:
+                raise HTTPException(status_code=409, detail="dispatch_request_id already belongs to another job card")
+            if idem.request_hash != request_hash:
+                raise HTTPException(status_code=409, detail="dispatch_request_id was already used with a different payload")
+            if idem.status == "SUCCESS":
+                response_snapshot = dict(idem.response_snapshot or {})
+                merged_snapshot = {**dispatch_snapshot, **response_snapshot, "dispatch_request_id": request_id}
+                return DispatchResponse(
+                    id=getattr(db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id).first(), "id", uuid.uuid4()),
+                    job_card_id=payload.job_card_id,
+                    dispatch_snapshot=merged_snapshot,
+                    status=payload.status,
+                    dispatch_request_id=request_id,
+                    sales_order_line_id=payload.sales_order_line_id,
+                    fg_item_id=payload.fg_item_id,
+                    fg_batch_id=payload.fg_batch_id,
+                    dispatch_qty=payload.dispatch_qty,
+                    created_at=datetime.utcnow(),
+                )
         request_owner = (
             db.query(Dispatch)
             .filter(
@@ -196,7 +238,7 @@ def create_or_update_dispatch(
         if dispatch.status == "SEALED":
             raise HTTPException(status_code=400, detail="Cannot edit a SEALED dispatch")
         dispatch.dispatch_snapshot = dict(dispatch_snapshot)
-        flag_modified(dispatch, "dispatch_snapshot")
+        _safe_flag_modified(dispatch, "dispatch_snapshot")
         dispatch.status = payload.status
     else:
         dispatch = Dispatch(
@@ -237,7 +279,7 @@ def create_or_update_dispatch(
             plant_id=plant_id,
         )
         dispatch.dispatch_snapshot = dict(dispatch_snapshot)
-        flag_modified(dispatch, "dispatch_snapshot")
+        _safe_flag_modified(dispatch, "dispatch_snapshot")
 
         if job_card.sales_order_line_id:
             try:

@@ -66,6 +66,7 @@ class ReelInwardCreate(BaseModel):
     paper_id: uuid.UUID
     gsm: Optional[float] = Field(default=None, ge=0)
     bf: Optional[float] = Field(default=None, ge=0)
+    supplier_id: uuid.UUID
     supplier_name: str = Field(min_length=1, max_length=200)
     inward_weight_kg: float = Field(gt=0)
     inward_date: date
@@ -116,7 +117,9 @@ class ReelResponse(BaseModel):
     paper_id: uuid.UUID
     gsm: Optional[float]
     bf: Optional[float]
+    supplier_id: Optional[uuid.UUID] = None
     supplier_name: Optional[str]
+    supplier_name_snapshot: Optional[str] = None
     inward_weight_kg: float
     current_weight_kg: float
     unit_cost: Optional[float]
@@ -268,7 +271,9 @@ def create_reel_inward(
             paper_id=payload.paper_id,
             gsm=payload.gsm,
             bf=payload.bf,
+            supplier_id=payload.supplier_id,
             supplier_name=payload.supplier_name,
+            supplier_name_snapshot=payload.supplier_name,
             inward_weight_kg=payload.inward_weight_kg,
             current_weight_kg=payload.inward_weight_kg,
             unit_cost=payload.unit_cost,
@@ -291,6 +296,7 @@ def create_reel_inward(
                 event_metadata={
                     "reel_code": reel.reel_code,
                     "paper_id": str(reel.paper_id),
+                    "supplier_id": str(reel.supplier_id) if reel.supplier_id else None,
                     "supplier_name": reel.supplier_name,
                     "inward_weight_kg": reel.inward_weight_kg,
                     "generated_code": generated,

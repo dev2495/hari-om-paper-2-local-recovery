@@ -91,6 +91,15 @@ STAGE_DEFAULT_CAPACITY_UNITS = {
     "DISPATCH": "TUBES_PER_DAY",
 }
 QC_BLOCKING_STATUSES = {"HOLD"}
+PROCESS_QC_STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"}
+FINAL_SPEC_QC_STAGE = "QC"
+FINAL_SPEC_QC_FIELDS = [
+    ("ID", "id", "id_min_mm", "id_max_mm"),
+    ("OD", "od", "od_min_mm", "od_max_mm"),
+    ("Length", "length", "length_min_mm", "length_max_mm"),
+    ("Weight", "weight", "weight_min_g", "weight_max_g"),
+    ("CS", "cs", "cs_min_n", "cs_max_n"),
+]
 WINDER_METER_CAPACITY_UNIT = "METERS_PER_DAY"
 WINDER_BAMBOO_CAPACITY_UNIT = "BAMBOOS_PER_DAY"
 
@@ -1908,16 +1917,16 @@ def _build_document_snapshot(
             "lot_number": spec_snapshot.get("lot_number") or _lot_number_for_job_card(job_card),
             "customer_name": spec_snapshot.get("customer_name_snapshot") or spec_snapshot.get("customer_name") or "-",
             "product_size_label": _size_label(spec_snapshot),
-            "product_code": job_card.product_code or spec_snapshot.get("product_code"),
+            "product_code": getattr(job_card, "product_code", None) or spec_snapshot.get("product_code"),
             "spec_reference": spec_snapshot.get("spec_reference") or "",
             "color": exact_parchment,
             "parchment_family": parchment_family,
             "parchment_pattern": parchment_pattern,
             "mandrel_id": str(spec_snapshot.get("mandrel_id") or ""),
             "order_quantity_pcs": order_qty,
-            "release_lot_id": str(job_card.release_lot_id) if job_card.release_lot_id else "",
-            "release_qty_pcs": float(job_card.released_qty or job_card.planned_qty or 0.0),
-            "assigned_winder_machine_id": str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else "",
+            "release_lot_id": str(getattr(job_card, "release_lot_id", None)) if getattr(job_card, "release_lot_id", None) else "",
+            "release_qty_pcs": float(getattr(job_card, "released_qty", None) or job_card.planned_qty or 0.0),
+            "assigned_winder_machine_id": str(getattr(job_card, "assigned_winder_machine_id", None)) if getattr(job_card, "assigned_winder_machine_id", None) else "",
             "required_cs": _snapshot_float(spec_snapshot.get("required_cs")),
             "pcs_per_bamboo": pcs_per_bamboo,
             "parchment_paper": exact_parchment or "WITHOUT PARCHMENT",
@@ -2904,7 +2913,7 @@ def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], 
         if value < minimum or value > maximum:
             failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
 
-    if stage_type in {"WINDER", "PROCESS", "PACKING"}:
+    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
         _check_range("ID", "id", "id_min_mm", "id_max_mm")
         _check_range("OD", "od", "od_min_mm", "od_max_mm")
         _check_range("Length", "length", "length_min_mm", "length_max_mm")
@@ -2913,6 +2922,109 @@ def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], 
     if stage_type == "OVEN":
         _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
     return failures
+
+
+def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for label, reading_key, min_key, max_key in FINAL_SPEC_QC_FIELDS:
+        spec_has_field = spec_snapshot.get(min_key) is not None or spec_snapshot.get(max_key) is not None
+        if spec_has_field and readings.get(reading_key) is None:
+            missing.append(label)
+    return missing
+
+
+def _quality_inspections_for_stage(
+    db: Session,
+    job_card_id: uuid.UUID,
+    stage_type: str,
+    plant_id: Optional[uuid.UUID] = None,
+) -> list[QualityInspection]:
+    query = db.query(QualityInspection).filter(
+        QualityInspection.job_card_id == job_card_id,
+        QualityInspection.stage_type == stage_type,
+    )
+    if plant_id is not None:
+        query = query.filter(QualityInspection.plant_id == plant_id)
+    return query.order_by(QualityInspection.created_at.desc()).all()
+
+
+def _inspection_has_full_final_spec(
+    inspection: QualityInspection,
+    spec_snapshot: dict[str, Any],
+) -> bool:
+    readings = dict(getattr(inspection, "readings", None) or {})
+    return not _missing_final_spec_qc_fields(spec_snapshot, readings)
+
+
+def _final_spec_qc_passed(
+    *,
+    db: Session,
+    plant_id: uuid.UUID,
+    job_card: JobCard,
+    inline_quality_checks: Optional[dict[str, Any]] = None,
+) -> bool:
+    spec_snapshot = job_card.spec_snapshot or {}
+    inline_readings = dict(inline_quality_checks or {})
+    if inline_readings:
+        if not _missing_final_spec_qc_fields(spec_snapshot, inline_readings):
+            return not _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, inline_readings)
+
+    for inspection in _quality_inspections_for_stage(db, job_card.id, FINAL_SPEC_QC_STAGE, plant_id):
+        if str(getattr(inspection, "status", "") or "").upper() != "PASS":
+            continue
+        if not _inspection_has_full_final_spec(inspection, spec_snapshot):
+            continue
+        if _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, getattr(inspection, "readings", {}) or {}):
+            continue
+        return True
+    return False
+
+
+def _enforce_stage_quality_gate(
+    *,
+    db: Session,
+    plant_id: uuid.UUID,
+    job_card: JobCard,
+    selected_stage: str,
+    quality_checks: dict[str, Any],
+    override_reason: Optional[str],
+) -> None:
+    if (override_reason or "").strip():
+        return
+
+    normalized_stage = selected_stage.upper()
+    inline_checks = dict(quality_checks or {})
+    if normalized_stage == FINAL_SPEC_QC_STAGE:
+        missing = _missing_final_spec_qc_fields(job_card.spec_snapshot or {}, inline_checks)
+        if inline_checks and missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Final QC requires full spec readings: {', '.join(missing)}",
+            )
+        if inline_checks:
+            return
+        for inspection in _quality_inspections_for_stage(db, job_card.id, FINAL_SPEC_QC_STAGE, plant_id):
+            if _inspection_has_full_final_spec(inspection, job_card.spec_snapshot or {}):
+                return
+        raise HTTPException(
+            status_code=409,
+            detail="Final QC inspection is required before job card completion or FG handoff. Provide override_reason to continue.",
+        )
+
+    if normalized_stage not in PROCESS_QC_STAGES:
+        return
+    if inline_checks:
+        return
+    if _quality_inspections_for_stage(db, job_card.id, normalized_stage, plant_id):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail=f"{normalized_stage} completion requires a QC inspection or override_reason.",
+    )
+
+
+def _stage_allows_fg_inward(*, selected_stage: str, final_qc_ready: bool) -> bool:
+    return selected_stage.upper() in {"PACKING", FINAL_SPEC_QC_STAGE} and final_qc_ready
 
 
 def _validate_stage_completion_payload(
@@ -5805,6 +5917,14 @@ def capture_stage_output(
             status_code=409,
             detail="WINDER completion requires linked reel_issue_ids or an override_reason.",
         )
+    _enforce_stage_quality_gate(
+        db=db,
+        plant_id=plant_uuid,
+        job_card=job_card,
+        selected_stage=selected_stage,
+        quality_checks=payload.quality_checks or {},
+        override_reason=override_reason,
+    )
     _validate_stage_completion_payload(
         selected_stage=selected_stage,
         payload=payload,
@@ -5876,6 +5996,8 @@ def capture_stage_output(
         stage=stage,
         current_user=current_user,
     )
+    if selected_stage == FINAL_SPEC_QC_STAGE and packing_record is None:
+        packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
     if selected_stage in {"PACKING", "QC"} and stage.status == "COMPLETED":
         _upsert_monthly_provisional_theory(
             db=db,
@@ -5885,10 +6007,19 @@ def capture_stage_output(
             plant_id=plant_id,
             current_user=current_user,
         )
-    if selected_stage == "PACKING" and stage.status == "COMPLETED":
+    final_qc_ready = _final_spec_qc_passed(
+        db=db,
+        plant_id=plant_uuid,
+        job_card=job_card,
+        inline_quality_checks=stage.quality_checks or {},
+    )
+    if _stage_allows_fg_inward(selected_stage=selected_stage, final_qc_ready=final_qc_ready) and stage.status == "COMPLETED":
+        fg_stage_for_posting = stage
+        if selected_stage == FINAL_SPEC_QC_STAGE:
+            fg_stage_for_posting = next((row for row in all_stage_rows if row.stage_type == "PACKING"), stage)
         fg_inward_result = _post_fg_inward_if_configured(
             job_card=job_card,
-            final_stage_row=stage,
+            final_stage_row=fg_stage_for_posting,
             packing_record=packing_record,
             token=token,
             plant_id=plant_id,
@@ -5954,6 +6085,7 @@ def capture_stage_output(
             final_packing
             and final_packing.status == "COMPLETED"
             and packing_record
+            and final_qc_ready
             and not (packing_record.snapshot or {}).get("inventory_transaction_id")
         ):
             fg_inward_result = _post_fg_inward_if_configured(

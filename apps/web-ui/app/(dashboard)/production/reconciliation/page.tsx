@@ -68,7 +68,7 @@ type ActualDraft = Record<string, { actual_consumed_weight_kg: string; actual_co
 const TABS = [
   { key: "workspace", label: "Monthly close", icon: ClipboardCheck },
   { key: "drift", label: "Weekly drift", icon: TrendingUp },
-  { key: "actuals", label: "Actuals entry", icon: Pencil },
+  { key: "actuals", label: "Actual entry", icon: Pencil },
   { key: "history", label: "Close history", icon: HistoryIcon },
 ] as const
 
@@ -168,7 +168,7 @@ export default function ReconciliationPage() {
     approveError?.response?.data?.detail?.blockers || []
 
   return (
-    <div className="space-y-6 animate-enter-up">
+    <div className="space-y-6 animate-enter-up" data-testid="reconciliation-page">
       <ExecutiveHero
         testId="reconciliation-hero"
         badge="Month-end close"
@@ -538,7 +538,7 @@ export default function ReconciliationPage() {
       {/* ── Actuals entry tab ── */}
       {activeTab === "actuals" && (
         <Panel
-          title="Enter actual consumption from plant registers"
+          title="Monthly material actuals"
           subtitle="Plug in qty and cost from the physical register. Notes are required when variance > tolerance."
           actions={
             <div className="flex items-center gap-2">

@@ -20,6 +20,8 @@ from ..models import (
     TransactionType,
 )
 from ..services import get_batch_balance
+from ..services.stock_calc import validate_batch_sufficient_stock
+from ..services.wip_movement import build_wip_issue_transactions
 from ..utils.auth import get_current_plant, require_role
 
 router = APIRouter(prefix="/inventory/stock-moves", tags=["inventory-stock-moves"])
@@ -65,6 +67,122 @@ class StockMoveResponse(BaseModel):
     stock_status: str
     recorded_at: datetime
     transaction_id: uuid.UUID | None = None
+
+
+class WipIssueCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    item_id: uuid.UUID
+    batch_id: uuid.UUID
+    qty: float = Field(gt=0)
+    job_card_id: uuid.UUID
+    stage: str = Field(default="WINDER", max_length=40)
+    wip_location_id: uuid.UUID | None = None
+    external_ref: str | None = Field(default=None, max_length=100)
+
+    @field_validator("stage")
+    @classmethod
+    def validate_stage(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"}:
+            raise ValueError("stage must be SLITTING, WINDER, OVEN, PROCESS, or PACKING")
+        return normalized
+
+
+class WipIssueResponse(BaseModel):
+    item_id: uuid.UUID
+    batch_id: uuid.UUID
+    job_card_id: uuid.UUID
+    qty_issued_to_wip: float
+    stage: str
+    wip_location_id: uuid.UUID | None
+    store_transaction_id: uuid.UUID
+    wip_transaction_id: uuid.UUID
+    batch_balance: float
+    message: str
+
+
+@router.post("/wip-issue", response_model=WipIssueResponse)
+def issue_batch_to_wip(
+    payload: WipIssueCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Production"])),
+):
+    batch = db.query(StockBatch).filter(
+        StockBatch.id == payload.batch_id,
+        StockBatch.item_id == payload.item_id,
+        StockBatch.plant_id == plant_id,
+    ).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch.stock_status not in {"UNRESTRICTED", "WIP"}:
+        raise HTTPException(status_code=400, detail=f"Batch is not issuable to WIP ({batch.stock_status})")
+    if not validate_batch_sufficient_stock(str(batch.id), payload.qty, db):
+        raise HTTPException(status_code=400, detail="Insufficient batch stock for WIP issue")
+
+    wip_location_id = payload.wip_location_id
+    if wip_location_id:
+        location = db.query(InventoryLocation).filter(
+            InventoryLocation.id == wip_location_id,
+            InventoryLocation.plant_id == plant_id,
+        ).first()
+        if not location:
+            raise HTTPException(status_code=404, detail="WIP location not found")
+
+    if payload.external_ref:
+        existing = db.query(StockTransaction).filter(
+            StockTransaction.external_ref == f"{payload.external_ref}:WIP",
+            StockTransaction.plant_id == plant_id,
+        ).first()
+        if existing:
+            store_existing = db.query(StockTransaction).filter(
+                StockTransaction.external_ref == f"{payload.external_ref}:STORE",
+                StockTransaction.plant_id == plant_id,
+            ).first()
+            return WipIssueResponse(
+                item_id=payload.item_id,
+                batch_id=payload.batch_id,
+                job_card_id=payload.job_card_id,
+                qty_issued_to_wip=abs(float(existing.qty_change or 0.0)),
+                stage=payload.stage,
+                wip_location_id=existing.location_id,
+                store_transaction_id=store_existing.id if store_existing else existing.id,
+                wip_transaction_id=existing.id,
+                batch_balance=get_batch_balance(str(batch.id), db),
+                message="WIP issue already posted (idempotent)",
+            )
+
+    txns = build_wip_issue_transactions(
+        item_id=payload.item_id,
+        batch_id=payload.batch_id,
+        qty=payload.qty,
+        job_card_id=payload.job_card_id,
+        plant_id=plant_id,
+        from_location_id=batch.location_id,
+        wip_location_id=wip_location_id,
+        stage=payload.stage,
+        operator_id=str(current_user.get("sub") or current_user.get("actor_identity") or ""),
+        external_ref=payload.external_ref,
+    )
+    for txn in txns:
+        db.add(txn)
+    db.commit()
+    for txn in txns:
+        db.refresh(txn)
+
+    return WipIssueResponse(
+        item_id=payload.item_id,
+        batch_id=payload.batch_id,
+        job_card_id=payload.job_card_id,
+        qty_issued_to_wip=payload.qty,
+        stage=payload.stage,
+        wip_location_id=wip_location_id,
+        store_transaction_id=txns[0].id,
+        wip_transaction_id=txns[1].id,
+        batch_balance=get_batch_balance(str(batch.id), db),
+        message=f"Issued {payload.qty} to WIP for {payload.stage}",
+    )
 
 
 @router.post("", response_model=StockMoveResponse)

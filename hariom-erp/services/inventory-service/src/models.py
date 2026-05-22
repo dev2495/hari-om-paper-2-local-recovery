@@ -2,6 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     Date,
@@ -61,6 +62,7 @@ class ReferenceType(str, enum.Enum):
     DISPATCH = "DISPATCH"
     SALES_ORDER = "SALES_ORDER"
     INTERNAL = "INTERNAL"
+    ADJUSTMENT = "ADJUSTMENT"
 
 
 class ReservationStatus(str, enum.Enum):
@@ -154,6 +156,8 @@ class StockBatch(Base):
     stock_status = Column(String(20), nullable=False, default="UNRESTRICTED")
     unit_cost = Column(Float, nullable=True)
     cost_source = Column(String(20), nullable=True)
+    supplier_id = Column(UUID(as_uuid=True), nullable=True)
+    supplier_name_snapshot = Column(String(200), nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     spec_id = Column(UUID(as_uuid=True), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -241,6 +245,8 @@ class PaperReel(Base):
     gsm = Column(Float, nullable=True)
     bf = Column(Float, nullable=True)
     supplier_name = Column(String(200), nullable=True)
+    supplier_id = Column(UUID(as_uuid=True), nullable=True)
+    supplier_name_snapshot = Column(String(200), nullable=True)
     inward_weight_kg = Column(Float, nullable=False)
     current_weight_kg = Column(Float, nullable=False)
     unit_cost = Column(Float, nullable=True)
@@ -466,3 +472,100 @@ class InventoryCarryForwardLine(Base):
 
     header = relationship("InventoryCarryForward", back_populates="lines")
     item = relationship("ItemMaster")
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    po_no = Column(String(80), nullable=False)
+    supplier_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    supplier_name_snapshot = Column(String(200), nullable=False)
+    expected_date = Column(Date, nullable=True)
+    status = Column(String(30), nullable=False, default="DRAFT")
+    notes = Column(String(500), nullable=True)
+    created_by = Column(String(200), nullable=False)
+    approved_by = Column(String(200), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    lines = relationship("PurchaseOrderLine", back_populates="order", cascade="all, delete-orphan")
+    receipts = relationship("PurchaseReceipt", back_populates="order", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "po_no", name="uq_purchase_orders_plant_po"),
+        CheckConstraint(
+            "status IN ('DRAFT','APPROVED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED')",
+            name="ck_purchase_orders_status",
+        ),
+    )
+
+
+class PurchaseOrderLine(Base):
+    __tablename__ = "purchase_order_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    qty_ordered = Column(Float, nullable=False)
+    qty_received = Column(Float, nullable=False, default=0.0)
+    unit_cost = Column(Float, nullable=False)
+    incoming_qc_required = Column(Boolean, nullable=False, default=True)
+    line_status = Column(String(20), nullable=False, default="OPEN")
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    order = relationship("PurchaseOrder", back_populates="lines")
+    item = relationship("ItemMaster")
+
+    __table_args__ = (
+        CheckConstraint("qty_ordered > 0", name="ck_purchase_order_lines_qty_ordered_positive"),
+        CheckConstraint("qty_received >= 0", name="ck_purchase_order_lines_qty_received_nonnegative"),
+        CheckConstraint("unit_cost >= 0", name="ck_purchase_order_lines_unit_cost_nonnegative"),
+        CheckConstraint("line_status IN ('OPEN','PARTIAL','CLOSED')", name="ck_purchase_order_lines_status"),
+    )
+
+
+class PurchaseReceipt(Base):
+    __tablename__ = "purchase_receipts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    grn_no = Column(String(80), nullable=False)
+    received_date = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="POSTED")
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    order = relationship("PurchaseOrder", back_populates="receipts")
+    lines = relationship("PurchaseReceiptLine", back_populates="receipt", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "grn_no", name="uq_purchase_receipts_plant_grn"),
+    )
+
+
+class PurchaseReceiptLine(Base):
+    __tablename__ = "purchase_receipt_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    receipt_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipts.id"), nullable=False, index=True)
+    purchase_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True)
+    qty_received = Column(Float, nullable=False)
+    unit_cost = Column(Float, nullable=False)
+    qc_status = Column(String(20), nullable=False, default="PENDING")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    receipt = relationship("PurchaseReceipt", back_populates="lines")
+    order_line = relationship("PurchaseOrderLine")
+    item = relationship("ItemMaster")
+    batch = relationship("StockBatch")
+
+    __table_args__ = (
+        CheckConstraint("qty_received > 0", name="ck_purchase_receipt_lines_qty_positive"),
+        CheckConstraint("qc_status IN ('PENDING','PASS','HOLD')", name="ck_purchase_receipt_lines_qc_status"),
+    )

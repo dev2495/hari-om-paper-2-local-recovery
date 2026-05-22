@@ -421,6 +421,7 @@ export const inventoryApi = {
   createTransaction: (data: any) => api.post("/api/inventory/issue", data),
   createInward: (data: any) => api.post("/api/inventory/inward", data),
   createIssue: (data: any) => api.post("/api/inventory/issue", data),
+  issueBatchToWip: (data: any) => api.post("/api/inventory/stock-moves/wip-issue", data),
   createFgInward: (data: any) => api.post("/api/inventory/fg-inward", data),
   createDispatch: (data: any, plantId?: string) => api.post("/api/inventory/dispatch", data, withPlantHeader(plantId)),
   getReservations: (params?: any) => api.get("/api/inventory/reservations", { params }),
@@ -443,6 +444,15 @@ export const inventoryApi = {
     api.post(`/api/inventory/stock-control/carry-forwards/${cfId}/post-opening`, {}, withPlantHeader(plantId)),
   getTransactionsAggregateByItem: (params: { start_date: string; end_date: string; transaction_types?: string }, plantId?: string) =>
     api.get("/api/inventory/transactions/aggregate-by-item", { ...withPlantHeader(plantId), params }),
+}
+
+export const purchaseApi = {
+  getOrders: () => api.get("/api/purchase/orders"),
+  createOrder: (data: any) => api.post("/api/purchase/orders", data),
+  approveOrder: (id: string) => api.post(`/api/purchase/orders/${id}/approve`, {}),
+  postGrn: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/grn`, data),
+  getReceipts: () => api.get("/api/purchase/receipts"),
+  updateReceiptQc: (lineId: string, data: any) => api.post(`/api/purchase/receipt-lines/${lineId}/qc`, data),
 }
 
 export const dispatchApi = {

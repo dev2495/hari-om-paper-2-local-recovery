@@ -17,7 +17,14 @@ from ..utils.auth import get_current_plant, get_current_plant_scope, require_rol
 router = APIRouter(prefix="/quality", tags=["quality"])
 settings = get_settings()
 
-STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"}
+STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"}
+FINAL_SPEC_QC_FIELDS = [
+    ("ID", "id", "id_min_mm", "id_max_mm"),
+    ("OD", "od", "od_min_mm", "od_max_mm"),
+    ("Length", "length", "length_min_mm", "length_max_mm"),
+    ("Weight", "weight", "weight_min_g", "weight_max_g"),
+    ("CS", "cs", "cs_min_n", "cs_max_n"),
+]
 
 
 def _to_uuid(value: str, field: str = "id") -> uuid.UUID:
@@ -35,7 +42,7 @@ def _to_uuid(value: str, field: str = "id") -> uuid.UUID:
 def _normalize_stage(value: str) -> str:
     normalized = value.strip().upper()
     if normalized not in STAGES:
-        raise HTTPException(status_code=400, detail="stage_type must be one of SLITTING, WINDER, OVEN, PROCESS, PACKING")
+        raise HTTPException(status_code=400, detail="stage_type must be one of SLITTING, WINDER, OVEN, PROCESS, PACKING, QC")
     return normalized
 
 
@@ -103,7 +110,7 @@ def _check_failures(stage_type: str, spec_snapshot: dict[str, Any], readings: di
         if value < minimum or value > maximum:
             failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
 
-    if stage_type in {"WINDER", "PROCESS", "PACKING"}:
+    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
         _check_range("ID", "id", "id_min_mm", "id_max_mm")
         _check_range("OD", "od", "od_min_mm", "od_max_mm")
         _check_range("Length", "length", "length_min_mm", "length_max_mm")
@@ -113,6 +120,15 @@ def _check_failures(stage_type: str, spec_snapshot: dict[str, Any], readings: di
         _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
 
     return failures
+
+
+def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    for label, reading_key, min_key, max_key in FINAL_SPEC_QC_FIELDS:
+        spec_has_field = spec_snapshot.get(min_key) is not None or spec_snapshot.get(max_key) is not None
+        if spec_has_field and readings.get(reading_key) is None:
+            missing.append(label)
+    return missing
 
 
 class InspectionCreate(BaseModel):
@@ -196,6 +212,13 @@ def create_inspection(
     )
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
+    if payload.stage_type == "QC":
+        missing = _missing_final_spec_qc_fields(job_card.spec_snapshot or {}, payload.readings or {})
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Final QC requires full spec readings: {', '.join(missing)}",
+            )
 
     failures = _check_failures(payload.stage_type, job_card.spec_snapshot or {}, payload.readings or {})
     inspection = QualityInspection(

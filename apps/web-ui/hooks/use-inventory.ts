@@ -31,6 +31,18 @@ export function useInventoryLocations() {
   })
 }
 
+export function useInventoryItemBalance(itemId?: string, enabled = true) {
+  return useQuery({
+    queryKey: ["inventory-item-balance", itemId || ""],
+    queryFn: async () => {
+      if (!itemId) return null
+      const { data } = await inventoryApi.getItemBalance(itemId)
+      return data
+    },
+    enabled: enabled && Boolean(itemId),
+  })
+}
+
 export function useCreateInventoryLocation() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -48,6 +60,21 @@ export function useCreateTransaction() {
     mutationFn: (data: any) => inventoryApi.createTransaction(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+    },
+  })
+}
+
+export function useIssueBatchToWip() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.issueBatchToWip(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-item-balance"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })

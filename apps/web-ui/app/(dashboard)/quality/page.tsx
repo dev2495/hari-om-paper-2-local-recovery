@@ -33,7 +33,12 @@ import {
 } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
-const STAGES = ["WINDER", "OVEN", "PROCESS", "PACKING"]
+const STAGES = [
+  { value: "WINDER", label: "Winder QC" },
+  { value: "OVEN", label: "Oven QC" },
+  { value: "PROCESS", label: "Process QC" },
+  { value: "PACKING", label: "Packing / final QC" },
+]
 const READING_FIELDS = [
   { key: "id", label: "ID mm" },
   { key: "od", label: "OD mm" },
@@ -232,12 +237,13 @@ export default function QualityLifecyclePage() {
         title="Quality lifecycle framework"
         subtitle="Each job card moves through measurable checkpoints. Failures create holds; released holds return stock to normal flow."
       >
-        <div className="grid gap-3 xl:grid-cols-4">
+        <div className="grid gap-3 xl:grid-cols-5">
           {[
             ["1. Spec truth", "Job-card snapshot fixes target ID, OD, length, weight, CS, and moisture bands."],
-            ["2. Stage inspection", "Operator or plant manager records readings at winder, oven, process, or packing."],
-            ["3. Hold and disposition", "Out-of-range readings open an active QC hold with reason and audit trail."],
-            ["4. Release gate", "Authorized release clears the hold and allows dispatchable stock to move forward."],
+            ["2. In-process QC", "Winder, oven, and process checks are captured against the running job card."],
+            ["3. Final QC", "Packing / final QC captures the outgoing check before dispatch handoff."],
+            ["4. Hold and disposition", "Out-of-range readings open an active QC hold with reason and audit trail."],
+            ["5. Release gate", "Authorized release clears the hold and allows dispatchable stock to move forward."],
           ].map(([title, detail]) => (
             <article key={title} className="rounded-[1.4rem] border border-slate-200 bg-white/85 p-4 shadow-sm">
               <p className="text-sm font-semibold text-slate-950">{title}</p>
@@ -288,7 +294,7 @@ export default function QualityLifecyclePage() {
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
                 >
                   {STAGES.map((stage) => (
-                    <option key={stage} value={stage}>{stage}</option>
+                    <option key={stage.value} value={stage.value}>{stage.label}</option>
                   ))}
                 </select>
               </label>

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ArrowRight, Boxes, ClipboardCheck, FileCheck2, LineChart, PackageCheck, Warehouse } from "lucide-react"
+import { ArrowRight, Boxes, ClipboardCheck, FileCheck2, LineChart, PackageCheck, ReceiptText, Warehouse } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import {
@@ -126,6 +126,7 @@ export default function InventoryOverviewPage() {
     { href: "/inventory/reels/inward", title: "Reel inward", copy: "Scan paper reels, vendor, weight, and location.", icon: Boxes },
     { href: "/inventory/production-issue", title: "Production issue", copy: "Issue RM against job card and lot/reel truth.", icon: PackageCheck },
     { href: "/inventory/stock-control", title: "Stock close control", copy: "Opening load, closing certification, and year carry-forward.", icon: FileCheck2 },
+    { href: "/purchase", title: "Purchase and GRN", copy: "Request, PO status, GRN handoff, and incoming QC.", icon: ReceiptText },
     { href: "/inventory/ledger", title: "Ledger and balances", copy: "Audit physical, reserved, available, and transactions.", icon: ClipboardCheck },
     { href: "/analytics/mrp", title: "MRP and PO drafts", copy: "Convert shortages into purchase order drafts.", icon: LineChart },
   ]
@@ -152,7 +153,7 @@ export default function InventoryOverviewPage() {
         </div>
       </section>
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         {actionCards.map((card) => (
           <Link key={card.href} href={card.href} className="group rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-lg shadow-slate-900/5 transition hover:-translate-y-1 hover:shadow-xl">
             <div className="flex items-start justify-between gap-3">
