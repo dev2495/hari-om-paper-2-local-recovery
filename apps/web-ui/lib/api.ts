@@ -275,6 +275,8 @@ export const specApi = {
   obsoleteSpec: (id: string, data?: any, plantId?: string) =>
     api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}, withPlantHeader(plantId)),
   getConstants: () => api.get("/api/spec/constants"),
+  getDefaults: (plantId?: string) => api.get("/api/spec/defaults", withPlantHeader(plantId)),
+  updateDefaults: (data: any, plantId?: string) => api.put("/api/spec/defaults", data, withPlantHeader(plantId)),
   getSpecFields: () => api.get("/api/spec/spec-fields"),
   createSpecField: (data: any, plantId?: string) => api.post("/api/spec/spec-fields", data, withPlantHeader(plantId)),
   createRecipe: (specId: string, data: any, plantId?: string) =>

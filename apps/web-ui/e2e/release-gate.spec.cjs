@@ -248,8 +248,9 @@ test("admin shell, plant switching, and reports load cleanly", async ({ page }) 
   await expect(page).toHaveURL(/\/dashboard$/)
 
   await page.goto("/planning", { waitUntil: "domcontentloaded" })
+  await expect(page).toHaveURL(/\/planning\/board$/)
   await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
-  await expect(page.getByRole("heading", { name: /select one plant to open planning/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /select one plant before scheduling/i })).toBeVisible()
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: /inventory stock/i })).toBeVisible()
   await page.goto("/planning/board?section=winder", { waitUntil: "domcontentloaded" })
@@ -286,11 +287,11 @@ test("admin can load all critical ERP workspaces without route errors", async ({
     ["/sales-orders", /\/sales-orders$/],
     ["/sales-orders/new", /\/sales-orders\/new$/],
     ["/production/job-cards", /\/(production\/job-cards|job-cards)(\?.*)?$/],
-    ["/production/planner", /\/(production\/planner|planning)(\?.*)?$/],
+    ["/production/planner", /\/planning\/board(\?.*)?$/],
     ["/production/supervisor-entry", /\/(production\/supervisor-entry|supervisor-entry)(\?.*)?$/],
     ["/production/reconciliation", /\/production\/reconciliation(\?.*)?$/],
     ["/quality", /\/quality(\?.*)?$/],
-    ["/dispatch", /\/dispatch(\?.*)?$/],
+    ["/dispatch", /\/logistics\/dispatch(\?.*)?$/],
     ["/reports/owner", /\/reports\/owner(\?.*)?$/],
     ["/reports/production", /\/reports\/production(\?.*)?$/],
     ["/reports/sales", /\/reports\/sales(\?.*)?$/],
@@ -303,7 +304,7 @@ test("admin can load all critical ERP workspaces without route errors", async ({
     ["/inventory/production-issue", /\/inventory\/production-issue(\?.*)?$/],
     ["/inventory/stock-control", /\/inventory\/stock-control(\?.*)?$/],
     ["/inventory/genealogy", /\/inventory\/genealogy(\?.*)?$/],
-    ["/specs", /\/(specs|specifications)(\?.*)?$/],
+    ["/specs", /\/specifications(\?.*)?$/],
     ["/master", /\/(master|masters)(\?.*)?$/],
     ["/system/users", /\/system\/users(\?.*)?$/],
   ]
@@ -406,7 +407,8 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
     throw new Error("Missing completed job card fixture for dispatch print validation")
   }
   await page.goto("/dispatch", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /dispatch & shipments/i })).toBeVisible({ timeout: 20_000 })
+  await expect(page).toHaveURL(/\/logistics\/dispatch$/)
+  await expect(page.getByRole("heading", { name: /dispatch selection/i })).toBeVisible({ timeout: 20_000 })
   await page.goto(`/dispatch/${completedJobCardId}/print`, { waitUntil: "domcontentloaded" })
   await expect(page.getByText(/dispatch/i).first()).toBeVisible()
 
@@ -420,7 +422,8 @@ test("real seeded users enforce route separation and role guards", async ({ page
   await page.goto("/reports/plants", { waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: /cross-plant comparison/i })).toBeVisible()
   await page.goto("/dispatch", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /dispatch & shipments/i })).toBeVisible()
+  await expect(page).toHaveURL(/\/logistics\/dispatch$/)
+  await expect(page.getByRole("heading", { name: /dispatch selection/i })).toBeVisible()
   await expect(page.locator("body")).not.toContainText(/forbidden|access denied|not authorized/i)
   await logout(page)
 

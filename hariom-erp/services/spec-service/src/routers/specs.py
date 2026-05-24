@@ -205,6 +205,17 @@ class SpecResponse(BaseModel):
     dynamic_fields: List[DynamicFieldValueResponse]
 
 
+class SpecDefaultsPayload(BaseModel):
+    adhesive_percent: float = spec_math.GLOBAL_ADHESIVE_PERCENT
+    parchment_percent: float = spec_math.GLOBAL_PARCHMENT_PERCENT
+    moisture_loss_percent: float = spec_math.GLOBAL_MOISTURE_LOSS_PERCENT
+
+
+class SpecDefaultsResponse(SpecDefaultsPayload):
+    plant_id: str
+    updated_at: datetime
+
+
 def _default_dynamic_label(field_key: str) -> str:
     return field_key.replace("_", " ").strip().title() or "Dynamic Field"
 
@@ -257,6 +268,32 @@ def _normalize_dynamic_value(value: Any) -> Optional[str]:
     if isinstance(value, (dict, list)):
         return json.dumps(value)
     return str(value)
+
+
+def _normalize_percent(value: float, field_name: str) -> float:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"{field_name} must be numeric")
+    if numeric < 0 or numeric > 100:
+        raise HTTPException(status_code=400, detail=f"{field_name} must be between 0 and 100")
+    return numeric
+
+
+def _get_or_create_defaults(db: Session, plant_id: str) -> GlobalSpecDefaults:
+    defaults = db.query(GlobalSpecDefaults).filter(GlobalSpecDefaults.plant_id == plant_id).first()
+    if defaults:
+        return defaults
+    defaults = GlobalSpecDefaults(
+        plant_id=plant_id,
+        adhesive_percent=spec_math.GLOBAL_ADHESIVE_PERCENT,
+        parchment_percent=spec_math.GLOBAL_PARCHMENT_PERCENT,
+        moisture_loss_percent=spec_math.GLOBAL_MOISTURE_LOSS_PERCENT,
+    )
+    db.add(defaults)
+    db.commit()
+    db.refresh(defaults)
+    return defaults
 
 
 def _ensure_dynamic_field(
@@ -681,6 +718,32 @@ def get_spec_constants(
         "default_parchment_percent": settings.DEFAULT_PARCHMENT_PERCENT,
         "default_shrink_percent": settings.DEFAULT_SHRINK_PERCENT,
     }
+
+
+@router.get("/defaults", response_model=SpecDefaultsResponse)
+def get_spec_defaults(
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    return _get_or_create_defaults(db, plant_id)
+
+
+@router.put("/defaults", response_model=SpecDefaultsResponse)
+def update_spec_defaults(
+    payload: SpecDefaultsPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
+):
+    defaults = _get_or_create_defaults(db, plant_id)
+    defaults.adhesive_percent = _normalize_percent(payload.adhesive_percent, "adhesive_percent")
+    defaults.parchment_percent = _normalize_percent(payload.parchment_percent, "parchment_percent")
+    defaults.moisture_loss_percent = _normalize_percent(payload.moisture_loss_percent, "moisture_loss_percent")
+    defaults.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(defaults)
+    return defaults
 
 
 @router.post("/", response_model=SpecResponse)

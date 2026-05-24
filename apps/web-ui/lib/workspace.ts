@@ -27,6 +27,8 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
 
 export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "Planner", "Store", "Dispatch", "Sales", "Operator"]
 
+// Legacy role aliases are normalized here only so old auth/session rows land on a canonical workspace.
+// User-facing navigation policy should use the condensed role matrix above.
 export const ROLE_TO_LANDING: Record<string, LandingRole> = {
   Owner: "Owner",
   Admin: "Admin",

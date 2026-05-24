@@ -1,1 +1,5 @@
-export { default } from "@/app/(dashboard)/master/page"
+import { redirect } from "next/navigation"
+
+export default function MastersRedirectPage() {
+  redirect("/masters/papers")
+}

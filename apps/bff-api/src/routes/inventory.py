@@ -347,10 +347,11 @@ async def get_health_summary(request: Request, token: str = Depends(get_token)):
     try:
         return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/health/summary", request, token)
     except httpx.TimeoutException:
-        # Keep operational dashboards usable even if the health rollup times out transiently.
         return JSONResponse(
-            status_code=200,
+            status_code=503,
             content={
+                "degraded": True,
+                "detail": "Inventory health rollup timed out. Live balances were not confirmed.",
                 "dispatch_allocated_qty": 0.0,
                 "active_dispatch_allocations": 0,
                 "blocked_qty": 0.0,
@@ -361,7 +362,7 @@ async def get_health_summary(request: Request, token: str = Depends(get_token)):
                 "status_rows": [],
                 "summary": {
                     "low_stock_items": 0,
-                    "fallback": True,
+                    "degraded": True,
                 },
             },
         )

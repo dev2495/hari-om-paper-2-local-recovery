@@ -104,7 +104,7 @@ const navigationUnits: NavGroup[] = [
         href: "/quality",
         icon: ShieldCheck,
         description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
-        roles: ["Owner", "Admin", "PlantManager", "QC", "SupervisorEntry", "Production", "Dispatch", "Store", "Sales"],
+        roles: ["Owner", "Admin", "PlantManager", "Dispatch", "Store", "Sales"],
       },
       {
         name: "Reconciliation",

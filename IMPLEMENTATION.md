@@ -687,3 +687,23 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - dynamic fields are copied from the previous version and then overwritten by the edited payload
   - any new recipe/trial payload is attached to the new version id, not the disabled old version
 - The spec UI now says `Create New Version` / `Save as New Version + Recipe` so users do not assume they are overwriting an old approved sheet.
+
+### 2026-05-25 · Production-readiness cleanup for routes, roles, defaults, and verification
+- Removed duplicated BFF spec route declarations and added the missing `/api/spec/defaults` GET/PUT proxy.
+- Exposed per-plant spec defaults in spec-service through `GET/PUT /specs/defaults`, backed by `global_spec_defaults` and guarded so only Owner/Admin can update.
+- Spec sheet create/reset now reads plant-scoped global adhesive, parchment, and moisture defaults instead of hardcoding the editable footer values.
+- Spec preview failures are now explicitly marked `degraded` in the hook and surfaced in the spec-sheet header when local math is used as a temporary fallback.
+- Inventory health timeout fallback now returns a degraded `503` payload instead of a successful-looking zeroed report.
+- Legacy page leaks were converted to redirects for old dashboard, analytics, inventory, dispatch, planning, and master paths instead of silently rendering duplicate full pages.
+- Sidebar route policy now uses only the canonical user-facing role matrix; legacy role aliases remain only in workspace normalization for old auth/session rows.
+- `apps/web-ui` now has a real `npm run test` and `npm run verify`; `scripts/run_verification.sh` now runs current Python compile, spec pytest, lint, help validation, TS tests, typecheck, and build without Docker/pip-install/old port assumptions.
+- The hard-cutover and browser release gates now assert the canonical redirects introduced in this pass: `/planning` and `/production/planner` land on `/planning/board`, `/dispatch` lands on `/logistics/dispatch`, and `/specs` lands on `/specifications`.
+- Verification run during this pass:
+  - Python compile passed for changed BFF/spec-service modules.
+  - `npm run lint` passed.
+  - `npm run test` passed (`spec-math`, `spec-sheet-suggestions`, `reconciliation-math`).
+  - `npx tsc --noEmit --pretty false` passed.
+  - `hariom-erp/venv-runtime/bin/python -m pytest tests/test_spec_math.py` passed (`28 passed`).
+  - `hariom-erp/venv-runtime/bin/python3 scripts/e2e_hard_cutover_validation.py` passed (`114/114`) and regenerated `reports/browser_e2e_fixture_latest.json`.
+  - `bash scripts/browser_release_gate.sh` passed (`8/8`) against the live production web runtime.
+  - `./scripts/run_verification.sh` passed end-to-end after the route/test updates.

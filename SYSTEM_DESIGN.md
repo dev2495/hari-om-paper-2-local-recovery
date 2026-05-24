@@ -73,8 +73,8 @@
 - Dry tube target is the commercial/spec target.
 - Adhesive is global at `15%`.
 - Parchment is global at `1.5%`.
-- Drying loss is controlled once globally and defaults to `9.5%`.
-- Wet tube weight is derived from the dry target and drying divisor `1 - drying_percent / 100`, which defaults to `0.905`.
+- Drying loss is controlled once globally and defaults to `9.0%`.
+- Wet tube weight is derived from the dry target and drying divisor `1 - drying_percent / 100`, which defaults to `0.91`.
 - No separate free-edit wet-weight truth should exist outside that rule.
 
 ## Manufacturing model
@@ -83,7 +83,7 @@
 - Recipe paper thickness is the only source for wall thickness.
 - Manufacturing OD derives from ID plus double wall thickness.
 - Best-mix suggestions are computed from paper masters and the target wet weight.
-- Suggestions use client OD until a recipe exists; after recipe application the saved preview uses manufacturing OD.
+- Suggestions and live preview use the canonical spec math service and the same manufacturing ID/wall-thickness model.
 - Applied recipe rows become the only manufacturing recipe saved into the spec.
 - Bamboo length and bamboo dry/wet math come from one manufacturing matrix flow.
 - Bamboo output should not be recalculated manually in separate sections.

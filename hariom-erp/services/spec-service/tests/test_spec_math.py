@@ -242,11 +242,11 @@ def test_compute_preview_end_to_end():
     assert p.paper_weight_per_mm_g > 0
     # tube dry must equal wet × (1 − moisture)
     assert p.tube.dry_g == pytest.approx(p.tube.wet_g * (1 - GLOBAL_MOISTURE_LOSS_PERCENT / 100), rel=1e-6)
-    # bamboo dry × tubes_per_bamboo ≈ tube dry × (tubes) (scales linearly with length)
-    # specifically bamboo_paper_g / tube_paper_g = bamboo_length / tube_length
+    # bamboo dry × tubes_per_bamboo ≈ tube dry × (tubes) (scales linearly with usable length)
+    # specifically bamboo_paper_g / tube_paper_g = usable_length / tube_length
     # Allow tolerance for the 4dp rounding on displayed weights
     assert p.bamboo.paper_g / p.tube.paper_g == pytest.approx(
-        p.bamboo_plan.bamboo_length_mm / 150.0, rel=1e-3
+        p.bamboo_plan.usable_length_mm / 150.0, rel=1e-3
     )
     # bamboo plan is one of the enumerated lengths
     assert BAMBOO_LENGTH_MIN_MM <= p.bamboo_plan.bamboo_length_mm <= BAMBOO_LENGTH_MAX_MM

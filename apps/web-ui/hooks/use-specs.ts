@@ -325,6 +325,17 @@ export function useSpecConstants() {
   })
 }
 
+export function useSpecDefaults(plantId?: string | null) {
+  return useQuery({
+    queryKey: ["spec", "defaults", plantId || "none"],
+    queryFn: async () => {
+      const { data } = await specApi.getDefaults(plantId || undefined)
+      return data
+    },
+    enabled: Boolean(plantId && plantId !== "ALL"),
+  })
+}
+
 export function useSpecFields() {
   return useQuery({
     queryKey: ["spec-fields"],
@@ -714,8 +725,10 @@ export function useSpecSheetPreview(
           adhesive_components: adhesiveComponents || [],
         })
         data = response?.data
-      } catch {
+      } catch (error: any) {
         data = {
+          degraded: true,
+          degraded_reason: error?.response?.data?.detail || error?.message || "Spec preview service unavailable.",
           summary: buildPreviewSummaryFallback({
             tubeLengthMm: Number(tubeLengthMm || 0),
             tubeOdMm: Number(tubeOdMm || 0),
@@ -734,6 +747,8 @@ export function useSpecSheetPreview(
       return {
         summary: data?.summary || {},
         validation: data?.validation || {},
+        degraded: Boolean(data?.degraded),
+        degraded_reason: data?.degraded_reason || data?.detail || "",
       }
     },
     enabled:

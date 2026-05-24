@@ -27,6 +27,7 @@ import {
   useEnsureSpecSheetCatalog,
   useObsoleteSpec,
   useSpecConstants,
+  useSpecDefaults,
   useSpecFields,
   useSpecSheetPreview,
   useSpecSheetSuggestions,
@@ -547,6 +548,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const [form, setForm] = useState<FormState>(() => defaultFormState())
   const [loadedSpecId, setLoadedSpecId] = useState<string | null>(null)
   const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
+  const [defaultsBootstrappedForPlant, setDefaultsBootstrappedForPlant] = useState<string | null>(null)
   const [todayLabel, setTodayLabel] = useState("--/--/----")
 
   const { data: customers } = useCustomers()
@@ -560,6 +562,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const { data: packagingFadda } = usePackagingFadda()
   const { data: tools } = useTools()
   const { data: specConstants } = useSpecConstants()
+  const { data: specDefaults } = useSpecDefaults(hasConcreteWritePlant ? activePlant : null)
   const { data: specFields, isSuccess: specFieldsLoaded } = useSpecFields()
   const { data: specDocument, isLoading: isLoadingDocument } = useSpecSheetDocument(specId || "")
 
@@ -929,6 +932,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   )
   const debouncedPreviewRequest = useDebouncedValue(previewRequest, 250)
   const previewQuery = useSpecSheetPreview(debouncedPreviewRequest)
+  const previewDegraded = Boolean(previewQuery.data?.degraded)
+  const previewDegradedReason = previewQuery.data?.degraded_reason || "The service preview failed, so this panel is using local math until the service responds."
 
   const latestApprovedTrial = useMemo(() => {
     const trials = specDocument?.trials || []
@@ -1299,6 +1304,26 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     activePlant === "ALL"
       ? "Global scope is read-only here. Specification create, edit, and approval only work on one selected plant."
       : "This plant is the only write scope used for save, approval, recipe truth, and downstream job-card handoff."
+
+  useEffect(() => {
+    if (!isCreate || !specDefaults || defaultsBootstrappedForPlant === activePlant) return
+    setForm((current) => {
+      const adhesive = Number(specDefaults.adhesive_percent ?? 15)
+      const parchment = Number(specDefaults.parchment_percent ?? 1.5)
+      const moisture = Number(specDefaults.moisture_loss_percent ?? 9)
+      return {
+        ...current,
+        parchmentPercent: String(parchment),
+        shrinkPercent: String(moisture),
+        dynamicValues: { ...current.dynamicValues, glue_base_percent: String(adhesive) },
+        adhesiveComponents: current.adhesiveComponents.map((component) => ({
+          ...component,
+          base_percent: adhesive,
+        })),
+      }
+    })
+    setDefaultsBootstrappedForPlant(activePlant || null)
+  }, [activePlant, defaultsBootstrappedForPlant, isCreate, specDefaults])
   const manufacturingIdBand = {
     min: manufacturingRows.find((row) => row.label === "MIN")?.id || 0,
     avg: manufacturingRows.find((row) => row.label === "AVG")?.id || 0,
@@ -1933,6 +1958,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               {editBlockReason ? (
                 <div className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   {editBlockReason}
+                </div>
+              ) : null}
+              {previewDegraded ? (
+                <div className="mt-4 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                  Preview service degraded: {previewDegradedReason}
                 </div>
               ) : null}
             </div>
@@ -2800,12 +2830,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 onClick={() =>
                   setForm((current) => ({
                     ...current,
-                    parchmentPercent: "1.5",
-                    shrinkPercent: "9.0",
-                    dynamicValues: { ...current.dynamicValues, glue_base_percent: "15" },
+                    parchmentPercent: String(specDefaults?.parchment_percent ?? 1.5),
+                    shrinkPercent: String(specDefaults?.moisture_loss_percent ?? 9),
+                    dynamicValues: { ...current.dynamicValues, glue_base_percent: String(specDefaults?.adhesive_percent ?? 15) },
                     adhesiveComponents: current.adhesiveComponents.map((component) => ({
                       ...component,
-                      base_percent: 15,
+                      base_percent: Number(specDefaults?.adhesive_percent ?? 15),
                     })),
                   }))
                 }

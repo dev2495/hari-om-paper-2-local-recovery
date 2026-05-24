@@ -1,1 +1,5 @@
-export { default } from "../inventory/production-issue/page"
+import { redirect } from "next/navigation"
+
+export default function InventoryReelIssueRedirectPage() {
+  redirect("/inventory/reels/issue")
+}

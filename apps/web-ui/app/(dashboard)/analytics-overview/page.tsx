@@ -1,13 +1,5 @@
-"use client"
-
-import DashboardAnalyticsPage from "@/app/(dashboard)/analytics/dashboard/page"
-import { AnalyticsProvider } from "@/components/providers/analytics-provider"
+import { redirect } from "next/navigation"
 
 export default function AnalyticsOverviewPage() {
-  return (
-    <AnalyticsProvider>
-      <DashboardAnalyticsPage />
-    </AnalyticsProvider>
-  )
+  redirect("/analytics/dashboard")
 }
-

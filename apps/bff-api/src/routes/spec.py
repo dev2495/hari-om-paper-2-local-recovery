@@ -112,6 +112,16 @@ async def get_spec_constants(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, "/specs/constants", request, token)
 
 
+@router.get("/defaults")
+async def get_spec_defaults(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/defaults", request, token)
+
+
+@router.put("/defaults")
+async def update_spec_defaults(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/defaults", request, token)
+
+
 @router.post("/recipes/{spec_id}")
 async def create_recipe(spec_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{spec_id}", request, token)
@@ -177,43 +187,3 @@ async def calculate_suggestions(request: Request, token: str = Depends(get_token
 @router.post("/calculate/preview")
 async def calculate_preview(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, "/calculate/preview", request, token)
-
-
-@router.get("/recipes/{recipe_id}")
-async def get_recipe(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}", request, token)
-
-
-@router.post("/recipes/{recipe_id}/approve")
-async def approve_recipe(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}/approve", request, token)
-
-
-@router.post("/recipes/{recipe_id}/layers")
-async def add_recipe_layer(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}/layers", request, token)
-
-
-@router.post("/trials/{recipe_id}")
-async def create_trial(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/trials/{recipe_id}", request, token)
-
-
-@router.get("/trials/{recipe_id}")
-async def get_trials(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/trials/{recipe_id}", request, token)
-
-
-@router.get("/calculate/yield/{spec_id}")
-async def calculate_yield(spec_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/calculate/yield/{spec_id}", request, token)
-
-
-@router.get("/calculate/weight/{recipe_id}")
-async def calculate_weight(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/calculate/weight/{recipe_id}", request, token)
-
-
-@router.get("/calculate/bom/{recipe_id}")
-async def calculate_bom(recipe_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(SPEC_SERVICE_URL, f"/calculate/bom/{recipe_id}", request, token)

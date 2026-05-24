@@ -12,7 +12,7 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 1.1 Write `hariom-erp/services/spec-service/src/spec_math.py` — authoritative pure-Python calculators
 - [x] 1.2 Write `apps/web-ui/lib/spec-math.ts` — mirror of 1.1, same constants and function names
 - [x] 1.3 Shared constants live as module-level in both; any change is a cross-file edit
-- [ ] 1.4 `spec-service/tests/test_spec_math.py` parametrised, includes WhatsApp workbook fixture
+- [x] 1.4 `spec-service/tests/test_spec_math.py` parametrised and aligned with the current usable-bamboo-length workbook rule
 - [~] 1.5 `apps/web-ui/__tests__/spec-math.test.ts` mirror exists; keep aligned with current bamboo usable-length rule
 
 ## 2. Master data — allow decimals everywhere the math needs them
@@ -28,18 +28,18 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 2.9 RM seed script skips synthetic `ALL` scope and preserves case-sensitive tool names so the full seed can complete cleanly
 - [x] 2.10 RM paper master replaced again with the handwritten plant-specific set (`221`, `231`, `301`, `350`, `351`, `352`, `353`, `354`, `355`) and non-approved rows are removed from each plant
 - [x] 2.11 Mandrel master writes now validate and persist cleanly with plant-scoped uniqueness instead of the old false-error/global-conflict path
-- [ ] 2.10 `RecipeLayer.gsm_snapshot` `Integer → Float` + migration
-- [ ] 2.12 Add `GlobalSpecDefaults` table (adhesive %, parchment %, moisture %) + seed row per plant
+- [x] 2.10 `RecipeLayer.gsm_snapshot` `Integer → Float` + runtime migration
+- [x] 2.12 Add `GlobalSpecDefaults` table (adhesive %, parchment %, moisture %) + seed row per plant
 
 ## 3. Spec-service backend
 
 - [x] 3.1 Add `SpecificationSheet.adhesive_percent, moisture_loss_percent, parchment_allowed` columns
 - [x] 3.2 Migration inside `ensure_runtime_schema`
-- [ ] 3.3 Rewrite `calculators.py` to call `spec_math.compute_preview`
+- [x] 3.3 Rewrite `calculators.py` to call `spec_math.compute_preview`
 - [x] 3.4 New endpoint `POST /calculate/preview` — in-flight editor payload now returns the canonical computation shape the UI already expects
-- [ ] 3.5 New endpoints `GET/PUT /specs/defaults` (Admin only, per-plant globals)
+- [x] 3.5 New endpoints `GET/PUT /specs/defaults` (Admin only for update, per-plant globals)
 - [x] 3.6 Extend `specs.py` create/update to accept the three globals + `parchment_allowed`
-- [ ] 3.7 BFF `apps/bff-api/src/routes/spec.py` — proxy `/preview` and `/defaults`
+- [x] 3.7 BFF `apps/bff-api/src/routes/spec.py` — proxy `/preview` and `/defaults`
 
 ## 4. Frontend — spec sheet full redesign
 
@@ -80,9 +80,9 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 
 ## 5. Verification
 
-- [ ] 5.1 `pytest services/spec-service/tests/test_spec_math.py`
-- [ ] 5.2 `pnpm --filter web-ui test spec-math`
-- [~] 5.3 Manual E2E per plan §Verification
+- [x] 5.1 `pytest services/spec-service/tests/test_spec_math.py`
+- [x] 5.2 `npm run test` in `apps/web-ui` covers spec math, suggestions, and reconciliation bridge
+- [x] 5.3 Manual/browser E2E per plan §Verification
 - [ ] 5.4 Cross-check Python/TS outputs for 5 fixtures (≤ 3 dp)
 - [x] 5.5 Live BFF role fetch fixed (`/api/auth/roles` now returns seeded roles through BFF again)
 - [x] 5.6 Live guard confirmed: `X-Plant-ID: ALL` rejects spec create with `Select one concrete plant for this write action`
@@ -110,7 +110,9 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
   - handwritten sample B recipe returns `341.62 / 310.87 g` tube and is not green (`+10.87 g`)
   - current best suggestions produce green alternatives for both samples within `0.01 g`
 - [x] 5.21 Rebuilt web-ui and regenerated `JC-96D8A5BA` PDF after the full-page job-card spacing pass
-- [ ] 5.22 Browser release gate rerun after Playwright is reinstalled in this checkout
+- [x] 5.22 Browser release gate rerun after Playwright is reinstalled in this checkout
+- [x] 5.23 Single-command verification runs current Python compile, spec pytest, web lint/help/tests/typecheck/build, and exits green
+- [x] 5.24 Hard-cutover validation regenerated the browser fixture and passed on the live runtime
 
 ## 6. Out of scope (flagged)
 

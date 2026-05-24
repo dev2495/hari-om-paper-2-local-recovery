@@ -1,35 +1,29 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Ensure we are in the project root
-echo "Starting Backend Services (Docker)..."
-cd hariom-erp || exit
-docker compose up -d --build
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PYTHON_BIN="${PYTHON_BIN:-${ROOT_DIR}/hariom-erp/venv-runtime/bin/python}"
 
-echo "Waiting for Backend (30s)..."
-sleep 30
+echo "==> Python compile: service routers and canonical spec math"
+"${PYTHON_BIN}" -m py_compile \
+  "${ROOT_DIR}/apps/bff-api/src/routes/spec.py" \
+  "${ROOT_DIR}/apps/bff-api/src/routes/inventory.py" \
+  "${ROOT_DIR}/hariom-erp/services/spec-service/src/main.py" \
+  "${ROOT_DIR}/hariom-erp/services/spec-service/src/routers/specs.py" \
+  "${ROOT_DIR}/hariom-erp/services/spec-service/src/routers/calculations.py" \
+  "${ROOT_DIR}/hariom-erp/services/spec-service/src/calculators.py" \
+  "${ROOT_DIR}/hariom-erp/services/spec-service/src/spec_math.py"
 
-echo "Navigate to BFF..."
-cd ../apps/bff-api || exit
+echo "==> Spec-service math tests"
+(
+  cd "${ROOT_DIR}/hariom-erp/services/spec-service"
+  "${PYTHON_BIN}" -m pytest tests/test_spec_math.py
+)
 
-echo "Installing BFF dependencies..."
-pip install -r requirements.txt
+echo "==> Web verification"
+(
+  cd "${ROOT_DIR}/apps/web-ui"
+  npm run verify
+)
 
-echo "Starting BFF API (Background)..."
-# Check if uvicorn is installed, if not try pip module
-if ! command -v uvicorn &> /dev/null; then
-    python3 -m uvicorn src.main:app --port 4000 &
-else
-    uvicorn src.main:app --port 4000 &
-fi
-BFF_PID=$!
-
-echo "Waiting for BFF (5s)..."
-sleep 5
-
-echo "Running Verification Script..."
-cd ../../scripts || exit
-python3 verify_phase_6_1_fixed.py
-
-echo "Stopping BFF..."
-kill $BFF_PID
-echo "Done."
+echo "==> Verification complete"

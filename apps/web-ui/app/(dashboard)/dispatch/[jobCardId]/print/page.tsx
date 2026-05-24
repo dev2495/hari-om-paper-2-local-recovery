@@ -1,1 +1,10 @@
-export { default } from "../../../production/job-cards/[jobCardId]/print/page"
+import { redirect } from "next/navigation"
+
+export default async function DispatchPrintRedirectPage({
+  params,
+}: {
+  params: Promise<{ jobCardId: string }>
+}) {
+  const resolvedParams = await params
+  redirect(`/logistics/dispatch/${resolvedParams.jobCardId}/print`)
+}

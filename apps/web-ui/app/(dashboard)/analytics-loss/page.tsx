@@ -1,13 +1,5 @@
-"use client"
-
-import LossAnalyticsPage from "@/app/(dashboard)/analytics/loss/page"
-import { AnalyticsProvider } from "@/components/providers/analytics-provider"
+import { redirect } from "next/navigation"
 
 export default function AnalyticsLossPage() {
-  return (
-    <AnalyticsProvider>
-      <LossAnalyticsPage />
-    </AnalyticsProvider>
-  )
+  redirect("/analytics/loss")
 }
-

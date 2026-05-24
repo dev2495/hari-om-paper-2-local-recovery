@@ -95,6 +95,36 @@ def ensure_runtime_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS bulk_snapshot DOUBLE PRECISION"
             )
         )
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS global_spec_defaults ("
+                "id UUID PRIMARY KEY,"
+                "plant_id VARCHAR(50) NOT NULL UNIQUE,"
+                "adhesive_percent DOUBLE PRECISION NOT NULL DEFAULT 15.0,"
+                "parchment_percent DOUBLE PRECISION NOT NULL DEFAULT 1.5,"
+                "moisture_loss_percent DOUBLE PRECISION NOT NULL DEFAULT 9.0,"
+                "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+                ")"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS global_spec_defaults "
+                "ADD COLUMN IF NOT EXISTS adhesive_percent DOUBLE PRECISION DEFAULT 15.0"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS global_spec_defaults "
+                "ADD COLUMN IF NOT EXISTS parchment_percent DOUBLE PRECISION DEFAULT 1.5"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS global_spec_defaults "
+                "ADD COLUMN IF NOT EXISTS moisture_loss_percent DOUBLE PRECISION DEFAULT 9.0"
+            )
+        )
 
 
 ensure_runtime_schema()

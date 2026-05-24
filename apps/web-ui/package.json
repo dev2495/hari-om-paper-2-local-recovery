@@ -7,6 +7,8 @@
     "build": "next build",
     "help:validate": "node scripts/validate-help-coverage.cjs",
     "lint": "next lint --dir app --dir components --dir hooks --dir lib",
+    "test": "node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts && node -r ./node_modules/sucrase/register __tests__/spec-sheet-suggestions.test.ts && node -r ./node_modules/sucrase/register __tests__/reconciliation-math.test.ts",
+    "verify": "npm run lint && npm run help:validate && npm run test && npx tsc --noEmit --pretty false && npm run build",
     "start": "next start"
   },
   "dependencies": {
