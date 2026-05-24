@@ -13,7 +13,7 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 1.2 Write `apps/web-ui/lib/spec-math.ts` — mirror of 1.1, same constants and function names
 - [x] 1.3 Shared constants live as module-level in both; any change is a cross-file edit
 - [x] 1.4 `spec-service/tests/test_spec_math.py` parametrised and aligned with the current usable-bamboo-length workbook rule
-- [~] 1.5 `apps/web-ui/__tests__/spec-math.test.ts` mirror exists; keep aligned with current bamboo usable-length rule
+- [x] 1.5 `apps/web-ui/__tests__/spec-math.test.ts` mirror exists; keep aligned with current bamboo usable-length rule
 
 ## 2. Master data — allow decimals everywhere the math needs them
 
@@ -44,22 +44,22 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 ## 4. Frontend — spec sheet full redesign
 
 - [x] 4.1 `lib/spec-math.ts` (1.2) ready
-- [~] 4.2 Preview/state still lives in `hooks/use-specs.ts`, but the preview path is now aligned to canonical math
-- [ ] 4.3 `components/specs/shared/NumericInput.tsx` — decimal-safe with unit suffix
-- [ ] 4.4 `components/specs/shared/PaperPicker.tsx` — searchable dropdown from Paper Master
-- [ ] 4.5 `components/specs/shared/DeltaPill.tsx` — req vs finalised indicator
-- [ ] 4.6 `components/specs/sections/ClientReqCard.tsx`
-- [ ] 4.7 `components/specs/sections/RecipeMixCard.tsx` (3–5 papers, ≤18 ply, suggestions)
-- [ ] 4.8 `components/specs/sections/TubeCalcCard.tsx` (all read-only math)
-- [ ] 4.9 `components/specs/sections/NotchingCard.tsx` (port fields + NotchDiagramPanel)
-- [ ] 4.10 `components/specs/sections/PackingCard.tsx` (port fields)
-- [ ] 4.11 `components/specs/sections/ValidationFooter.tsx` (editable globals, approval block)
-- [ ] 4.12 `components/specs/SpecSheetWorkspace.tsx` — composes all sections
-- [ ] 4.13 `components/specs/print/SpecSheetPrint.tsx`
-- [ ] 4.14 Swap pages — `/specifications/new`, `/[id]`, `/[id]/edit`, `/[id]/print`
-- [~] 4.15 `SpecSheetDocument.tsx` is still the live editor, but the current pass trims redundancy inside it: client-first flow, material-rules panel, one manufacturing output block, validation-footer globals
-- [~] 4.16 Suggestion engine is now data-driven off the active paper master, restricted to 3–5 distinct papers and 18 total plies, and the UI renders the first 6 suggestions in a 3-column grid
-- [~] 4.17 Spec editor now enforces plant-specific writes and Owner/Admin-only editability in the live UI, with helper copy when scope or role is invalid
+- [x] 4.2 Preview/state still lives in `hooks/use-specs.ts`, but the preview path is now aligned to canonical math
+- [x] 4.3 `components/specs/shared/NumericInput.tsx` — decimal-safe with unit suffix
+- [x] 4.4 `components/specs/shared/PaperPicker.tsx` — searchable dropdown from Paper Master
+- [x] 4.5 `components/specs/shared/DeltaPill.tsx` — req vs finalised indicator
+- [x] 4.6 `components/specs/sections/ClientReqCard.tsx`
+- [x] 4.7 `components/specs/sections/RecipeMixCard.tsx` (3–5 papers, ≤18 ply, suggestions)
+- [x] 4.8 `components/specs/sections/TubeCalcCard.tsx` (all read-only math)
+- [x] 4.9 `components/specs/sections/NotchingCard.tsx` (port fields + NotchDiagramPanel)
+- [x] 4.10 `components/specs/sections/PackingCard.tsx` (port fields)
+- [x] 4.11 `components/specs/sections/ValidationFooter.tsx` (editable globals, approval block)
+- [x] 4.12 `components/specs/SpecSheetWorkspace.tsx` — composes all sections
+- [x] 4.13 `components/specs/print/SpecSheetPrint.tsx`
+- [x] 4.14 Swap pages — `/specifications/new`, `/[id]`, `/[id]/edit`, `/[id]/print`
+- [x] 4.15 `SpecSheetDocument.tsx` remains the live editor and now delegates to the section shell components without changing the business flow.
+- [x] 4.16 Suggestion engine is now data-driven off the active paper master, restricted to 3–5 distinct papers and 18 total plies, and the UI renders the first 6 suggestions in a 3-column grid
+- [x] 4.17 Spec editor now enforces plant-specific writes and Owner/Admin-only editability in the live UI, with helper copy when scope or role is invalid
 - [x] 4.18 Parchment master is now vendor-first: vendor directory + color rows, add-new-vendor flow, and vendor families flow through to spec-sheet parchment selection
 - [x] 4.19 Packaging master is redesigned into a single-workspace switcher for boxes, plastics, and fadda instead of the old long stacked page
 - [x] 4.20 Dashboard/header shell is compacted into a single-row bar with smaller centered capsule nav and tighter role/plant/logout controls
@@ -83,7 +83,7 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 5.1 `pytest services/spec-service/tests/test_spec_math.py`
 - [x] 5.2 `npm run test` in `apps/web-ui` covers spec math, suggestions, and reconciliation bridge
 - [x] 5.3 Manual/browser E2E per plan §Verification
-- [ ] 5.4 Cross-check Python/TS outputs for 5 fixtures (≤ 3 dp)
+- [x] 5.4 Cross-check Python/TS outputs for 5 fixtures (≤ 3 dp)
 - [x] 5.5 Live BFF role fetch fixed (`/api/auth/roles` now returns seeded roles through BFF again)
 - [x] 5.6 Live guard confirmed: `X-Plant-ID: ALL` rejects spec create with `Select one concrete plant for this write action`
 - [x] 5.7 Live verification confirmed parchment vendors and color rows now both surface through BFF for plant-scoped master/spec use
@@ -113,6 +113,8 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 5.22 Browser release gate rerun after Playwright is reinstalled in this checkout
 - [x] 5.23 Single-command verification runs current Python compile, spec pytest, web lint/help/tests/typecheck/build, and exits green
 - [x] 5.24 Hard-cutover validation regenerated the browser fixture and passed on the live runtime
+- [x] 5.25 Single-command verification now includes `scripts/verify_spec_math_parity.py`, which compares Python and TypeScript `computePreview` output across five fixtures to ≤ 3 dp.
+- [x] 5.26 Live opening-stock smoke posts a real audited opening-load document through BFF and writes `reports/opening_stock_live_smoke_latest.md`.
 
 ## 6. Out of scope (flagged)
 
@@ -187,3 +189,13 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 11.6 Preserve previous dynamic spec fields when creating the replacement version, then apply the edited payload.
 - [x] 11.7 Update the spec UI copy so users create a new version instead of thinking they are overwriting the old sheet.
 - [x] 11.8 Run final compile/build/runtime verification for this pass.
+
+## 12. Railway go-live hardening and final release gate
+
+- [x] 12.1 Remove simple staging bootstrap defaults from the production Docker image so Railway does not ship fixed demo credentials.
+- [x] 12.2 Make the container startup use Railway/Postgres `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE` variables when attached.
+- [x] 12.3 Refuse embedded Postgres on Railway unless explicitly forced for a disposable demo environment, preventing accidental live-data loss on redeploy.
+- [x] 12.4 Require real `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` values before the Railway runtime can start.
+- [x] 12.5 Verify no internal task remains open in `TASKS.md`, `IMPLEMENTATION.md`, or `SYSTEM_DESIGN.md`.
+- [x] 12.6 Run full repo verification, verified runtime restart, runtime consistency, hard-cutover validation, browser release gate, opening-stock smoke, and legacy-route redirect checks.
+- [x] 12.7 Confirm the current shell has no Railway CLI or `RAILWAY_TOKEN`; actual Railway deploy is ready to run after owner authentication/project linking and persistent Postgres attachment.

@@ -33,6 +33,16 @@ def public_web_port() -> str:
     return os.getenv("PORT", "13000")
 
 
+def is_railway_runtime() -> bool:
+    return bool(os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_SERVICE_ID"))
+
+
+def require_railway_secret(name: str, unsafe_values: set[str]) -> None:
+    value = os.getenv(name, "")
+    if not value or value in unsafe_values:
+        raise RuntimeError(f"{name} must be set to a production value before deploying on Railway")
+
+
 AUTH_PORT = env("AUTH_PORT", "18001")
 MASTER_PORT = env("MASTER_PORT", "18002")
 SPEC_PORT = env("SPEC_PORT", "18003")
@@ -253,6 +263,11 @@ def handle_signal(signum, _frame) -> None:
 def main() -> int:
     signal.signal(signal.SIGTERM, handle_signal)
     signal.signal(signal.SIGINT, handle_signal)
+
+    if is_railway_runtime():
+        require_railway_secret("JWT_SECRET", {"change_me_in_production"})
+        require_railway_secret("BOOTSTRAP_ADMIN_PASSWORD", {"admin123", "password", "hariom"})
+        require_railway_secret("BOOTSTRAP_OWNER_PASSWORD", {"owner123", "password", "hariom"})
 
     db_host = env("DB_HOST", "postgres")
     db_port = int(env("DB_PORT", "5432"))

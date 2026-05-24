@@ -12,13 +12,18 @@ echo "==> Python compile: service routers and canonical spec math"
   "${ROOT_DIR}/hariom-erp/services/spec-service/src/routers/specs.py" \
   "${ROOT_DIR}/hariom-erp/services/spec-service/src/routers/calculations.py" \
   "${ROOT_DIR}/hariom-erp/services/spec-service/src/calculators.py" \
-  "${ROOT_DIR}/hariom-erp/services/spec-service/src/spec_math.py"
+  "${ROOT_DIR}/hariom-erp/services/spec-service/src/spec_math.py" \
+  "${ROOT_DIR}/scripts/verify_spec_math_parity.py" \
+  "${ROOT_DIR}/scripts/opening_stock_live_smoke.py"
 
 echo "==> Spec-service math tests"
 (
   cd "${ROOT_DIR}/hariom-erp/services/spec-service"
   "${PYTHON_BIN}" -m pytest tests/test_spec_math.py
 )
+
+echo "==> Python/TypeScript spec math parity"
+"${PYTHON_BIN}" "${ROOT_DIR}/scripts/verify_spec_math_parity.py"
 
 echo "==> Web verification"
 (

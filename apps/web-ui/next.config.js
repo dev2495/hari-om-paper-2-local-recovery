@@ -3,6 +3,30 @@ const bffInternalUrl = process.env.BFF_INTERNAL_URL || process.env.NEXT_PUBLIC_B
 
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      {
+        source: "/master",
+        destination: "/masters/papers",
+        permanent: true,
+      },
+      {
+        source: "/master/items",
+        destination: "/inventory/items",
+        permanent: true,
+      },
+      {
+        source: "/master/:path*",
+        destination: "/masters/:path*",
+        permanent: true,
+      },
+      {
+        source: "/specs/:id/edit",
+        destination: "/specifications/:id/edit",
+        permanent: true,
+      },
+    ]
+  },
   async rewrites() {
     return [
       {

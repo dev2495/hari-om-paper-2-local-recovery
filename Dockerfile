@@ -39,10 +39,6 @@ RUN cd apps/web-ui && npm run build && npm prune --omit=dev
 ENV NODE_ENV=production \
     APP_ENV=production \
     ENVIRONMENT=production \
-    DB_HOST=127.0.0.1 \
-    DB_PORT=5432 \
-    DB_USER=hariom \
-    DB_ADMIN_DB=postgres \
     BFF_PORT=14000 \
     AUTH_PORT=18001 \
     MASTER_PORT=18002 \
@@ -51,12 +47,6 @@ ENV NODE_ENV=production \
     INVENTORY_PORT=18005 \
     ANALYTICS_PORT=18007 \
     SALES_PORT=18008 \
-    BOOTSTRAP_ADMIN_EMAIL=devarsh \
-    BOOTSTRAP_ADMIN_NAME="Devarsh Admin" \
-    BOOTSTRAP_OWNER_EMAIL=yash \
-    BOOTSTRAP_OWNER_NAME="Yash Admin" \
-    RESET_BOOTSTRAP_PASSWORDS=true \
-    USE_SIMPLE_STAGING_PASSWORDS=true \
     SEED_DEMO_USERS=false
 
 EXPOSE 13000

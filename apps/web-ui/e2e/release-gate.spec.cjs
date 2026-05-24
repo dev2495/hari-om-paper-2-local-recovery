@@ -305,7 +305,8 @@ test("admin can load all critical ERP workspaces without route errors", async ({
     ["/inventory/stock-control", /\/inventory\/stock-control(\?.*)?$/],
     ["/inventory/genealogy", /\/inventory\/genealogy(\?.*)?$/],
     ["/specs", /\/specifications(\?.*)?$/],
-    ["/master", /\/(master|masters)(\?.*)?$/],
+    ["/master", /\/masters\/papers(\?.*)?$/],
+    ["/master/items", /\/inventory\/items(\?.*)?$/],
     ["/system/users", /\/system\/users(\?.*)?$/],
   ]
 

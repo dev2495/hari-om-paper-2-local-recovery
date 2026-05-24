@@ -5,6 +5,17 @@ import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
+import { SpecSheetPrint } from "@/components/specs/print/SpecSheetPrint"
+import { SpecSheetWorkspace } from "@/components/specs/SpecSheetWorkspace"
+import { ClientReqCard } from "@/components/specs/sections/ClientReqCard"
+import { NotchingCard } from "@/components/specs/sections/NotchingCard"
+import { PackingCard } from "@/components/specs/sections/PackingCard"
+import { RecipeMixCard } from "@/components/specs/sections/RecipeMixCard"
+import { TubeCalcCard } from "@/components/specs/sections/TubeCalcCard"
+import { ValidationFooter } from "@/components/specs/sections/ValidationFooter"
+import { DeltaPill } from "@/components/specs/shared/DeltaPill"
+import { NumericInput } from "@/components/specs/shared/NumericInput"
+import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
@@ -287,35 +298,6 @@ function SummaryMetric({
       <p className="mt-3 text-2xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
       {detail ? <p className="mt-2 text-sm text-slate-500">{detail}</p> : null}
     </div>
-  )
-}
-
-function FoldSection({
-  id,
-  title,
-  subtitle,
-  forceOpen = false,
-  children,
-}: {
-  id: string
-  title: string
-  subtitle?: string
-  forceOpen?: boolean
-  children: React.ReactNode
-}) {
-  return (
-    <details id={id} open={forceOpen} className="rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">{title}</p>
-          {subtitle ? <p className="mt-2 text-sm text-slate-600">{subtitle}</p> : null}
-        </div>
-        <span className="rounded-full border border-[#d9e2ef] bg-[#f8fafc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-          Expand when needed
-        </span>
-      </summary>
-      <div className="border-t border-[#e4ebf3] px-5 py-5">{children}</div>
-    </details>
   )
 }
 
@@ -1914,22 +1896,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const currentStatus = specDocument?.spec?.status || (isCreate ? "draft" : "")
   return (
-    <div className={`${isPrint ? "mx-auto max-w-[1100px]" : ""}`}>
-      {isPrint ? (
-        <style jsx global>{`
-          @media print {
-            aside, header, [data-print-hidden="true"] {
-              display: none !important;
-            }
-            main {
-              padding: 0 !important;
-            }
-            body {
-              background: white !important;
-            }
-          }
-        `}</style>
-      ) : null}
+    <SpecSheetWorkspace printMode={isPrint}>
+      <SpecSheetPrint enabled={isPrint} />
       <div className="min-w-0 space-y-6" data-testid="spec-sheet-page">
       <div className="space-y-6">
         <section
@@ -2022,7 +1990,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         </section>
 
         <div className="space-y-6">
-          <section id="sheet-client" className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+          <ClientReqCard>
             <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
               <div className="space-y-5">
                 <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
@@ -2106,10 +2074,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Target Dry Weight</FieldLabel>
-                    <input
+                    <NumericInput
                       data-testid="spec-sheet-target-weight"
-                      type="number"
                       step="0.01"
+                      unit="g"
                       value={inputNumberValue(form.averages.weight)}
                       onChange={(event) =>
                         setForm((current) => ({
@@ -2117,14 +2085,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                           averages: { ...current.averages, weight: safeNumber(event.target.value || 0) },
                         }))
                       }
-                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                      className="h-11 rounded-2xl"
                     />
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Required CS</FieldLabel>
-                    <input
-                      type="number"
+                    <NumericInput
                       step="0.01"
+                      unit="kgf"
                       value={inputNumberValue(form.averages.cs)}
                       onChange={(event) =>
                         setForm((current) => ({
@@ -2132,7 +2100,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                           averages: { ...current.averages, cs: safeNumber(event.target.value || 0) },
                         }))
                       }
-                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                      className="h-11 rounded-2xl"
                     />
                   </div>
                 </div>
@@ -2325,9 +2293,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
               </div>
             </div>
-          </section>
+          </ClientReqCard>
 
-          <section className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]" id="sheet-recipe">
+          <RecipeMixCard>
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Recipe mix</p>
@@ -2395,51 +2363,46 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         return (
                           <tr key={row.id} className="border-b border-[#edf2f7] last:border-b-0">
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-xs font-semibold text-slate-900">{row.code || "-"}</td>
-                            <td className="min-w-52 border-r border-[#edf2f7] px-3 py-3">
-                              <select
+                            <td className="min-w-64 border-r border-[#edf2f7] px-3 py-3">
+                              <PaperPicker
                                 value={row.paper_id}
-                                onChange={(event) => updateRecipeRow(row.id, { paper_id: event.target.value })}
-                                className="h-10 w-full rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
-                              >
-                                <option value="">Select paper</option>
-                                {(papers || []).map((paper: any) => (
-                                  <option key={paper.id} value={paper.id}>
-                                    {paper.code || "NO-CODE"} | {paper.variety || paper.category} | {paper.gsm} GSM
-                                  </option>
-                                ))}
-                              </select>
+                                papers={(papers || []) as any[]}
+                                disabled={!isEditable}
+                                onChange={(paperId) => updateRecipeRow(row.id, { paper_id: paperId })}
+                              />
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">{previewRow?.gsm || 0}</td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <input
-                                type="number"
+                              <NumericInput
                                 step="0.01"
                                 value={optionValue(row.bfPerPly)}
+                                disabled={!isEditable}
                                 onChange={(event) => updateRecipeRow(row.id, { bfPerPly: Number(event.target.value || 0) })}
-                                className="h-10 w-20 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                                className="w-20 px-2 text-xs"
                               />
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <input
-                                type="number"
+                              <NumericInput
                                 step="0.0001"
+                                unit="mm"
                                 value={optionValue(row.thicknessPerPly)}
+                                disabled={!isEditable}
                                 onChange={(event) => updateRecipeRow(row.id, { thicknessPerPly: Number(event.target.value || 0) })}
-                                className="h-10 w-20 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                                className="w-24 px-2 text-xs"
                               />
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-slate-950">
                               {Number(previewRow?.weightG || 0).toFixed(2)}
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <input
+                              <NumericInput
                                 data-testid={rowIndex === 0 ? "spec-sheet-recipe-ply-1" : undefined}
-                                type="number"
                                 min="1"
                                 step="1"
                                 value={optionValue(row.plyCount)}
+                                disabled={!isEditable}
                                 onChange={(event) => updateRecipeRow(row.id, { plyCount: Math.max(1, Number(event.target.value || 1)) })}
-                                className="h-10 w-16 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                                className="w-16 px-2 text-xs"
                               />
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
@@ -2546,9 +2509,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400">{safeNumber(suggestion.totalPlyCount || 0)} ply total</p>
                           </div>
                           <div className="text-right">
-                            <p className={`text-sm font-semibold ${Math.abs(safeNumber(suggestion.deltaG)) <= 3 ? "text-emerald-700" : "text-amber-700"}`}>
-                              {safeNumber(suggestion.deltaG) > 0 ? "+" : ""}{safeNumber(suggestion.deltaG).toFixed(2)} g
-                            </p>
+                            <DeltaPill value={safeNumber(suggestion.deltaG)} />
                             {isEditable ? (
                               <button
                                 type="button"
@@ -2569,9 +2530,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
               </div>
             </div>
-          </section>
+          </RecipeMixCard>
 
-          <section id="sheet-manufacturing" className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+          <TubeCalcCard>
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Manufacturing matrix</p>
@@ -2641,16 +2602,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
               </div>
             </div>
-          </section>
+          </TubeCalcCard>
         </div>
       </div>
 
-      <FoldSection
-        id="sheet-notch-tooling"
-        title="Notch + Tooling"
-        subtitle="Only the downstream tooling fields that still matter to the job card and print sheet."
-        forceOpen={isPrint}
-      >
+      <NotchingCard forceOpen={isPrint}>
         <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
             <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
@@ -2716,14 +2672,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             ) : null}
           </div>
         </div>
-      </FoldSection>
+      </NotchingCard>
 
-      <FoldSection
-        id="sheet-packing"
-        title="Packing"
-        subtitle="Compact packing handoff only: box, plastic, fadda, and per-box counts."
-        forceOpen={isPrint}
-      >
+      <PackingCard forceOpen={isPrint}>
         <SectionLabel title="Packing" subtitle="Primary packing inputs only: box, plastic, fadda, and per-box counts." />
         <MasterLinkRow links={[{ href: "/masters/packaging", label: "Packaging master" }]} />
         <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
@@ -2771,14 +2722,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             </div>
           </div>
         </div>
-      </FoldSection>
+      </PackingCard>
 
-      <FoldSection
-        id="sheet-validation"
-        title="Validation"
-        subtitle="Final footer and release checks only. Keep this out of the way until the sheet is ready."
-        forceOpen={isPrint}
-      >
+      <ValidationFooter forceOpen={isPrint}>
         <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
         <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
           <div className="space-y-1">
@@ -2885,8 +2831,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             </div>
           </div>
         </div>
-      </FoldSection>
+      </ValidationFooter>
       </div>
-    </div>
+    </SpecSheetWorkspace>
 	  )
 	}

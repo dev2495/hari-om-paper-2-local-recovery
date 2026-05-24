@@ -707,3 +707,49 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - `hariom-erp/venv-runtime/bin/python3 scripts/e2e_hard_cutover_validation.py` passed (`114/114`) and regenerated `reports/browser_e2e_fixture_latest.json`.
   - `bash scripts/browser_release_gate.sh` passed (`8/8`) against the live production web runtime.
   - `./scripts/run_verification.sh` passed end-to-end after the route/test updates.
+
+### 2026-05-25 · Remaining spec-sheet task closure and parity gate
+- Closed the remaining spec-sheet component task list without changing the workbook flow:
+  - `components/specs/shared/NumericInput.tsx`
+  - `components/specs/shared/PaperPicker.tsx`
+  - `components/specs/shared/DeltaPill.tsx`
+  - `components/specs/sections/ClientReqCard.tsx`
+  - `components/specs/sections/RecipeMixCard.tsx`
+  - `components/specs/sections/TubeCalcCard.tsx`
+  - `components/specs/sections/NotchingCard.tsx`
+  - `components/specs/sections/PackingCard.tsx`
+  - `components/specs/sections/ValidationFooter.tsx`
+  - `components/specs/SpecSheetWorkspace.tsx`
+  - `components/specs/print/SpecSheetPrint.tsx`
+- `SpecSheetDocument.tsx` remains the live create/view/edit/print editor, but it now delegates the large surfaces to the section shells so the pages are easier to maintain while preserving the same save, approval, recipe, preview, notch, packing, and validation logic.
+- The paper recipe table now uses the searchable `PaperPicker`; key decimal-safe numeric fields use `NumericInput`; suggestion deltas use `DeltaPill`.
+- `next.config.js` now redirects old `/master`, `/master/:path*`, `/master/items`, and `/specs/:id/edit` URLs to the canonical `/masters/*`, `/inventory/items`, and `/specifications/*` paths before those old pages can render.
+- Added `scripts/verify_spec_math_parity.py` and `apps/web-ui/__tests__/spec-math-parity.ts`.
+- Added `scripts/opening_stock_live_smoke.py`, which logs into the live BFF, picks an existing item/location, posts a unique auditable opening-load document, verifies the stock statement endpoint, and writes `reports/opening_stock_live_smoke_latest.md`.
+- `scripts/run_verification.sh` now includes the 5-fixture Python/TypeScript parity check at `<= 3 dp` before web lint/test/typecheck/build.
+- Focused verification during this pass:
+  - `hariom-erp/venv-runtime/bin/python -m py_compile scripts/verify_spec_math_parity.py` passed.
+  - `hariom-erp/venv-runtime/bin/python scripts/verify_spec_math_parity.py` passed (`5 fixtures <= 3 dp`).
+  - `npm run test` passed (`21/21`, `3/3`, `2/2`).
+  - `npx tsc --noEmit --pretty false` passed.
+  - `npm run lint` passed.
+  - `hariom-erp/venv-runtime/bin/python scripts/opening_stock_live_smoke.py` passed and posted an `OPEN-SMOKE-*` opening-load document.
+
+### 2026-05-25 · Railway go-live hardening and final release gate
+- Removed Docker image defaults that hardcoded staging-style bootstrap users/password reset behavior.
+- `deploy/tinypod/start_single_container.sh` now:
+  - reads external PostgreSQL settings from `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE` when Railway Postgres is attached,
+  - creates the seven service databases on the external Postgres server when they do not already exist,
+  - refuses to run embedded Postgres on Railway unless `START_EMBEDDED_POSTGRES=true` is explicitly set for a disposable demo environment.
+- `deploy/tinypod/start_erp.py` now refuses Railway startup unless `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` are set to non-demo values.
+- Railway deploy readiness:
+  - `railway.toml` remains Dockerfile-based with `/login` as the health check.
+  - The current shell does not have the Railway CLI or `RAILWAY_TOKEN`, so the actual deploy was not executed from this machine session.
+  - The remaining deploy action is owner-side authentication/project linking plus attaching persistent Railway PostgreSQL and setting production secrets.
+- Final verification evidence:
+  - `./scripts/run_verification.sh` passed end-to-end after the spec-sheet and parity changes.
+  - `bash scripts/start_verified_runtime.sh` rebuilt and restarted the production runtime; `reports/runtime_consistency_20260525_023515.md` shows `failed: 0`.
+  - `hariom-erp/venv-runtime/bin/python3 scripts/e2e_hard_cutover_validation.py` passed `114/114`; report `reports/hard_cutover_validation_20260525_023714.md`.
+  - `bash scripts/browser_release_gate.sh` passed `8/8` against `http://127.0.0.1:13000`.
+  - `hariom-erp/venv-runtime/bin/python scripts/opening_stock_live_smoke.py` passed and wrote `reports/opening_stock_live_smoke_20260524_210756.md`.
+  - Redirect checks returned `308` for `/master`, `/master/items`, and `/specs/example/edit` to their canonical routes.
