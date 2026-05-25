@@ -30,8 +30,8 @@ guard_railway_database() {
     cat >&2 <<'MSG'
 [postgres] refusing to start embedded Postgres on Railway.
 Attach a Railway PostgreSQL service and expose PGHOST, PGPORT, PGUSER, PGPASSWORD,
-and PGDATABASE to this service, or explicitly set START_EMBEDDED_POSTGRES=true
-only for a disposable demo environment.
+and PGDATABASE to this service. If this service uses a persistent Railway volume
+mounted at /var/lib/postgresql, explicitly set START_EMBEDDED_POSTGRES=true.
 MSG
     exit 1
   fi

@@ -740,8 +740,8 @@ Pick by `(tubes desc, waste asc, length desc)`.
 - `deploy/tinypod/start_single_container.sh` now:
   - reads external PostgreSQL settings from `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, and `PGDATABASE` when Railway Postgres is attached,
   - creates the seven service databases on the external Postgres server when they do not already exist,
-  - refuses to run embedded Postgres on Railway unless `START_EMBEDDED_POSTGRES=true` is explicitly set for a disposable demo environment.
-- `deploy/tinypod/start_erp.py` now refuses Railway startup unless `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` are set to non-demo values.
+  - refuses to run embedded Postgres on Railway unless `START_EMBEDDED_POSTGRES=true` is explicitly set for a persistent `/var/lib/postgresql` Railway volume-backed service.
+- `deploy/tinypod/start_erp.py` now refuses Railway startup unless `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` are set to non-demo values, and staging password reset flags are disabled.
 - Railway deploy readiness:
   - `railway.toml` remains Dockerfile-based with `/login` as the health check.
   - The current shell does not have the Railway CLI or `RAILWAY_TOKEN`, so the actual deploy was not executed from this machine session.

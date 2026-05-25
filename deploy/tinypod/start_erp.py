@@ -43,6 +43,12 @@ def require_railway_secret(name: str, unsafe_values: set[str]) -> None:
         raise RuntimeError(f"{name} must be set to a production value before deploying on Railway")
 
 
+def require_railway_flag_off(name: str) -> None:
+    value = os.getenv(name, "").strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        raise RuntimeError(f"{name} must be false before deploying on Railway")
+
+
 AUTH_PORT = env("AUTH_PORT", "18001")
 MASTER_PORT = env("MASTER_PORT", "18002")
 SPEC_PORT = env("SPEC_PORT", "18003")
@@ -268,6 +274,8 @@ def main() -> int:
         require_railway_secret("JWT_SECRET", {"change_me_in_production"})
         require_railway_secret("BOOTSTRAP_ADMIN_PASSWORD", {"admin123", "password", "hariom"})
         require_railway_secret("BOOTSTRAP_OWNER_PASSWORD", {"owner123", "password", "hariom"})
+        require_railway_flag_off("RESET_BOOTSTRAP_PASSWORDS")
+        require_railway_flag_off("USE_SIMPLE_STAGING_PASSWORDS")
 
     db_host = env("DB_HOST", "postgres")
     db_port = int(env("DB_PORT", "5432"))

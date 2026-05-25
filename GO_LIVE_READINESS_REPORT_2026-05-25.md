@@ -23,8 +23,9 @@ Actual Railway go-live was not executed in this session because this shell has n
 - Hardened Railway container startup:
   - removed simple staging bootstrap defaults from the Docker image,
   - supports external Railway Postgres through `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`,
-  - refuses embedded Postgres on Railway unless explicitly forced for a disposable demo,
-  - requires real `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` on Railway.
+  - refuses embedded Postgres on Railway unless explicitly enabled for a persistent volume-backed service,
+  - requires real `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` on Railway,
+  - refuses Railway startup when staging password reset flags are enabled.
 
 ## Verification Run
 
@@ -62,7 +63,7 @@ Reason: compile, test, typecheck, production build, runtime restart, API consist
 
 Railway production confidence: conditional.
 
-Reason: the repo has Railway Dockerfile and `railway.toml` configuration and is now hardened against common production mistakes, but this session could not deploy without Railway CLI/auth/token and a persistent Railway Postgres service. Do not enter real company stock data into an embedded-container database on Railway.
+Reason: the repo has Railway Dockerfile and `railway.toml` configuration and is now hardened against common production mistakes. Use the existing `/var/lib/postgresql` Railway volume or attach Railway Postgres before entering real company stock data.
 
 ## Railway Go-Live Requirements
 
@@ -70,7 +71,7 @@ Before using Railway for real users and real opening stock:
 
 1. Install/login to Railway CLI or provide `RAILWAY_TOKEN`.
 2. Link this repo to the intended Railway project/service.
-3. Attach Railway PostgreSQL.
+3. Use the existing Railway volume mounted at `/var/lib/postgresql`, or attach Railway PostgreSQL.
 4. Expose these database variables to the app service:
    - `PGHOST`
    - `PGPORT`
