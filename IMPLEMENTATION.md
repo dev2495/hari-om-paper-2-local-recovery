@@ -745,8 +745,10 @@ Pick by `(tubes desc, waste asc, length desc)`.
 - `deploy/tinypod/start_erp.py` now refuses Railway startup unless `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` are set to non-demo values, and staging password reset flags are disabled.
 - Railway deploy readiness:
   - `railway.toml` remains Dockerfile-based with `/login` as the health check.
-  - The current shell does not have the Railway CLI or `RAILWAY_TOKEN`, so the actual deploy was not executed from this machine session.
-  - The remaining deploy action is owner-side authentication/project linking plus attaching persistent Railway PostgreSQL and setting production secrets.
+  - Railway CLI deploy succeeded for service `hariom-erp` in project `hariom-paper-client-test`.
+  - Active production deployment is `35baf5c1-5a86-407f-b626-23e63245a40c`, message `go-live 3eb0295`.
+  - The live service is online at `https://hariom-erp-production.up.railway.app` with `hariom-erp-volume` mounted at `/var/lib/postgresql`.
+  - Railway variables were corrected before the successful deployment: `RESET_BOOTSTRAP_PASSWORDS=false`, `USE_SIMPLE_STAGING_PASSWORDS=false`, and `START_EMBEDDED_POSTGRES=true`.
 - Final verification evidence:
   - `./scripts/run_verification.sh` passed end-to-end after the spec-sheet and parity changes.
   - `bash scripts/start_verified_runtime.sh` rebuilt and restarted the production runtime; `reports/runtime_consistency_20260525_023515.md` shows `failed: 0`.
@@ -754,3 +756,4 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - `bash scripts/browser_release_gate.sh` passed `8/8` against `http://127.0.0.1:13000`.
   - `hariom-erp/venv-runtime/bin/python scripts/opening_stock_live_smoke.py` passed and wrote `reports/opening_stock_live_smoke_20260524_210756.md`.
   - Redirect checks returned `308` for `/master`, `/master/items`, and `/specs/example/edit` to their canonical routes.
+  - Railway `/login` returned `200`, canonical old-route redirects returned `308`, and authenticated `/api/auth/login` plus `/api/auth/roles` returned `200`.

@@ -198,4 +198,6 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 12.4 Require real `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` values before the Railway runtime can start.
 - [x] 12.5 Verify no internal task remains open in `TASKS.md`, `IMPLEMENTATION.md`, or `SYSTEM_DESIGN.md`.
 - [x] 12.6 Run full repo verification, verified runtime restart, runtime consistency, hard-cutover validation, browser release gate, opening-stock smoke, and legacy-route redirect checks.
-- [x] 12.7 Confirm the current shell has no Railway CLI or `RAILWAY_TOKEN`; actual Railway deploy is ready to run after owner authentication/project linking and persistent Postgres attachment.
+- [x] 12.7 Correct Railway production variables so staging password reset is disabled and the existing `/var/lib/postgresql` volume-backed Postgres is explicit.
+- [x] 12.8 Deploy commit `3eb0295` to Railway production deployment `35baf5c1-5a86-407f-b626-23e63245a40c`.
+- [x] 12.9 Verify Railway `/login`, old-route redirects, and authenticated `/api/auth/login` + `/api/auth/roles` on the public URL.

@@ -6,9 +6,9 @@ Branch: `staging`
 
 ## Short Answer
 
-The Hari Om ERP codebase and local production runtime are ready for master-data entry and opening-stock preparation. All repo task files are closed except explicitly skipped/out-of-scope items, and the final local gates passed.
+The Hari Om ERP codebase, local production runtime, and Railway production deployment are ready for master-data entry and opening-stock preparation. All repo task files are closed except explicitly skipped/out-of-scope items, and the final gates passed.
 
-Actual Railway go-live was not executed in this session because this shell has no Railway CLI and no `RAILWAY_TOKEN`. The code is now hardened for Railway, but the live Railway deployment still needs owner authentication/project linking, attached persistent Railway PostgreSQL, and production secrets.
+Railway production is live at `https://hariom-erp-production.up.railway.app`.
 
 ## What Was Completed
 
@@ -48,6 +48,29 @@ Actual Railway go-live was not executed in this session because this shell has n
   - report: `reports/opening_stock_live_smoke_20260524_210756.md`
 - Legacy route redirect checks passed with `308 Permanent Redirect`.
 
+## Railway Production Deployment
+
+- Project: `hariom-paper-client-test`
+- Service: `hariom-erp`
+- URL: `https://hariom-erp-production.up.railway.app`
+- Environment: `production`
+- Region: `sfo`
+- Volume: `hariom-erp-volume` mounted at `/var/lib/postgresql`
+- Active deployment: `35baf5c1-5a86-407f-b626-23e63245a40c`
+- Source commit deployed: `3eb0295`
+- Railway status: `Online`
+- Variable cleanup completed:
+  - `RESET_BOOTSTRAP_PASSWORDS=false`
+  - `USE_SIMPLE_STAGING_PASSWORDS=false`
+  - `START_EMBEDDED_POSTGRES=true`
+- Public checks:
+  - `/login` returned `200`
+  - `/master` returned `308` to `/masters/papers`
+  - `/master/items` returned `308` to `/inventory/items`
+  - `/specs/example/edit` returned `308` to `/specifications/example/edit`
+  - authenticated `/api/auth/login` returned `200`
+  - authenticated `/api/auth/roles` returned `200`
+
 ## Current Live Local Stack
 
 - Web UI: `http://127.0.0.1:13000/login`
@@ -63,29 +86,11 @@ Reason: compile, test, typecheck, production build, runtime restart, API consist
 
 Railway production confidence: conditional.
 
-Reason: the repo has Railway Dockerfile and `railway.toml` configuration and is now hardened against common production mistakes. Use the existing `/var/lib/postgresql` Railway volume or attach Railway Postgres before entering real company stock data.
+Reason: the Railway deployment is live and authenticated API smoke passed. Remaining production confidence is conditional only around normal first-day operations: backups, owner signoff, and careful master-data/opening-stock entry.
 
-## Railway Go-Live Requirements
+## Railway Go-Live State
 
-Before using Railway for real users and real opening stock:
-
-1. Install/login to Railway CLI or provide `RAILWAY_TOKEN`.
-2. Link this repo to the intended Railway project/service.
-3. Use the existing Railway volume mounted at `/var/lib/postgresql`, or attach Railway PostgreSQL.
-4. Expose these database variables to the app service:
-   - `PGHOST`
-   - `PGPORT`
-   - `PGUSER`
-   - `PGPASSWORD`
-   - `PGDATABASE`
-5. Set production secrets:
-   - `JWT_SECRET`
-   - `BOOTSTRAP_ADMIN_EMAIL`
-   - `BOOTSTRAP_ADMIN_PASSWORD`
-   - `BOOTSTRAP_OWNER_EMAIL`
-   - `BOOTSTRAP_OWNER_PASSWORD`
-6. Deploy the Dockerfile service.
-7. Verify `/login`, BFF `/health`, hard-cutover smoke, and opening-stock smoke against the Railway URL.
+Railway go-live is complete for this service. The current production database is volume-backed at `/var/lib/postgresql`; do not remove or replace `hariom-erp-volume` during first-day operations.
 
 ## Tomorrow Start Order
 
@@ -97,9 +102,8 @@ Before using Railway for real users and real opening stock:
 
 ## Remaining Improvements
 
-These are improvements, not blockers for local master-data/opening-stock start:
+These are improvements, not blockers for master-data/opening-stock start:
 
-- Add a Railway-specific smoke script once the real Railway URL and token are available.
 - Add backup/restore runbook for Railway Postgres before live stock entry.
 - Add owner-facing first-day checklist in the UI for master-data completeness and opening-stock signoff.
-- Add a nightly production backup verification job after Railway deployment.
+- Add a nightly production backup verification job.
