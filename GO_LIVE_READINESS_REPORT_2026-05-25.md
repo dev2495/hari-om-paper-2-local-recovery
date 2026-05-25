@@ -23,7 +23,7 @@ Actual Railway go-live was not executed in this session because this shell has n
 - Hardened Railway container startup:
   - removed simple staging bootstrap defaults from the Docker image,
   - supports external Railway Postgres through `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`,
-  - refuses embedded Postgres on Railway unless explicitly enabled for a persistent volume-backed service,
+  - allows embedded Postgres on Railway when Railway exposes the persistent `/var/lib/postgresql` volume marker,
   - requires real `JWT_SECRET`, `BOOTSTRAP_ADMIN_PASSWORD`, and `BOOTSTRAP_OWNER_PASSWORD` on Railway,
   - refuses Railway startup when staging password reset flags are enabled.
 

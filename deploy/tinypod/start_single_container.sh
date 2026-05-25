@@ -12,12 +12,19 @@ is_local_db_host() {
   [[ "${DB_HOST}" == "127.0.0.1" || "${DB_HOST}" == "localhost" || "${DB_HOST}" == "::1" ]]
 }
 
+has_railway_postgres_volume() {
+  [[ "${RAILWAY_VOLUME_MOUNT_PATH:-}" == "/var/lib/postgresql" ]]
+}
+
 should_start_embedded_postgres() {
   if [[ "${START_EMBEDDED_POSTGRES}" == "true" ]]; then
     return 0
   fi
   if [[ "${START_EMBEDDED_POSTGRES}" == "false" ]]; then
     return 1
+  fi
+  if has_railway_postgres_volume; then
+    return 0
   fi
   is_local_db_host
 }
@@ -26,12 +33,13 @@ guard_railway_database() {
   if [[ -z "${RAILWAY_ENVIRONMENT:-}${RAILWAY_SERVICE_ID:-}" ]]; then
     return
   fi
-  if should_start_embedded_postgres; then
+  if should_start_embedded_postgres && ! has_railway_postgres_volume && [[ "${START_EMBEDDED_POSTGRES}" != "true" ]]; then
     cat >&2 <<'MSG'
 [postgres] refusing to start embedded Postgres on Railway.
 Attach a Railway PostgreSQL service and expose PGHOST, PGPORT, PGUSER, PGPASSWORD,
 and PGDATABASE to this service. If this service uses a persistent Railway volume
-mounted at /var/lib/postgresql, explicitly set START_EMBEDDED_POSTGRES=true.
+mounted at /var/lib/postgresql, Railway must expose RAILWAY_VOLUME_MOUNT_PATH or
+START_EMBEDDED_POSTGRES=true must be explicitly set.
 MSG
     exit 1
   fi
