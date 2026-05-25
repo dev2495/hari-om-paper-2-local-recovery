@@ -7,7 +7,7 @@ import uuid
 from .database import SessionLocal, engine
 from . import models
 from .plant_service import PLANT_A_ID, PLANT_B_ID
-from .routers import auth, notifications, roles, users
+from .routers import audit_events, auth, notifications, roles, users
 from .security import hashing
 from .workspace import BUSINESS_ROLE_ORDER, LEGACY_ROLE_NAMES, ROLE_CAPABILITIES, canonical_role_name
 
@@ -17,6 +17,7 @@ app.include_router(auth.router)
 app.include_router(roles.router)
 app.include_router(users.router)
 app.include_router(notifications.router)
+app.include_router(audit_events.router)
 
 models.Base.metadata.create_all(bind=engine)
 

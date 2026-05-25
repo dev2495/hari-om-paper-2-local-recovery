@@ -397,6 +397,7 @@ export const inventoryApi = {
   getItems: () => api.get("/api/inventory/items"),
   createItem: (data: any) => api.post("/api/inventory/items", data),
   updateItem: (id: string, data: any) => api.put(`/api/inventory/items/${id}`, data),
+  deleteItem: (id: string) => api.delete(`/api/inventory/items/${id}`),
   getBalances: () => api.get("/api/inventory/balance"),
   getItemBalance: (itemId: string) => api.get(`/api/inventory/balance/${itemId}`),
   getTransactions: (params?: any) => api.get("/api/inventory/ledger", { params }),

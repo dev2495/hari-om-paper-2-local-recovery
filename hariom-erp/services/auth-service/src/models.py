@@ -99,3 +99,29 @@ class Notification(Base):
 
     user = relationship("User", foreign_keys=[user_id])
     actor_user = relationship("User", foreign_keys=[actor_user_id])
+
+
+class AuditEvent(Base):
+    """Structured audit log — replaces the synthesised audit-center streams.
+
+    Anything that wants to be trace-able (logins, mutations, permission grants,
+    plant-scope changes, role assignments, config flips) writes a row here.
+    """
+    __tablename__ = "audit_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    occurred_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+    plant_id = Column(String(64), nullable=True, index=True)
+    actor_user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    actor_email = Column(String(200), nullable=True)
+    actor_role = Column(String(80), nullable=True)
+    event_type = Column(String(120), nullable=False, index=True)
+    entity_type = Column(String(80), nullable=True, index=True)
+    entity_id = Column(String(200), nullable=True, index=True)
+    summary = Column(Text, nullable=True)
+    payload = Column(Text, nullable=True)
+    ip = Column(String(64), nullable=True)
+    user_agent = Column(String(255), nullable=True)
+    source_service = Column(String(60), nullable=True)
+
+    actor_user = relationship("User", foreign_keys=[actor_user_id])

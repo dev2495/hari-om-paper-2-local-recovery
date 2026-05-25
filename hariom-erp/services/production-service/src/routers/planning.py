@@ -2488,6 +2488,29 @@ def _ensure_job_card_stages(
     return segment_created
 
 
+def _lifecycle_label_for(job_card: JobCard) -> str:
+    """Map the raw job status + released_qty + current_stage into one
+    operator-friendly token. UI uses this to show a single clear badge.
+    """
+    status = str(job_card.status or "").upper()
+    if status == "CANCELLED":
+        return "CANCELLED"
+    if status == "COMPLETED":
+        # Closed = job is COMPLETED AND has fg posted (use current_stage == DONE as proxy).
+        if str(job_card.current_stage or "").upper() == "DONE":
+            return "CLOSED"
+        return "COMPLETED"
+    if status == "IN_PROGRESS":
+        return "IN_PROGRESS"
+    if status == "PLANNED":
+        if float(job_card.released_qty or 0.0) > 0:
+            return "RELEASED"
+        return "SCHEDULED"
+    if status == "CREATED":
+        return "DRAFT"
+    return status or "UNKNOWN"
+
+
 def _serialize_job_card_response(job_card: JobCard) -> JobCardResponse:
     return JobCardResponse(
         id=job_card.id,
@@ -2507,6 +2530,7 @@ def _serialize_job_card_response(job_card: JobCard) -> JobCardResponse:
         current_stage=job_card.current_stage,
         requires_slitting=bool(job_card.requires_slitting),
         created_at=job_card.created_at,
+        lifecycle_label=_lifecycle_label_for(job_card),
     )
 
 
@@ -5753,6 +5777,46 @@ def capture_stage_output(
         raise HTTPException(status_code=404, detail="Job card not found")
     if job_card.status in ["COMPLETED", "CANCELLED"] or job_card.current_stage == "DONE":
         raise HTTPException(status_code=400, detail="Job card is not in executable state")
+
+    # P1.2 — Active QC hold gates stage advancement. PlantManager+ may override
+    # with an explicit override_reason; Operator can never override.
+    active_holds = (
+        db.query(QualityHold)
+        .filter(
+            QualityHold.job_card_id == job_card.id,
+            QualityHold.status.in_(list(QC_BLOCKING_STATUSES)),
+        )
+        .all()
+    )
+    override_reason = (payload.override_reason or "").strip() if hasattr(payload, "override_reason") else ""
+    if active_holds and not override_reason:
+        hold_summaries = [
+            {
+                "id": str(h.id),
+                "stage": h.stage,
+                "reason": h.reason,
+                "status": h.status,
+                "created_by": h.created_by,
+            }
+            for h in active_holds
+        ]
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "JOB_HAS_ACTIVE_QC_HOLD",
+                "message": (
+                    f"Job has {len(active_holds)} active QC hold(s) blocking stage advancement. "
+                    "Release the hold(s) or provide an override_reason (PlantManager+ only)."
+                ),
+                "holds": hold_summaries,
+            },
+        )
+    qc_hold_override_roles = {"Owner", "Admin", "PlantManager"}
+    if active_holds and override_reason and actor_role not in qc_hold_override_roles:
+        raise HTTPException(
+            status_code=403,
+            detail="Only Owner, Admin, or PlantManager can override an active QC hold.",
+        )
 
     selected_stage = payload.stage or job_card.current_stage
     selected_stage = _normalize_stage(selected_stage)

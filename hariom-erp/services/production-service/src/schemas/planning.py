@@ -94,6 +94,10 @@ class JobCardResponse(BaseModel):
     current_stage: str
     requires_slitting: bool = False
     created_at: datetime
+    # Operator-friendly derived lifecycle label.
+    # Maps status + stage + released_qty into one human-readable token:
+    # DRAFT · RELEASED · SCHEDULED · IN_PROGRESS · COMPLETED · CLOSED · CANCELLED
+    lifecycle_label: Optional[str] = None
 
 
 class JobCardStageResponse(BaseModel):

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Boxes, PencilLine, Plus, Save } from "lucide-react"
 
-import { useCreateItem, useInventoryBalances, useInventoryItems, useUpdateItem } from "@/hooks/use-inventory"
+import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem } from "@/hooks/use-inventory"
 
 const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
@@ -18,6 +18,7 @@ export default function InventoryItemsPage() {
   const { data: balances = [] } = useInventoryBalances()
   const createItem = useCreateItem()
   const updateItem = useUpdateItem()
+  const deleteItem = useDeleteItem()
   const [selectedItemId, setSelectedItemId] = useState("")
   const [form, setForm] = useState({
     item_code: "",
@@ -253,9 +254,28 @@ export default function InventoryItemsPage() {
                           <p>Lead {formatNumber(item.lead_time_days, 1)} d</p>
                         </td>
                         <td className="px-4 py-3">
-                          <button type="button" onClick={() => setSelectedItemId(item.id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900">
-                            Edit
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedItemId(item.id)}
+                              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (typeof window !== "undefined" && window.confirm(`Soft-delete item ${item.item_code}? Historical ledger transactions remain intact.`)) {
+                                  deleteItem.mutate(item.id)
+                                }
+                              }}
+                              disabled={deleteItem.isPending}
+                              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-rose-300 hover:text-rose-700 disabled:opacity-40"
+                              title="Soft-delete this item"
+                            >
+                              {deleteItem.isPending && deleteItem.variables === item.id ? "…" : "Delete"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     )

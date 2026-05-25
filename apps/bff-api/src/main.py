@@ -2,10 +2,13 @@
 
 import os
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from src.middleware.auth import extract_token
 from src.routes import analytics, auth, dispatch, inventory, master, production, purchase, sales, spec, workspace
+from src.services.plant_guard import assert_plant_allowed
 
 app = FastAPI(
     title="Hari Om Paper - BFF API",
@@ -20,6 +23,41 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# P1.5 — Plant-scope enforcement at the BFF. If the request includes an
+# X-Plant-ID header, the user must be allowed on that plant (or be an Owner /
+# Admin / is_owner_all_plants user). Unauthenticated routes (login, health,
+# docs) bypass the guard.
+_PLANT_GUARD_BYPASS_PREFIXES = (
+    "/api/auth/login",
+    "/api/auth/logout",
+    "/api/auth/me",
+    "/api/auth/refresh",
+    "/health",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+)
+
+
+@app.middleware("http")
+async def plant_scope_guard(request: Request, call_next):
+    path = request.url.path or ""
+    plant_id = request.headers.get("X-Plant-ID")
+    if plant_id and path != "/" and not any(path == p or path.startswith(p) for p in _PLANT_GUARD_BYPASS_PREFIXES):
+        token = extract_token(request)
+        if token:
+            try:
+                assert_plant_allowed(token, plant_id)
+            except HTTPException as exc:
+                detail = exc.detail
+                if isinstance(detail, dict):
+                    body = detail
+                else:
+                    body = {"detail": detail}
+                return JSONResponse(status_code=exc.status_code, content=body)
+    return await call_next(request)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(master.router, prefix="/api/master", tags=["Master Data"])

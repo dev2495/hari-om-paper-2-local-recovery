@@ -201,3 +201,5 @@ Implementation log: `IMPLEMENTATION.md` (sibling file)
 - [x] 12.7 Correct Railway production variables so staging password reset is disabled and the existing `/var/lib/postgresql` volume-backed Postgres is explicit.
 - [x] 12.8 Deploy commit `3eb0295` to Railway production deployment `35baf5c1-5a86-407f-b626-23e63245a40c`.
 - [x] 12.9 Verify Railway `/login`, old-route redirects, and authenticated `/api/auth/login` + `/api/auth/roles` on the public URL.
+- [x] 12.10 Close final production-readiness gaps from the comprehensive review: item master CRUD, plant guard, books guard, QC hold gate, audit events, notification pagination, RoleGate, spec-recipe cascade banner, and MES stub cleanup.
+- [x] 12.11 Verify final code with `run_verification.sh`, backend compile, verified runtime consistency, hard-cutover validation, browser release gate, runtime smoke, targeted guard probes, and opening-stock smoke.

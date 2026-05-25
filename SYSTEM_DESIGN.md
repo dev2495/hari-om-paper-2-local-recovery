@@ -36,6 +36,15 @@
 - Stage entry records actual start and end times, output, and scrap.
 - Tracker reflects current stage and segment posture.
 - Reports and analytics read the same execution truth.
+- Active QC holds block stage-output posting until the hold is released or an Owner/Admin/PlantManager records an explicit override reason.
+- Job-card API responses expose a derived lifecycle label so operators can distinguish draft, released, scheduled, in-progress, completed, closed, and cancelled states.
+
+### Operating controls
+
+- Every plant-scoped BFF request carrying `X-Plant-ID` is checked against JWT `allowed_plants`, except Owner/Admin global scope.
+- Dated inventory mutations require one concrete plant and are rejected when the transaction date is inside a locked monthly-close period.
+- Item master removal is a soft-delete/disable flow; historical inventory and production references remain valid.
+- Audit events are persisted in auth-service and exposed with role-aware filtering and pagination.
 
 ## Specification Sheet Model
 

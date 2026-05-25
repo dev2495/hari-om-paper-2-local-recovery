@@ -292,3 +292,57 @@ def get_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
+
+
+@router.delete("/{item_id}")
+def delete_item(
+    item_id: uuid.UUID,
+    force: bool = False,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Store", "Owner"])),
+):
+    """Soft-delete an item by setting active='false'.
+
+    A hard delete is not permitted because StockTransaction + StockBatch rows
+    foreign-key onto the item, and historical valuation must remain auditable.
+
+    Refuses (HTTP 409) if the item still has positive stock-on-hand unless
+    `force=true` is passed in the query string. The deactivation never deletes
+    historical transactions or batches.
+    """
+    db_item = db.query(ItemMaster).filter(
+        ItemMaster.id == item_id,
+        ItemMaster.plant_id == plant_id,
+    ).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    # Safety check: refuse if there is positive available balance unless force.
+    if not force:
+        from ..services import get_item_balance
+        balance = float(get_item_balance(str(item_id), db) or 0.0)
+        if balance > 0.001:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ITEM_HAS_OPEN_BALANCE",
+                    "message": (
+                        f"Item still has {balance:.3f} units on hand. Issue or transfer the "
+                        "balance first, or pass ?force=true to deactivate anyway "
+                        "(the balance will remain visible on the inactive item)."
+                    ),
+                    "item_id": str(item_id),
+                    "item_code": db_item.item_code,
+                    "available_qty": balance,
+                },
+            )
+
+    db_item.active = "false"
+    db.commit()
+    return {
+        "id": str(db_item.id),
+        "item_code": db_item.item_code,
+        "active": db_item.active,
+        "message": "Item soft-deleted. Historical transactions are preserved.",
+    }

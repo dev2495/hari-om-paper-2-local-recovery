@@ -30,11 +30,30 @@ def build_user_claims(user: models.User) -> dict:
     """Build normalized claims for cross-service RBAC checks."""
     roles = sorted([role.name for role in user.roles])
     permissions = sorted({permission.name for role in user.roles for permission in role.permissions})
+    # Collect allowed plants from the M2M relationship + the primary plant_id.
+    allowed_plants: list[str] = []
+    try:
+        for plant in getattr(user, "allowed_plants", []) or []:
+            code = getattr(plant, "code", None) or str(getattr(plant, "id", "") or "")
+            if code:
+                allowed_plants.append(str(code))
+    except Exception:
+        # If the relationship isn't eager-loaded, fall back silently.
+        pass
+    primary_plant_code: str | None = None
+    if getattr(user, "plant", None) is not None:
+        primary_plant_code = user.plant.code
+    elif user.plant_id is not None:
+        primary_plant_code = str(user.plant_id)
+    if primary_plant_code and primary_plant_code not in allowed_plants:
+        allowed_plants.append(primary_plant_code)
     return {
         "sub": user.email,
         "user_id": str(user.id),
         "role": roles[0] if roles else "",
         "roles": roles,
         "permissions": permissions,
-        "plant_id": user.plant.code if getattr(user, "plant", None) else (str(user.plant_id) if user.plant_id else None),
+        "plant_id": primary_plant_code,
+        "allowed_plants": allowed_plants,
+        "is_owner_all_plants": bool(getattr(user, "is_owner_all_plants", False)),
     }

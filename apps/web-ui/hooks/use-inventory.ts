@@ -121,6 +121,17 @@ export function useUpdateItem() {
   })
 }
 
+export function useDeleteItem() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => inventoryApi.deleteItem(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+    },
+  })
+}
+
 export function useReelIssues(params?: any, enabled = true) {
   return useQuery({
     queryKey: ["inventory-reel-issues", params],

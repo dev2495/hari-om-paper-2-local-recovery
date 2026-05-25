@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { BarChart3, Factory, Package, Sparkles, Truck, type LucideIcon } from 'lucide-react'
 
 import { ChartCard, FilterChip, KpiCard, PageIntro, formatCompactCurrency, formatCompactNumber, formatPercent } from '@/components/erp/premium-dashboard'
+import { RoleGate } from '@/components/workspace/role-gate'
 import { useAuth } from '@/context/AuthContext'
 import { useDashboardOverview, useExceptionReport, useOwnerPack, usePlantCompareReport, useSalesReport } from '@/hooks/use-analytics'
 import { cn } from '@/lib/utils'
@@ -61,7 +62,15 @@ const reportTiles: ReportTile[] = [
   },
 ]
 
-export default function ReportsHubPage() {
+export default function ReportsHubPageWrapper() {
+  return (
+    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales"]}>
+      <ReportsHubPage />
+    </RoleGate>
+  )
+}
+
+function ReportsHubPage() {
   const { activePlant } = useAuth()
   const endDate = new Date().toISOString().split('T')[0]
   const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]

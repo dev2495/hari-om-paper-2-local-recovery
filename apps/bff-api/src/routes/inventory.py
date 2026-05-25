@@ -4,6 +4,7 @@ import os
 import httpx
 
 from src.middleware.auth import get_token
+from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
 from src.services.workspace import emit_from_response, emit_notification_event, response_body_json
 
@@ -50,9 +51,37 @@ async def update_item(item_id: str, request: Request, token: str = Depends(get_t
     return response
 
 
+@router.delete("/items/{item_id}")
+async def delete_item(item_id: str, request: Request, token: str = Depends(get_token)):
+    """Soft-delete an item. Historical transactions remain intact."""
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_ITEM_DEACTIVATED",
+        title=f"Item deactivated: {payload.get('item_code') or item_id}",
+        message="Soft-delete; existing transactions are preserved for audit.",
+        href="/inventory/items",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"item_id": item_id},
+    )
+    return response
+
+
 @router.post("/inward")
 async def create_inward(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inward/", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("date") or body.get("effective_date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL, "/inward/", request, token,
+        json_body=body if body else None,
+    )
     await emit_from_response(
         response,
         token=token,
@@ -67,7 +96,17 @@ async def create_inward(request: Request, token: str = Depends(get_token)):
 
 @router.post("/issue")
 async def create_issue(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/issue/", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("date") or body.get("effective_date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL, "/issue/", request, token,
+        json_body=body if body else None,
+    )
     await emit_from_response(
         response,
         token=token,
@@ -82,7 +121,17 @@ async def create_issue(request: Request, token: str = Depends(get_token)):
 
 @router.post("/fg-inward")
 async def create_fg_inward(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/fg-inward/", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("date") or body.get("effective_date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL, "/fg-inward/", request, token,
+        json_body=body if body else None,
+    )
     await emit_from_response(
         response,
         token=token,
@@ -137,7 +186,23 @@ async def list_opening_loads(request: Request, token: str = Depends(get_token)):
 
 @router.post("/stock-control/opening-loads")
 async def create_opening_load(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/opening-loads", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    await assert_not_backdated(
+        token,
+        plant_id,
+        effective_date=body.get("effective_date") if isinstance(body, dict) else None,
+    )
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/inventory/stock-control/opening-loads",
+        request,
+        token,
+        json_body=body if body else None,
+    )
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,
@@ -426,7 +491,17 @@ async def get_transactions_aggregate(request: Request, token: str = Depends(get_
 @router.post("/fg-inward/manual")
 async def manual_fg_inward(request: Request, token: str = Depends(get_token)):
     """Gap 7: manual FG inward for rework / returns / adjustments."""
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/fg-inward/manual", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("effective_date") or body.get("date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL, "/fg-inward/manual", request, token,
+        json_body=body if body else None,
+    )
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,

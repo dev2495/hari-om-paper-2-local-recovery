@@ -2,18 +2,46 @@ import { useQuery } from "@tanstack/react-query"
 
 import { api } from "@/lib/api"
 
-export function useNotifications(enabled = true) {
+export function useNotifications(
+  enabledOrParams: boolean | { enabled?: boolean; limit?: number; offset?: number; role?: string; event_type?: string; search?: string; unread_only?: boolean } = true,
+) {
+  const params = typeof enabledOrParams === "boolean" ? { enabled: enabledOrParams } : enabledOrParams
+  const { enabled = true, limit = 30, offset = 0, role, event_type, search, unread_only } = params
   return useQuery({
-    queryKey: ["workspace-notifications"],
+    queryKey: ["workspace-notifications", { limit, offset, role, event_type, search, unread_only }],
     queryFn: async () => {
       try {
-        const { data } = await api.get("/api/auth/notifications", { params: { limit: 12 } })
-        if (Array.isArray(data)) return { items: data }
-        if (Array.isArray(data?.items)) return data
+        const { data } = await api.get("/api/auth/notifications", {
+          params: { limit, offset, role, event_type, search, unread_only },
+        })
+        if (Array.isArray(data)) return { items: data, total_count: data.length, has_more: false, limit, offset }
+        if (data && Array.isArray(data.items)) return data
       } catch {
         // The notification proxy route can be absent in some recovered snapshots.
       }
-      return { items: [] as any[] }
+      return { items: [] as any[], total_count: 0, has_more: false, limit, offset }
+    },
+    enabled,
+  })
+}
+
+export function useAuditEvents(params?: {
+  since_hours?: number
+  event_type?: string
+  entity_type?: string
+  entity_id?: string
+  actor_email?: string
+  plant_id?: string
+  limit?: number
+  offset?: number
+  enabled?: boolean
+}) {
+  const { enabled = true, ...rest } = params || {}
+  return useQuery({
+    queryKey: ["audit-events", rest],
+    queryFn: async () => {
+      const { data } = await api.get("/api/auth/audit-events", { params: rest })
+      return data
     },
     enabled,
   })

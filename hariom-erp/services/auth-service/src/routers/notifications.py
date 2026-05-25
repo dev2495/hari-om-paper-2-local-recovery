@@ -31,16 +31,47 @@ class NotificationEventCreate(BaseModel):
 @router.get("/")
 def list_notifications(
     unread_only: bool = Query(default=False),
-    limit: int = Query(default=30, ge=1, le=100),
+    limit: int = Query(default=30, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    role: str | None = Query(default=None, description="Filter by role_context (e.g. 'Planner')"),
+    event_type: str | None = Query(default=None, description="Filter by event_type (e.g. 'SALES_ORDER_RELEASED')"),
+    search: str | None = Query(default=None, description="Search title + message"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """List notifications for the current user.
+
+    Supports pagination (limit + offset), role-context filtering, event_type
+    filtering, and full-text search across title + message. Returns total_count
+    so the UI can render pagination.
+    """
     query = db.query(models.Notification).filter(models.Notification.user_id == current_user.id)
     if unread_only:
         query = query.filter(models.Notification.is_read.is_(False))
-    rows = query.order_by(models.Notification.created_at.desc()).limit(limit).all()
+    if role:
+        query = query.filter(models.Notification.role_context == role)
+    if event_type:
+        query = query.filter(models.Notification.event_type == event_type)
+    if search:
+        needle = f"%{search.strip()}%"
+        query = query.filter(
+            (models.Notification.title.ilike(needle))
+            | (models.Notification.message.ilike(needle))
+        )
+
+    total_count = query.count()
+    rows = (
+        query.order_by(models.Notification.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return {
         "items": [serialize_notification(row) for row in rows],
+        "total_count": total_count,
+        "limit": limit,
+        "offset": offset,
+        "has_more": (offset + len(rows)) < total_count,
     }
 
 

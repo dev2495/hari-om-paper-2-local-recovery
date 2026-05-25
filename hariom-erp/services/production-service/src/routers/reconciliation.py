@@ -1496,6 +1496,25 @@ def get_weekly_drift(
 # ─── Gap 10: workspace books-state ─────────────────────────────────────────
 
 
+@router.get("/tolerance-settings")
+def get_tolerance_settings(
+    current_user: dict = Depends(get_current_user),
+):
+    """Variance tolerance values per item type, used by reconciliation gating.
+
+    Returned for UI display so operators understand what triggers a blocker.
+    Source-of-truth lives in ConsumptionExpectationService (Gap 8). Per-plant
+    overrides are a future enhancement.
+    """
+    return {
+        "default_kg": VARIANCE_TOLERANCE_DEFAULT_KG,
+        "by_item_type": {k: float(v) for k, v in VARIANCE_TOLERANCE_KG_BY_TYPE.items()},
+        "paper_expected_consumption_factor": PAPER_EXPECTED_CONSUMPTION_FACTOR,
+        "paper_standard_wastage_percent": PAPER_STANDARD_WASTAGE_PERCENT,
+        "scope": "global",  # will be 'plant' once per-plant overrides land
+    }
+
+
 @router.get("/books-state", response_model=BooksStateResponse)
 def get_books_state(
     db: Session = Depends(get_db),

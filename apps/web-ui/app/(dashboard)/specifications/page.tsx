@@ -109,8 +109,54 @@ export default function SpecificationsIndexPage() {
     return counts
   }, [specs])
 
+  // Recipe-cascade health: spec is APPROVED but no recipe is approved yet.
+  // Job-card creation will fail silently otherwise. Surface as a banner.
+  const recipeCascadeIssues = useMemo(() => {
+    return specs.filter((spec: any) => {
+      if (String(spec.status || "").toLowerCase() !== "approved") return false
+      const recipes = Array.isArray(spec.recipes) ? spec.recipes : []
+      if (recipes.length === 0) return true
+      const anyApproved = recipes.some(
+        (r: any) => String(r.status || "").toLowerCase() === "approved",
+      )
+      return !anyApproved
+    })
+  }, [specs])
+
   return (
     <div className="space-y-6">
+      {recipeCascadeIssues.length > 0 ? (
+        <section className="flex flex-wrap items-start gap-3 rounded-[1.6rem] border border-amber-200 bg-amber-50/80 px-5 py-4 shadow-sm">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+            <ScrollText className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
+              Recipe cascade bottleneck
+            </p>
+            <p className="mt-1 text-sm font-semibold text-amber-900">
+              {recipeCascadeIssues.length} approved spec
+              {recipeCascadeIssues.length === 1 ? "" : "s"} have no approved recipe — release-to-job will
+              fail until at least one recipe is promoted from <strong>trial</strong> to <strong>approved</strong>.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {recipeCascadeIssues.slice(0, 8).map((spec: any) => (
+                <Link
+                  key={spec.id}
+                  href={`/specifications/${spec.id}`}
+                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-800 hover:bg-amber-100"
+                >
+                  {String(spec.product_code || spec.id).slice(0, 14)}
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
+              ))}
+              {recipeCascadeIssues.length > 8 ? (
+                <span className="text-[11px] font-semibold text-amber-700">+ {recipeCascadeIssues.length - 8} more</span>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
       <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white/80 shadow-premium">
         <div className="grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)] lg:px-8">
           <div>

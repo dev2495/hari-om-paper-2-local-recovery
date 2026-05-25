@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Request
 import os
 
 from src.middleware.auth import get_token
+from src.services.books_guard import invalidate_books_cache
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
@@ -272,7 +273,16 @@ async def import_monthly_actuals(request: Request, token: str = Depends(get_toke
 
 @router.post("/approve-monthly-close")
 async def approve_monthly_close(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/monthly-close/approve", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, "/reconciliation/monthly-close/approve", request, token)
+    # Bust the books-locked cache so the next mutation in /inventory sees the
+    # newly locked period without a 60-second stale window.
+    if 200 <= response.status_code < 300:
+        plant_id = request.headers.get("X-Plant-ID", "")
+        if plant_id:
+            invalidate_books_cache(plant_id)
+        else:
+            invalidate_books_cache(None)
+    return response
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -301,4 +311,12 @@ async def get_books_state(request: Request, token: str = Depends(get_token)):
     """Gap 10: workspace-wide books-locked posture."""
     return await proxy_to_service(
         PRODUCTION_SERVICE_URL, "/reconciliation/books-state", request, token
+    )
+
+
+@router.get("/tolerance-settings")
+async def get_tolerance_settings(request: Request, token: str = Depends(get_token)):
+    """Variance tolerance values surfaced for the UI."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/reconciliation/tolerance-settings", request, token
     )

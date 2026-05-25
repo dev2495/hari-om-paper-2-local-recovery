@@ -28,6 +28,7 @@ import {
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import { ExecutiveHero, Panel } from "@/components/erp/shell"
+import { RoleGate } from "@/components/workspace/role-gate"
 import { useAuth } from "@/context/AuthContext"
 import {
   useBooksState,
@@ -150,7 +151,15 @@ function normalizeRows(raw: any): any[] {
   return Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : Array.isArray(raw?.rows) ? raw.rows : []
 }
 
-export default function StockLifecycleHubPage() {
+export default function StockLifecycleHubPageWrapper() {
+  return (
+    <RoleGate allow={["PlantManager", "Planner", "Store"]}>
+      <StockLifecycleHubPage />
+    </RoleGate>
+  )
+}
+
+function StockLifecycleHubPage() {
   const { activePlant } = useAuth()
   const month = currentMonth()
   const startDate = currentMonthStart()

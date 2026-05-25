@@ -757,3 +757,30 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - `hariom-erp/venv-runtime/bin/python scripts/opening_stock_live_smoke.py` passed and wrote `reports/opening_stock_live_smoke_20260524_210756.md`.
   - Redirect checks returned `308` for `/master`, `/master/items`, and `/specs/example/edit` to their canonical routes.
   - Railway `/login` returned `200`, canonical old-route redirects returned `308`, and authenticated `/api/auth/login` plus `/api/auth/roles` returned `200`.
+
+### 2026-05-25 · Final production-readiness gap closure
+- Closed the remaining code-level gaps from `COMPREHENSIVE_PROJECT_REVIEW.md`:
+  - item master update/delete with soft-delete stock-balance guard,
+  - BFF plant-scope middleware with JWT `allowed_plants` and `is_owner_all_plants` support,
+  - books-locked dated-write guard on inward, issue, FG inward, manual FG inward, and opening-load routes,
+  - QC hold stage-output gate with Owner/Admin/PlantManager-only override,
+  - job-card `lifecycle_label`,
+  - real `audit_events` table/router/BFF proxy/frontend hook,
+  - notification pagination and role/event/search filters,
+  - page-level `RoleGate` for reports and inventory lifecycle,
+  - approved-spec/no-approved-recipe warning banner,
+  - deletion of README-only MES stub services.
+- Review during this pass found and fixed two deployment-blocking issues before commit:
+  - the BFF plant guard accidentally treated `/` as a prefix bypass for all routes,
+  - the new audit-events router imported the wrong dependency module and prevented auth-service startup.
+- Verification after those fixes:
+  - `git diff --check` passed.
+  - backend `py_compile` passed for all changed Python files.
+  - targeted plant/books guard checks passed.
+  - `./scripts/run_verification.sh` passed with no lint warnings.
+  - `bash scripts/start_verified_runtime.sh` passed; runtime consistency failed `0`.
+  - hard-cutover validation passed `114/114`; report `reports/hard_cutover_validation_20260525_171125.md`.
+  - browser release gate passed `8/8`.
+  - runtime smoke passed `35/35`.
+  - targeted API probes confirmed audit events `200`, tolerance settings `200`, missing concrete plant dated write `422`, and unauthorized plant request `403`.
+  - opening-stock smoke posted `OPEN-SMOKE-20260525114548-65F6`; report `reports/opening_stock_live_smoke_20260525_114548.md`.
