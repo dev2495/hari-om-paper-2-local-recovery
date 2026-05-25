@@ -14,12 +14,22 @@ type PlantOption = {
     is_active?: boolean
 }
 
+function isPseudoAllPlant(plant: PlantOption | null | undefined) {
+    return (
+        String(plant?.code || "").trim().toUpperCase() === "ALL" ||
+        canonicalPlantScopeValue(plant?.id).toUpperCase() === "ALL"
+    )
+}
+
 function normalizePlantScopeValue(plant: PlantOption | null | undefined) {
+    const code = String(plant?.code || "").trim()
+    if (code.toUpperCase() === "ALL") {
+        return "ALL"
+    }
     const id = String(plant?.id || "").trim()
     if (id && id.toUpperCase() !== "ALL") {
         return canonicalPlantScopeValue(id)
     }
-    const code = String(plant?.code || "").trim()
     if (code) {
         return canonicalPlantScopeValue(code)
     }
@@ -54,7 +64,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                 const response = await authApi.getPlants()
                 if (!cancelled) {
                     const rows = Array.isArray(response.data) ? response.data : []
-                    setPlants(rows.filter((row) => row && row.is_active !== false))
+                    setPlants(rows.filter((row) => row && row.is_active !== false && !isPseudoAllPlant(row)))
                 }
             } catch {
                 if (!cancelled) {
@@ -90,8 +100,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     }, [allowedPlantIds, canReadAllPlants, resolvedPlants])
 
     const allPlantsOption = React.useMemo(
-        () => resolvedPlants.find((plant) => normalizePlantScopeValue(plant) === "ALL"),
-        [resolvedPlants],
+        () => ({ id: "ALL", code: "ALL", name: "All Visible Plants" }),
+        [],
     )
 
     const currentPlant = React.useMemo(

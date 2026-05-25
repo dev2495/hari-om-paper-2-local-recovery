@@ -345,6 +345,61 @@ async def list_plants(request: Request):
     return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to list plants"))
 
 
+@router.post("/plants")
+async def create_plant(request: Request):
+    token = extract_token(request)
+    if not token:
+        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        response = await http_client.post(
+            f"{AUTH_SERVICE_URL}/plants",
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to create plant"))
+
+
+@router.patch("/plants/{plant_id}")
+async def update_plant(plant_id: str, request: Request):
+    token = extract_token(request)
+    if not token:
+        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    try:
+        response = await http_client.patch(
+            f"{AUTH_SERVICE_URL}/plants/{plant_id}",
+            json=body,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to update plant"))
+
+
+@router.delete("/plants/{plant_id}")
+async def delete_plant(plant_id: str, request: Request):
+    token = extract_token(request)
+    if not token:
+        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    try:
+        response = await http_client.delete(
+            f"{AUTH_SERVICE_URL}/plants/{plant_id}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to disable plant"))
+
+
 @router.get("/audit-events")
 async def list_audit_events(request: Request):
     token = extract_token(request)

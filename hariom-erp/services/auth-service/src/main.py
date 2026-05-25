@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import os
@@ -125,15 +125,18 @@ def seed_default_plants():
         defaults = [
             (PLANT_A_ID, "PLANT_A", "Plant A"),
             (PLANT_B_ID, "PLANT_B", "Plant B"),
-            (uuid.UUID("00000000-0000-0000-0000-0000000000ff"), "ALL", "All Visible Plants"),
         ]
         for plant_id, code, name in defaults:
             plant = db.query(models.Plant).filter(models.Plant.code == code).first()
             if not plant:
                 db.add(models.Plant(id=plant_id, code=code, name=name, is_active=True))
             else:
-                plant.name = name
+                if not plant.name:
+                    plant.name = name
                 plant.is_active = True
+        pseudo_all = db.query(models.Plant).filter(models.Plant.code == "ALL").first()
+        if pseudo_all:
+            pseudo_all.is_active = False
         db.commit()
     finally:
         db.close()
@@ -307,21 +310,56 @@ if should_seed_demo_users():
 class PlantCreate(BaseModel):
     code: str
     name: str
+    address: str | None = None
+    legal_name: str | None = None
+    gstin: str | None = None
     is_active: bool = True
 
 
 class PlantUpdate(BaseModel):
     code: str | None = None
     name: str | None = None
+    address: str | None = None
+    legal_name: str | None = None
+    gstin: str | None = None
     is_active: bool | None = None
+
+
+def _serialize_plant(plant: models.Plant) -> dict:
+    return {
+        "id": str(plant.id),
+        "code": plant.code,
+        "name": plant.name,
+        "address": plant.address,
+        "legal_name": plant.legal_name,
+        "gstin": plant.gstin,
+        "is_active": plant.is_active,
+    }
+
+
+def _plant_lookup(db: Session, plant_id: str) -> models.Plant | None:
+    text = str(plant_id or "").strip()
+    if not text or text.upper() == "ALL":
+        return None
+    query = db.query(models.Plant).filter(models.Plant.code == text)
+    try:
+        query = query.union(db.query(models.Plant).filter(models.Plant.id == uuid.UUID(text)))
+    except ValueError:
+        pass
+    return query.first()
 
 
 @app.get("/plants")
 def list_plants():
     db: Session = SessionLocal()
     try:
-        plants = db.query(models.Plant).order_by(models.Plant.code.asc()).all()
-        return [{"id": str(plant.id), "code": plant.code, "name": plant.name, "is_active": plant.is_active} for plant in plants]
+        plants = (
+            db.query(models.Plant)
+            .filter(models.Plant.code != "ALL")
+            .order_by(models.Plant.code.asc())
+            .all()
+        )
+        return [_serialize_plant(plant) for plant in plants]
     finally:
         db.close()
 
@@ -330,13 +368,25 @@ def list_plants():
 def create_plant(payload: PlantCreate):
     db: Session = SessionLocal()
     try:
-        existing = db.query(models.Plant).filter(models.Plant.code == payload.code).first()
+        code = payload.code.strip()
+        if not code or code.upper() == "ALL":
+            raise HTTPException(status_code=400, detail="ALL is a reporting scope, not an editable plant.")
+        existing = db.query(models.Plant).filter(models.Plant.code == code).first()
         if existing:
-            return {"id": str(existing.id), "code": existing.code, "name": existing.name, "is_active": existing.is_active}
-        plant = models.Plant(id=uuid.uuid4(), code=payload.code, name=payload.name, is_active=payload.is_active)
+            raise HTTPException(status_code=409, detail="Plant code already exists")
+        plant = models.Plant(
+            id=uuid.uuid4(),
+            code=code,
+            name=payload.name,
+            address=payload.address,
+            legal_name=payload.legal_name,
+            gstin=payload.gstin,
+            is_active=payload.is_active,
+        )
         db.add(plant)
         db.commit()
-        return {"id": str(plant.id), "code": plant.code, "name": plant.name, "is_active": plant.is_active}
+        db.refresh(plant)
+        return _serialize_plant(plant)
     finally:
         db.close()
 
@@ -345,19 +395,17 @@ def create_plant(payload: PlantCreate):
 def update_plant(plant_id: str, payload: PlantUpdate):
     db: Session = SessionLocal()
     try:
-        query = db.query(models.Plant).filter(models.Plant.code == plant_id)
-        try:
-            query = query.union(db.query(models.Plant).filter(models.Plant.id == uuid.UUID(plant_id)))
-        except ValueError:
-            pass
-        plant = query.first()
+        plant = _plant_lookup(db, plant_id)
         if not plant:
-            return {"message": "Plant not found"}
+            raise HTTPException(status_code=404, detail="Plant not found")
         updates = payload.model_dump(exclude_unset=True)
+        if str(updates.get("code") or "").strip().upper() == "ALL":
+            raise HTTPException(status_code=400, detail="ALL is a reporting scope, not an editable plant.")
         for key, value in updates.items():
-            setattr(plant, key, value)
+            setattr(plant, key, value.strip() if isinstance(value, str) else value)
         db.commit()
-        return {"id": str(plant.id), "code": plant.code, "name": plant.name, "is_active": plant.is_active}
+        db.refresh(plant)
+        return _serialize_plant(plant)
     finally:
         db.close()
 
@@ -366,14 +414,9 @@ def update_plant(plant_id: str, payload: PlantUpdate):
 def delete_plant(plant_id: str):
     db: Session = SessionLocal()
     try:
-        query = db.query(models.Plant).filter(models.Plant.code == plant_id)
-        try:
-            query = query.union(db.query(models.Plant).filter(models.Plant.id == uuid.UUID(plant_id)))
-        except ValueError:
-            pass
-        plant = query.first()
+        plant = _plant_lookup(db, plant_id)
         if not plant:
-            return {"message": "Plant not found"}
+            raise HTTPException(status_code=404, detail="Plant not found")
         plant.is_active = False
         db.commit()
         return {"message": "Plant disabled"}

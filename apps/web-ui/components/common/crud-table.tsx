@@ -320,6 +320,8 @@ export function CrudTable({
                                                 <Button
                                                     variant="ghost"
                                                     size="icon"
+                                                    title={`Edit ${title}`}
+                                                    aria-label={`Edit ${title}`}
                                                     className="rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
                                                     disabled={writeBlocked}
                                                     onClick={() => setEditItem(row)}

@@ -19,6 +19,7 @@ PLANT_ALIASES = {
     "PLANT-2": PLANT_B_ID,
     "PLANT2": PLANT_B_ID,
 }
+PSEUDO_ALL_PLANT_CODE = "ALL"
 
 
 def normalize_plant_uuid(value, field_name: str = "plant_id", *, allow_none: bool = False) -> uuid.UUID | None:
@@ -57,7 +58,10 @@ def _ordered_plant_ids(values: Iterable[uuid.UUID]) -> list[uuid.UUID]:
 def _active_plants(db: Session) -> list[models.Plant]:
     return (
         db.query(models.Plant)
-        .filter(models.Plant.is_active.is_(True))
+        .filter(
+            models.Plant.is_active.is_(True),
+            models.Plant.code != PSEUDO_ALL_PLANT_CODE,
+        )
         .order_by(models.Plant.code.asc())
         .all()
     )
@@ -68,7 +72,11 @@ def _load_plants(db: Session, plant_ids: list[uuid.UUID]) -> list[models.Plant]:
         return []
     plants = (
         db.query(models.Plant)
-        .filter(models.Plant.id.in_(plant_ids), models.Plant.is_active.is_(True))
+        .filter(
+            models.Plant.id.in_(plant_ids),
+            models.Plant.is_active.is_(True),
+            models.Plant.code != PSEUDO_ALL_PLANT_CODE,
+        )
         .order_by(models.Plant.code.asc())
         .all()
     )

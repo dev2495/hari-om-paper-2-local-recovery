@@ -1,5 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { authApi } from "@/lib/api"
+import { canonicalPlantScopeValue } from "@/lib/plant-scope"
+
+function isRealPlant(row: any) {
+    return (
+        row &&
+        row.is_active !== false &&
+        String(row.code || "").trim().toUpperCase() !== "ALL" &&
+        canonicalPlantScopeValue(row.id).toUpperCase() !== "ALL"
+    )
+}
 
 // Plants
 export function usePlants() {
@@ -7,7 +17,7 @@ export function usePlants() {
         queryKey: ["plants"],
         queryFn: async () => {
             const { data } = await authApi.getPlants()
-            return data
+            return Array.isArray(data) ? data.filter(isRealPlant) : []
         },
     })
 }
