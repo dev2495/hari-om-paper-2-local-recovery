@@ -25,7 +25,7 @@ export function useCreateJobCard() {
 
 export function useMachines() {
   return useQuery({
-    queryKey: ["machines"],
+    queryKey: ["production-machines"],
     queryFn: async () => {
       const { data } = await productionApi.getMachines()
       return data

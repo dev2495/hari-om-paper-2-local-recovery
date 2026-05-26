@@ -175,7 +175,7 @@ function capacityUnitFor(section: string) {
   return "tubes"
 }
 
-function formatCapacityUnit(value?: string | null, perShift = false) {
+function formatCapacityUnit(value?: string | null, perShift = true) {
   const normalized = String(value || "").toUpperCase()
   if (normalized === "METERS_PER_DAY") return perShift ? "m/shift" : "meters/day"
   if (normalized === "BAMBOOS_PER_DAY") return perShift ? "bamboo/shift" : "bamboo/day"
@@ -191,12 +191,10 @@ function machineCapacitySummary(machine: any) {
     const batches = Number(machine?.raw_capacity_value || machine?.capacity_batches_per_day || 0)
     const batchSize = Number(machine?.batch_bamboo_capacity || 0)
     const cycleHours = Number(machine?.cycle_time_hours || 0)
-    const dailyBamboo = batches > 0 && batchSize > 0 ? batches * batchSize : Number(machine?.capacity_value || 0)
-    return `${formatWhole(dailyBamboo)} bamboo/day · ${formatOne(batches)} batch/day · ${formatWhole(batchSize)} bamboo/batch · ${formatOne(cycleHours)}h cycle`
+    const shiftBamboo = batches > 0 && batchSize > 0 ? batches * batchSize : Number(machine?.capacity_value || 0)
+    return `${formatWhole(shiftBamboo)} bamboo/shift · ${formatOne(batches)} batch/shift · ${formatWhole(batchSize)} bamboo/batch · ${formatOne(cycleHours)}h cycle`
   }
-  return `Capacity ${formatWhole(machine?.capacity_value)} ${machine?.capacity_unit || ""}${
-    machine?.capacity_value ? ` · ~${formatWhole(Number(machine.capacity_value) * Number(machine?.shift_share || 0.5))}/shift` : ""
-  }`
+  return `Capacity ${formatWhole(machine?.capacity_value)} ${machine?.capacity_unit || ""}`
 }
 
 function loadRatio(currentLoad?: number | null, capacityValue?: number | null) {
@@ -501,14 +499,16 @@ export default function PlanningBoardPage() {
     }
     if (buckets.size === 0) {
       return [
-        { code: "SHIFT_A", label: "Shift A", capacity_share: 0.5 },
-        { code: "SHIFT_B", label: "Shift B", capacity_share: 0.5 },
+        { code: "SHIFT_A", label: "Shift A", capacity_share: 1 },
+        { code: "SHIFT_B", label: "Shift B", capacity_share: 1 },
       ]
     }
-    const order = ["SHIFT_A", "SHIFT_B", "SHIFT_C"]
-    return Array.from(buckets.values()).sort(
-      (left: any, right: any) => order.indexOf(String(left.code || "")) - order.indexOf(String(right.code || "")),
-    )
+    const order = ["SHIFT_A", "SHIFT_B"]
+    return Array.from(buckets.values()).sort((left: any, right: any) => {
+      const leftIndex = order.indexOf(String(left.code || ""))
+      const rightIndex = order.indexOf(String(right.code || ""))
+      return (leftIndex === -1 ? 99 : leftIndex) - (rightIndex === -1 ? 99 : rightIndex)
+    })
   }, [boards])
 
   const machineRows = useMemo(() => {
@@ -518,6 +518,7 @@ export default function PlanningBoardPage() {
     for (const machine of liveMachines) {
       const department = String(machine?.department || machine?.machine_department || "").toUpperCase()
       if (department !== stage) continue
+      if (String(machine?.status || "UP").toUpperCase() !== "UP") continue
       catalog.set(String(machine.id), {
         id: String(machine.id),
         code: machine.code || machine.name || String(machine.id).slice(0, 8),
@@ -526,7 +527,7 @@ export default function PlanningBoardPage() {
         raw_capacity_value: machine.capacity_value || null,
         capacity_value:
           department === "OVEN" && Number(machine.batch_bamboo_capacity || 0) > 0
-            ? Number(machine.capacity_value || 0) * Number(machine.batch_bamboo_capacity || 0) * Number(plannerShifts[0]?.capacity_share || 0.5)
+            ? Number(machine.capacity_value || 0) * Number(machine.batch_bamboo_capacity || 0)
             : machine.capacity_value || null,
         capacity_unit:
           department === "OVEN" && Number(machine.batch_bamboo_capacity || 0) > 0
@@ -618,11 +619,10 @@ export default function PlanningBoardPage() {
     const queueTubes = queuedJobs.reduce((sum: number, job: any) => sum + Number(job.segment_planned_qty || 0), 0)
     const queueWeight = queuedJobs.reduce((sum: number, job: any) => sum + Number(job.planned_weight_kg || 0), 0)
     const maxShiftCapacity = Math.max(0, ...lanes.map((lane: any) => Number(lane.capacity_value || 0)))
-    const defaultShiftShare = Number(plannerShifts[0]?.capacity_share || 1)
     const mustSplitCount = queuedJobs.filter((job: any) => {
       const assignedMachine = machineStatsMap.get(String(job.assigned_winder_machine_id || ""))
       const assignedCapacity = Number(assignedMachine?.capacity_value || 0)
-      const effectiveCapacity = assignedCapacity > 0 ? assignedCapacity * defaultShiftShare : maxShiftCapacity
+      const effectiveCapacity = assignedCapacity > 0 ? assignedCapacity : maxShiftCapacity
       return effectiveCapacity > 0 && capacityNeedFor(section, job) > effectiveCapacity
     }).length
 
@@ -636,7 +636,7 @@ export default function PlanningBoardPage() {
       mustSplitCount,
       utilization: totalCapacity > 0 ? Math.round((scheduledLoad / totalCapacity) * 100) : 0,
     }
-  }, [machineRows, machineStatsMap, plannerShifts, queuedJobs, section])
+  }, [machineRows, machineStatsMap, queuedJobs, section])
 
   const heroMetricCards = [
     {
@@ -1418,8 +1418,7 @@ export default function PlanningBoardPage() {
                           const preferredCapacity = Number(
                             assignedMachine?.capacity_value || job.machine_capacity_value || 0,
                           )
-                          const perShiftCapacity =
-                            preferredCapacity > 0 ? preferredCapacity * Number(plannerShifts[0]?.capacity_share || 1) : 0
+                          const perShiftCapacity = preferredCapacity > 0 ? preferredCapacity : 0
                           const capacityNeed = capacityNeedFor(section, job)
                           const mustSplit = perShiftCapacity > 0 && capacityNeed > perShiftCapacity
                           const dueSoon = job.due_date ? dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day") : false
@@ -1566,7 +1565,7 @@ export default function PlanningBoardPage() {
                             </div>
                           </div>
                           <div className="mt-4 space-y-2 text-xs text-slate-600">
-                            <p>{machineCapacitySummary({ ...machine, shift_share: plannerShifts[0]?.capacity_share || 0.5 })}</p>
+                            <p>{machineCapacitySummary(machine)}</p>
                             <p>
                               {machine.status === "UP"
                                 ? "Available for scheduling"

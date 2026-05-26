@@ -24,6 +24,12 @@ class MachineCapacityType(str, Enum):
     TUBES_PER_DAY = "TUBES_PER_DAY"
 
 
+class MachineStatus(str, Enum):
+    UP = "UP"
+    MAINT = "MAINT"
+    DOWN = "DOWN"
+
+
 LEGACY_CAPACITY_TYPE_ALIASES = {
     "REELS_PER_SHIFT": MachineCapacityType.REELS_PER_DAY.value,
     "BAMBOOS_PER_SHIFT": MachineCapacityType.BAMBOOS_PER_DAY.value,
@@ -58,13 +64,15 @@ class MachineSupportedMandrelResponse(BaseModel):
 
 
 class MachineBase(MachineSupportedMandrelBase):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     code: str
     name: str
     department: MachineDepartment
     capacity_type: MachineCapacityType
     capacity_value: float = Field(gt=0)
+    status: MachineStatus = MachineStatus.UP
+    is_active: bool = Field(default=True, validation_alias=AliasChoices("is_active", "active"))
     batch_bamboo_capacity: Optional[float] = Field(default=None, gt=0)
     cycle_time_hours: Optional[float] = Field(default=None, ge=4, le=8)
     id_min_mm: float = Field(gt=0)
@@ -105,6 +113,22 @@ class MachineBase(MachineSupportedMandrelBase):
             return LEGACY_CAPACITY_TYPE_ALIASES.get(normalized, normalized)
         return value
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, value):
+        if value in (None, ""):
+            return MachineStatus.UP.value
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            if normalized in {"ACTIVE", "RUNNING", "AVAILABLE"}:
+                return MachineStatus.UP.value
+            if normalized in {"MAINTENANCE", "SERVICE"}:
+                return MachineStatus.MAINT.value
+            if normalized in {"INACTIVE", "DISABLED"}:
+                return MachineStatus.DOWN.value
+            return normalized
+        return value
+
     @model_validator(mode="after")
     def validate_ranges(self):
         if self.id_min_mm > self.id_max_mm:
@@ -133,6 +157,7 @@ class MachineUpdate(MachineSupportedMandrelBase):
     department: Optional[MachineDepartment] = None
     capacity_type: Optional[MachineCapacityType] = None
     capacity_value: Optional[float] = Field(default=None, gt=0)
+    status: Optional[MachineStatus] = None
     batch_bamboo_capacity: Optional[float] = Field(default=None, gt=0)
     cycle_time_hours: Optional[float] = Field(default=None, ge=4, le=8)
     id_min_mm: Optional[float] = Field(default=None, gt=0)
@@ -178,6 +203,22 @@ class MachineUpdate(MachineSupportedMandrelBase):
             return LEGACY_CAPACITY_TYPE_ALIASES.get(normalized, normalized)
         return value
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def normalize_status(cls, value):
+        if value in (None, ""):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().upper()
+            if normalized in {"ACTIVE", "RUNNING", "AVAILABLE"}:
+                return MachineStatus.UP.value
+            if normalized in {"MAINTENANCE", "SERVICE"}:
+                return MachineStatus.MAINT.value
+            if normalized in {"INACTIVE", "DISABLED"}:
+                return MachineStatus.DOWN.value
+            return normalized
+        return value
+
     @model_validator(mode="after")
     def validate_partial_ranges(self):
         if self.id_min_mm is not None and self.id_max_mm is not None and self.id_min_mm > self.id_max_mm:
@@ -198,6 +239,7 @@ class MachineResponse(BaseModel):
     department: MachineDepartment
     capacity_type: MachineCapacityType
     capacity_value: float
+    status: MachineStatus
     batch_bamboo_capacity: Optional[float] = None
     cycle_time_hours: Optional[float] = None
     id_min_mm: float

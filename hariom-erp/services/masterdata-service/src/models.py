@@ -134,6 +134,7 @@ class Machine(Base):
     length_min_mm = Column(Float, nullable=False, default=0.0)
     length_max_mm = Column(Float, nullable=False, default=0.0)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    status = Column(String(20), nullable=False, default="UP")
     is_active = Column(Boolean, nullable=False, default=True)
     active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

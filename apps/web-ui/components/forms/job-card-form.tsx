@@ -74,7 +74,9 @@ export function JobCardForm({ initialData, onSubmit, onCancel }: JobCardFormProp
                     <label className="text-sm font-medium">Machine</label>
                     <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" {...register("machine_id", { required: true })}>
                         <option value="">Select Machine</option>
-                        {machines?.map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                        {machines
+                            ?.filter((m: any) => String(m?.status || "UP").toUpperCase() === "UP")
+                            .map((m: any) => <option key={m.id} value={m.id}>{m.name}</option>)}
                     </select>
                 </div>
                 <div className="space-y-2">

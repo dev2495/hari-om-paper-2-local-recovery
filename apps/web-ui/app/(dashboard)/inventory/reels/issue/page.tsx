@@ -44,7 +44,11 @@ export default function ReelIssuePage() {
 
   const winderMachines = useMemo(() => {
     const rows = Array.isArray(machinesQuery.data) ? machinesQuery.data : []
-    return rows.filter((machine: any) => machine.department === "WINDER")
+    return rows.filter(
+      (machine: any) =>
+        machine.department === "WINDER" &&
+        String(machine.status || "UP").toUpperCase() === "UP",
+    )
   }, [machinesQuery.data])
 
   const openIssues = useMemo(() => {

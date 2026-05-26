@@ -249,6 +249,19 @@ class PlanningValidationTests(unittest.TestCase):
             )
         self.assertEqual(exc.exception.status_code, 400)
 
+    def test_machine_under_maintenance_is_rejected(self):
+        machine = _machine()
+        machine["status"] = "MAINT"
+        with self.assertRaises(HTTPException) as exc:
+            _validate_machine_compatibility(
+                machine,
+                "WINDER",
+                _snapshot(),
+                "00000000-0000-0000-0000-0000000000a1",
+            )
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertIn("MAINT", str(exc.exception.detail))
+
     def test_packing_machine_compatibility_is_noop(self):
         machine = _machine()
         machine["department"] = "PACKING"

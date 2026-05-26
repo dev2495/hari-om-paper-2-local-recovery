@@ -117,9 +117,10 @@ def _winder_override_warning(job_card: JobCard, machine_id: Optional[uuid.UUID])
         )
     return None
 SHIFT_CALENDAR = [
-    {"code": "SHIFT_A", "label": "Shift A", "capacity_share": 0.5},
-    {"code": "SHIFT_B", "label": "Shift B", "capacity_share": 0.5},
+    {"code": "SHIFT_A", "label": "Shift A", "capacity_share": 1.0},
+    {"code": "SHIFT_B", "label": "Shift B", "capacity_share": 1.0},
 ]
+MACHINE_BLOCKING_STATUSES = {"MAINT", "DOWN"}
 VIRTUAL_STAGE_CAPACITY = {
     "QC": 12000.0,
     "DISPATCH": 12000.0,
@@ -167,7 +168,7 @@ def _shift_share(shift_code: Optional[str]) -> float:
     for item in SHIFT_CALENDAR:
         if item["code"] == normalized:
             return float(item["capacity_share"])
-    return 0.5
+    return 1.0
 
 
 def _shift_label(shift_code: Optional[str]) -> str:
@@ -652,6 +653,9 @@ def _validate_machine_compatibility(
         raise HTTPException(status_code=400, detail="Machine belongs to another plant")
     if not bool(machine.get("is_active", machine.get("active", False))):
         raise HTTPException(status_code=400, detail="Machine is inactive")
+    machine_status = str(machine.get("status") or "UP").strip().upper()
+    if machine_status in MACHINE_BLOCKING_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Machine is {machine_status}; restore it before scheduling")
 
     expected_department = STAGE_TO_MACHINE_DEPARTMENT.get(stage)
     if machine.get("department") != expected_department:
@@ -924,11 +928,11 @@ def _execution_load_for_capacity(
 def _oven_bamboo_capacity_profile(stage: str, machine: dict[str, Any]) -> tuple[Optional[float], Optional[str]]:
     if stage != "OVEN":
         return None, None
-    batches_per_day = _snapshot_float(machine.get("capacity_value"))
+    batches_per_shift = _snapshot_float(machine.get("capacity_value"))
     bamboos_per_batch = _snapshot_float(machine.get("batch_bamboo_capacity"))
-    if not batches_per_day or not bamboos_per_batch:
+    if not batches_per_shift or not bamboos_per_batch:
         return None, None
-    return round(batches_per_day * bamboos_per_batch, 2), "BAMBOOS_PER_DAY"
+    return round(batches_per_shift * bamboos_per_batch, 2), "BAMBOOS_PER_DAY"
 
 
 def _resolve_capacity_profile(
@@ -965,7 +969,7 @@ def _resolve_capacity_profile(
 def _shift_capacity_value(capacity_value: Optional[float], shift_code: Optional[str]) -> Optional[float]:
     if capacity_value is None:
         return None
-    return round(float(capacity_value) * _shift_share(shift_code), 2)
+    return round(float(capacity_value), 2)
 
 
 def _capacity_warning_message(
@@ -974,6 +978,8 @@ def _capacity_warning_message(
     stage: str,
     machine_id: Optional[uuid.UUID],
     machine_capacity: Optional[float],
+    plan_date: Optional[date] = None,
+    shift_code: Optional[str] = None,
 ) -> Optional[str]:
     if machine_id is None or stage == "PACKING":
         return None
@@ -996,8 +1002,12 @@ def _capacity_warning_message(
             JobCardStageSegment.machine_id == machine_id,
             JobCardStageSegment.status.notin_(["COMPLETED", "CANCELLED"]),
         )
-        .all()
     )
+    if plan_date is not None:
+        queue_rows = queue_rows.filter(JobCardStageSegment.plan_date == plan_date)
+    if shift_code is not None:
+        queue_rows = queue_rows.filter(JobCardStageSegment.shift_code == shift_code)
+    queue_rows = queue_rows.all()
     planned_total = 0.0
     for queue_row, _job_card in queue_rows:
         planned_total += float(queue_row.required_capacity or 0.0)
@@ -1005,7 +1015,7 @@ def _capacity_warning_message(
         return None
     return (
         f"Capacity warning: {stage} planned load {planned_total:.2f} {capacity_unit} exceeds "
-        f"machine daily capacity {capacity:.2f} {capacity_unit}."
+        f"machine shift capacity {capacity:.2f} {capacity_unit}."
     )
 
 
@@ -1427,12 +1437,14 @@ def _validate_execution_capacity(
     if capacity and capacity > 0 and capacity_unit:
         now = datetime.utcnow()
         start_utc, end_utc = _today_utc_window(now)
+        normalized_shift = stage_row.shift_code or "SHIFT_A"
         completed_rows = (
             db.query(JobCardStageSegment.output_qty, JobCard.spec_snapshot)
             .join(JobCard, JobCard.id == JobCardStageSegment.job_card_id)
             .filter(
                 JobCardStageSegment.stage_type == stage,
                 JobCardStageSegment.machine_id == machine_id,
+                JobCardStageSegment.shift_code == normalized_shift,
                 JobCardStageSegment.status == "COMPLETED",
                 JobCardStageSegment.completed_at.isnot(None),
                 JobCardStageSegment.completed_at >= start_utc,
@@ -1457,8 +1469,8 @@ def _validate_execution_capacity(
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"{stage} capacity exceeded for today. "
-                    f"Projected {projected:.2f} {capacity_unit} > daily capacity {capacity:.2f} {capacity_unit}."
+                    f"{stage} capacity exceeded for {normalized_shift}. "
+                    f"Projected {projected:.2f} {capacity_unit} > shift capacity {capacity:.2f} {capacity_unit}."
                 ),
             )
 
@@ -4070,6 +4082,8 @@ def _build_stage_board_view(
                             stage=stage,
                             machine_id=_to_uuid(machine_id, field="machine_id"),
                             machine_capacity=_snapshot_float(machine.get("capacity_value")),
+                            plan_date=plan_date,
+                            shift_code=shift_code,
                         ),
                         constraints=_lane_constraints_from_machine(machine),
                         jobs=machine_jobs,

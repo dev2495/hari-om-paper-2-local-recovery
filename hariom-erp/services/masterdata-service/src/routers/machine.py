@@ -46,6 +46,8 @@ def _apply_machine_updates_with_validation(db_machine: models.Machine, machine_u
         "department": update_data.get("department", db_machine.department),
         "capacity_type": update_data.get("capacity_type", db_machine.capacity_type),
         "capacity_value": update_data.get("capacity_value", db_machine.capacity_value),
+        "status": update_data.get("status", db_machine.status),
+        "is_active": update_data.get("is_active", db_machine.is_active),
         "batch_bamboo_capacity": update_data.get("batch_bamboo_capacity", db_machine.batch_bamboo_capacity),
         "cycle_time_hours": update_data.get("cycle_time_hours", db_machine.cycle_time_hours),
         "id_min_mm": update_data.get("id_min_mm", db_machine.id_min_mm),
@@ -71,6 +73,7 @@ def _serialize_machine(machine: models.Machine) -> dict:
         "department": machine.department,
         "capacity_type": _canonical_capacity_type(machine.department, machine.capacity_type),
         "capacity_value": machine.capacity_value,
+        "status": str(machine.status or "UP").upper(),
         "batch_bamboo_capacity": machine.batch_bamboo_capacity,
         "cycle_time_hours": machine.cycle_time_hours,
         "id_min_mm": machine.id_min_mm,
@@ -137,19 +140,29 @@ def _sync_supported_mandrels(db_machine: models.Machine, mandrels: list[models.M
 @router.get("/", response_model=list[MachineResponse])
 def get_machines(
     department: Optional[str] = Query(None, description="Filter by department"),
+    include_inactive: bool = Query(False, description="Include disabled machines for master maintenance screens"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
     query = (
         db.query(models.Machine)
         .options(selectinload(models.Machine.supported_mandrels).selectinload(models.MachineSupportedMandrel.mandrel))
-        .filter(models.Machine.is_active == True)
     )
+    if not include_inactive:
+        query = query.filter(models.Machine.is_active == True)
     query = apply_plant_scope(query, models.Machine.plant_id, plant_scope)
 
     if department:
         query = query.filter(models.Machine.department == department.strip().upper())
-    return [_serialize_machine(machine) for machine in query.order_by(models.Machine.department.asc(), models.Machine.code.asc()).all()]
+    return [
+        _serialize_machine(machine)
+        for machine in query.order_by(
+            models.Machine.is_active.desc(),
+            models.Machine.status.asc(),
+            models.Machine.department.asc(),
+            models.Machine.code.asc(),
+        ).all()
+    ]
 
 
 @router.get("/{machine_id}", response_model=MachineResponse)
@@ -187,8 +200,11 @@ def create_machine(
         raise HTTPException(status_code=409, detail="Machine code or name already exists in this plant")
 
     payload = machine.model_dump()
+    is_active = bool(payload.pop("is_active", True))
+    if not is_active:
+        payload["status"] = "DOWN"
     supported_mandrels = _resolve_supported_mandrels(db, payload.pop("supported_mandrel_ids", []), plant_values)
-    db_machine = models.Machine(**payload, plant_id=plant_id, is_active=True)
+    db_machine = models.Machine(**payload, plant_id=plant_id, is_active=is_active, active=is_active)
     db.add(db_machine)
     if supported_mandrels:
         _sync_supported_mandrels(db_machine, supported_mandrels)
@@ -229,6 +245,10 @@ def update_machine(
             raise HTTPException(status_code=409, detail="Machine code or name already exists in this plant")
 
     supported_mandrel_ids = update_data.pop("supported_mandrel_ids", None)
+    if "is_active" in update_data:
+        update_data["active"] = bool(update_data["is_active"])
+        if not update_data["is_active"]:
+            update_data["status"] = "DOWN"
 
     for field, value in update_data.items():
         setattr(db_machine, field, value)
@@ -258,5 +278,7 @@ def delete_machine(
         raise HTTPException(status_code=404, detail="Machine not found")
 
     db_machine.is_active = False
+    db_machine.active = False
+    db_machine.status = "DOWN"
     db.commit()
     return {"message": "Machine deactivated successfully"}

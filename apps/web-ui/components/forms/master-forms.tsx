@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form"
 import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { BadgeCheck, Factory, Gauge, Power, Wrench } from "lucide-react"
 
 interface MasterFormProps {
   initialData?: any
@@ -310,47 +311,94 @@ export function PlantForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
   )
 }
 
+const MACHINE_CAPACITY_TYPE_BY_DEPARTMENT: Record<string, string> = {
+  SLITTING: "REELS_PER_DAY",
+  WINDER: "METERS_PER_DAY",
+  OVEN: "BATCHES_PER_DAY",
+  PROCESS: "TUBES_PER_DAY",
+  PACKING: "TUBES_PER_DAY",
+}
+
+const MACHINE_DEPARTMENT_COPY: Record<string, { title: string; help: string; capacity: string; placeholder: string }> = {
+  SLITTING: {
+    title: "Slitting setup",
+    help: "Use only for reel conversion work before winding. Keep this narrow so planners do not route normal tube jobs here.",
+    capacity: "Reels converted per shift",
+    placeholder: "3",
+  },
+  WINDER: {
+    title: "Winder setup",
+    help: "Enter meters made in one shift. ID, OD, length, and mandrel fit are used before the planner allows a job here.",
+    capacity: "Meters made per shift",
+    placeholder: "14000",
+  },
+  OVEN: {
+    title: "Oven setup",
+    help: "Enter batch cycles possible in one shift, then bamboo capacity per batch and curing hours.",
+    capacity: "Batch cycles per shift",
+    placeholder: "2",
+  },
+  PROCESS: {
+    title: "Process setup",
+    help: "Use for finishing/process machines after oven. Capacity is tubes completed in one shift.",
+    capacity: "Tubes completed per shift",
+    placeholder: "11000",
+  },
+  PACKING: {
+    title: "Packing setup",
+    help: "Use for final packing lanes. Capacity is packed tubes in one shift.",
+    capacity: "Tubes packed per shift",
+    placeholder: "12000",
+  },
+}
+
 export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
   const { register, handleSubmit, watch, setValue } = useForm({
     defaultValues: {
       department: "WINDER",
       capacity_type: "METERS_PER_DAY",
+      machine_state:
+        initialData && (initialData.is_active === false || initialData.active === false)
+          ? "DISABLED"
+          : String(initialData?.status || "UP").toUpperCase(),
       cycle_time_hours: 5.5,
       batch_bamboo_capacity: 500,
       ...initialData,
     },
   })
   const department = String(watch("department") || "WINDER").toUpperCase()
+  const machineState = String(watch("machine_state") || "UP").toUpperCase()
   const capacityValue = Number(watch("capacity_value") || 0)
   const batchBambooCapacity = Number(watch("batch_bamboo_capacity") || 0)
-  const ovenDailyBamboo = department === "OVEN" && capacityValue > 0 && batchBambooCapacity > 0
+  const ovenShiftBamboo = department === "OVEN" && capacityValue > 0 && batchBambooCapacity > 0
     ? capacityValue * batchBambooCapacity
     : 0
+  const dailyCapacity = department === "OVEN" ? ovenShiftBamboo * 2 : capacityValue * 2
+  const selectedCopy = MACHINE_DEPARTMENT_COPY[department] || MACHINE_DEPARTMENT_COPY.WINDER
 
   useEffect(() => {
-    if (department === "WINDER") setValue("capacity_type", "METERS_PER_DAY")
-    if (department === "OVEN") setValue("capacity_type", "BATCHES_PER_DAY")
-    if (department === "PROCESS") setValue("capacity_type", "TUBES_PER_DAY")
+    setValue("capacity_type", MACHINE_CAPACITY_TYPE_BY_DEPARTMENT[department] || "TUBES_PER_DAY")
   }, [department, setValue])
 
   const submitMachine = (payload: any) => {
     const normalizedDepartment = String(payload.department || department).toUpperCase()
-    const nextPayload = {
-      ...payload,
+    const normalizedState = String(payload.machine_state || machineState || "UP").toUpperCase()
+    const isDisabled = normalizedState === "DISABLED"
+    const nextPayload: any = {
+      code: payload.code,
+      name: payload.name,
       department: normalizedDepartment,
-      capacity_type:
-        normalizedDepartment === "OVEN"
-          ? "BATCHES_PER_DAY"
-          : normalizedDepartment === "WINDER"
-            ? "METERS_PER_DAY"
-            : "TUBES_PER_DAY",
+      capacity_type: MACHINE_CAPACITY_TYPE_BY_DEPARTMENT[normalizedDepartment] || "TUBES_PER_DAY",
       capacity_value: Number(payload.capacity_value || 0),
+      status: isDisabled ? "DOWN" : normalizedState,
+      is_active: !isDisabled,
       id_min_mm: Number(payload.id_min_mm || 1),
       id_max_mm: Number(payload.id_max_mm || 999),
       od_min_mm: Number(payload.od_min_mm || 1),
       od_max_mm: Number(payload.od_max_mm || 999),
       length_min_mm: Number(payload.length_min_mm || 1),
       length_max_mm: Number(payload.length_max_mm || 9999),
+      supported_mandrel_ids: Array.isArray(payload.supported_mandrel_ids) ? payload.supported_mandrel_ids : [],
     }
     if (normalizedDepartment === "OVEN") {
       nextPayload.batch_bamboo_capacity = Number(payload.batch_bamboo_capacity || 500)
@@ -363,87 +411,171 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
   }
 
   return (
-    <form onSubmit={handleSubmit(submitMachine)} className="max-h-[74vh] space-y-5 overflow-y-auto px-1">
-      <div className="rounded-2xl border border-cyan-100 bg-cyan-50/70 p-4">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-800">Capacity contract</p>
-        <p className="mt-2 text-sm leading-6 text-cyan-950">
-          Winder is planned in meters made, oven is planned as batch cycles with bamboo capacity and cycle hours, and process is planned in tubes.
-        </p>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Machine Code</label>
-          <Input {...register("code", { required: true })} placeholder="W-01" />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Machine Name</label>
-          <Input {...register("name", { required: true })} placeholder="Winder 1" />
+    <form onSubmit={handleSubmit(submitMachine)} className="max-h-[78vh] space-y-5 overflow-y-auto px-1 pb-1">
+      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 text-white">
+        <div className="grid gap-4 p-5 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200">{selectedCopy.title}</p>
+            <h3 className="mt-2 text-xl font-semibold">Two-shift machine contract</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-300">{selectedCopy.help}</p>
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">Planning rule</p>
+            <p className="mt-2 text-2xl font-semibold">2 shifts/day</p>
+            <p className="mt-1 text-xs leading-5 text-slate-300">Capacity is entered per shift. Daily visible capacity is calculated, not typed.</p>
+          </div>
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-4">
+
+      <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Department</label>
-          <select {...register("department", { required: true })} className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm">
+          <label className="text-sm font-semibold text-slate-800">Machine Code</label>
+          <Input className="h-12 rounded-2xl" {...register("code", { required: true })} placeholder="W-01" />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-800">Machine Name</label>
+          <Input className="h-12 rounded-2xl" {...register("name", { required: true })} placeholder="Winder 1" />
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-800">Process</label>
+          <select {...register("department", { required: true })} className="flex h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm">
+            <option value="SLITTING">Slitting</option>
             <option value="WINDER">Winder</option>
             <option value="OVEN">Oven</option>
             <option value="PROCESS">Process</option>
+            <option value="PACKING">Packing</option>
           </select>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">Capacity Type</label>
-          <select {...register("capacity_type", { required: true })} disabled className="flex h-10 w-full rounded-md border border-input bg-slate-50 px-3 py-2 text-sm text-slate-600">
-            <option value="METERS_PER_DAY">Meters per day</option>
-            <option value="BATCHES_PER_DAY">Batch cycles per day</option>
-            <option value="TUBES_PER_DAY">Tubes per day</option>
+          <label className="text-sm font-semibold text-slate-800">Machine State</label>
+          <select {...register("machine_state", { required: true })} className="flex h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm">
+            <option value="UP">Running / available</option>
+            <option value="MAINT">Maintenance</option>
+            <option value="DOWN">Down, keep visible</option>
+            <option value="DISABLED">Disabled, hide from production</option>
           </select>
         </div>
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-slate-800">Capacity Unit</label>
+          <input type="hidden" {...register("capacity_type", { required: true })} />
+          <div className="flex h-12 items-center rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+            {selectedCopy.capacity}
+          </div>
+        </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">
-          {department === "OVEN" ? "Batch cycles per day" : department === "WINDER" ? "Meters per day" : "Tubes per day"}
-        </label>
-        <Input type="number" step="0.01" inputMode="decimal" {...register("capacity_value", { required: true, valueAsNumber: true })} />
+
+      <div className="grid gap-4 rounded-3xl border border-cyan-100 bg-cyan-50/70 p-4 md:grid-cols-[minmax(0,1fr)_220px]">
+        <div className="space-y-2">
+          <label className="text-sm font-semibold text-cyan-950">{selectedCopy.capacity}</label>
+          <Input
+            className="h-12 rounded-2xl border-cyan-200 bg-white"
+            type="number"
+            step="0.01"
+            inputMode="decimal"
+            placeholder={selectedCopy.placeholder}
+            {...register("capacity_value", { required: true, valueAsNumber: true })}
+          />
+          <p className="text-xs leading-5 text-cyan-900">
+            This value is one shift only. The planner creates Shift A and Shift B separately every day.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="rounded-2xl bg-white/85 p-3">
+            <Gauge className="h-4 w-4 text-cyan-700" />
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Per shift</p>
+            <p className="mt-1 text-xl font-semibold text-slate-950">
+              {department === "OVEN" ? ovenShiftBamboo.toFixed(0) : capacityValue ? capacityValue.toFixed(0) : "-"}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white/85 p-3">
+            <Factory className="h-4 w-4 text-cyan-700" />
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Two shifts</p>
+            <p className="mt-1 text-xl font-semibold text-slate-950">{dailyCapacity ? dailyCapacity.toFixed(0) : "-"}</p>
+          </div>
+        </div>
       </div>
+
       {department === "OVEN" ? (
-        <div className="grid gap-4 rounded-2xl border border-amber-100 bg-amber-50/60 p-4 md:grid-cols-3">
+        <div className="grid gap-4 rounded-3xl border border-amber-100 bg-amber-50/70 p-4 md:grid-cols-3">
           <div className="space-y-2">
-            <label className="text-sm font-medium">Bamboos per batch</label>
-            <Input type="number" step="1" inputMode="numeric" {...register("batch_bamboo_capacity", { required: true, valueAsNumber: true })} />
+            <label className="text-sm font-semibold text-amber-950">Bamboos per batch</label>
+            <Input className="h-12 rounded-2xl bg-white" type="number" step="1" inputMode="numeric" {...register("batch_bamboo_capacity", { required: true, valueAsNumber: true })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium">Cycle hours / batch</label>
-            <Input type="number" step="0.1" inputMode="decimal" {...register("cycle_time_hours", { required: true, valueAsNumber: true })} />
+            <label className="text-sm font-semibold text-amber-950">Cycle hours per batch</label>
+            <Input className="h-12 rounded-2xl bg-white" type="number" step="0.1" inputMode="decimal" {...register("cycle_time_hours", { required: true, valueAsNumber: true })} />
           </div>
-          <div className="rounded-xl bg-white/75 p-3">
+          <div className="rounded-2xl bg-white/85 p-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">Planner capacity</p>
-            <p className="mt-2 text-xl font-semibold text-slate-950">{ovenDailyBamboo.toFixed(0)} bamboo/day</p>
-            <p className="mt-1 text-xs text-slate-500">Used to split oven slots by load, not just batch count.</p>
+            <p className="mt-2 text-xl font-semibold text-slate-950">{ovenShiftBamboo.toFixed(0)} bamboo/shift</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Used to split oven slots by load, not just batch count.</p>
           </div>
         </div>
       ) : null}
-      <div className="grid grid-cols-2 gap-4">
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Capability window</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Keep ranges tight so wrong-size job cards cannot be scheduled onto this machine.
+            </p>
+          </div>
+          <div className={`rounded-full px-3 py-1 text-xs font-semibold ${
+            machineState === "UP"
+              ? "bg-emerald-50 text-emerald-700"
+              : machineState === "MAINT"
+                ? "bg-amber-50 text-amber-700"
+                : "bg-slate-100 text-slate-600"
+          }`}>
+            {machineState === "UP" ? "Available" : machineState === "MAINT" ? "Maintenance" : machineState === "DISABLED" ? "Disabled" : "Down"}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-medium">ID Range (mm)</label>
+          <label className="text-sm font-semibold text-slate-800">ID Range (mm)</label>
           <div className="flex gap-2">
-            <Input type="number" {...register("id_min_mm")} placeholder="Min" />
-            <Input type="number" {...register("id_max_mm")} placeholder="Max" />
+            <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("id_min_mm", { valueAsNumber: true })} placeholder="Min" />
+            <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("id_max_mm", { valueAsNumber: true })} placeholder="Max" />
           </div>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-medium">OD Range (mm)</label>
+          <label className="text-sm font-semibold text-slate-800">OD Range (mm)</label>
           <div className="flex gap-2">
-            <Input type="number" {...register("od_min_mm")} placeholder="Min" />
-            <Input type="number" {...register("od_max_mm")} placeholder="Max" />
+            <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("od_min_mm", { valueAsNumber: true })} placeholder="Min" />
+            <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("od_max_mm", { valueAsNumber: true })} placeholder="Max" />
+          </div>
+        </div>
+        </div>
+        <div className="mt-4 space-y-2">
+          <label className="text-sm font-semibold text-slate-800">Length Range (mm)</label>
+          <div className="flex gap-2">
+            <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("length_min_mm", { valueAsNumber: true })} placeholder="Min" />
+            <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("length_max_mm", { valueAsNumber: true })} placeholder="Max" />
           </div>
         </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Length Range (mm)</label>
-        <div className="flex gap-2">
-          <Input type="number" {...register("length_min_mm")} placeholder="Min" />
-          <Input type="number" {...register("length_max_mm")} placeholder="Max" />
+
+      {machineState !== "UP" ? (
+        <div className="flex items-start gap-3 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          {machineState === "MAINT" ? <Wrench className="mt-0.5 h-4 w-4 shrink-0" /> : <Power className="mt-0.5 h-4 w-4 shrink-0" />}
+          <p>
+            {machineState === "MAINT"
+              ? "Maintenance machines stay visible to planners but cannot receive scheduled cards."
+              : "Down or disabled machines are blocked from scheduling; disabled machines are also hidden from production selectors."}
+          </p>
         </div>
-      </div>
+      ) : (
+        <div className="flex items-center gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+          <BadgeCheck className="h-4 w-4" />
+          Available machines can be selected by sales release, planner, reel issue, and shop-floor handoff.
+        </div>
+      )}
+
       <DialogFooter className="mt-6">
         <Button type="button" variant="outline" onClick={onCancel}>
           Cancel

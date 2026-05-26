@@ -30,6 +30,7 @@ interface CrudTableProps {
     onAdd?: (data: any) => void
     onEdit?: (id: string, data: any) => void
     onDelete?: (id: string) => void
+    rowActions?: (row: any) => React.ReactNode
     FormComponent?: React.ComponentType<{
         initialData?: any
         onSubmit: (data: any) => void
@@ -104,6 +105,7 @@ export function CrudTable({
     onAdd,
     onEdit,
     onDelete,
+    rowActions,
     FormComponent,
     dialogContentClassName
 }: CrudTableProps) {
@@ -169,7 +171,7 @@ export function CrudTable({
 
     return (
         <div className="space-y-6">
-            <section className="rounded-[1.75rem] border border-slate-200 bg-white/80 px-4 py-4 shadow-premium">
+            <section className="rounded-[1.75rem] border border-slate-200 bg-white/90 px-4 py-4 shadow-premium">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
@@ -200,17 +202,17 @@ export function CrudTable({
                 </div>
             </section>
 
-            <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white/85 shadow-premium">
+            <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_48%,#ecfeff_100%)] shadow-premium">
                 <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_320px] lg:px-8">
                     <div>
                         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master Data Workspace</p>
                         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{title}</h1>
                         <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">{subtitle}</p>
-                        <p className="mt-2 max-w-3xl text-xs font-semibold text-amber-700">
+                        <p className="mt-3 inline-flex max-w-3xl rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">
                             Master data is never physically deleted. Disable hides it from future dropdowns while old orders, specs, job cards, and ledgers keep their historical references.
                         </p>
                     </div>
-                    <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-col gap-3 rounded-[1.5rem] border border-slate-200 bg-white/80 p-4 shadow-sm">
                         <div>
                             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{metricLabel}</p>
                             <p className="mt-2 text-3xl font-semibold text-slate-950">{filteredData.length}</p>
@@ -230,7 +232,7 @@ export function CrudTable({
                                 }}
                             >
                                 <DialogTrigger asChild>
-                                    <Button className="h-11 rounded-xl bg-slate-900 text-white hover:bg-slate-800" disabled={writeBlocked}>
+                                    <Button className="h-11 rounded-xl bg-slate-900 text-white shadow-lg shadow-slate-900/10 hover:bg-slate-800" disabled={writeBlocked}>
                                         <Plus className="mr-2 h-4 w-4" />
                                         Add New
                                     </Button>
@@ -261,7 +263,7 @@ export function CrudTable({
                 </div>
             </section>
 
-            <section className="rounded-[2rem] border border-slate-200 bg-white/85 px-5 py-5 shadow-premium">
+            <section className="rounded-[2rem] border border-slate-200 bg-white/90 px-5 py-5 shadow-premium">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="relative w-full max-w-xl">
                         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -269,7 +271,7 @@ export function CrudTable({
                             placeholder={`Search ${title.toLowerCase()}...`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
-                            className="h-12 rounded-full border-slate-200 bg-slate-50 pl-11"
+                            className="h-12 rounded-full border-slate-200 bg-slate-50 pl-11 shadow-inner"
                         />
                     </div>
                     <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -308,7 +310,7 @@ export function CrudTable({
                             </tr>
                         ) : (
                             filteredData.map((row, i) => (
-                                <tr key={i} className="border-b border-slate-100 transition-colors hover:bg-slate-50/80">
+                                <tr key={i} className="border-b border-slate-100 transition-colors hover:bg-cyan-50/35">
                                     {columns.map((col, j) => (
                                         <td key={j} className="p-4 align-middle text-slate-700">
                                             {col.render ? col.render(row[col.accessorKey], row) : row[col.accessorKey]}
@@ -316,6 +318,7 @@ export function CrudTable({
                                     ))}
                                     <td className="p-4 align-middle text-right">
                                         <div className="flex justify-end gap-2">
+                                            {rowActions ? rowActions(row) : null}
                                             {FormComponent && (
                                                 <Button
                                                     variant="ghost"

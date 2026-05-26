@@ -97,6 +97,7 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS od_max_mm DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS length_min_mm DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS length_max_mm DOUBLE PRECISION"))
+        connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'UP'"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE"))
         connection.execute(text("ALTER TABLE machine ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE"))
         connection.execute(
@@ -114,12 +115,19 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("UPDATE machine SET od_max_mm = COALESCE(od_max_mm, 0.0)"))
         connection.execute(text("UPDATE machine SET length_min_mm = COALESCE(length_min_mm, 0.0)"))
         connection.execute(text("UPDATE machine SET length_max_mm = COALESCE(length_max_mm, 0.0)"))
+        connection.execute(text("UPDATE machine SET status = COALESCE(NULLIF(upper(status), ''), 'UP')"))
+        connection.execute(text("UPDATE machine SET status = 'UP' WHERE status NOT IN ('UP','MAINT','DOWN')"))
         connection.execute(text("UPDATE machine SET is_active = COALESCE(is_active, active, TRUE)"))
         connection.execute(text("UPDATE machine SET active = COALESCE(active, is_active, TRUE)"))
+        connection.execute(text("UPDATE machine SET status = 'DOWN' WHERE COALESCE(is_active, active, TRUE) = FALSE"))
         connection.execute(text("ALTER TABLE machine DROP CONSTRAINT IF EXISTS machine_name_key"))
         connection.execute(text("DROP INDEX IF EXISTS machine_name_key"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_machine_plant_code ON machine (plant_id, code)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_machine_plant_name ON machine (plant_id, name)"))
+        connection.execute(text("ALTER TABLE machine DROP CONSTRAINT IF EXISTS ck_machine_status"))
+        connection.execute(
+            text("ALTER TABLE machine ADD CONSTRAINT ck_machine_status CHECK (status IN ('UP','MAINT','DOWN'))")
+        )
         connection.execute(text("ALTER TABLE machine DROP CONSTRAINT IF EXISTS ck_machine_capacity_type"))
         connection.execute(
             text(

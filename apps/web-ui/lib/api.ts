@@ -210,7 +210,7 @@ export const masterApi = {
   updateMandrel: (id: string, data: any) => api.put(`/api/master/mandrels/${id}`, data),
   deleteMandrel: (id: string) => api.delete(`/api/master/mandrels/${id}`),
 
-  getMachines: () => api.get("/api/production/machines"),
+  getMachines: (params?: any) => api.get("/api/production/machines", { params }),
   createMachine: (data: any) => api.post("/api/production/machines", data),
   updateMachine: (id: string, data: any) => api.put(`/api/production/machines/${id}`, data),
   deleteMachine: (id: string) => api.delete(`/api/production/machines/${id}`),

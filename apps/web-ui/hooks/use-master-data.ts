@@ -652,11 +652,12 @@ export function useDeleteTool() {
 }
 
 // Machines
-export function useMachines() {
+export function useMachines(options?: { includeInactive?: boolean }) {
+    const includeInactive = Boolean(options?.includeInactive)
     return useQuery({
-        queryKey: ["machines"],
+        queryKey: ["master-machines", { includeInactive }],
         queryFn: async () => {
-            const { data } = await masterApi.getMachines()
+            const { data } = await masterApi.getMachines(includeInactive ? { include_inactive: true } : undefined)
             return data
         },
     })
@@ -667,7 +668,8 @@ export function useCreateMachine() {
     return useMutation({
         mutationFn: (data: any) => masterApi.createMachine(data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["machines"] })
+            queryClient.invalidateQueries({ queryKey: ["master-machines"] })
+            queryClient.invalidateQueries({ queryKey: ["production-machines"] })
         },
     })
 }
@@ -677,7 +679,8 @@ export function useUpdateMachine() {
     return useMutation({
         mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateMachine(id, data),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["machines"] })
+            queryClient.invalidateQueries({ queryKey: ["master-machines"] })
+            queryClient.invalidateQueries({ queryKey: ["production-machines"] })
         },
     })
 }
@@ -687,7 +690,8 @@ export function useDeleteMachine() {
     return useMutation({
         mutationFn: (id: string) => masterApi.deleteMachine(id),
         onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ["machines"] })
+            queryClient.invalidateQueries({ queryKey: ["master-machines"] })
+            queryClient.invalidateQueries({ queryKey: ["production-machines"] })
         },
     })
 }

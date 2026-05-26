@@ -73,11 +73,11 @@ function resolveCustomerLabel(order: any, customerMap: Map<string, string>) {
 
 function formatCapacityUnit(value?: string | null) {
   const normalized = String(value || "").toUpperCase()
-  if (normalized === "METERS_PER_DAY") return "meters/day"
-  if (normalized === "BAMBOOS_PER_DAY") return "bamboo/day"
-  if (normalized === "BATCHES_PER_DAY") return "batch cycles/day"
-  if (normalized === "TUBES_PER_DAY") return "tubes/day"
-  if (normalized === "REELS_PER_DAY") return "reels/day"
+  if (normalized === "METERS_PER_DAY") return "meters/shift"
+  if (normalized === "BAMBOOS_PER_DAY") return "bamboo/shift"
+  if (normalized === "BATCHES_PER_DAY") return "batch cycles/shift"
+  if (normalized === "TUBES_PER_DAY") return "tubes/shift"
+  if (normalized === "REELS_PER_DAY") return "reels/shift"
   return normalized ? normalized.toLowerCase().replace(/_/g, " ") : ""
 }
 
@@ -158,6 +158,7 @@ export default function SalesOrdersPage() {
     () =>
       ((Array.isArray(machinesQuery.data) ? machinesQuery.data : []) as any[])
         .filter((machine) => String(machine?.department || "").toUpperCase() === "WINDER")
+        .filter((machine) => String(machine?.status || "UP").toUpperCase() === "UP")
         .sort((left, right) => String(left?.code || left?.name || "").localeCompare(String(right?.code || right?.name || ""))),
     [machinesQuery.data],
   )
