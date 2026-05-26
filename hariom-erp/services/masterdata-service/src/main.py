@@ -423,7 +423,42 @@ def _seed_default_suppliers() -> None:
             "address": "Plant B approved parchment supplier",
         },
     )
-    upsert_sql = text(
+    update_by_code_sql = text(
+        """
+        UPDATE supplier
+        SET
+            name = :name,
+            category = :category,
+            contact_name = :contact_name,
+            contact_phone = :contact_phone,
+            contact_email = :contact_email,
+            gst_no = :gst_no,
+            pan_no = :pan_no,
+            address = :address,
+            active = TRUE
+        WHERE plant_id = :plant_id
+          AND supplier_code = :supplier_code
+        """
+    )
+    update_by_id_sql = text(
+        """
+        UPDATE supplier
+        SET
+            plant_id = :plant_id,
+            supplier_code = :supplier_code,
+            name = :name,
+            category = :category,
+            contact_name = :contact_name,
+            contact_phone = :contact_phone,
+            contact_email = :contact_email,
+            gst_no = :gst_no,
+            pan_no = :pan_no,
+            address = :address,
+            active = TRUE
+        WHERE id = :id
+        """
+    )
+    insert_sql = text(
         """
         INSERT INTO supplier (
             id, plant_id, supplier_code, name, category, contact_name, contact_phone,
@@ -433,21 +468,16 @@ def _seed_default_suppliers() -> None:
             :id, :plant_id, :supplier_code, :name, :category, :contact_name, :contact_phone,
             :contact_email, :gst_no, :pan_no, :address, TRUE, NOW()
         )
-        ON CONFLICT (plant_id, supplier_code) DO UPDATE SET
-            name = EXCLUDED.name,
-            category = EXCLUDED.category,
-            contact_name = EXCLUDED.contact_name,
-            contact_phone = EXCLUDED.contact_phone,
-            contact_email = EXCLUDED.contact_email,
-            gst_no = EXCLUDED.gst_no,
-            pan_no = EXCLUDED.pan_no,
-            address = EXCLUDED.address,
-            active = TRUE
+        ON CONFLICT (id) DO NOTHING
         """
     )
     with engine.begin() as connection:
         for supplier in default_suppliers:
-            connection.execute(upsert_sql, supplier)
+            updated = connection.execute(update_by_code_sql, supplier).rowcount or 0
+            if updated == 0:
+                updated = connection.execute(update_by_id_sql, supplier).rowcount or 0
+            if updated == 0:
+                connection.execute(insert_sql, supplier)
 
 
 _seed_default_suppliers()
