@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Operations Command — Hari Om</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="mockup-banner">MOCKUP 3 OF 6 — OPERATIONS COMMAND (Plant manager + Planner)</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Intelligence</div>
+    <a class="nav active" href="01-hub.html">Reports &amp; Analytics</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <input class="search" placeholder="Search…" />
+      <span class="pill">Plant Mgr A</span>
+    </div>
+
+    <p style="font-size: 11px; font-weight: 700; color: var(--ink-3); margin: 0 0 12px">
+      <a href="01-hub.html">Reports</a> · Operations · <strong style="color: var(--ink)">Operations Command</strong>
+    </p>
+
+    <section class="hero" style="background: radial-gradient(120% 90% at 0% 0%, rgba(16,185,129,0.18), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(124,58,237,0.10), transparent 55%), linear-gradient(135deg, #0b1220 0%, #064e3b 60%, #115e59 100%);">
+      <p class="eyebrow">Operations Command</p>
+      <h1>Floor health, schedule adherence, machine pulse — all live, all one page.</h1>
+      <p class="lead">Built for the 8:30 standup. Plant manager + planner shared lens. Click any chart cell to drill into the underlying job-cards, operators, or stage segments.</p>
+      <div class="chips">
+        <span class="chip emerald">91.4% schedule adherence</span>
+        <span class="chip amber">4 blocked jobs</span>
+        <span class="chip">5 lanes running</span>
+        <span class="chip">Shift A current</span>
+      </div>
+    </section>
+
+    <div class="filter-bar">
+      <span class="lab">Shift</span>
+      <select><option selected>Today · Shift A</option><option>Today · Shift B</option><option>Yesterday · all</option><option>Last 7 days</option><option>Custom…</option></select>
+      <span class="lab">Stage</span>
+      <select><option>All stages</option><option>Slitting</option><option selected>Winder</option><option>Oven</option><option>Process</option><option>Packing</option></select>
+      <span class="lab">Machine</span>
+      <select><option selected>All machines</option></select>
+      <span class="lab">Operator</span>
+      <select><option selected>All</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">Save view</button>
+      <button class="btn primary">Export</button>
+    </div>
+
+    <!-- KPI strip -->
+    <div class="kpi-row">
+      <div class="kpi tone-emerald">
+        <div class="label">Schedule adherence</div>
+        <div class="value">91.4%</div>
+        <div class="sub">Target ≥ 88%</div>
+        <div class="delta up">▲ 2.1 pp WoW</div>
+      </div>
+      <div class="kpi tone-cyan">
+        <div class="label">Yield (winder)</div>
+        <div class="value">96.8%</div>
+        <div class="sub">Theoretical → produced</div>
+        <div class="delta up">▲ 0.4 pp</div>
+      </div>
+      <div class="kpi tone-violet">
+        <div class="label">Active job cards</div>
+        <div class="value">87</div>
+        <div class="sub">23 RELEASED · 64 IN_PROGRESS</div>
+        <div class="delta up">▲ 9 vs yesterday</div>
+      </div>
+      <div class="kpi tone-amber">
+        <div class="label">WIP kg</div>
+        <div class="value">4,820</div>
+        <div class="sub">Across stages</div>
+        <div class="delta up">▲ 6%</div>
+      </div>
+      <div class="kpi tone-rose">
+        <div class="label">Blocked &amp; on hold</div>
+        <div class="value">4</div>
+        <div class="sub">2 QC · 2 supervisor</div>
+        <div class="delta down">▼ 2 cleared</div>
+      </div>
+      <div class="kpi tone-slate">
+        <div class="label">Scrap (today)</div>
+        <div class="value">42 kg</div>
+        <div class="sub">0.9% of issue</div>
+        <div class="delta flat">• within band</div>
+      </div>
+    </div>
+
+    <!-- Machine utilization heatmap -->
+    <div class="panel" style="margin-top: 18px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Machine utilization</p>
+          <h3>Hourly heatmap · last 7 days</h3>
+          <p class="sub">Darker cells = higher utilization. Hover for the actual %. Click a cell to drill into the job-card lineup for that hour.</p>
+        </div>
+        <div class="actions">
+          <button class="btn primary">Winder</button>
+          <button class="btn">Oven</button>
+          <button class="btn">Process</button>
+          <button class="btn">Packing</button>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: 40px repeat(24, 1fr); gap: 3px; margin-bottom: 4px;">
+        <span></span>
+        <span class="lab" style="font-size: 10px; text-align: center; color: var(--ink-4);">0</span>
+        <span></span><span></span><span></span><span></span>
+        <span class="lab" style="font-size: 10px; text-align: center; color: var(--ink-4);">6</span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span class="lab" style="font-size: 10px; text-align: center; color: var(--ink-4);">12</span>
+        <span></span><span></span><span></span><span></span><span></span>
+        <span class="lab" style="font-size: 10px; text-align: center; color: var(--ink-4);">18</span>
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <div class="heat-row"><span class="lab">Mon</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell l1"></span><span class="heat-cell l2"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l1"></span><span class="heat-cell l1"></span><span class="heat-cell"></span>
+      </div>
+      <div class="heat-row"><span class="lab">Tue</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell l1"></span><span class="heat-cell l2"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l3"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l1"></span><span class="heat-cell"></span>
+      </div>
+      <div class="heat-row"><span class="lab">Wed</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell l1"></span><span class="heat-cell l2"></span><span class="heat-cell l3"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l3"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l1"></span>
+      </div>
+      <div class="heat-row"><span class="lab">Thu</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell l1"></span><span class="heat-cell l2"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l1"></span><span class="heat-cell l1"></span><span class="heat-cell"></span>
+      </div>
+      <div class="heat-row"><span class="lab">Fri</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell l1"></span><span class="heat-cell l2"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l5"></span><span class="heat-cell l4"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l3"></span><span class="heat-cell l2"></span><span class="heat-cell l1"></span><span class="heat-cell"></span>
+      </div>
+      <div class="heat-row"><span class="lab">Sat</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell l1"></span><span class="heat-cell l1"></span><span class="heat-cell l2"></span><span class="heat-cell l3"></span><span class="heat-cell l3"></span><span class="heat-cell l4"></span><span class="heat-cell l3"></span><span class="heat-cell l3"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l2"></span><span class="heat-cell l1"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span>
+      </div>
+      <div class="heat-row"><span class="lab">Sun</span>
+        <span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span><span class="heat-cell"></span>
+      </div>
+      <div class="note info">Winder utilization peaks at 14:00 daily and stays high through 17:00. Saturday afternoon load dropped 32% — investigate operator schedule.</div>
+    </div>
+
+    <!-- Stage throughput + adherence -->
+    <div class="grid-2" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Stage throughput</p>
+            <h3>kg produced by stage · 14-day rolling</h3>
+            <p class="sub">Winder feeds oven feeds process. A widening gap between two adjacent bars = WIP build-up.</p>
+          </div>
+        </div>
+        <svg viewBox="0 0 600 240" style="width:100%; height: 240px;">
+          <defs>
+            <linearGradient id="winderG" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#0e7490" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#0e7490" stop-opacity="0.5" />
+            </linearGradient>
+            <linearGradient id="ovenG" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#7c3aed" stop-opacity="0.5" />
+            </linearGradient>
+            <linearGradient id="procG" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#059669" stop-opacity="0.9" />
+              <stop offset="100%" stop-color="#059669" stop-opacity="0.5" />
+            </linearGradient>
+          </defs>
+          <!-- grid -->
+          <line x1="0" x2="600" y1="40" y2="40" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="600" y1="90" y2="90" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="600" y1="140" y2="140" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="600" y1="190" y2="190" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <g>
+            <!-- winder bars -->
+            <rect x="4" y="40" width="12" height="160" fill="url(#winderG)"/>
+            <rect x="46" y="50" width="12" height="150" fill="url(#winderG)"/>
+            <rect x="88" y="60" width="12" height="140" fill="url(#winderG)"/>
+            <rect x="130" y="48" width="12" height="152" fill="url(#winderG)"/>
+            <rect x="172" y="44" width="12" height="156" fill="url(#winderG)"/>
+            <rect x="214" y="52" width="12" height="148" fill="url(#winderG)"/>
+            <rect x="256" y="38" width="12" height="162" fill="url(#winderG)"/>
+            <rect x="298" y="42" width="12" height="158" fill="url(#winderG)"/>
+            <rect x="340" y="36" width="12" height="164" fill="url(#winderG)"/>
+            <rect x="382" y="44" width="12" height="156" fill="url(#winderG)"/>
+            <rect x="424" y="40" width="12" height="160" fill="url(#winderG)"/>
+            <rect x="466" y="34" width="12" height="166" fill="url(#winderG)"/>
+            <rect x="508" y="30" width="12" height="170" fill="url(#winderG)"/>
+            <rect x="550" y="28" width="12" height="172" fill="url(#winderG)"/>
+            <!-- oven bars (one bar to the right) -->
+            <rect x="18" y="60" width="12" height="140" fill="url(#ovenG)"/>
+            <rect x="60" y="68" width="12" height="132" fill="url(#ovenG)"/>
+            <rect x="102" y="80" width="12" height="120" fill="url(#ovenG)"/>
+            <rect x="144" y="64" width="12" height="136" fill="url(#ovenG)"/>
+            <rect x="186" y="56" width="12" height="144" fill="url(#ovenG)"/>
+            <rect x="228" y="64" width="12" height="136" fill="url(#ovenG)"/>
+            <rect x="270" y="54" width="12" height="146" fill="url(#ovenG)"/>
+            <rect x="312" y="58" width="12" height="142" fill="url(#ovenG)"/>
+            <rect x="354" y="50" width="12" height="150" fill="url(#ovenG)"/>
+            <rect x="396" y="60" width="12" height="140" fill="url(#ovenG)"/>
+            <rect x="438" y="54" width="12" height="146" fill="url(#ovenG)"/>
+            <rect x="480" y="48" width="12" height="152" fill="url(#ovenG)"/>
+            <rect x="522" y="42" width="12" height="158" fill="url(#ovenG)"/>
+            <rect x="564" y="42" width="12" height="158" fill="url(#ovenG)"/>
+            <!-- process -->
+            <rect x="32" y="80" width="12" height="120" fill="url(#procG)"/>
+            <rect x="74" y="86" width="12" height="114" fill="url(#procG)"/>
+            <rect x="116" y="96" width="12" height="104" fill="url(#procG)"/>
+            <rect x="158" y="78" width="12" height="122" fill="url(#procG)"/>
+            <rect x="200" y="72" width="12" height="128" fill="url(#procG)"/>
+            <rect x="242" y="80" width="12" height="120" fill="url(#procG)"/>
+            <rect x="284" y="70" width="12" height="130" fill="url(#procG)"/>
+            <rect x="326" y="72" width="12" height="128" fill="url(#procG)"/>
+            <rect x="368" y="64" width="12" height="136" fill="url(#procG)"/>
+            <rect x="410" y="74" width="12" height="126" fill="url(#procG)"/>
+            <rect x="452" y="68" width="12" height="132" fill="url(#procG)"/>
+            <rect x="494" y="60" width="12" height="140" fill="url(#procG)"/>
+            <rect x="536" y="54" width="12" height="146" fill="url(#procG)"/>
+            <rect x="578" y="54" width="12" height="146" fill="url(#procG)"/>
+          </g>
+        </svg>
+        <p class="sub" style="margin-top: 6px"><span style="color: #0e7490; font-weight: 800">●</span> Winder &nbsp; <span style="color: #7c3aed; font-weight: 800">●</span> Oven &nbsp; <span style="color: #059669; font-weight: 800">●</span> Process</p>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Schedule adherence by lane</p>
+            <h3>Planned vs actual completion · this week</h3>
+            <p class="sub">Bars are completion %; line is the 88% target.</p>
+          </div>
+        </div>
+        <div class="minibar"><span class="lab">Winder L1</span><div class="track"><div class="fill" style="width: 96%; background: linear-gradient(90deg,#047857,#10b981);"></div></div><span class="val">96%</span></div>
+        <div class="minibar"><span class="lab">Winder L2</span><div class="track"><div class="fill" style="width: 82%; background: linear-gradient(90deg,#b45309,#f59e0b);"></div></div><span class="val">82%</span></div>
+        <div class="minibar"><span class="lab">Oven 1</span><div class="track"><div class="fill" style="width: 91%; background: linear-gradient(90deg,#047857,#10b981);"></div></div><span class="val">91%</span></div>
+        <div class="minibar"><span class="lab">Oven 2</span><div class="track"><div class="fill" style="width: 88%; background: linear-gradient(90deg,#0e7490,#06b6d4);"></div></div><span class="val">88%</span></div>
+        <div class="minibar"><span class="lab">Process A</span><div class="track"><div class="fill" style="width: 93%; background: linear-gradient(90deg,#047857,#10b981);"></div></div><span class="val">93%</span></div>
+        <div class="minibar"><span class="lab">Process B</span><div class="track"><div class="fill" style="width: 75%; background: linear-gradient(90deg,#be123c,#f43f5e);"></div></div><span class="val">75%</span></div>
+        <div class="minibar"><span class="lab">Packing</span><div class="track"><div class="fill" style="width: 98%; background: linear-gradient(90deg,#047857,#10b981);"></div></div><span class="val">98%</span></div>
+        <div class="note warn">Winder L2 + Process B trail target. Process B's drop coincides with operator change last Mon.</div>
+      </div>
+    </div>
+
+    <!-- Operator productivity + blockers -->
+    <div class="grid-2-1" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Operator productivity</p>
+            <h3>kg produced per operator · this week</h3>
+            <p class="sub">Ladder ordered by kg. Click a row to see machine assignments + quality cut.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">By kg</button>
+            <button class="btn primary">By yield</button>
+            <button class="btn">By kg/hr</button>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>Operator</th><th>Stage</th><th>Shifts</th><th>kg in</th><th>kg out</th><th>Yield</th><th>Scrap%</th><th>Trend</th><th></th></tr></thead>
+          <tbody>
+            <tr><td>Rajesh K.</td><td>Winder L1</td><td>5</td><td class="num">3,820</td><td class="num">3,710</td><td><span class="pill emerald">97.1%</span></td><td class="num">0.6%</td><td><svg class="spark" viewBox="0 0 80 24"><path d="M0,18 L10,16 L20,14 L30,15 L40,12 L50,10 L60,8 L70,6 L80,6" fill="none" stroke="#047857" stroke-width="2"/></svg></td><td><a class="drill" href="#">Open →</a></td></tr>
+            <tr><td>Sunil P.</td><td>Winder L2</td><td>5</td><td class="num">3,640</td><td class="num">3,490</td><td><span class="pill cyan">95.9%</span></td><td class="num">0.9%</td><td><svg class="spark" viewBox="0 0 80 24"><path d="M0,12 L10,14 L20,16 L30,13 L40,15 L50,18 L60,16 L70,18 L80,18" fill="none" stroke="#b45309" stroke-width="2"/></svg></td><td><a class="drill" href="#">Open →</a></td></tr>
+            <tr><td>Mahesh S.</td><td>Oven 1</td><td>4</td><td class="num">3,290</td><td class="num">3,210</td><td><span class="pill emerald">97.6%</span></td><td class="num">0.4%</td><td><svg class="spark" viewBox="0 0 80 24"><path d="M0,18 L10,16 L20,16 L30,12 L40,14 L50,10 L60,8 L70,10 L80,8" fill="none" stroke="#047857" stroke-width="2"/></svg></td><td><a class="drill" href="#">Open →</a></td></tr>
+            <tr><td>Ankit G.</td><td>Process A</td><td>5</td><td class="num">3,180</td><td class="num">3,040</td><td><span class="pill cyan">95.6%</span></td><td class="num">1.2%</td><td><svg class="spark" viewBox="0 0 80 24"><path d="M0,14 L10,16 L20,14 L30,16 L40,14 L50,12 L60,14 L70,12 L80,14" fill="none" stroke="#475569" stroke-width="2"/></svg></td><td><a class="drill" href="#">Open →</a></td></tr>
+            <tr><td>Vinod R.</td><td>Process B</td><td>4</td><td class="num">2,540</td><td class="num">2,360</td><td><span class="pill amber">92.9%</span></td><td class="num">2.4%</td><td><svg class="spark" viewBox="0 0 80 24"><path d="M0,8 L10,12 L20,12 L30,16 L40,18 L50,20 L60,20 L70,22 L80,22" fill="none" stroke="#be123c" stroke-width="2"/></svg></td><td><a class="drill" href="#">Open →</a></td></tr>
+            <tr><td>Naresh B.</td><td>Packing</td><td>5</td><td class="num">3,720</td><td class="num">3,720</td><td><span class="pill emerald">100%</span></td><td class="num">0.0%</td><td><svg class="spark" viewBox="0 0 80 24"><path d="M0,18 L10,16 L20,14 L30,12 L40,10 L50,8 L60,6 L70,6 L80,4" fill="none" stroke="#047857" stroke-width="2"/></svg></td><td><a class="drill" href="#">Open →</a></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Blockers</p>
+            <h3>Active blocks &amp; holds</h3>
+          </div>
+        </div>
+        <div style="display: grid; gap: 10px">
+          <div style="border:1px solid #fecaca; background:#fef2f2; border-radius: 14px; padding: 12px;">
+            <div style="display:flex; gap: 8px; align-items: center;">
+              <span class="pill rose">QC hold</span>
+              <span class="mono">JC-2026-0218</span>
+            </div>
+            <p style="margin: 6px 0; font-size: 12.5px; font-weight: 700;">OD out of spec on lane 2 — 14.6 kg parked</p>
+            <p style="margin: 0; color: var(--ink-3); font-size: 11.5px;">Open 3 d · @plantmanager.a · ABC Tube</p>
+          </div>
+          <div style="border:1px solid #fed7aa; background:#fff7ed; border-radius: 14px; padding: 12px;">
+            <div style="display:flex; gap: 8px; align-items: center;">
+              <span class="pill amber">Supervisor hold</span>
+              <span class="mono">JC-2026-0224</span>
+            </div>
+            <p style="margin: 6px 0; font-size: 12.5px; font-weight: 700;">Awaiting paper KRAFT-100 substitution decision</p>
+            <p style="margin: 0; color: var(--ink-3); font-size: 11.5px;">Open 1 d · @planner · Krishna Pack</p>
+          </div>
+          <div style="border:1px solid #fed7aa; background:#fff7ed; border-radius: 14px; padding: 12px;">
+            <div style="display:flex; gap: 8px; align-items: center;">
+              <span class="pill amber">Stock block</span>
+              <span class="mono">PD-1042</span>
+            </div>
+            <p style="margin: 6px 0; font-size: 12.5px; font-weight: 700;">KRAFT-120-GSM at 412 kg · winder will idle Thu</p>
+            <p style="margin: 0; color: var(--ink-3); font-size: 11.5px;">PO draft awaiting approval · @store</p>
+          </div>
+          <div style="border:1px solid #fed7aa; background:#fff7ed; border-radius: 14px; padding: 12px;">
+            <div style="display:flex; gap: 8px; align-items: center;">
+              <span class="pill amber">Quality</span>
+              <span class="mono">JC-2026-0231</span>
+            </div>
+            <p style="margin: 6px 0; font-size: 12.5px; font-weight: 700;">Moisture 9.4% (target ≤ 8.5%) · process B</p>
+            <p style="margin: 0; color: var(--ink-3); font-size: 11.5px;">Open 4 h · @qc · Vidya Industries</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup • Hari Om Paper · Operations Command · screenshot-grade only
+    </p>
+  </main>
+</div>
+</body>
+</html>

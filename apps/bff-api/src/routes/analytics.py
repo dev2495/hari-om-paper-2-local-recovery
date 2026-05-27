@@ -120,3 +120,38 @@ async def get_gsm_bf_loss(request: Request, token: str = Depends(get_token)):
 @router.get("/quality/compliance")
 async def get_quality_compliance(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(ANALYTICS_SERVICE_URL, "/quality/compliance", request, token)
+
+
+# ---------------------------------------------------------------------------
+# Deep-cut reports introduced by the reports-suite redesign
+# ---------------------------------------------------------------------------
+
+
+@router.get("/deep/machine-utilization")
+async def get_machine_utilization(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/machine-utilization", request, token, timeout=REPORT_TIMEOUT)
+
+
+@router.get("/deep/customer-360")
+async def get_customer_360(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/customer-360", request, token, timeout=REPORT_TIMEOUT)
+
+
+@router.get("/deep/operator-productivity")
+async def get_operator_productivity(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/operator-productivity", request, token, timeout=REPORT_TIMEOUT)
+
+
+@router.get("/deep/leadtime-anatomy")
+async def get_leadtime_anatomy(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/leadtime-anatomy", request, token, timeout=REPORT_TIMEOUT)
+
+
+@router.get("/deep/scrap-cost-ladder")
+async def get_scrap_cost_ladder(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/scrap-cost-ladder", request, token, timeout=REPORT_TIMEOUT)
+
+
+@router.get("/deep/item-velocity")
+async def get_item_velocity(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/item-velocity", request, token, timeout=REPORT_TIMEOUT)

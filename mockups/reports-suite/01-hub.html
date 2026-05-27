@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Reports Landing — Hari Om</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="mockup-banner">MOCKUP 1A — REPORTS LANDING (12 TILES BY AUDIENCE)</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Overview</div>
+    <a class="nav" href="#">Dashboard</a>
+    <a class="nav" href="#">Stock Lifecycle</a>
+    <div class="group">Operations</div>
+    <a class="nav" href="#">Sales Orders</a>
+    <a class="nav" href="#">Planning</a>
+    <a class="nav" href="#">Job Cards</a>
+    <a class="nav" href="#">Quality</a>
+    <a class="nav" href="#">Dispatch</a>
+    <div class="group">Intelligence</div>
+    <a class="nav active" href="01-hub.html">Reports</a>
+    <a class="nav" href="01b-analytics.html">Analytics &amp; KPIs</a>
+    <a class="nav" href="#">Audit Center</a>
+    <div class="group">Foundation</div>
+    <a class="nav" href="#">Masters</a>
+    <a class="nav" href="#">System</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <span class="pill">Role: Owner</span>
+      <input class="search" placeholder="Search reports, KPIs, customers, items, periods…" />
+      <span class="pill">Yash Owner</span>
+    </div>
+
+    <!-- Hero -->
+    <section class="hero">
+      <p class="eyebrow">Reports</p>
+      <h1>Twelve finished reports — picked by who you are.</h1>
+      <p class="lead">Each report opens on a screenshot-grade page with the same filter spine, the same comparison model, and the same drill paths. Pair this with <a href="01b-analytics.html" style="color:#fef3c7; text-decoration: underline;">Analytics &amp; KPIs</a> for the live snapshot view.</p>
+      <div class="chips">
+        <span class="chip">12 reports</span>
+        <span class="chip emerald">8 saved as scheduled emails</span>
+        <span class="chip">Last refresh 47s ago</span>
+        <span class="chip">Pair with <a href="01b-analytics.html" style="color:inherit; text-decoration: underline;">Analytics</a></span>
+      </div>
+    </section>
+
+    <!-- Filter spine (shared with detail pages) -->
+    <div class="filter-bar" style="margin-top: 18px">
+      <span class="lab">Period</span>
+      <select><option>Today</option><option>This week</option><option selected>This month</option><option>Last 30 days</option><option>This quarter</option><option>Custom…</option></select>
+      <span class="lab">Compare</span>
+      <select><option>None</option><option selected>vs prior period</option><option>vs same period last year</option></select>
+      <span class="lab">Plant</span>
+      <select><option selected>PLANT_A</option><option>PLANT_B</option><option>All plants</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">Saved views (8)</button>
+      <button class="btn primary">Open last view</button>
+    </div>
+
+    <!-- Audience tabs -->
+    <div class="tabs">
+      <div class="tab active">All audiences</div>
+      <div class="tab">Owner / exec</div>
+      <div class="tab">Operations</div>
+      <div class="tab">Commercial</div>
+      <div class="tab">Inventory</div>
+      <div class="tab">Quality</div>
+      <div class="tab">Dispatch</div>
+    </div>
+
+    <!-- Group label: Owner / executive -->
+    <p style="margin-top: 16px; font-size: 11px; font-weight: 800; color: var(--ink-3); letter-spacing: 1.5px;">OWNER / EXECUTIVE</p>
+    <div class="report-grid">
+      <a class="report-tile t-owner" href="02-owner-pack.html" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Owner Daily Pack</h4>
+        <p>Single-page board pack: dispatch ₹, OTIF, backlog, variance, blocked jobs, scrap exposure — all anchored to the same close-ritual data.</p>
+        <div class="kpis">
+          <span class="micro"><b>₹4.2L</b> dispatched today</span>
+          <span class="micro"><b>94.2%</b> OTIF</span>
+          <span class="micro"><b>₹84L</b> backlog</span>
+        </div>
+      </a>
+      <a class="report-tile t-owner" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Period Close Workbook</h4>
+        <p>Reconciliation summary, theoretical/ledger/actual deltas, blockers, cert posture — the audit-grade close package.</p>
+        <div class="kpis">
+          <span class="micro"><b>Apr</b> APPROVED</span>
+          <span class="micro"><b>May</b> in DRAFT</span>
+        </div>
+      </a>
+    </div>
+
+    <p style="margin-top: 18px; font-size: 11px; font-weight: 800; color: var(--ink-3); letter-spacing: 1.5px;">OPERATIONS</p>
+    <div class="report-grid">
+      <a class="report-tile t-prod" href="03-operations-command.html" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Operations Command</h4>
+        <p>Stage throughput · machine utilization · schedule adherence · queue health · operator-by-operator productivity.</p>
+        <div class="kpis">
+          <span class="micro"><b>87</b> active jobs</span>
+          <span class="micro"><b>91.4%</b> adherence</span>
+          <span class="micro"><b>4</b> blocked</span>
+        </div>
+      </a>
+      <a class="report-tile t-prod" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Stage &amp; Machine Throughput</h4>
+        <p>Winder / oven / process / packing per-machine kg-throughput. Calendar-heatmap of utilization.</p>
+        <div class="kpis">
+          <span class="micro"><b>78%</b> winder util</span>
+          <span class="micro"><b>62%</b> oven util</span>
+        </div>
+      </a>
+      <a class="report-tile t-disp" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Cross-plant Comparator</h4>
+        <p>Side-by-side benchmark of PLANT_A vs PLANT_B on throughput, yield, OTIF, ledger variance.</p>
+        <div class="kpis">
+          <span class="micro">A: <b>91%</b></span>
+          <span class="micro">B: <b>88%</b></span>
+        </div>
+      </a>
+    </div>
+
+    <p style="margin-top: 18px; font-size: 11px; font-weight: 800; color: var(--ink-3); letter-spacing: 1.5px;">COMMERCIAL</p>
+    <div class="report-grid">
+      <a class="report-tile t-sales" href="05-sales-pulse.html" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Sales &amp; Commercial Pulse</h4>
+        <p>Order book by customer, AOV trend, release-to-dispatch lead time, customer cohort retention, top-20 SKU mix.</p>
+        <div class="kpis">
+          <span class="micro"><b>132</b> orders open</span>
+          <span class="micro"><b>14.2 d</b> lead</span>
+          <span class="micro"><b>₹84.2L</b> backlog</span>
+        </div>
+      </a>
+      <a class="report-tile t-sales" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Customer 360</h4>
+        <p>Per-customer P&amp;L view: orders, dispatched, returns, OTIF, payment cycle days, complaint count.</p>
+        <div class="kpis">
+          <span class="micro"><b>47</b> active customers</span>
+          <span class="micro"><b>14</b> at risk</span>
+        </div>
+      </a>
+    </div>
+
+    <p style="margin-top: 18px; font-size: 11px; font-weight: 800; color: var(--ink-3); letter-spacing: 1.5px;">INVENTORY</p>
+    <div class="report-grid">
+      <a class="report-tile t-inv" href="04-inventory-intelligence.html" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Inventory Intelligence</h4>
+        <p>Valuation · days-on-hand · aging buckets · velocity matrix · top-N paper / adhesive / parchment by ₹ and kg.</p>
+        <div class="kpis">
+          <span class="micro"><b>₹2.4Cr</b> value</span>
+          <span class="micro"><b>17</b> low-stock</span>
+          <span class="micro"><b>11</b> stale</span>
+        </div>
+      </a>
+      <a class="report-tile t-inv" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>MRP &amp; Shortage Planner</h4>
+        <p>Demand-driven shortages → PO draft generation. Lead-time projection. Reorder-policy coverage gaps.</p>
+        <div class="kpis">
+          <span class="micro"><b>9</b> critical shortages</span>
+          <span class="micro"><b>4</b> PO drafts ready</span>
+        </div>
+      </a>
+      <a class="report-tile t-inv" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Supplier &amp; Reel Performance</h4>
+        <p>Vendor lead time, reel weight variance, paper GSM compliance, supplier-side defect Pareto.</p>
+        <div class="kpis">
+          <span class="micro"><b>11</b> suppliers</span>
+          <span class="micro"><b>3</b> off-spec</span>
+        </div>
+      </a>
+    </div>
+
+    <p style="margin-top: 18px; font-size: 11px; font-weight: 800; color: var(--ink-3); letter-spacing: 1.5px;">QUALITY &amp; DISPATCH</p>
+    <div class="report-grid">
+      <a class="report-tile t-qc" href="06-variance-bridge.html" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Quality &amp; Variance Bridge</h4>
+        <p>Variance waterfall (theoretical → ledger → actual). Hold reason Pareto. Scrap-cost ladder. QC pass-rate trend.</p>
+        <div class="kpis">
+          <span class="micro"><b>−4.6%</b> variance</span>
+          <span class="micro"><b>96.8%</b> pass</span>
+          <span class="micro"><b>3</b> holds</span>
+        </div>
+      </a>
+      <a class="report-tile t-disp" href="#" style="text-decoration: none; color: inherit;">
+        <div class="arrow">→</div>
+        <h4>Dispatch &amp; Customer SLA</h4>
+        <p>Challan throughput · on-time delivery · vehicle fill rate · customer-by-customer SLA hit-rate ladder.</p>
+        <div class="kpis">
+          <span class="micro"><b>11</b> challans today</span>
+          <span class="micro"><b>96.5%</b> on-time</span>
+        </div>
+      </a>
+    </div>
+
+    <!-- Saved views row -->
+    <div class="panel" style="margin-top: 24px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Saved + scheduled</p>
+          <h3>Your saved views &amp; scheduled deliveries</h3>
+          <p class="sub">Filters, comparisons and groupings persist as named views. Subscribe a view and it lands in your inbox at 06:30 every day.</p>
+        </div>
+        <div class="actions">
+          <button class="btn">Manage</button>
+          <button class="btn primary">+ Save current view</button>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>View</th><th>Report</th><th>Filter</th><th>Schedule</th><th>Recipients</th><th></th></tr></thead>
+        <tbody>
+          <tr><td>Daily board pack 06:30</td><td>Owner Daily Pack</td><td>This month · vs prior</td><td><span class="pill emerald">Daily 06:30</span></td><td>yash@, devarsh@</td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td>Mon stage retro</td><td>Operations Command</td><td>This week · adherence cut</td><td><span class="pill emerald">Mon 09:00</span></td><td>planner@, plantmanager.a@</td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td>Critical shortages</td><td>MRP &amp; Shortage Planner</td><td>Critical only</td><td><span class="pill amber">Hourly tail</span></td><td>store@, planner@</td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td>Customer-A 360</td><td>Customer 360</td><td>Customer = ABC Tube</td><td><span class="pill slate">On-demand</span></td><td>—</td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td>Variance bridge — Apr</td><td>Quality &amp; Variance Bridge</td><td>Month = 2026‑04</td><td><span class="pill emerald">Wed close-1</span></td><td>yash@</td><td><a class="drill" href="#">Open →</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup • Hari Om Paper · Reports landing · screenshot-grade only
+    </p>
+  </main>
+</div>
+</body>
+</html>

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports
+from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts
 from src.cache import _build_cache_key
 from src.routers.loss import _aggregate_loss_by_supplier
 
@@ -111,6 +111,7 @@ app.include_router(inventory.router)
 app.include_router(dispatch.router)
 app.include_router(quality.router)
 app.include_router(reports.router)
+app.include_router(deep_cuts.router)
 
 @app.get("/")
 def health_check():
@@ -139,6 +140,12 @@ def health_check():
             "/reports/inventory-health",
             "/reports/plant-compare",
             "/reports/exceptions",
+            "/deep/machine-utilization",
+            "/deep/customer-360",
+            "/deep/operator-productivity",
+            "/deep/leadtime-anatomy",
+            "/deep/scrap-cost-ladder",
+            "/deep/item-velocity",
         ],
     }
 

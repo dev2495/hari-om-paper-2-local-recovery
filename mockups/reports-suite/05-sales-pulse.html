@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Sales &amp; Commercial Pulse — Hari Om</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="mockup-banner">MOCKUP 5 OF 6 — SALES &amp; COMMERCIAL PULSE</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Intelligence</div>
+    <a class="nav active" href="01-hub.html">Reports &amp; Analytics</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <input class="search" placeholder="Search…" />
+      <span class="pill">Sales</span>
+    </div>
+
+    <p style="font-size: 11px; font-weight: 700; color: var(--ink-3); margin: 0 0 12px">
+      <a href="01-hub.html">Reports</a> · Commercial · <strong style="color: var(--ink)">Sales &amp; Commercial Pulse</strong>
+    </p>
+
+    <section class="hero" style="background: radial-gradient(120% 90% at 0% 0%, rgba(59,130,246,0.18), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(14,116,144,0.10), transparent 55%), linear-gradient(135deg, #0b1220 0%, #0c4a6e 60%, #1e40af 100%);">
+      <p class="eyebrow">Sales &amp; Commercial Pulse</p>
+      <h1>Order book, OTIF, customer health, and the leak-points between order and dispatch.</h1>
+      <p class="lead">Every chart drills into the underlying orders or customers. Use this for the weekly customer-meeting brief.</p>
+      <div class="chips">
+        <span class="chip">132 open orders · ₹84.2L backlog</span>
+        <span class="chip emerald">94.2% OTIF</span>
+        <span class="chip amber">3 customers at-risk</span>
+        <span class="chip">14.2 d release→dispatch</span>
+      </div>
+    </section>
+
+    <div class="filter-bar">
+      <span class="lab">Period</span>
+      <select><option>This week</option><option selected>This month</option><option>This quarter</option><option>Last 90 d</option><option>Custom…</option></select>
+      <span class="lab">Compare</span>
+      <select><option selected>vs prior period</option><option>vs same period last year</option><option>vs target</option></select>
+      <span class="lab">Customer</span>
+      <select><option selected>All customers</option><option>Top 10</option><option>At-risk only</option></select>
+      <span class="lab">Status</span>
+      <select><option selected>All</option><option>Open</option><option>Released</option><option>Dispatched</option><option>Closed</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">Save view</button>
+      <button class="btn primary">Export</button>
+    </div>
+
+    <!-- KPI strip -->
+    <div class="kpi-row">
+      <div class="kpi tone-cyan">
+        <div class="label">Orders booked (mo)</div>
+        <div class="value">₹1.84 Cr</div>
+        <div class="sub">187 orders · 67 customers</div>
+        <div class="delta up">▲ 12% MoM</div>
+      </div>
+      <div class="kpi tone-emerald">
+        <div class="label">Dispatched (mo)</div>
+        <div class="value">₹1.46 Cr</div>
+        <div class="sub">152 orders · 4,820 challans</div>
+        <div class="delta up">▲ 8% MoM</div>
+      </div>
+      <div class="kpi tone-amber">
+        <div class="label">Backlog</div>
+        <div class="value">₹84.2L</div>
+        <div class="sub">132 orders open</div>
+        <div class="delta up">▲ 4.2% MoM</div>
+      </div>
+      <div class="kpi tone-violet">
+        <div class="label">OTIF (30 d)</div>
+        <div class="value">94.2%</div>
+        <div class="sub">Target ≥ 92%</div>
+        <div class="delta up">▲ 1.4 pp</div>
+      </div>
+      <div class="kpi tone-rose">
+        <div class="label">Delayed orders</div>
+        <div class="value">4</div>
+        <div class="sub">Total ₹6.8L exposure</div>
+        <div class="delta down">▼ 2 vs LM</div>
+      </div>
+      <div class="kpi tone-slate">
+        <div class="label">Release → dispatch</div>
+        <div class="value">14.2 d</div>
+        <div class="sub">Avg lead time</div>
+        <div class="delta down">▼ 1.4 d</div>
+      </div>
+    </div>
+
+    <!-- Funnel + cohort -->
+    <div class="grid-2-1" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Order lifecycle funnel</p>
+            <h3>Where orders sit and where they leak</h3>
+            <p class="sub">Each bar is ₹ value at each stage. The gap between adjacent bars is what's currently parked at that stage.</p>
+          </div>
+        </div>
+        <svg viewBox="0 0 720 240" style="width:100%; height:240px;">
+          <defs>
+            <linearGradient id="fL1" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#2563eb"/><stop offset="100%" stop-color="#3b82f6"/></linearGradient>
+            <linearGradient id="fL2" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#1d4ed8"/><stop offset="100%" stop-color="#2563eb"/></linearGradient>
+            <linearGradient id="fL3" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#1e3a8a"/><stop offset="100%" stop-color="#1d4ed8"/></linearGradient>
+            <linearGradient id="fL4" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#0c4a6e"/><stop offset="100%" stop-color="#0e7490"/></linearGradient>
+            <linearGradient id="fL5" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#047857"/><stop offset="100%" stop-color="#10b981"/></linearGradient>
+          </defs>
+          <!-- bars -->
+          <rect x="20" y="20" width="120" height="180" fill="url(#fL1)" rx="10"/>
+          <rect x="160" y="36" width="120" height="164" fill="url(#fL2)" rx="10"/>
+          <rect x="300" y="60" width="120" height="140" fill="url(#fL3)" rx="10"/>
+          <rect x="440" y="86" width="120" height="114" fill="url(#fL4)" rx="10"/>
+          <rect x="580" y="110" width="120" height="90" fill="url(#fL5)" rx="10"/>
+          <!-- arrows showing drop -->
+          <text x="80" y="15" text-anchor="middle" font-size="14" font-weight="800">₹1.84Cr</text>
+          <text x="220" y="31" text-anchor="middle" font-size="14" font-weight="800">₹1.72Cr</text>
+          <text x="360" y="55" text-anchor="middle" font-size="14" font-weight="800">₹1.50Cr</text>
+          <text x="500" y="81" text-anchor="middle" font-size="14" font-weight="800">₹1.18Cr</text>
+          <text x="640" y="105" text-anchor="middle" font-size="14" font-weight="800">₹84.2L</text>
+          <!-- labels -->
+          <text x="80" y="218" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">Created</text>
+          <text x="220" y="218" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">Approved</text>
+          <text x="360" y="218" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">Released</text>
+          <text x="500" y="218" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">Dispatched</text>
+          <text x="640" y="218" text-anchor="middle" font-size="11" font-weight="700" fill="#475569">Closed</text>
+          <!-- drop deltas -->
+          <text x="150" y="234" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309">−₹12L · 6.5%</text>
+          <text x="290" y="234" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309">−₹22L · 12.8%</text>
+          <text x="430" y="234" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309">−₹32L · 21.3%</text>
+          <text x="570" y="234" text-anchor="middle" font-size="10" font-weight="700" fill="#b45309">−₹33.8L · 28.6%</text>
+        </svg>
+        <div class="note warn">Biggest leak: dispatched → closed. Means 28.6% of dispatched value is still pending invoice/payment confirmation. Investigate the closing-cycle delay.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">OTIF trend</p>
+            <h3>On-time-in-full · 90 days</h3>
+          </div>
+        </div>
+        <svg viewBox="0 0 320 240" style="width:100%; height:240px;">
+          <defs>
+            <linearGradient id="otifG" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#10b981" stop-opacity="0.5"/>
+              <stop offset="100%" stop-color="#10b981" stop-opacity="0.05"/>
+            </linearGradient>
+          </defs>
+          <line x1="0" x2="320" y1="50" y2="50" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="320" y1="100" y2="100" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="320" y1="150" y2="150" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="320" y1="200" y2="200" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <!-- target line -->
+          <line x1="0" x2="320" y1="80" y2="80" stroke="#be123c" stroke-width="2" stroke-dasharray="4 3"/>
+          <text x="6" y="74" font-size="10" font-weight="700" fill="#be123c">target 92%</text>
+          <!-- area -->
+          <path d="M0,150 L20,130 L40,120 L60,110 L80,90 L100,100 L120,80 L140,90 L160,70 L180,60 L200,75 L220,60 L240,50 L260,40 L280,55 L300,40 L320,40 L320,240 L0,240 Z" fill="url(#otifG)"/>
+          <path d="M0,150 L20,130 L40,120 L60,110 L80,90 L100,100 L120,80 L140,90 L160,70 L180,60 L200,75 L220,60 L240,50 L260,40 L280,55 L300,40 L320,40" fill="none" stroke="#047857" stroke-width="2.5"/>
+          <circle cx="320" cy="40" r="4" fill="#047857"/>
+          <text x="296" y="34" font-size="11" font-weight="800" fill="#047857">94.2%</text>
+        </svg>
+        <p class="sub" style="margin-top: 6px">Last red dip was on 03-Apr (paper shortage). Recovered within 6 days.</p>
+      </div>
+    </div>
+
+    <!-- Customer 360 -->
+    <div class="panel" style="margin-top: 18px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Customer 360</p>
+          <h3>Per-customer order book &amp; OTIF</h3>
+          <p class="sub">Sorted by revenue. Drill any row for full customer history, SKU mix, and complaint log.</p>
+        </div>
+        <div class="actions">
+          <button class="btn">All</button>
+          <button class="btn primary">At-risk only</button>
+          <button class="btn">Top 20</button>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>Customer</th><th>Open orders</th><th>Open value</th><th>30d disp.</th><th>OTIF</th><th>Returns</th><th>Last delay</th><th>Risk</th><th></th></tr></thead>
+        <tbody>
+          <tr><td><strong>ABC Tube Co.</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2019 · East</span></td><td class="num">14</td><td class="num">₹14.2L</td><td class="num">₹18.4L</td><td><span class="pill emerald">96.4%</span></td><td class="num">0</td><td class="num">—</td><td><span class="pill emerald">Healthy</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td><strong>Shri Paper</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2021 · West</span></td><td class="num">12</td><td class="num">₹11.4L</td><td class="num">₹15.8L</td><td><span class="pill emerald">94.8%</span></td><td class="num">1</td><td class="num">2 d</td><td><span class="pill emerald">Healthy</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td><strong>Krishna Pack</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2018 · North</span></td><td class="num">9</td><td class="num">₹8.4L</td><td class="num">₹11.4L</td><td><span class="pill amber">88.2%</span></td><td class="num">2</td><td class="num">4 d</td><td><span class="pill amber">Watch</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td><strong>Vidya Industries</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2020 · West</span></td><td class="num">8</td><td class="num">₹7.2L</td><td class="num">₹8.8L</td><td><span class="pill rose">81.4%</span></td><td class="num">3</td><td class="num">8 d</td><td><span class="pill rose">At risk</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td><strong>Sun Wraps</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2022 · South</span></td><td class="num">11</td><td class="num">₹6.6L</td><td class="num">₹6.6L</td><td><span class="pill emerald">98.1%</span></td><td class="num">0</td><td class="num">—</td><td><span class="pill emerald">Healthy</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td><strong>Anand Tubes</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2017 · East</span></td><td class="num">6</td><td class="num">₹5.2L</td><td class="num">₹5.2L</td><td><span class="pill amber">89.6%</span></td><td class="num">1</td><td class="num">3 d</td><td><span class="pill amber">Watch</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+          <tr><td><strong>Maya Paper</strong><br/><span style="color:var(--ink-4); font-size: 11px;">since 2023 · West</span></td><td class="num">4</td><td class="num">₹3.8L</td><td class="num">₹3.6L</td><td><span class="pill rose">78.2%</span></td><td class="num">2</td><td class="num">11 d</td><td><span class="pill rose">At risk</span></td><td><a class="drill" href="#">Open →</a></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- SKU mix + lead time funnel -->
+    <div class="grid-2" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Top SKU revenue mix</p>
+            <h3>Where the rupees come from</h3>
+            <p class="sub">Top 10 FG codes by dispatched value (30 d).</p>
+          </div>
+        </div>
+        <div class="minibar"><span class="lab">FG-DIAM-42</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="val">₹14.8L</span></div>
+        <div class="minibar"><span class="lab">FG-DIAM-65</span><div class="track"><div class="fill" style="width:78%"></div></div><span class="val">₹11.6L</span></div>
+        <div class="minibar"><span class="lab">FG-DIAM-32</span><div class="track"><div class="fill" style="width:62%"></div></div><span class="val">₹9.2L</span></div>
+        <div class="minibar"><span class="lab">FG-DIAM-110</span><div class="track"><div class="fill" style="width:54%"></div></div><span class="val">₹8.0L</span></div>
+        <div class="minibar"><span class="lab">FG-CONE-A</span><div class="track"><div class="fill" style="width:42%"></div></div><span class="val">₹6.2L</span></div>
+        <div class="minibar"><span class="lab">FG-CONE-B</span><div class="track"><div class="fill" style="width:34%"></div></div><span class="val">₹5.0L</span></div>
+        <div class="minibar"><span class="lab">FG-DIAM-90</span><div class="track"><div class="fill" style="width:28%"></div></div><span class="val">₹4.2L</span></div>
+        <div class="minibar"><span class="lab">FG-DIAM-50</span><div class="track"><div class="fill" style="width:22%"></div></div><span class="val">₹3.4L</span></div>
+        <div class="minibar"><span class="lab">FG-CONE-C</span><div class="track"><div class="fill" style="width:18%"></div></div><span class="val">₹2.6L</span></div>
+        <div class="minibar"><span class="lab">FG-CUSTOM</span><div class="track"><div class="fill" style="width:14%"></div></div><span class="val">₹2.0L</span></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Lead-time anatomy</p>
+            <h3>Where the 14.2 days actually go</h3>
+            <p class="sub">Median across last 100 closed orders.</p>
+          </div>
+        </div>
+        <div class="minibar"><span class="lab">Order created</span><div class="track"><div class="fill" style="width: 7%; background:#94a3b8"></div></div><span class="val">1.0 d</span></div>
+        <div class="minibar"><span class="lab">Approval cycle</span><div class="track"><div class="fill" style="width: 11%; background:#94a3b8"></div></div><span class="val">1.6 d</span></div>
+        <div class="minibar"><span class="lab">Release queue</span><div class="track"><div class="fill" style="width: 18%; background:#f59e0b"></div></div><span class="val">2.5 d</span></div>
+        <div class="minibar"><span class="lab">Winder + oven</span><div class="track"><div class="fill" style="width: 31%; background:#1d4ed8"></div></div><span class="val">4.4 d</span></div>
+        <div class="minibar"><span class="lab">Process + packing</span><div class="track"><div class="fill" style="width: 19%; background:#1d4ed8"></div></div><span class="val">2.7 d</span></div>
+        <div class="minibar"><span class="lab">QC + dispatch</span><div class="track"><div class="fill" style="width: 14%; background:#0e7490"></div></div><span class="val">2.0 d</span></div>
+        <div class="note info">Release queue (2.5 d) and approval cycle (1.6 d) are the only two stages anyone outside production controls. Compressing them by a day each = 12% faster customer delivery.</div>
+      </div>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup • Hari Om Paper · Sales &amp; Commercial Pulse · screenshot-grade only
+    </p>
+  </main>
+</div>
+</body>
+</html>

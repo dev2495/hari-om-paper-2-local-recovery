@@ -1,0 +1,347 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Owner Daily Pack — Hari Om</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="mockup-banner">MOCKUP 2 OF 6 — OWNER DAILY PACK</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Intelligence</div>
+    <a class="nav active" href="01-hub.html">Reports &amp; Analytics</a>
+    <a class="nav" href="#">Audit Center</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <input class="search" placeholder="Search…" />
+      <span class="pill">Yash Owner</span>
+    </div>
+
+    <!-- Breadcrumb -->
+    <p style="font-size: 11px; font-weight: 700; color: var(--ink-3); margin: 0 0 12px">
+      <a href="01-hub.html">Reports</a> · Executive · <strong style="color: var(--ink)">Owner Daily Pack</strong>
+    </p>
+
+    <!-- Hero -->
+    <section class="hero">
+      <p class="eyebrow">Owner Daily Pack</p>
+      <h1>Wed 22 May 2026 · The one page you read with your morning tea.</h1>
+      <p class="lead">Today's dispatched value, what's blocking it, where the books stand, and the three things to ask in standup. Updated every 5 minutes.</p>
+      <div class="chips">
+        <span class="chip">Last updated 2 minutes ago</span>
+        <span class="chip emerald">Books: Apr APPROVED</span>
+        <span class="chip amber">May: 3 blockers</span>
+        <span class="chip">Generated for yash@hariom.com</span>
+      </div>
+    </section>
+
+    <!-- Filter row -->
+    <div class="filter-bar">
+      <span class="lab">As of</span>
+      <input type="date" value="2026-05-22" />
+      <span class="lab">Compare</span>
+      <select><option selected>vs yesterday</option><option>vs last Wed</option><option>vs same day last month</option></select>
+      <span class="lab">Currency</span>
+      <select><option selected>₹ INR · ₹ lakh</option><option>₹ INR · ₹ crore</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">Email me daily</button>
+      <button class="btn">Export PDF</button>
+      <button class="btn primary">Customize</button>
+    </div>
+
+    <!-- BIG KPI strip -->
+    <div class="kpi-row">
+      <div class="kpi tone-cyan">
+        <div class="label">Dispatched today</div>
+        <div class="value">₹4.20L</div>
+        <div class="sub">11 challans · 6 customers · 1,420 kg</div>
+        <div class="delta up">▲ 18% vs yesterday</div>
+      </div>
+      <div class="kpi tone-emerald">
+        <div class="label">OTIF (30 d)</div>
+        <div class="value">94.2%</div>
+        <div class="sub">Target ≥ 92% · 2 misses</div>
+        <div class="delta up">▲ 1.4 pp WoW</div>
+      </div>
+      <div class="kpi tone-amber">
+        <div class="label">Backlog</div>
+        <div class="value">₹84.2L</div>
+        <div class="sub">132 orders open · 47 customers</div>
+        <div class="delta up">▲ 4.2% MoM</div>
+      </div>
+      <div class="kpi tone-rose">
+        <div class="label">Critical exceptions</div>
+        <div class="value">7</div>
+        <div class="sub">3 QC · 2 stock · 1 delayed · 1 cert</div>
+        <div class="delta down">▼ 4 cleared yesterday</div>
+      </div>
+      <div class="kpi tone-violet">
+        <div class="label">Inventory ₹</div>
+        <div class="value">₹2.4Cr</div>
+        <div class="sub">RM 56% · WIP 21% · FG 23%</div>
+        <div class="delta flat">• flat WoW</div>
+      </div>
+      <div class="kpi tone-slate">
+        <div class="label">Apr variance</div>
+        <div class="value">−4.6%</div>
+        <div class="sub">Within tolerance · ₹38.4K cost</div>
+        <div class="delta down">▼ closed</div>
+      </div>
+    </div>
+
+    <!-- "Three things to ask in standup" -->
+    <div class="panel" style="margin-top: 18px; background: linear-gradient(135deg, #fff7ed, #fff); border-color: #fed7aa;">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow" style="color: #b45309;">Today's standup brief</p>
+          <h3>Three things worth asking</h3>
+          <p class="sub">Auto-curated from exceptions, drift, and yesterday's promise list.</p>
+        </div>
+      </div>
+      <div class="grid-3">
+        <div style="padding: 14px; background: #fff; border-radius: 14px; border: 1px solid var(--line);">
+          <div class="pill rose">QC</div>
+          <h4 style="margin: 8px 0 4px; font-size: 14px;">Why is the ABC Tube hold from Mon still open?</h4>
+          <p style="margin: 0; color: var(--ink-3); font-size: 12px;">3-day-old hold on JC-2026-0218. Reason: OD out of spec on lane 2. Cost exposure ₹14.6K.</p>
+          <a class="drill" href="#" style="margin-top: 8px;">Open hold →</a>
+        </div>
+        <div style="padding: 14px; background: #fff; border-radius: 14px; border: 1px solid var(--line);">
+          <div class="pill amber">Stock</div>
+          <h4 style="margin: 8px 0 4px; font-size: 14px;">Will winder lane keep running this week?</h4>
+          <p style="margin: 0; color: var(--ink-3); font-size: 12px;">KRAFT-120-GSM at 412 kg vs reorder level 800 kg. Vendor lead time 6 d. PO draft #PD-1042 needs approval.</p>
+          <a class="drill" href="#" style="margin-top: 8px;">Open MRP →</a>
+        </div>
+        <div style="padding: 14px; background: #fff; border-radius: 14px; border: 1px solid var(--line);">
+          <div class="pill cyan">Commercial</div>
+          <h4 style="margin: 8px 0 4px; font-size: 14px;">Are we OTIF on the SHRI-2026-44 release?</h4>
+          <p style="margin: 0; color: var(--ink-3); font-size: 12px;">Due Friday. 4 of 6 lines released. 2 lines still in DRAFT after 3 days. Customer cycle ₹6.2L.</p>
+          <a class="drill" href="#" style="margin-top: 8px;">Open order →</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Trend chart -->
+    <div class="grid-2-1" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Dispatch trend</p>
+            <h3>Dispatched ₹ &amp; kg — last 30 days</h3>
+            <p class="sub">Dashed line = 30-day rolling avg. Bars = daily dispatched ₹ value.</p>
+          </div>
+          <div class="actions">
+            <button class="btn">By day</button>
+            <button class="btn primary">By week</button>
+          </div>
+        </div>
+        <svg viewBox="0 0 720 220" style="width:100%; height:220px;">
+          <defs>
+            <linearGradient id="g1" x1="0" x2="0" y1="0" y2="1">
+              <stop offset="0%" stop-color="#1d4ed8" stop-opacity="0.85" />
+              <stop offset="100%" stop-color="#1d4ed8" stop-opacity="0.5" />
+            </linearGradient>
+          </defs>
+          <!-- grid -->
+          <line x1="0" x2="720" y1="40" y2="40" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="720" y1="90" y2="90" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="720" y1="140" y2="140" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <line x1="0" x2="720" y1="190" y2="190" stroke="#e2e8f0" stroke-dasharray="3 3"/>
+          <!-- bars -->
+          <g fill="url(#g1)">
+            <rect x="4" y="120" width="18" height="70" rx="3" />
+            <rect x="26" y="100" width="18" height="90" rx="3" />
+            <rect x="48" y="80" width="18" height="110" rx="3" />
+            <rect x="70" y="105" width="18" height="85" rx="3" />
+            <rect x="92" y="70" width="18" height="120" rx="3" />
+            <rect x="114" y="60" width="18" height="130" rx="3" />
+            <rect x="136" y="86" width="18" height="104" rx="3" />
+            <rect x="158" y="50" width="18" height="140" rx="3" />
+            <rect x="180" y="56" width="18" height="134" rx="3" />
+            <rect x="202" y="72" width="18" height="118" rx="3" />
+            <rect x="224" y="64" width="18" height="126" rx="3" />
+            <rect x="246" y="40" width="18" height="150" rx="3" />
+            <rect x="268" y="44" width="18" height="146" rx="3" />
+            <rect x="290" y="62" width="18" height="128" rx="3" />
+            <rect x="312" y="34" width="18" height="156" rx="3" />
+            <rect x="334" y="50" width="18" height="140" rx="3" />
+            <rect x="356" y="56" width="18" height="134" rx="3" />
+            <rect x="378" y="40" width="18" height="150" rx="3" />
+            <rect x="400" y="64" width="18" height="126" rx="3" />
+            <rect x="422" y="80" width="18" height="110" rx="3" />
+            <rect x="444" y="46" width="18" height="144" rx="3" />
+            <rect x="466" y="34" width="18" height="156" rx="3" />
+            <rect x="488" y="40" width="18" height="150" rx="3" />
+            <rect x="510" y="50" width="18" height="140" rx="3" />
+            <rect x="532" y="44" width="18" height="146" rx="3" />
+            <rect x="554" y="60" width="18" height="130" rx="3" />
+            <rect x="576" y="30" width="18" height="160" rx="3" />
+            <rect x="598" y="46" width="18" height="144" rx="3" />
+            <rect x="620" y="56" width="18" height="134" rx="3" />
+            <rect x="642" y="20" width="18" height="170" rx="3" />
+          </g>
+          <!-- rolling avg -->
+          <path d="M14,150 L36,145 L58,140 L80,138 L102,135 L124,128 L146,130 L168,118 L190,118 L212,120 L234,116 L256,108 L278,104 L300,102 L322,98 L344,96 L366,96 L388,94 L410,98 L432,98 L454,90 L476,88 L498,86 L520,82 L542,80 L564,80 L586,72 L608,72 L630,72 L652,62" stroke="#0e7490" stroke-width="2.5" stroke-dasharray="4 3" fill="none" />
+        </svg>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Stage pressure</p>
+            <h3>Job-card load by stage</h3>
+            <p class="sub">Active cards currently parked at each stage.</p>
+          </div>
+        </div>
+        <div class="minibar"><span class="lab">Slitting</span><div class="track"><div class="fill" style="width: 32%"></div></div><span class="val">14</span></div>
+        <div class="minibar"><span class="lab">Winder</span><div class="track"><div class="fill" style="width: 82%"></div></div><span class="val">35</span></div>
+        <div class="minibar"><span class="lab">Oven</span><div class="track"><div class="fill" style="width: 48%"></div></div><span class="val">20</span></div>
+        <div class="minibar"><span class="lab">Process</span><div class="track"><div class="fill" style="width: 36%"></div></div><span class="val">15</span></div>
+        <div class="minibar"><span class="lab">Packing</span><div class="track"><div class="fill" style="width: 22%"></div></div><span class="val">9</span></div>
+        <div class="minibar"><span class="lab">QC</span><div class="track"><div class="fill" style="width: 12%"></div></div><span class="val">5</span></div>
+        <div class="minibar"><span class="lab">Dispatch ready</span><div class="track"><div class="fill" style="width: 18%"></div></div><span class="val">7</span></div>
+        <p class="sub" style="margin-top: 10px">Winder is the bottleneck today. Lane 2 has been at 92% utilization for 6 days running.</p>
+      </div>
+    </div>
+
+    <!-- Variance bridge mini + customer mix -->
+    <div class="grid-2" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">April variance bridge</p>
+            <h3>Theoretical → Ledger → Actual</h3>
+            <p class="sub">A flat or descending bar after "Ledger issued" means controlled consumption. Tall green = drift.</p>
+          </div>
+          <a class="drill" href="06-variance-bridge.html">Open full bridge →</a>
+        </div>
+        <div class="waterfall">
+          <div class="wf-bar start" style="height: 100%;">
+            <span class="num">12,460 kg</span>
+            <div class="bar" style="height: 180px;"></div>
+            <span class="lab">Theoretical<br/>(BOM × produced)</span>
+          </div>
+          <div class="wf-bar up">
+            <span class="num">+ 612 kg</span>
+            <div class="bar" style="height: 36px; margin-top: 180px;"></div>
+            <span class="lab">Ledger drift<br/>(operator issue)</span>
+          </div>
+          <div class="wf-bar down">
+            <span class="num">− 198 kg</span>
+            <div class="bar" style="height: 18px; margin-top: 198px;"></div>
+            <span class="lab">Recovery<br/>(return + adj)</span>
+          </div>
+          <div class="wf-bar end">
+            <span class="num">12,874 kg</span>
+            <div class="bar" style="height: 186px;"></div>
+            <span class="lab">Actual<br/>(plant register)</span>
+          </div>
+        </div>
+        <div class="note success">Variance −4.6% within tolerance. Bulk of drift is paper KRAFT-120 (winder lane 2).</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Top customers (30 d)</p>
+            <h3>Where revenue concentration lives</h3>
+            <p class="sub">Pareto by dispatched ₹. Hover to see margin / OTIF cut.</p>
+          </div>
+          <a class="drill" href="05-sales-pulse.html">Open Sales →</a>
+        </div>
+        <div class="minibar"><span class="lab">ABC Tube Co.</span><div class="track"><div class="fill" style="width: 100%; background: linear-gradient(90deg, #1d4ed8, #2563eb);"></div></div><span class="val">₹18.4L</span></div>
+        <div class="minibar"><span class="lab">Shri Paper</span><div class="track"><div class="fill" style="width: 86%"></div></div><span class="val">₹15.8L</span></div>
+        <div class="minibar"><span class="lab">Krishna Pack</span><div class="track"><div class="fill" style="width: 62%"></div></div><span class="val">₹11.4L</span></div>
+        <div class="minibar"><span class="lab">Vidya Industries</span><div class="track"><div class="fill" style="width: 48%"></div></div><span class="val">₹8.8L</span></div>
+        <div class="minibar"><span class="lab">Sun Wraps</span><div class="track"><div class="fill" style="width: 36%"></div></div><span class="val">₹6.6L</span></div>
+        <div class="minibar"><span class="lab">Anand Tubes</span><div class="track"><div class="fill" style="width: 28%"></div></div><span class="val">₹5.2L</span></div>
+        <div class="minibar"><span class="lab">42 others (combined)</span><div class="track"><div class="fill" style="width: 64%; background: linear-gradient(90deg, #94a3b8, #cbd5e1);"></div></div><span class="val">₹11.8L</span></div>
+        <p class="sub" style="margin-top: 10px">Top 6 customers = 67.4% of revenue. ABC + Shri alone = 42%.</p>
+      </div>
+    </div>
+
+    <!-- Exceptions feed -->
+    <div class="panel" style="margin-top: 18px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Live exceptions feed</p>
+          <h3>What's worth opening right now</h3>
+          <p class="sub">Auto-curated. Older than 48h is escalated.</p>
+        </div>
+        <div class="actions">
+          <span class="pill rose">3 critical</span>
+          <span class="pill amber">4 high</span>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead><tr><th>Severity</th><th>Type</th><th>Reference</th><th>Age</th><th>Owner</th><th>Exposure</th><th></th></tr></thead>
+        <tbody>
+          <tr>
+            <td><span class="pill rose">Critical</span></td>
+            <td>QC hold blocking shipment</td>
+            <td class="mono">JC-2026-0218</td>
+            <td>3 d</td>
+            <td>Plant Manager A</td>
+            <td class="num">₹14.6K</td>
+            <td><a class="drill" href="#">Open →</a></td>
+          </tr>
+          <tr>
+            <td><span class="pill rose">Critical</span></td>
+            <td>Customer return overdue</td>
+            <td class="mono">RMA-2026-014</td>
+            <td>4 d</td>
+            <td>Dispatch</td>
+            <td class="num">₹38.4K</td>
+            <td><a class="drill" href="#">Open →</a></td>
+          </tr>
+          <tr>
+            <td><span class="pill rose">Critical</span></td>
+            <td>Stock shortage will block winder</td>
+            <td class="mono">KRAFT-120-GSM</td>
+            <td>1 d</td>
+            <td>Store</td>
+            <td class="num">−6 d</td>
+            <td><a class="drill" href="#">Open →</a></td>
+          </tr>
+          <tr>
+            <td><span class="pill amber">High</span></td>
+            <td>Sales order line stuck in DRAFT</td>
+            <td class="mono">SO-77821 / line 5</td>
+            <td>3 d</td>
+            <td>Sales</td>
+            <td class="num">₹6.2L</td>
+            <td><a class="drill" href="#">Open →</a></td>
+          </tr>
+          <tr>
+            <td><span class="pill amber">High</span></td>
+            <td>Variance row needs note</td>
+            <td class="mono">ADHESIVE-A1</td>
+            <td>2 d</td>
+            <td>Planner</td>
+            <td class="num">+12.4 kg</td>
+            <td><a class="drill" href="#">Open →</a></td>
+          </tr>
+          <tr>
+            <td><span class="pill amber">High</span></td>
+            <td>Recipe still in trial for approved spec</td>
+            <td class="mono">SPEC-FG-220</td>
+            <td>5 d</td>
+            <td>Design</td>
+            <td class="num">—</td>
+            <td><a class="drill" href="#">Open →</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup • Hari Om Paper · Owner Daily Pack · screenshot-grade only
+    </p>
+  </main>
+</div>
+</body>
+</html>

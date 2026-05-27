@@ -43,6 +43,19 @@ export const analyticsApi = {
     api.get("/api/analytics/loss/supplier-loss", { params: withDefinedParams(params) }),
   getGsmBfLoss: (params?: any) =>
     api.get("/api/analytics/loss/gsm-bf-loss", { params: withDefinedParams(params) }),
+  // Deep-cut reports introduced by the reports-suite redesign
+  getMachineUtilization: (params?: any) =>
+    api.get("/api/analytics/deep/machine-utilization", { params: withDefinedParams(params) }),
+  getCustomer360: (params?: any) =>
+    api.get("/api/analytics/deep/customer-360", { params: withDefinedParams(params) }),
+  getOperatorProductivity: (params?: any) =>
+    api.get("/api/analytics/deep/operator-productivity", { params: withDefinedParams(params) }),
+  getLeadtimeAnatomy: (params?: any) =>
+    api.get("/api/analytics/deep/leadtime-anatomy", { params: withDefinedParams(params) }),
+  getScrapCostLadder: (params?: any) =>
+    api.get("/api/analytics/deep/scrap-cost-ladder", { params: withDefinedParams(params) }),
+  getItemVelocity: (params?: any) =>
+    api.get("/api/analytics/deep/item-velocity", { params: withDefinedParams(params) }),
 }
 
 export function useDashboardOverview(plant?: string) {
@@ -312,6 +325,95 @@ export function useExceptionReport(params: {
       }
     },
     enabled: !!params?.startDate && !!params?.endDate,
+  })
+}
+
+export function useMachineUtilization(params?: { startDate?: string; endDate?: string; plant?: string }, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["analytics", "deep", "machine-utilization", params || {}],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getMachineUtilization({
+        start_date: params?.startDate,
+        end_date: params?.endDate,
+        plant: params?.plant,
+      })
+      return data || { day_labels: [], hour_labels: [], machines: [] }
+    },
+    enabled: options?.enabled !== false,
+  })
+}
+
+export function useCustomer360(params?: { startDate?: string; endDate?: string; plant?: string }, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["analytics", "deep", "customer-360", params || {}],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getCustomer360({
+        start_date: params?.startDate,
+        end_date: params?.endDate,
+        plant: params?.plant,
+      })
+      return data || { summary: {}, rows: [] }
+    },
+    enabled: options?.enabled !== false,
+  })
+}
+
+export function useOperatorProductivity(params?: { startDate?: string; endDate?: string; plant?: string }, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["analytics", "deep", "operator-productivity", params || {}],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getOperatorProductivity({
+        start_date: params?.startDate,
+        end_date: params?.endDate,
+        plant: params?.plant,
+      })
+      return data || { summary: {}, rows: [] }
+    },
+    enabled: options?.enabled !== false,
+  })
+}
+
+export function useLeadtimeAnatomy(params?: { startDate?: string; endDate?: string; plant?: string }, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["analytics", "deep", "leadtime-anatomy", params || {}],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getLeadtimeAnatomy({
+        start_date: params?.startDate,
+        end_date: params?.endDate,
+        plant: params?.plant,
+      })
+      return data || { stages: [], total_average_days: 0, samples: 0 }
+    },
+    enabled: options?.enabled !== false,
+  })
+}
+
+export function useScrapCostLadder(params?: { startDate?: string; endDate?: string; plant?: string }, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["analytics", "deep", "scrap-cost-ladder", params || {}],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getScrapCostLadder({
+        start_date: params?.startDate,
+        end_date: params?.endDate,
+        plant: params?.plant,
+      })
+      return data || { summary: {}, rows: [] }
+    },
+    enabled: options?.enabled !== false,
+  })
+}
+
+export function useItemVelocity(params?: { horizonDays?: number; plant?: string }, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["analytics", "deep", "item-velocity", params || {}],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getItemVelocity({
+        horizon_days: params?.horizonDays || 30,
+        plant: params?.plant,
+      })
+      return data || { summary: {}, rows: [] }
+    },
+    enabled: options?.enabled !== false,
   })
 }
 

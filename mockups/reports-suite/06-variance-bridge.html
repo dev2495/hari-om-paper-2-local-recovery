@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Quality &amp; Variance Bridge — Hari Om</title>
+<link rel="stylesheet" href="shared.css" />
+</head>
+<body>
+<div class="mockup-banner">MOCKUP 6 OF 6 — QUALITY &amp; VARIANCE BRIDGE</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Intelligence</div>
+    <a class="nav active" href="01-hub.html">Reports &amp; Analytics</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <input class="search" placeholder="Search…" />
+      <span class="pill">Owner</span>
+    </div>
+
+    <p style="font-size: 11px; font-weight: 700; color: var(--ink-3); margin: 0 0 12px">
+      <a href="01-hub.html">Reports</a> · Quality · <strong style="color: var(--ink)">Variance Bridge</strong>
+    </p>
+
+    <section class="hero" style="background: radial-gradient(120% 90% at 0% 0%, rgba(244,63,94,0.18), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(139,92,246,0.10), transparent 55%), linear-gradient(135deg, #0b1220 0%, #581c87 60%, #4c1d95 100%);">
+      <p class="eyebrow">Variance Bridge · April 2026</p>
+      <h1>Where the kg went — theoretical → ledger → actual, item by item.</h1>
+      <p class="lead">The single most-asked question of the month: "Why is paper variance −4.6%?" This page is the answer. Every bar drills into the underlying job-cards, issue events, and notes.</p>
+      <div class="chips">
+        <span class="chip emerald">Status: APPROVED</span>
+        <span class="chip">Approved by yash@ · 03 May 06:42</span>
+        <span class="chip">Variance −4.6% (within ±5% tolerance)</span>
+        <span class="chip rose">3 over-tolerance rows · explained</span>
+      </div>
+    </section>
+
+    <div class="filter-bar">
+      <span class="lab">Month</span>
+      <select><option>March 2026</option><option selected>April 2026</option><option>May 2026 · in-progress</option></select>
+      <span class="lab">Item type</span>
+      <select><option selected>All</option><option>Raw paper</option><option>Adhesive</option><option>Parchment</option></select>
+      <span class="lab">Show only</span>
+      <select><option selected>All rows</option><option>Over-tolerance</option><option>Unexplained</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">CSV export</button>
+      <button class="btn primary">Open period workbook</button>
+    </div>
+
+    <!-- KPI summary -->
+    <div class="kpi-row">
+      <div class="kpi tone-cyan">
+        <div class="label">Theoretical</div>
+        <div class="value">12,460 kg</div>
+        <div class="sub">From BOM × produced qty</div>
+        <div class="delta flat">• baseline</div>
+      </div>
+      <div class="kpi tone-violet">
+        <div class="label">Ledger issued</div>
+        <div class="value">13,072 kg</div>
+        <div class="sub">Sum of ISSUE_PRODUCTION</div>
+        <div class="delta up">▲ +612 kg vs theo</div>
+      </div>
+      <div class="kpi tone-emerald">
+        <div class="label">Actual (register)</div>
+        <div class="value">12,874 kg</div>
+        <div class="sub">Imported from plant register</div>
+        <div class="delta up">▲ +414 kg vs theo</div>
+      </div>
+      <div class="kpi tone-amber">
+        <div class="label">Variance %</div>
+        <div class="value">−4.6%</div>
+        <div class="sub">Within ±5% tolerance</div>
+        <div class="delta down">▼ closed</div>
+      </div>
+      <div class="kpi tone-rose">
+        <div class="label">Variance cost</div>
+        <div class="value">₹38.4K</div>
+        <div class="sub">Mostly KRAFT-120</div>
+        <div class="delta down">▼ 12% MoM</div>
+      </div>
+      <div class="kpi tone-slate">
+        <div class="label">Over-tolerance rows</div>
+        <div class="value">3 / 14</div>
+        <div class="sub">All explained ✓</div>
+        <div class="delta down">▼ 1 less than Mar</div>
+      </div>
+    </div>
+
+    <!-- Bridge waterfall -->
+    <div class="panel" style="margin-top: 18px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Variance waterfall</p>
+          <h3>Theoretical → Ledger drift → Recovery → Actual</h3>
+          <p class="sub">Tall red after Theoretical = operators issued more than spec said they should. Green next bar = some of that returned / adjusted. The leftover is the variance.</p>
+        </div>
+      </div>
+      <div class="waterfall" style="min-height: 280px;">
+        <div class="wf-bar start">
+          <span class="num">12,460 kg</span>
+          <div class="bar" style="height: 220px;"></div>
+          <span class="lab">Theoretical<br/>BOM × produced</span>
+        </div>
+        <div class="wf-bar up">
+          <span class="num">+ 612 kg</span>
+          <div class="bar" style="height: 44px; margin-top: 176px;"></div>
+          <span class="lab">Operator over-issue<br/>(KRAFT-120 lane 2)</span>
+        </div>
+        <div class="wf-bar down">
+          <span class="num">− 198 kg</span>
+          <div class="bar" style="height: 22px; margin-top: 198px;"></div>
+          <span class="lab">RM returned + adj<br/>(rework yield)</span>
+        </div>
+        <div class="wf-bar up">
+          <span class="num">+ 84 kg</span>
+          <div class="bar" style="height: 8px; margin-top: 212px;"></div>
+          <span class="lab">Moisture &amp; trim<br/>(within band)</span>
+        </div>
+        <div class="wf-bar down">
+          <span class="num">− 84 kg</span>
+          <div class="bar" style="height: 8px; margin-top: 212px;"></div>
+          <span class="lab">Scrap recovery<br/>(reissued)</span>
+        </div>
+        <div class="wf-bar end">
+          <span class="num">12,874 kg</span>
+          <div class="bar" style="height: 232px;"></div>
+          <span class="lab">Actual<br/>(plant register)</span>
+        </div>
+      </div>
+      <div class="note success">Net variance −4.6% is fully explained. Largest single driver: operator over-issue on winder L2 (paper KRAFT-120, +612 kg). Note: PlantManager has already taken corrective action — operator re-trained on issue receipt.</div>
+    </div>
+
+    <!-- 3-stream side-by-side -->
+    <div class="panel" style="margin-top: 18px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Three-stream cut</p>
+          <h3>Item-by-item — theoretical · ledger · actual · variance</h3>
+          <p class="sub">Sorted by absolute variance. Red rows ≥ tolerance; amber rows have notes; green within band. Drill any row to see the issue events behind the number.</p>
+        </div>
+        <div class="actions">
+          <button class="btn primary">All</button>
+          <button class="btn">Paper</button>
+          <button class="btn">Adhesive</button>
+          <button class="btn">Parchment</button>
+        </div>
+      </div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>Item</th><th>Type</th>
+            <th>Theoretical</th><th>Ledger</th><th>Actual</th>
+            <th>Variance kg</th><th>%</th>
+            <th>Tolerance</th><th>Status</th><th>Note</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="mono">KRAFT-120-GSM</td><td>Raw paper</td>
+            <td class="num">4,820</td><td class="num">5,164</td><td class="num">5,038</td>
+            <td class="num" style="color: var(--rose); font-weight: 800;">+218 kg</td>
+            <td class="num"><span class="pill rose">+4.5%</span></td>
+            <td class="num">±5.0</td>
+            <td><span class="pill amber">over · explained</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">Lane 2 operator over-issue, retrained</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+          <tr>
+            <td class="mono">KRAFT-140-GSM</td><td>Raw paper</td>
+            <td class="num">3,640</td><td class="num">3,720</td><td class="num">3,712</td>
+            <td class="num" style="color: var(--amber); font-weight: 800;">+72 kg</td>
+            <td class="num"><span class="pill emerald">+2.0%</span></td>
+            <td class="num">±5.0</td>
+            <td><span class="pill emerald">OK</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">—</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+          <tr>
+            <td class="mono">KRAFT-100-GSM</td><td>Raw paper</td>
+            <td class="num">2,280</td><td class="num">2,310</td><td class="num">2,294</td>
+            <td class="num" style="color: var(--amber); font-weight: 800;">+14 kg</td>
+            <td class="num"><span class="pill emerald">+0.6%</span></td>
+            <td class="num">±5.0</td>
+            <td><span class="pill emerald">OK</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">—</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+          <tr>
+            <td class="mono">ADHESIVE-A1</td><td>Adhesive</td>
+            <td class="num">412</td><td class="num">434</td><td class="num">425</td>
+            <td class="num" style="color: var(--rose); font-weight: 800;">+13 kg</td>
+            <td class="num"><span class="pill rose">+3.2%</span></td>
+            <td class="num">±0.5</td>
+            <td><span class="pill amber">over · explained</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">Spillage incident on 14 Apr · cleaned</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+          <tr>
+            <td class="mono">ADHESIVE-A2</td><td>Adhesive</td>
+            <td class="num">198</td><td class="num">204</td><td class="num">202</td>
+            <td class="num" style="color: var(--amber); font-weight: 800;">+4 kg</td>
+            <td class="num"><span class="pill emerald">+2.0%</span></td>
+            <td class="num">±0.5</td>
+            <td><span class="pill emerald">OK</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">—</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+          <tr>
+            <td class="mono">PARCH-WHITE</td><td>Parchment</td>
+            <td class="num">680</td><td class="num">688</td><td class="num">686</td>
+            <td class="num" style="color: var(--amber); font-weight: 800;">+6 kg</td>
+            <td class="num"><span class="pill emerald">+0.9%</span></td>
+            <td class="num">±1.0</td>
+            <td><span class="pill emerald">OK</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">—</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+          <tr>
+            <td class="mono">PARCH-BROWN</td><td>Parchment</td>
+            <td class="num">430</td><td class="num">462</td><td class="num">456</td>
+            <td class="num" style="color: var(--rose); font-weight: 800;">+26 kg</td>
+            <td class="num"><span class="pill rose">+6.0%</span></td>
+            <td class="num">±1.0</td>
+            <td><span class="pill amber">over · explained</span></td>
+            <td style="font-size:11.5px; color:var(--ink-3);">Customer-spec brown was thicker; will update spec</td>
+            <td><a class="drill" href="#">Drill →</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Quality holds Pareto + scrap ladder -->
+    <div class="grid-2" style="margin-top: 18px">
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">QC holds — Pareto (90 d)</p>
+            <h3>Top reasons holds are raised</h3>
+            <p class="sub">Two reasons drive 60% of holds. Targeting these on the next quality huddle.</p>
+          </div>
+        </div>
+        <div class="minibar"><span class="lab">OD out of spec</span><div class="track"><div class="fill" style="width:100%; background:linear-gradient(90deg,#be123c,#f43f5e);"></div></div><span class="val">18</span></div>
+        <div class="minibar"><span class="lab">Moisture &gt; 8.5%</span><div class="track"><div class="fill" style="width:67%; background:linear-gradient(90deg,#b45309,#f59e0b);"></div></div><span class="val">12</span></div>
+        <div class="minibar"><span class="lab">Crush str low</span><div class="track"><div class="fill" style="width:39%"></div></div><span class="val">7</span></div>
+        <div class="minibar"><span class="lab">Parchment mismatch</span><div class="track"><div class="fill" style="width:28%"></div></div><span class="val">5</span></div>
+        <div class="minibar"><span class="lab">Length variance</span><div class="track"><div class="fill" style="width:22%"></div></div><span class="val">4</span></div>
+        <div class="minibar"><span class="lab">Other</span><div class="track"><div class="fill" style="width:17%; background:#94a3b8"></div></div><span class="val">3</span></div>
+        <div class="note warn">"OD out of spec" + "Moisture" = 30 of 49 holds (61%). Focus action: winder L2 mandrel + oven 2 calibration.</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">Scrap cost ladder (30 d)</p>
+            <h3>Scrap ₹ by item + reason</h3>
+            <p class="sub">What scrap actually cost us.</p>
+          </div>
+        </div>
+        <table class="tbl">
+          <thead><tr><th>Item</th><th>Reason</th><th>Kg</th><th>₹/kg</th><th>₹ total</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">KRAFT-120</td><td>OD trim</td><td class="num">186</td><td class="num">62</td><td class="num">₹11,532</td></tr>
+            <tr><td class="mono">KRAFT-140</td><td>Edge tear</td><td class="num">96</td><td class="num">68</td><td class="num">₹6,528</td></tr>
+            <tr><td class="mono">ADHESIVE-A1</td><td>Spillage</td><td class="num">22</td><td class="num">320</td><td class="num">₹7,040</td></tr>
+            <tr><td class="mono">PARCH-BROWN</td><td>Mis-cut</td><td class="num">42</td><td class="num">110</td><td class="num">₹4,620</td></tr>
+            <tr><td class="mono">PARCH-WHITE</td><td>Stain</td><td class="num">28</td><td class="num">98</td><td class="num">₹2,744</td></tr>
+            <tr><td class="mono">FG-DIAM-42</td><td>QC reject</td><td class="num">14</td><td class="num">240</td><td class="num">₹3,360</td></tr>
+            <tr><td class="mono"><strong>Total</strong></td><td></td><td class="num"><strong>388</strong></td><td></td><td class="num"><strong>₹35,824</strong></td></tr>
+          </tbody>
+        </table>
+        <div class="note info">Adhesive A1 cost-per-kg (₹320) makes spillage the most expensive event despite low volume. Spill-control SOP added to operator brief.</div>
+      </div>
+    </div>
+
+    <!-- Recipe / spec cascade health -->
+    <div class="panel" style="margin-top: 18px">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Cascade health</p>
+          <h3>Spec → recipe → release coverage</h3>
+          <p class="sub">A complete release chain needs an approved spec AND at least one approved recipe. Anything orange is a silent bottleneck.</p>
+        </div>
+      </div>
+      <div class="grid-3">
+        <div style="padding: 16px; background: linear-gradient(135deg, #ecfdf5, #fff); border: 1px solid #a7f3d0; border-radius: 14px;">
+          <div class="pill emerald">Approved · recipe ready</div>
+          <h4 style="margin: 8px 0 0; font-size: 28px;">38</h4>
+          <p style="margin: 0; font-size: 12px; color: var(--ink-3);">Specs ready for release</p>
+        </div>
+        <div style="padding: 16px; background: linear-gradient(135deg, #fffbeb, #fff); border: 1px solid #fde68a; border-radius: 14px;">
+          <div class="pill amber">Spec approved · recipe trial</div>
+          <h4 style="margin: 8px 0 0; font-size: 28px;">4</h4>
+          <p style="margin: 0; font-size: 12px; color: var(--ink-3);">Bottleneck — release will fail silently</p>
+        </div>
+        <div style="padding: 16px; background: linear-gradient(135deg, #f1f5f9, #fff); border: 1px solid #e2e8f0; border-radius: 14px;">
+          <div class="pill slate">Spec draft / obsolete</div>
+          <h4 style="margin: 8px 0 0; font-size: 28px;">12</h4>
+          <p style="margin: 0; font-size: 12px; color: var(--ink-3);">Not yet approved; on backlog</p>
+        </div>
+      </div>
+      <div class="note warn">SPEC-FG-220, SPEC-FG-110, SPEC-FG-130, SPEC-FG-90 are approved but have only trial recipes — release-to-job will fail until one is promoted.</div>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup • Hari Om Paper · Quality &amp; Variance Bridge · screenshot-grade only
+    </p>
+  </main>
+</div>
+</body>
+</html>

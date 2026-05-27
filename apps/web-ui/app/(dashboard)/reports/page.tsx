@@ -1,173 +1,285 @@
-'use client'
+"use client"
 
-import Link from 'next/link'
-import { BarChart3, Factory, Package, Sparkles, Truck, type LucideIcon } from 'lucide-react'
+import Link from "next/link"
+import { useState } from "react"
 
-import { ChartCard, FilterChip, KpiCard, PageIntro, formatCompactCurrency, formatCompactNumber, formatPercent } from '@/components/erp/premium-dashboard'
-import { RoleGate } from '@/components/workspace/role-gate'
-import { useAuth } from '@/context/AuthContext'
-import { useDashboardOverview, useExceptionReport, useOwnerPack, usePlantCompareReport, useSalesReport } from '@/hooks/use-analytics'
-import { cn } from '@/lib/utils'
+import { RoleGate } from "@/components/workspace/role-gate"
+import {
+  Panel,
+  ReportFilterBar,
+  ReportHero,
+  ReportTileLink,
+  FilterField,
+  DrillLink,
+} from "@/components/reports/primitives"
+import { useAuth } from "@/context/AuthContext"
+import { useOwnerPack } from "@/hooks/use-analytics"
+import { formatCompactCurrency, formatPercent } from "@/components/erp/premium-dashboard"
 
-type ReportTile = {
+type AudienceFilter = "all" | "owner" | "operations" | "commercial" | "inventory" | "quality" | "dispatch"
+
+const REPORTS: Array<{
   href: string
   title: string
   description: string
-  accent: string
-  icon: LucideIcon
-}
-
-const reportTiles: ReportTile[] = [
+  audience: AudienceFilter
+  accent: "owner" | "ops" | "sales" | "inv" | "qc" | "disp"
+}> = [
   {
-    href: '/reports/owner',
-    title: 'Owner dashboard',
-    description: 'Revenue posture, OTIF, stage pressure, and board-pack summary.',
-    accent: 'from-slate-950 via-slate-900 to-cyan-900 text-white',
-    icon: Sparkles,
+    href: "/reports/owner",
+    title: "Owner Daily Pack",
+    description: "Single-page board pack: dispatch ₹, OTIF, backlog, variance, blocked jobs, scrap exposure.",
+    audience: "owner",
+    accent: "owner",
   },
   {
-    href: '/reports/production',
-    title: 'Production reports',
-    description: 'Throughput, efficiency, and floor-level production signals.',
-    accent: 'from-white to-cyan-50 text-slate-950',
-    icon: Factory,
+    href: "/production/reconciliation",
+    title: "Period Close Workbook",
+    description: "Reconciliation summary, theoretical/ledger/actual deltas, blockers, cert posture — audit-grade close package.",
+    audience: "owner",
+    accent: "owner",
   },
   {
-    href: '/reports/sales',
-    title: 'Sales reports',
-    description: 'Order releases, commercial movement, and dispatch-linked output.',
-    accent: 'from-white to-amber-50 text-slate-950',
-    icon: BarChart3,
+    href: "/reports/operations",
+    title: "Operations Command",
+    description: "Stage throughput · 7×24 machine utilization heatmap · adherence ladder · operator productivity · blockers.",
+    audience: "operations",
+    accent: "ops",
   },
   {
-    href: '/reports/inventory',
-    title: 'Inventory reports',
-    description: 'Stock levels, valuation, ageing, and risk posture.',
-    accent: 'from-white to-emerald-50 text-slate-950',
-    icon: Package,
+    href: "/reports/production",
+    title: "Stage & Machine Throughput",
+    description: "Winder / oven / process / packing per-machine kg-throughput. Calendar-heatmap of utilization.",
+    audience: "operations",
+    accent: "ops",
   },
   {
-    href: '/reports/plants',
-    title: 'Plant reports',
-    description: 'Plant-wise performance, capacity, and execution differences.',
-    accent: 'from-white to-violet-50 text-slate-950',
-    icon: Factory,
+    href: "/reports/plants",
+    title: "Cross-plant Comparator",
+    description: "Side-by-side benchmark of plants on throughput, yield, OTIF, ledger variance.",
+    audience: "operations",
+    accent: "ops",
   },
   {
-    href: '/production/reconciliation',
-    title: 'Reconciliation',
-    description: 'Material variance, close-out posture, and cost truth.',
-    accent: 'from-white to-rose-50 text-slate-950',
-    icon: Truck,
+    href: "/reports/sales",
+    title: "Sales & Commercial Pulse",
+    description: "Funnel · OTIF area trend · customer 360 ladder · top-SKU mix · lead-time anatomy.",
+    audience: "commercial",
+    accent: "sales",
+  },
+  {
+    href: "/reports/customer-360",
+    title: "Customer 360",
+    description: "Per-customer P&L view: orders, dispatched, OTIF, risk, open value, last-dispatch recency.",
+    audience: "commercial",
+    accent: "sales",
+  },
+  {
+    href: "/reports/inventory",
+    title: "Inventory Intelligence",
+    description: "Valuation · days-on-hand · aging · velocity matrix · top movers · MRP-driven shortage planner.",
+    audience: "inventory",
+    accent: "inv",
+  },
+  {
+    href: "/analytics/mrp",
+    title: "MRP & Shortage Planner",
+    description: "Demand-driven shortages → PO drafts. Lead-time projection. Reorder-policy coverage gaps.",
+    audience: "inventory",
+    accent: "inv",
+  },
+  {
+    href: "/reports/loss",
+    title: "Supplier & Reel Performance",
+    description: "Vendor lead time, reel weight variance, GSM/BF compliance, supplier-side defect Pareto.",
+    audience: "inventory",
+    accent: "inv",
+  },
+  {
+    href: "/reports/quality",
+    title: "Quality & Variance Bridge",
+    description: "Variance waterfall (theoretical → ledger → actual). Hold Pareto. Scrap-cost ladder. QC pass-rate trend.",
+    audience: "quality",
+    accent: "qc",
+  },
+  {
+    href: "/reports/dispatch",
+    title: "Dispatch & Customer SLA",
+    description: "Challan throughput · on-time delivery · vehicle fill rate · customer SLA hit-rate ladder.",
+    audience: "dispatch",
+    accent: "disp",
   },
 ]
 
+const AUDIENCE_LABELS: Record<AudienceFilter, string> = {
+  all: "All audiences",
+  owner: "Owner / exec",
+  operations: "Operations",
+  commercial: "Commercial",
+  inventory: "Inventory",
+  quality: "Quality",
+  dispatch: "Dispatch",
+}
+
+const AUDIENCE_ORDER: AudienceFilter[] = ["owner", "operations", "commercial", "inventory", "quality", "dispatch"]
+
 export default function ReportsHubPageWrapper() {
   return (
-    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales"]}>
-      <ReportsHubPage />
+    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales", "Owner", "Admin"]}>
+      <ReportsLandingPage />
     </RoleGate>
   )
 }
 
-function ReportsHubPage() {
+function ReportsLandingPage() {
   const { activePlant } = useAuth()
-  const endDate = new Date().toISOString().split('T')[0]
-  const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  const { data: overview } = useDashboardOverview(activePlant || undefined)
-  const { data: ownerPack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
-  const { data: salesReport } = useSalesReport({ startDate, endDate, plant: activePlant || undefined, granularity: 'day' })
-  const { data: plantReport } = usePlantCompareReport({ startDate, endDate, plant: activePlant || undefined, granularity: 'day' })
-  const { data: exceptionReport } = useExceptionReport({ startDate, endDate, plant: activePlant || undefined, granularity: 'day' })
-  const pack: any = ownerPack || {}
-  const reportPreviews = {
-    owner: formatCompactCurrency(Number(pack.headline?.dispatch_value || 0)),
-    production: `${formatCompactNumber(Number(pack.headline?.active_job_cards || 0))} active JCs`,
-    sales: `${formatCompactNumber(Number(salesReport?.summary?.backlog_orders || 0))} backlog`,
-    inventory: formatCompactCurrency(Number(pack.headline?.inventory_value || 0)),
-    plant: `${formatCompactNumber((plantReport?.rows || []).length)} plants`,
-    reconciliation: formatCompactCurrency(Number(pack.reconciliation?.summary?.variance_value || 0)),
-  }
+  const [period, setPeriod] = useState<"7" | "30" | "90">("30")
+  const [audience, setAudience] = useState<AudienceFilter>("all")
+  const [compare, setCompare] = useState<"none" | "prior" | "year">("prior")
+  const { data: pack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
+
+  const headline = (pack as any)?.headline || {}
+
+  const visible = REPORTS.filter((r) => audience === "all" || r.audience === audience)
+  const liveSnapshotRows = [
+    {
+      label: "OTIF",
+      value: formatPercent(Number(headline.otif_percent || 0)),
+      href: "/reports/sales",
+    },
+    {
+      label: "Backlog",
+      value: formatCompactCurrency(Number(headline.backlog_value || 0)),
+      href: "/reports/sales",
+    },
+    {
+      label: "Blocked jobs",
+      value: String(Number(headline.blocked_jobs || 0)),
+      href: "/reports/operations",
+    },
+    {
+      label: "Inventory value",
+      value: formatCompactCurrency(Number(headline.inventory_value || 0)),
+      href: "/reports/inventory",
+    },
+  ]
 
   return (
-    <div className="space-y-6 px-6 pb-8 pt-2" data-testid="reports-hub-page">
-      <PageIntro
-        eyebrow="Reports Suite"
-        title="Finished reports for owner, production, sales, inventory, plant comparison, and reconciliation."
-        description="Every report opens as a real operating artifact: consistent shell, export-ready, and built from the same live aggregates the rest of the ERP is using."
-        actions={
-          <>
-            <FilterChip active>Last 30d</FilterChip>
-            <FilterChip>{activePlant || 'ALL PLANTS'}</FilterChip>
-          </>
-        }
+    <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-hub-page">
+      <ReportHero
+        eyebrow="Reports"
+        title="Twelve finished reports — picked by who you are."
+        description="Each report opens on a screenshot-grade page with the same filter spine, the same comparison model, and the same drill paths. Pair this with /analytics for the live KPI snapshot view."
+        accent="cyan"
+        chips={[
+          { label: `${REPORTS.length} reports`, tone: "neutral" },
+          { label: `OTIF ${formatPercent(Number(headline.otif_percent || 0))}`, tone: "neutral" },
+          { label: `Backlog ${formatCompactCurrency(Number(headline.backlog_value || 0))}`, tone: "warn" },
+        ]}
       />
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4" data-testid="reports-hub:kpis">
-        <KpiCard label="Revenue" value={formatCompactCurrency(Number(pack.headline?.dispatch_value || 0))} detail="Owner report headline value" tone="cyan" />
-        <KpiCard label="Production" value={`${formatCompactNumber(Number(pack.headline?.dispatch_qty || 0))} kg`} detail="Dispatched quantity in scope" tone="emerald" />
-        <KpiCard label="OTIF" value={formatPercent(Number(pack.headline?.otif_percent || 0))} detail="Current order promise performance" tone={Number(pack.headline?.otif_percent || 0) >= 92 ? 'emerald' : 'rose'} />
-        <KpiCard label="Variance" value={formatCompactCurrency(Number(pack.reconciliation?.summary?.variance_value || 0))} detail="Reconciliation proxy" tone="amber" />
-      </section>
+      <ReportFilterBar>
+        <FilterField label="Period">
+          <select
+            value={period}
+            onChange={(e) => setPeriod(e.target.value as any)}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+          >
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </FilterField>
+        <FilterField label="Compare">
+          <select
+            value={compare}
+            onChange={(e) => setCompare(e.target.value as any)}
+            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+          >
+            <option value="none">None</option>
+            <option value="prior">vs prior period</option>
+            <option value="year">vs same period last year</option>
+          </select>
+        </FilterField>
+        <FilterField label="Plant">
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
+            {activePlant || "ALL"}
+          </span>
+        </FilterField>
+        <span className="ml-auto" />
+        <span className="text-xs text-slate-500">
+          Tip: open <Link href="/analytics" className="underline">/analytics</Link> for the live KPI dashboard.
+        </span>
+      </ReportFilterBar>
 
-      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {reportTiles.map((tile) => {
-            const Icon = tile.icon
-            const previewValue =
-              tile.href === '/reports/owner'
-                ? reportPreviews.owner
-                : tile.href === '/reports/production'
-                  ? reportPreviews.production
-                  : tile.href === '/reports/sales'
-                    ? reportPreviews.sales
-                    : tile.href === '/reports/inventory'
-                      ? reportPreviews.inventory
-                      : tile.href === '/reports/plants'
-                        ? reportPreviews.plant
-                        : reportPreviews.reconciliation
+      {/* Audience tabs */}
+      <div className="flex flex-wrap gap-2">
+        {(["all", ...AUDIENCE_ORDER] as AudienceFilter[]).map((a) => (
+          <button
+            type="button"
+            key={a}
+            onClick={() => setAudience(a)}
+            className={
+              "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition " +
+              (audience === a
+                ? "border-slate-950 bg-slate-950 text-white"
+                : "border-slate-200 bg-white text-slate-600 hover:border-cyan-200 hover:text-cyan-900")
+            }
+          >
+            {AUDIENCE_LABELS[a]}
+          </button>
+        ))}
+      </div>
 
-            return (
-              <Link key={tile.href} href={tile.href} className="group">
-                <div
-                  className={cn(
-                    'h-full rounded-[28px] border border-slate-200/80 bg-gradient-to-br px-5 py-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition duration-200 group-hover:-translate-y-0.5 group-hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]',
-                    tile.accent,
-                  )}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="rounded-2xl border border-white/20 bg-white/10 p-3">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                  </div>
-                  <h2 className="mt-6 text-xl font-semibold tracking-tight">{tile.title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-current/70">{tile.description}</p>
-                  <p className="mt-4 text-xs font-semibold uppercase tracking-[0.16em] text-current/70">{previewValue}</p>
-                </div>
-              </Link>
-            )
-          })}
-        </div>
-
-        <div className="space-y-4">
-          <ChartCard eyebrow="Scheduled Deliveries" title="Delivery cadence readiness" description="Report automation UI can be layered on top of this suite without changing routes.">
-            <div className="space-y-3 text-sm text-slate-600">
-              <p>Owner and reconciliation reports are now shaped as finished surfaces rather than placeholder tiles.</p>
-              <p>Sales, inventory, and plant reports use the same shell so exported PDFs and CSVs read coherently.</p>
-              <p>{formatCompactNumber(Number(exceptionReport?.summary?.delayed_orders || 0))} delayed-order exceptions are already available for scheduled delivery logic.</p>
+      {/* Render groups */}
+      {AUDIENCE_ORDER.filter((a) => audience === "all" || a === audience).map((group) => {
+        const groupReports = visible.filter((r) => r.audience === group)
+        if (!groupReports.length) return null
+        return (
+          <section key={group} className="space-y-3">
+            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">{AUDIENCE_LABELS[group]}</p>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {groupReports.map((r) => (
+                <ReportTileLink
+                  key={r.href}
+                  href={r.href}
+                  title={r.title}
+                  description={r.description}
+                  accent={r.accent}
+                />
+              ))}
             </div>
-          </ChartCard>
+          </section>
+        )
+      })}
 
-          <ChartCard eyebrow="Report Notes" title="Suite readiness" description="What this hub is now doing for the workspace.">
-            <div className="space-y-3 text-sm text-slate-600">
-              <p>The hub KPI rail is fed by the same live owner-pack and report data the detail pages now consume.</p>
-              <p>Report previews now carry actual signal instead of decorative copy-only tiles.</p>
-              <p>Plant comparison is ready to open even in single-plant mode, using the shared report shell.</p>
-              <p>Overview dispatch today: {formatCompactNumber(Number(overview?.dispatch_today || 0))}.</p>
-            </div>
-          </ChartCard>
-        </div>
-      </section>
+      {/* Live report snapshot */}
+      <Panel
+        eyebrow="Live snapshot"
+        title="Current report signals"
+        description="These values come from the owner-pack endpoint for the selected plant scope. Open a signal to inspect the underlying report."
+      >
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <th className="py-2 pr-3">Signal</th>
+              <th className="py-2 pr-3 text-right">Value</th>
+              <th className="py-2 pr-3" />
+            </tr>
+          </thead>
+          <tbody>
+            {liveSnapshotRows.map((row) => (
+              <tr key={row.label} className="border-b border-slate-100 hover:bg-slate-50">
+                <td className="py-2 pr-3 font-medium text-slate-900">{row.label}</td>
+                <td className="py-2 pr-3 text-right font-bold text-slate-950">{row.value}</td>
+                <td className="py-2 pr-3">
+                  <DrillLink href={row.href}>Open</DrillLink>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
     </div>
   )
 }
