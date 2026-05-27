@@ -400,8 +400,9 @@ export function AdminLandingPage() {
           <div className="space-y-3">
             {[
               { href: "/system/users", label: "Role matrix", icon: Users },
+              { href: "/system/tolerances", label: "Variance tolerances", icon: Wrench },
               { href: "/reports", label: "Report hub", icon: ClipboardCheck },
-              { href: "/analytics/dashboard", label: "Analytics", icon: BarChart3 },
+              { href: "/analytics", label: "Analytics", icon: BarChart3 },
               { href: "/planning/tracker", label: "Tracker", icon: Wrench },
             ].map((item) => (
               <Link key={item.href} href={item.href} className="flex items-center justify-between rounded-[1.2rem] border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">

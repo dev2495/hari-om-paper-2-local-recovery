@@ -22,6 +22,7 @@ import {
 } from "@/components/reports/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { useOwnerPack, useSalesReport } from "@/hooks/use-analytics"
+import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function OwnerReportsPage() {
   return (
@@ -33,6 +34,7 @@ export default function OwnerReportsPage() {
 
 function OwnerPackPage() {
   const { activePlant } = useAuth()
+  const activePlantLabel = usePlantScopeLabel(activePlant)
   const today = new Date().toISOString().split("T")[0]
   const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
@@ -124,7 +126,7 @@ function OwnerPackPage() {
         </FilterField>
         <FilterField label="Plant">
           <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
-            {activePlant || "ALL"}
+            {activePlantLabel}
           </span>
         </FilterField>
         <span className="ml-auto" />

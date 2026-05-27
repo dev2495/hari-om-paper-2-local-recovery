@@ -21,6 +21,7 @@ import {
 } from "@/components/reports/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomer360, useLeadtimeAnatomy, useOwnerPack, useSalesReport } from "@/hooks/use-analytics"
+import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function SalesReportsWrapper() {
   return (
@@ -32,6 +33,7 @@ export default function SalesReportsWrapper() {
 
 function SalesPulsePage() {
   const { activePlant } = useAuth()
+  const activePlantLabel = usePlantScopeLabel(activePlant)
   const today = new Date().toISOString().split("T")[0]
   const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
@@ -99,7 +101,7 @@ function SalesPulsePage() {
           <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">Last 30 days</span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlant || "ALL"}</span>
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlantLabel}</span>
         </FilterField>
       </ReportFilterBar>
 

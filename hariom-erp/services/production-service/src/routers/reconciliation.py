@@ -21,6 +21,7 @@ from ..services.consumption import (
     compose_streams_for_period as _consumption_compose_streams,
     is_raw_paper_item as _consumption_is_raw_paper,
     paper_catalog_codes as _consumption_paper_catalog_codes,
+    paper_expected_factor_with_overrides as _consumption_paper_expected_factor_with_overrides,
     provisional_rows_for_job_card as _consumption_provisional_for_job,
     summarize_streams as _consumption_summarize,
     tolerance_for_item_type as _consumption_tolerance_for,
@@ -34,6 +35,7 @@ from ..models import (
     PackingRecord,
     PLANT_A_UUID,
     PLANT_B_UUID,
+    PlantToleranceSetting,
     QualityHold,
     ShiftMaterialLedger,
 )
@@ -534,6 +536,50 @@ def _tolerance_for(item_type: Optional[str]) -> float:
     return _consumption_tolerance_for(item_type)
 
 
+def _load_plant_tolerance_overrides(db: Session, plant_id: Any) -> Optional[dict[str, Any]]:
+    """Return ``PlantToleranceSetting`` for ``plant_id`` as a plain dict, or None.
+
+    Caller-side use: pass the dict into
+    :func:`tolerance_for_item_type_with_overrides` to get the effective
+    tolerance for an item type. Falls back to global defaults on any error.
+    """
+    plant_uuid = _plant_uuid_or_none(plant_id)
+    if plant_uuid is None:
+        return None
+    try:
+        row = (
+            db.query(PlantToleranceSetting)
+            .filter(PlantToleranceSetting.plant_id == plant_uuid)
+            .one_or_none()
+        )
+    except Exception:  # pragma: no cover — defensive
+        return None
+    if row is None:
+        return None
+    return {
+        "default_kg": float(row.default_kg) if row.default_kg is not None else None,
+        "raw_paper_kg": float(row.raw_paper_kg) if row.raw_paper_kg is not None else None,
+        "adhesive_kg": float(row.adhesive_kg) if row.adhesive_kg is not None else None,
+        "parchment_kg": float(row.parchment_kg) if row.parchment_kg is not None else None,
+        "packaging_kg": float(row.packaging_kg) if row.packaging_kg is not None else None,
+        "paper_expected_consumption_factor": float(row.paper_expected_consumption_factor)
+        if row.paper_expected_consumption_factor is not None
+        else None,
+        "paper_standard_wastage_percent": float(row.paper_standard_wastage_percent)
+        if row.paper_standard_wastage_percent is not None
+        else None,
+    }
+
+
+def _tolerance_for_with_plant(item_type: Optional[str], overrides: Optional[dict[str, Any]]) -> float:
+    """Plant-aware version of ``_tolerance_for``. Falls back to global when ``overrides`` is None."""
+    if not overrides:
+        return _tolerance_for(item_type)
+    # Lazy import to avoid a circular import at module load.
+    from ..services.consumption import tolerance_for_item_type_with_overrides
+    return tolerance_for_item_type_with_overrides(item_type, overrides)
+
+
 def _paper_catalog_codes(paper_catalog: dict[str, dict[str, Any]]) -> set[str]:
     """Delegates to ConsumptionExpectationService (Gap 8)."""
     return _consumption_paper_catalog_codes(paper_catalog)
@@ -926,6 +972,12 @@ def _build_monthly_material_summary(
         if not bucket.get("item_name") and row.item_name:
             bucket["item_name"] = row.item_name
 
+    plant_overrides = (
+        None
+        if plant_scope.get("scope_all")
+        else _load_plant_tolerance_overrides(db, plant_scope.get("selected_plant_id"))
+    )
+
     # Gap 8: delegate row composition + totals to ConsumptionExpectationService.
     streams = _consumption_compose_streams(
         provisional_map=provisional_map,
@@ -933,6 +985,7 @@ def _build_monthly_material_summary(
         ledger_map=ledger_map,
         inventory_catalog=inventory_catalog,
         paper_codes=paper_codes,
+        plant_overrides=plant_overrides,
     )
     rows: list[MonthlyMaterialActualRow] = [
         MonthlyMaterialActualRow(**stream.to_actual_row_dict()) for stream in streams
@@ -1443,6 +1496,7 @@ def get_weekly_drift(
     # Build a simple provisional sum for the week by scanning job cards active in window.
     job_cards = _month_scope_job_cards(db, plant_scope, start, end)
     paper_catalog = _fetch_paper_catalog(token, machine_scope_plant)
+    paper_codes = _paper_catalog_codes(paper_catalog)
     provisional_rows: dict[str, float] = {}
     for job in job_cards:
         for prov in _provisional_material_rows(job, paper_catalog):
@@ -1451,19 +1505,36 @@ def get_weekly_drift(
                 continue
             provisional_rows[code] = provisional_rows.get(code, 0.0) + float(prov.get("theoretical_consumption_kg") or 0.0)
 
+    # Load per-plant tolerance overrides once for the loop. ALL scope → no overrides.
+    tolerance_overrides = (
+        None
+        if plant_scope.get("scope_all")
+        else _load_plant_tolerance_overrides(db, plant_scope.get("selected_plant_id"))
+    )
+
     item_codes = sorted(set(provisional_rows.keys()) | set(ledger_map.keys()))
     rows: list[WeeklyDriftRow] = []
     total_theory = 0.0
     total_ledger = 0.0
     rows_over_tolerance = 0
     for code in item_codes:
-        theory_kg = provisional_rows.get(code, 0.0)
+        provisional_kg = provisional_rows.get(code, 0.0)
         ledger_kg = float(ledger_map.get(code, {}).get("ledger_issued_kg") or 0.0)
-        running_variance = round(ledger_kg - theory_kg, 4)
-        running_variance_pct = round((running_variance / theory_kg) * 100.0, 2) if theory_kg > 0 else 0.0
         inv_item = inventory_catalog.get(code, {})
         item_type = str(inv_item.get("type") or "").strip().upper() or None
-        over_tol = abs(running_variance) > _tolerance_for(item_type)
+        is_paper = _is_raw_paper_item(code, inv_item.get("name"), inv_item, paper_codes)
+        theory_kg = round(
+            provisional_kg
+            * _consumption_paper_expected_factor_with_overrides(
+                is_paper=is_paper,
+                provisional_kg=provisional_kg,
+                overrides=tolerance_overrides,
+            ),
+            6,
+        )
+        running_variance = round(ledger_kg - theory_kg, 4)
+        running_variance_pct = round((running_variance / theory_kg) * 100.0, 2) if theory_kg > 0 else 0.0
+        over_tol = abs(running_variance) > _tolerance_for_with_plant(item_type, tolerance_overrides)
         if over_tol:
             rows_over_tolerance += 1
         total_theory += theory_kg
@@ -1496,23 +1567,174 @@ def get_weekly_drift(
 # ─── Gap 10: workspace books-state ─────────────────────────────────────────
 
 
+def _plant_uuid_or_none(value: Any) -> Optional[uuid.UUID]:
+    if value is None:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, AttributeError):
+        return None
+
+
+def _serialize_tolerance(row: Optional[PlantToleranceSetting], plant_id_str: str) -> dict[str, Any]:
+    """Marshal a PlantToleranceSetting row (or `None`) into the UI shape.
+
+    When ``row`` is ``None`` we return the global defaults so the UI can still
+    render a starting point for a plant that hasn't been customized yet.
+    """
+    by_item_type: dict[str, Optional[float]] = {
+        "RAW_PAPER": None,
+        "ADHESIVE": None,
+        "PARCHMENT": None,
+        "PACKAGING": None,
+    }
+    if row is not None:
+        by_item_type["RAW_PAPER"] = row.raw_paper_kg
+        by_item_type["ADHESIVE"] = row.adhesive_kg
+        by_item_type["PARCHMENT"] = row.parchment_kg
+        by_item_type["PACKAGING"] = row.packaging_kg
+
+    return {
+        "plant_id": plant_id_str,
+        "scope": "plant" if row else "global",
+        "default_kg": float(row.default_kg) if row else VARIANCE_TOLERANCE_DEFAULT_KG,
+        "by_item_type_effective": {
+            k: (by_item_type[k] if by_item_type[k] is not None else float(VARIANCE_TOLERANCE_KG_BY_TYPE.get(k, VARIANCE_TOLERANCE_DEFAULT_KG)))
+            for k in by_item_type
+        },
+        "by_item_type_overrides": {k: by_item_type[k] for k in by_item_type},
+        "by_item_type_global": {k: float(v) for k, v in VARIANCE_TOLERANCE_KG_BY_TYPE.items()},
+        "paper_expected_consumption_factor": (
+            float(row.paper_expected_consumption_factor) if row and row.paper_expected_consumption_factor is not None else PAPER_EXPECTED_CONSUMPTION_FACTOR
+        ),
+        "paper_standard_wastage_percent": (
+            float(row.paper_standard_wastage_percent) if row and row.paper_standard_wastage_percent is not None else PAPER_STANDARD_WASTAGE_PERCENT
+        ),
+        "updated_by": row.updated_by if row else None,
+        "updated_at": row.updated_at.isoformat() if row and row.updated_at else None,
+    }
+
+
+class ToleranceSettingPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    default_kg: float = Field(..., ge=0.0, le=500.0)
+    raw_paper_kg: Optional[float] = Field(default=None, ge=0.0, le=500.0)
+    adhesive_kg: Optional[float] = Field(default=None, ge=0.0, le=500.0)
+    parchment_kg: Optional[float] = Field(default=None, ge=0.0, le=500.0)
+    packaging_kg: Optional[float] = Field(default=None, ge=0.0, le=500.0)
+    paper_expected_consumption_factor: Optional[float] = Field(default=None, ge=0.5, le=5.0)
+    paper_standard_wastage_percent: Optional[float] = Field(default=None, ge=0.0, le=50.0)
+
+
 @router.get("/tolerance-settings")
 def get_tolerance_settings(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
-    """Variance tolerance values per item type, used by reconciliation gating.
+    """Variance tolerance values per item type — plant-aware.
 
-    Returned for UI display so operators understand what triggers a blocker.
-    Source-of-truth lives in ConsumptionExpectationService (Gap 8). Per-plant
-    overrides are a future enhancement.
+    For owners/admins in ALL scope, returns one row per allowed plant.
+    For plant-scoped users, returns just the row for their plant.
     """
+    if plant_scope.get("scope_all"):
+        allowed = plant_scope.get("allowed_plants") or []
+        rows: list[dict[str, Any]] = []
+        for plant_id_str in allowed:
+            plant_uuid = _plant_uuid_or_none(plant_id_str)
+            if plant_uuid is None:
+                continue
+            row = (
+                db.query(PlantToleranceSetting)
+                .filter(PlantToleranceSetting.plant_id == plant_uuid)
+                .one_or_none()
+            )
+            rows.append(_serialize_tolerance(row, str(plant_id_str)))
+        return {
+            "scope": "all",
+            "rows": rows,
+            "global_defaults": {
+                "default_kg": VARIANCE_TOLERANCE_DEFAULT_KG,
+                "by_item_type": {k: float(v) for k, v in VARIANCE_TOLERANCE_KG_BY_TYPE.items()},
+                "paper_expected_consumption_factor": PAPER_EXPECTED_CONSUMPTION_FACTOR,
+                "paper_standard_wastage_percent": PAPER_STANDARD_WASTAGE_PERCENT,
+            },
+        }
+
+    plant_id = plant_scope["selected_plant_id"]
+    plant_uuid = _plant_uuid_or_none(plant_id)
+    if plant_uuid is None:
+        raise HTTPException(status_code=400, detail="Invalid plant_id in scope")
+    row = (
+        db.query(PlantToleranceSetting)
+        .filter(PlantToleranceSetting.plant_id == plant_uuid)
+        .one_or_none()
+    )
     return {
-        "default_kg": VARIANCE_TOLERANCE_DEFAULT_KG,
-        "by_item_type": {k: float(v) for k, v in VARIANCE_TOLERANCE_KG_BY_TYPE.items()},
-        "paper_expected_consumption_factor": PAPER_EXPECTED_CONSUMPTION_FACTOR,
-        "paper_standard_wastage_percent": PAPER_STANDARD_WASTAGE_PERCENT,
-        "scope": "global",  # will be 'plant' once per-plant overrides land
+        "scope": "plant",
+        "rows": [_serialize_tolerance(row, str(plant_id))],
+        "global_defaults": {
+            "default_kg": VARIANCE_TOLERANCE_DEFAULT_KG,
+            "by_item_type": {k: float(v) for k, v in VARIANCE_TOLERANCE_KG_BY_TYPE.items()},
+            "paper_expected_consumption_factor": PAPER_EXPECTED_CONSUMPTION_FACTOR,
+            "paper_standard_wastage_percent": PAPER_STANDARD_WASTAGE_PERCENT,
+        },
     }
+
+
+@router.put("/tolerance-settings")
+def put_tolerance_settings(
+    payload: ToleranceSettingPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin"])),
+):
+    """Owner/Admin only. Upsert the plant's tolerance row.
+
+    Plant target is taken from ``X-Plant-ID`` / ``plant_id`` query param via the
+    standard plant-scope dependency. ALL scope is rejected here — the editor UI
+    must commit one plant at a time, so the audit trail is unambiguous.
+    """
+    if plant_scope.get("scope_all"):
+        raise HTTPException(status_code=400, detail="tolerance_setting requires a specific plant — choose one before saving")
+
+    plant_id = plant_scope["selected_plant_id"]
+    plant_uuid = _plant_uuid_or_none(plant_id)
+    if plant_uuid is None:
+        raise HTTPException(status_code=400, detail="Invalid plant_id in scope")
+
+    row = (
+        db.query(PlantToleranceSetting)
+        .filter(PlantToleranceSetting.plant_id == plant_uuid)
+        .one_or_none()
+    )
+    actor = current_user.get("actor_identity") or current_user.get("sub") or current_user.get("email") or "unknown"
+    if row is None:
+        row = PlantToleranceSetting(
+            plant_id=plant_uuid,
+            default_kg=payload.default_kg,
+            raw_paper_kg=payload.raw_paper_kg,
+            adhesive_kg=payload.adhesive_kg,
+            parchment_kg=payload.parchment_kg,
+            packaging_kg=payload.packaging_kg,
+            paper_expected_consumption_factor=payload.paper_expected_consumption_factor,
+            paper_standard_wastage_percent=payload.paper_standard_wastage_percent,
+            updated_by=str(actor),
+        )
+        db.add(row)
+    else:
+        row.default_kg = payload.default_kg
+        row.raw_paper_kg = payload.raw_paper_kg
+        row.adhesive_kg = payload.adhesive_kg
+        row.parchment_kg = payload.parchment_kg
+        row.packaging_kg = payload.packaging_kg
+        row.paper_expected_consumption_factor = payload.paper_expected_consumption_factor
+        row.paper_standard_wastage_percent = payload.paper_standard_wastage_percent
+        row.updated_by = str(actor)
+    db.commit()
+    db.refresh(row)
+    return _serialize_tolerance(row, str(plant_id))
 
 
 @router.get("/books-state", response_model=BooksStateResponse)

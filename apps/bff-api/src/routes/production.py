@@ -279,9 +279,9 @@ async def approve_monthly_close(request: Request, token: str = Depends(get_token
     if 200 <= response.status_code < 300:
         plant_id = request.headers.get("X-Plant-ID", "")
         if plant_id:
-            invalidate_books_cache(plant_id)
+            await invalidate_books_cache(plant_id)
         else:
-            invalidate_books_cache(None)
+            await invalidate_books_cache(None)
     return response
 
 
@@ -317,6 +317,14 @@ async def get_books_state(request: Request, token: str = Depends(get_token)):
 @router.get("/tolerance-settings")
 async def get_tolerance_settings(request: Request, token: str = Depends(get_token)):
     """Variance tolerance values surfaced for the UI."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/reconciliation/tolerance-settings", request, token
+    )
+
+
+@router.put("/tolerance-settings")
+async def put_tolerance_settings(request: Request, token: str = Depends(get_token)):
+    """Owner/Admin only — upsert the per-plant tolerance row."""
     return await proxy_to_service(
         PRODUCTION_SERVICE_URL, "/reconciliation/tolerance-settings", request, token
     )

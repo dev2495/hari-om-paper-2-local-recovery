@@ -14,6 +14,7 @@ import {
 } from "@/components/reports/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { useOwnerPack } from "@/hooks/use-analytics"
+import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 import { formatCompactCurrency, formatPercent } from "@/components/erp/premium-dashboard"
 
 type AudienceFilter = "all" | "owner" | "operations" | "commercial" | "inventory" | "quality" | "dispatch"
@@ -133,6 +134,7 @@ export default function ReportsHubPageWrapper() {
 
 function ReportsLandingPage() {
   const { activePlant } = useAuth()
+  const activePlantLabel = usePlantScopeLabel(activePlant)
   const [period, setPeriod] = useState<"7" | "30" | "90">("30")
   const [audience, setAudience] = useState<AudienceFilter>("all")
   const [compare, setCompare] = useState<"none" | "prior" | "year">("prior")
@@ -203,7 +205,7 @@ function ReportsLandingPage() {
         </FilterField>
         <FilterField label="Plant">
           <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
-            {activePlant || "ALL"}
+            {activePlantLabel}
           </span>
         </FilterField>
         <span className="ml-auto" />

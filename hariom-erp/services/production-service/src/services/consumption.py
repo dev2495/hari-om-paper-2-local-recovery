@@ -38,6 +38,80 @@ def tolerance_for_item_type(item_type: Optional[str]) -> float:
     return VARIANCE_TOLERANCE_KG_BY_TYPE.get(item_type.upper(), VARIANCE_TOLERANCE_DEFAULT_KG)
 
 
+def tolerance_for_item_type_with_overrides(
+    item_type: Optional[str],
+    overrides: Optional[dict[str, Any]] = None,
+) -> float:
+    """Plant-aware variant of ``tolerance_for_item_type``.
+
+    Accepts a dict of overrides (typically read from ``PlantToleranceSetting``)
+    of shape::
+
+        {
+            "default_kg": 5.0,
+            "raw_paper_kg": 4.0,        # optional
+            "adhesive_kg": 0.5,         # optional
+            "parchment_kg": 1.0,        # optional
+            "packaging_kg": 10.0,       # optional
+        }
+
+    Returns the override if present, otherwise falls through to the global
+    default. Keeping this as a pure function makes it easy to call from both
+    request handlers and tests.
+    """
+    if not overrides:
+        return tolerance_for_item_type(item_type)
+    key_for_type = {
+        "RAW_PAPER": "raw_paper_kg",
+        "ADHESIVE": "adhesive_kg",
+        "PARCHMENT": "parchment_kg",
+        "PACKAGING": "packaging_kg",
+    }
+    if item_type:
+        column = key_for_type.get(item_type.upper())
+        if column and overrides.get(column) is not None:
+            try:
+                return float(overrides[column])
+            except (TypeError, ValueError):
+                pass
+    default_override = overrides.get("default_kg")
+    if default_override is not None:
+        try:
+            return float(default_override)
+        except (TypeError, ValueError):
+            pass
+    return tolerance_for_item_type(item_type)
+
+
+def paper_expected_factor_with_overrides(
+    *,
+    is_paper: bool,
+    provisional_kg: float,
+    overrides: Optional[dict[str, Any]] = None,
+) -> float:
+    """Plant-aware paper expected-consumption factor.
+
+    Factor wins when explicitly set. If only standard wastage percent is set,
+    convert that to the equivalent multiplier. Falls back to the global factor.
+    """
+    if not is_paper or provisional_kg <= 0:
+        return 1.0
+    if overrides:
+        factor = overrides.get("paper_expected_consumption_factor")
+        if factor is not None:
+            try:
+                return float(factor)
+            except (TypeError, ValueError):
+                pass
+        wastage_percent = overrides.get("paper_standard_wastage_percent")
+        if wastage_percent is not None:
+            try:
+                return 1.0 + (float(wastage_percent) / 100.0)
+            except (TypeError, ValueError):
+                pass
+    return PAPER_EXPECTED_CONSUMPTION_FACTOR
+
+
 def is_raw_paper_item(
     item_code: str,
     item_name: Optional[str],
@@ -236,10 +310,15 @@ class ConsumptionStreams:
     notes: Optional[str] = None
     advisory_allocated_order_qty: float = 0.0
     is_paper: bool = False
+    plant_overrides: Optional[dict[str, Any]] = field(default=None, repr=False)
 
     @property
     def expected_factor(self) -> float:
-        return PAPER_EXPECTED_CONSUMPTION_FACTOR if self.is_paper and self.provisional_theory_kg > 0 else 1.0
+        return paper_expected_factor_with_overrides(
+            is_paper=self.is_paper,
+            provisional_kg=self.provisional_theory_kg,
+            overrides=self.plant_overrides,
+        )
 
     @property
     def standard_wastage_kg(self) -> Optional[float]:
@@ -275,7 +354,7 @@ class ConsumptionStreams:
 
     @property
     def tolerance_kg(self) -> float:
-        return tolerance_for_item_type(self.item_type)
+        return tolerance_for_item_type_with_overrides(self.item_type, self.plant_overrides)
 
     @property
     def over_tolerance(self) -> bool:
@@ -324,6 +403,7 @@ def compose_streams_for_period(
     ledger_map: dict[str, dict[str, Any]],
     inventory_catalog: dict[str, dict[str, Any]],
     paper_codes: set[str],
+    plant_overrides: Optional[dict[str, Any]] = None,
 ) -> list[ConsumptionStreams]:
     """Merge the three sources into ConsumptionStreams rows, one per item.
 
@@ -353,7 +433,11 @@ def compose_streams_for_period(
         paper_flag = is_raw_paper_item(code, str(item_name or ""), inventory_item, paper_codes)
 
         unit_cost = float(inventory_item.get("unit_cost") or 0.0)
-        expected_factor = PAPER_EXPECTED_CONSUMPTION_FACTOR if paper_flag and provisional_kg > 0 else 1.0
+        expected_factor = paper_expected_factor_with_overrides(
+            is_paper=paper_flag,
+            provisional_kg=provisional_kg,
+            overrides=plant_overrides,
+        )
         theoretical_kg = round(provisional_kg * expected_factor, 6)
 
         notes = actual.get("notes") if isinstance(actual.get("notes"), str) else None
@@ -374,6 +458,7 @@ def compose_streams_for_period(
                 notes=notes,
                 advisory_allocated_order_qty=float(prov.get("advisory_allocated_order_qty") or 0.0),
                 is_paper=paper_flag,
+                plant_overrides=plant_overrides,
             )
         )
 

@@ -391,6 +391,11 @@ export const productionApi = {
     api.get("/api/production/weekly-drift", { ...withPlantHeader(plantId), params }),
   getBooksState: (plantId?: string) =>
     api.get("/api/production/books-state", withPlantHeader(plantId)),
+  // Per-plant tolerance settings
+  getToleranceSettings: (plantId?: string) =>
+    api.get("/api/production/tolerance-settings", withPlantHeader(plantId)),
+  putToleranceSettings: (payload: any, plantId?: string) =>
+    api.put("/api/production/tolerance-settings", payload, withPlantHeader(plantId)),
 }
 
 export const inventoryApi = {

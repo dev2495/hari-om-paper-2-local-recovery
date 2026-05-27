@@ -466,3 +466,37 @@ class DispatchIdempotency(Base):
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class PlantToleranceSetting(Base):
+    """Per-plant variance tolerance overrides.
+
+    When a row exists for ``plant_id``, the reconciliation math will use these
+    values instead of the global ``VARIANCE_TOLERANCE_*`` constants. Missing
+    rows fall through to the global defaults — so this table is purely additive
+    and the system stays correct even if it is empty.
+
+    The values are tolerance bands in kilograms:
+      * ``default_kg``                     — fallback for unknown item types
+      * ``raw_paper_kg``, ``adhesive_kg``,
+        ``parchment_kg``, ``packaging_kg`` — per-item-type overrides
+      * ``paper_expected_consumption_factor`` /
+        ``paper_standard_wastage_percent``  — the planning math factors
+
+    Each save bumps ``updated_at`` and is captured on the audit timeline.
+    """
+
+    __tablename__ = "plant_tolerance_setting"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, unique=True, index=True)
+    default_kg = Column(Float, nullable=False, default=5.0)
+    raw_paper_kg = Column(Float, nullable=True)
+    adhesive_kg = Column(Float, nullable=True)
+    parchment_kg = Column(Float, nullable=True)
+    packaging_kg = Column(Float, nullable=True)
+    paper_expected_consumption_factor = Column(Float, nullable=True)
+    paper_standard_wastage_percent = Column(Float, nullable=True)
+    updated_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

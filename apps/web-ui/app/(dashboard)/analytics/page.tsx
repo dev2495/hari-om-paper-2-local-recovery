@@ -21,6 +21,7 @@ import {
 } from "@/components/reports/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { useExceptionReport, useOwnerPack, useSalesReport } from "@/hooks/use-analytics"
+import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function AnalyticsLandingWrapper() {
   return (
@@ -32,6 +33,7 @@ export default function AnalyticsLandingWrapper() {
 
 function AnalyticsLandingPage() {
   const { activePlant } = useAuth()
+  const activePlantLabel = usePlantScopeLabel(activePlant)
   const [period, setPeriod] = useState<"7" | "30" | "90">("30")
   const today = new Date().toISOString().split("T")[0]
   const startDate = new Date(Date.now() - Number(period) * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
@@ -116,7 +118,7 @@ function AnalyticsLandingPage() {
   if (lowStockCount >= 10) {
     anomalies.push({
       id: "stock",
-      title: `${lowStockCount} items below reorder. ${activePlant ? `Plant ${activePlant}` : "All plants"} should refresh MRP.`,
+      title: `${lowStockCount} items below reorder. ${activePlantLabel} should refresh MRP.`,
       tone: "warn",
       href: "/analytics/mrp",
     })
@@ -151,7 +153,7 @@ function AnalyticsLandingPage() {
         </FilterField>
         <FilterField label="Plant">
           <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
-            {activePlant || "ALL"}
+            {activePlantLabel}
           </span>
         </FilterField>
         <span className="ml-auto" />

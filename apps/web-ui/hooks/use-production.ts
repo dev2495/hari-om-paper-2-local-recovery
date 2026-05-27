@@ -1,6 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { productionApi } from "@/lib/api"
 
+// ----- Per-plant tolerance settings -----
+
+export function useToleranceSettings(plantId?: string, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: ["tolerance-settings", plantId || "all"],
+    queryFn: async () => {
+      const { data } = await productionApi.getToleranceSettings(plantId)
+      return data || { scope: "plant", rows: [], global_defaults: {} }
+    },
+    enabled: options?.enabled !== false,
+  })
+}
+
+export function useUpdateToleranceSettings() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ plantId, payload }: { plantId: string; payload: any }) =>
+      productionApi.putToleranceSettings(payload, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tolerance-settings"] })
+    },
+  })
+}
+
 export function useJobCards(params?: any) {
   return useQuery({
     queryKey: ["job-cards", params || {}],

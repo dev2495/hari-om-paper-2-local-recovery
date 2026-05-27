@@ -19,6 +19,7 @@ import {
 } from "@/components/reports/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { useInventoryValuation, useItemVelocity, useOwnerPack } from "@/hooks/use-analytics"
+import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function InventoryReportsWrapper() {
   return (
@@ -30,6 +31,7 @@ export default function InventoryReportsWrapper() {
 
 function InventoryIntelligencePage() {
   const { activePlant } = useAuth()
+  const activePlantLabel = usePlantScopeLabel(activePlant)
 
   const { data: valuation } = useInventoryValuation(activePlant || undefined)
   const { data: velocity, isLoading: velLoading } = useItemVelocity({ horizonDays: 30, plant: activePlant || undefined })
@@ -111,7 +113,7 @@ function InventoryIntelligencePage() {
           </span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlant || "ALL"}</span>
+          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlantLabel}</span>
         </FilterField>
       </ReportFilterBar>
 

@@ -3,12 +3,18 @@
 Caches /reconciliation/books-state per plant for 60s and rejects mutations
 whose effective_date / date falls inside the locked period.
 
+The cache layer is Redis-first with a graceful in-process fallback, so the
+guard remains correct even if Redis is unavailable (single-replica deploys
+keep working, multi-replica deploys stay coherent when Redis is up).
+
 Used by inventory + sales BFF mutation routes to enforce the "no backdated
 writes after monthly-close approval" rule.
 """
 
 from __future__ import annotations
 
+import json
+import logging
 import os
 import time
 from datetime import date as DateT
@@ -17,20 +23,138 @@ from typing import Any, Optional
 import httpx
 from fastapi import HTTPException
 
-PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://localhost:8004")
+logger = logging.getLogger(__name__)
 
-# Cache: { plant_id: (expires_at_epoch_sec, books_state_dict) }
-_books_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-_CACHE_TTL_SEC = 60.0
+PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://localhost:8004")
+REDIS_URL = os.getenv("BFF_BOOKS_GUARD_REDIS_URL") or os.getenv("REDIS_URL") or ""
+
+_CACHE_TTL_SEC = 60
 _TIMEOUT_SEC = 5.0
+_REDIS_KEY_PREFIX = "bff:books_guard:"
+
+
+# ---------------------------------------------------------------------------
+# Cache backends
+# ---------------------------------------------------------------------------
+
+# In-process fallback (used if REDIS_URL is not set, or Redis is unreachable).
+_inprocess_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+
+
+class _RedisCache:
+    """Thin async wrapper over redis.asyncio.
+
+    Lazily connects and self-disables on the first connection failure so a
+    Redis outage cannot wedge writes. Marks itself "down" for 30s then retries.
+    """
+
+    def __init__(self, url: str) -> None:
+        self._url = url
+        self._client: Any = None
+        self._down_until: float = 0.0
+
+    async def _get_client(self) -> Optional[Any]:
+        if not self._url:
+            return None
+        if time.time() < self._down_until:
+            return None
+        if self._client is not None:
+            return self._client
+        try:
+            # Imported lazily so the module loads even if `redis` isn't installed.
+            import redis.asyncio as redis_async  # type: ignore
+        except Exception as exc:  # pragma: no cover - import-time guard
+            logger.warning("redis package not available: %s", exc)
+            self._down_until = time.time() + 300.0
+            return None
+        try:
+            self._client = redis_async.from_url(self._url, decode_responses=True)
+            # Verify on first use so we fail fast rather than on the first .get
+            await self._client.ping()
+        except Exception as exc:
+            logger.warning("Redis not reachable, falling back to in-process cache: %s", exc)
+            self._client = None
+            self._down_until = time.time() + 30.0
+            return None
+        return self._client
+
+    async def get(self, plant_id: str) -> Optional[dict[str, Any]]:
+        client = await self._get_client()
+        if client is None:
+            return None
+        try:
+            raw = await client.get(f"{_REDIS_KEY_PREFIX}{plant_id}")
+        except Exception as exc:
+            logger.warning("Redis GET failed, dropping cache layer: %s", exc)
+            self._client = None
+            self._down_until = time.time() + 30.0
+            return None
+        if not raw:
+            return None
+        try:
+            return json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+
+    async def set(self, plant_id: str, payload: dict[str, Any]) -> None:
+        client = await self._get_client()
+        if client is None:
+            return
+        try:
+            await client.setex(
+                f"{_REDIS_KEY_PREFIX}{plant_id}",
+                _CACHE_TTL_SEC,
+                json.dumps(payload),
+            )
+        except Exception as exc:
+            logger.warning("Redis SETEX failed, ignoring: %s", exc)
+            self._client = None
+            self._down_until = time.time() + 30.0
+
+    async def invalidate(self, plant_id: Optional[str]) -> None:
+        client = await self._get_client()
+        if client is None:
+            return
+        try:
+            if plant_id:
+                await client.delete(f"{_REDIS_KEY_PREFIX}{plant_id}")
+            else:
+                # SCAN+DEL across our prefix. Cheap because the keyspace is tiny.
+                cursor = 0
+                while True:
+                    cursor, keys = await client.scan(cursor=cursor, match=f"{_REDIS_KEY_PREFIX}*", count=100)
+                    if keys:
+                        await client.delete(*keys)
+                    if cursor == 0:
+                        break
+        except Exception as exc:
+            logger.warning("Redis invalidate failed: %s", exc)
+            self._client = None
+            self._down_until = time.time() + 30.0
+
+
+_redis_cache = _RedisCache(REDIS_URL)
+
+
+# ---------------------------------------------------------------------------
+# Public helpers
+# ---------------------------------------------------------------------------
 
 
 async def fetch_books_state(token: str, plant_id: str) -> Optional[dict[str, Any]]:
-    """Fetch books-state for the plant, with 60-second per-plant cache."""
+    """Fetch books-state for the plant, with 60s Redis cache (in-proc fallback)."""
     now = time.time()
-    cached = _books_cache.get(plant_id)
-    if cached and cached[0] > now:
-        return cached[1]
+
+    # Redis lookup first (no-op when Redis is disabled)
+    cached = await _redis_cache.get(plant_id)
+    if cached is not None:
+        return cached
+
+    # In-process fallback (covers Redis-down and single-instance deploys)
+    inprocess = _inprocess_cache.get(plant_id)
+    if inprocess and inprocess[0] > now:
+        return inprocess[1]
+
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT_SEC) as client:
             response = await client.get(
@@ -47,7 +171,9 @@ async def fetch_books_state(token: str, plant_id: str) -> Optional[dict[str, Any
                 },
             )
         data = response.json() or {}
-        _books_cache[plant_id] = (now + _CACHE_TTL_SEC, data)
+        # Populate both caches so each layer is independently warm.
+        _inprocess_cache[plant_id] = (now + _CACHE_TTL_SEC, data)
+        await _redis_cache.set(plant_id, data)
         return data
     except httpx.HTTPError:
         raise HTTPException(
@@ -130,9 +256,29 @@ async def assert_not_backdated(
         )
 
 
-def invalidate_books_cache(plant_id: Optional[str] = None) -> None:
-    """Force-refresh the cache. Call after approve_monthly_close."""
+async def invalidate_books_cache(plant_id: Optional[str] = None) -> None:
+    """Force-refresh the cache. Call after approve_monthly_close.
+
+    Drops both the Redis row(s) and the in-process row(s) so any worker that
+    reads next will pull a fresh state from production-service.
+    """
     if plant_id:
-        _books_cache.pop(plant_id, None)
+        _inprocess_cache.pop(plant_id, None)
     else:
-        _books_cache.clear()
+        _inprocess_cache.clear()
+    await _redis_cache.invalidate(plant_id)
+
+
+# Backwards-compatible synchronous alias used by older call-sites. New code
+# should await the async variant above.
+def invalidate_books_cache_sync(plant_id: Optional[str] = None) -> None:
+    """Synchronous in-process-only invalidation (kept for legacy callers).
+
+    Synchronous code paths cannot reach Redis without an event loop, so this
+    only clears the in-process cache. Async paths should call
+    :func:`invalidate_books_cache` for full coherence.
+    """
+    if plant_id:
+        _inprocess_cache.pop(plant_id, None)
+    else:
+        _inprocess_cache.clear()
