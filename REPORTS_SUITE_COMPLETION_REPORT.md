@@ -6,7 +6,7 @@
 
 ## Verdict
 
-The reports suite is production-ready locally and ready for Railway deployment.
+The reports suite is production-ready and live on Railway.
 
 The earlier report-suite implementation has been hardened in this pass:
 
@@ -67,6 +67,10 @@ The report suite no longer uses fake display values for operational metrics:
 | `bash scripts/runtime_smoke.sh` | PASS: 35 checks, 0 failures |
 | Authenticated Chrome report smoke | PASS: 14 report routes rendered with no client-side errors |
 | Runtime log scan after smoke | PASS: no traceback/internal server error/application error hits |
+| Railway deployment | PASS: `55d3af79-d10e-4c47-af5e-86f574cd3085` reached `SUCCESS` |
+| Live public page smoke | PASS: `/login`, `/reports`, `/analytics`, `/reports/operations`, `/reports/inventory`, `/reports/customer-360`, `/reports/variance` returned HTTP 200 |
+| Live authenticated API smoke | PASS: login plus 15 report/deep endpoints returned HTTP 200 |
+| Live authenticated Chrome report smoke | PASS: 14 report pages rendered with no client-side application errors |
 
 Authenticated Chrome routes verified:
 
@@ -88,4 +92,5 @@ Authenticated Chrome routes verified:
 ## Notes
 
 - The historical `REPORTS_REDESIGN_REPORT.md` remains as a design record. This file is the current implementation and go-live evidence.
-- Railway deployment and live URL verification will be appended after the production deploy completes.
+- Live URL verified: `https://hariom-erp-production.up.railway.app`
+- Deployed commit verified: `9587f85` (`Complete real-data reports suite rollout`).
