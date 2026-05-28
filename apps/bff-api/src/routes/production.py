@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request
 import os
 
 from src.middleware.auth import get_token
-from src.services.books_guard import invalidate_books_cache
+from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
 
 router = APIRouter()
@@ -155,9 +155,10 @@ async def reorder_planning_queue(request: Request, token: str = Depends(get_toke
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/queues/reorder", request, token)
 
 
+@router.post("/planning/board/move")
 @router.patch("/planning/board/move")
 async def move_planning_board(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board/move", request, token)
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board/move", request, token, force_method="PATCH")
 
 
 @router.post("/job-cards/{job_card_id}/assign-machine")
@@ -167,37 +168,30 @@ async def assign_planning_machine(job_card_id: str, request: Request, token: str
 
 @router.post("/job-cards/{job_card_id}/stage-output")
 async def post_planning_stage_output(job_card_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/stage-output", request, token)
-
-
-@router.post("/sales-orders")
-async def create_planning_sales_order(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/sales-orders", request, token)
-
-
-@router.post("/job-cards")
-async def create_planning_job_card(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
-
-
-@router.get("/job-cards")
-async def get_planning_job_cards(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
-
-
-@router.get("/job-cards/{job_card_id}")
-async def get_planning_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}", request, token)
-
-
-@router.get("/planning/queues")
-async def get_planning_queue(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/queues", request, token)
-
-
-@router.get("/planning/board")
-async def get_planning_board(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board", request, token)
+    # Books-guard: a stage entry with an `end_time` that falls into a closed
+    # period is rejected here (HTTP 422 BOOKS_LOCKED) before it reaches the
+    # production-service. The guard is a no-op when end_time is absent (real-
+    # time entry) — the guard returns immediately on None.
+    #
+    # NOTE: `await request.json()` consumes the request body stream, so we
+    # must forward the parsed body via `json_body=` rather than letting
+    # `proxy_to_service` re-read `request.body()` (which would return empty).
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    plant_id = request.headers.get("X-Plant-ID") or ""
+    if isinstance(body, dict):
+        candidate = body.get("end_time") or body.get("actual_end") or body.get("work_date")
+        if candidate:
+            await assert_not_backdated(token, plant_id, effective_date=candidate)
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL,
+        f"/job-cards/{job_card_id}/stage-output",
+        request,
+        token,
+        json_body=body if isinstance(body, dict) else None,
+    )
 
 
 @router.get("/planning/export")
@@ -205,30 +199,9 @@ async def export_planning_board(request: Request, token: str = Depends(get_token
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/export", request, token)
 
 
-@router.patch("/planning/queues/reorder")
-async def reorder_planning_queue(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/queues/reorder", request, token)
-
-
-@router.post("/planning/board/move")
-@router.patch("/planning/board/move")
-async def move_planning_board(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/board/move", request, token, force_method="PATCH")
-
-
 @router.post("/planning/board/split")
 async def split_planning_segment(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/segments/split", request, token)
-
-
-@router.post("/job-cards/{job_card_id}/assign-machine")
-async def assign_machine(job_card_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/assign-machine", request, token)
-
-
-@router.post("/job-cards/{job_card_id}/stage-output")
-async def post_stage_output(job_card_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/stage-output", request, token)
 
 
 @router.post("/shift-material-ledger")
@@ -328,3 +301,43 @@ async def put_tolerance_settings(request: Request, token: str = Depends(get_toke
     return await proxy_to_service(
         PRODUCTION_SERVICE_URL, "/reconciliation/tolerance-settings", request, token
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Operations honesty endpoints
+# ──────────────────────────────────────────────────────────────────────────
+
+
+@router.post("/operations/short-close/{job_card_id}")
+async def post_short_close(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    """Close a job card with a gap, reason code, and decision."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, f"/operations/short-close/{job_card_id}", request, token
+    )
+
+
+@router.get("/operations/short-close")
+async def list_short_close(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/short-close", request, token)
+
+
+@router.post("/operations/downtime")
+async def post_downtime(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/downtime", request, token)
+
+
+@router.put("/operations/downtime/{downtime_id}")
+async def put_downtime(downtime_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, f"/operations/downtime/{downtime_id}", request, token
+    )
+
+
+@router.get("/operations/downtime")
+async def list_downtime(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/downtime", request, token)
+
+
+@router.get("/operations/data-entry-lag")
+async def get_data_entry_lag(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/data-entry-lag", request, token)

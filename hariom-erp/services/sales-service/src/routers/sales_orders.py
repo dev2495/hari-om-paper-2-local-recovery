@@ -74,6 +74,14 @@ class ReleaseLotJobCardSyncPayload(BaseModel):
     job_card_id: uuid.UUID
 
 
+class SalesOrderLineShortClosePayload(BaseModel):
+    job_card_id: uuid.UUID
+    produced_qty: float = Field(..., ge=0)
+    gap_qty: float = Field(..., gt=0)
+    reason_code: str
+    notes: Optional[str] = None
+
+
 class SalesOrderReleaseLotResponse(BaseModel):
     id: uuid.UUID
     order_id: uuid.UUID
@@ -307,6 +315,21 @@ def create_sales_order(
         .filter(SalesOrder.id == order.id)
         .first()
     )
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_created",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role="Sales",
+            actor_email=current_user.get("sub"),
+            summary=f"Sales order {order.order_no} created with {len(payload.lines)} line(s)",
+            payload={"order_no": order.order_no, "customer_id": str(payload.customer_id), "line_count": len(payload.lines)},
+        )
+    except Exception:
+        pass
     return _serialize_order(order)
 
 
@@ -609,6 +632,21 @@ def approve_sales_order(
     order.approved_at = datetime.utcnow()
     db.commit()
 
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_approved",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Sales order {order.order_no} approved",
+        )
+    except Exception:
+        pass
+
     return {
         "message": "Sales order approved",
         "order_id": order.id,
@@ -637,6 +675,21 @@ def release_sales_order(
     order.released_by = current_user.get("sub")
     order.released_at = datetime.utcnow()
     db.commit()
+
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_released",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Sales order {order.order_no} released",
+        )
+    except Exception:
+        pass
 
     return {
         "message": "Sales order released",
@@ -791,6 +844,79 @@ def sync_release_lot_job_card(
         "approved_by": lot.released_by_identity or lot.released_by,
         "created_at": lot.created_at,
     }
+
+
+@router.post("/lines/{line_id}/short-close", response_model=SalesOrderLineResponse)
+def short_close_sales_order_line(
+    line_id: uuid.UUID,
+    payload: SalesOrderLineShortClosePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "Sales", "Planner", "PlantManager"])),
+):
+    """Reduce a sales line/release lot after production short-closes the gap."""
+    line = (
+        db.query(SalesOrderLine)
+        .join(SalesOrder)
+        .options(joinedload(SalesOrderLine.sales_order), joinedload(SalesOrderLine.release_lots))
+        .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
+        .first()
+    )
+    if not line:
+        raise HTTPException(status_code=404, detail="Sales order line not found")
+
+    reason = (payload.reason_code or "").strip().upper()
+    if not reason:
+        raise HTTPException(status_code=422, detail="reason_code is required")
+
+    active_lots = [
+        lot for lot in getattr(line, "release_lots", [])
+        if str(lot.status or "").lower() != "cancelled"
+    ]
+    matched_lot = next((lot for lot in active_lots if str(lot.job_card_id) == str(payload.job_card_id)), None)
+    if matched_lot is None and active_lots:
+        matched_lot = sorted(active_lots, key=lambda lot: lot.created_at or datetime.min)[-1]
+
+    if matched_lot is not None:
+        matched_lot.released_qty = max(0.0, round(float(matched_lot.released_qty or 0.0) - float(payload.gap_qty or 0.0), 4))
+        if matched_lot.released_qty <= 0.0001:
+            matched_lot.status = "short_closed"
+
+    released_after = sum(
+        float(lot.released_qty or 0.0)
+        for lot in active_lots
+        if str(lot.status or "").lower() != "cancelled"
+    )
+    old_qty = float(line.qty or 0.0)
+    requested_qty = max(0.0, old_qty - float(payload.gap_qty or 0.0))
+    line.qty = round(max(float(line.fulfilled_qty or 0.0), released_after, requested_qty), 4)
+    order = line.sales_order
+    note = (
+        f"Short-closed line {int(line.line_no or 0)} by {round(float(payload.gap_qty or 0.0), 2)} pcs "
+        f"from job card {payload.job_card_id} ({reason})."
+    )
+    order.notes = "\n".join([text for text in [order.notes, note, payload.notes] if text])
+    _sync_release_status(order)
+    _sync_order_status(order)
+    db.commit()
+    db.refresh(line)
+
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_line_short_closed",
+            entity_type="sales_order_line",
+            entity_id=str(line.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=note,
+        )
+    except Exception:
+        pass
+
+    return _serialize_line(line)
 
 
 @router.post("/lines/{line_id}/validate-dispatch", response_model=DispatchValidationResponse)

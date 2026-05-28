@@ -527,3 +527,92 @@ async def update_tool(tool_id: str, request: Request, token: str = Depends(get_t
 @router.delete("/tools/{tool_id}")
 async def delete_tool(tool_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/{tool_id}", request, token)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Shop-floor masters (Employee · Shift · Holiday · Reason Code)
+# ──────────────────────────────────────────────────────────────────────────
+
+
+# Employees
+@router.get("/employees")
+async def list_employees(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/employees/", request, token)
+
+
+@router.post("/employees")
+async def create_employee(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/employees/", request, token)
+
+
+@router.put("/employees/{employee_id}")
+async def update_employee(employee_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/employees/{employee_id}", request, token)
+
+
+@router.delete("/employees/{employee_id}")
+async def delete_employee(employee_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/employees/{employee_id}", request, token)
+
+
+# Shifts
+@router.get("/shifts")
+async def list_shifts(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/shifts/", request, token)
+
+
+@router.post("/shifts")
+async def create_shift(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/shifts/", request, token)
+
+
+@router.put("/shifts/{shift_id}")
+async def update_shift(shift_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/shifts/{shift_id}", request, token)
+
+
+@router.delete("/shifts/{shift_id}")
+async def delete_shift(shift_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/shifts/{shift_id}", request, token)
+
+
+# Holidays
+@router.get("/holidays")
+async def list_holidays(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/holidays/", request, token)
+
+
+@router.post("/holidays")
+async def create_holiday(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/holidays/", request, token)
+
+
+@router.put("/holidays/{holiday_id}")
+async def update_holiday(holiday_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/holidays/{holiday_id}", request, token)
+
+
+@router.delete("/holidays/{holiday_id}")
+async def delete_holiday(holiday_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/holidays/{holiday_id}", request, token)
+
+
+# Reason codes
+@router.get("/reason-codes")
+async def list_reasons(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/reason-codes/", request, token)
+
+
+@router.post("/reason-codes")
+async def create_reason(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/reason-codes/", request, token)
+
+
+@router.put("/reason-codes/{reason_id}")
+async def update_reason(reason_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/reason-codes/{reason_id}", request, token)
+
+
+@router.delete("/reason-codes/{reason_id}")
+async def delete_reason(reason_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/reason-codes/{reason_id}", request, token)

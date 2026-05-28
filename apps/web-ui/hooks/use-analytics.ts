@@ -56,6 +56,8 @@ export const analyticsApi = {
     api.get("/api/analytics/deep/scrap-cost-ladder", { params: withDefinedParams(params) }),
   getItemVelocity: (params?: any) =>
     api.get("/api/analytics/deep/item-velocity", { params: withDefinedParams(params) }),
+  getSchedulerStatus: () =>
+    api.get("/api/analytics/scheduler/status"),
 }
 
 export function useDashboardOverview(plant?: string) {
@@ -414,6 +416,18 @@ export function useItemVelocity(params?: { horizonDays?: number; plant?: string 
       return data || { summary: {}, rows: [] }
     },
     enabled: options?.enabled !== false,
+  })
+}
+
+export function useSchedulerStatus(options?: { enabled?: boolean; refetchInterval?: number }) {
+  return useQuery({
+    queryKey: ["scheduler-status"],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getSchedulerStatus()
+      return data || { enabled: false, jobs: {}, next_runs: {} }
+    },
+    enabled: options?.enabled !== false,
+    refetchInterval: options?.refetchInterval ?? 60_000,
   })
 }
 

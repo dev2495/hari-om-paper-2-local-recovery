@@ -500,3 +500,59 @@ class PlantToleranceSetting(Base):
     updated_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Operations honesty pass — short-close, downtime, data-entry-lag
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class JobCardShortClose(Base):
+    """One row per short-close event when a job card finishes below planned qty.
+
+    The job-card.close handler creates this row when `produced_qty < planned_qty`
+    and the user picks a reason. The decision field captures what the user
+    chose to do with the gap — carry it forward, short-close the SO line, or
+    hold for later. If carry_forward is chosen the handler spawns a new JC and
+    stores its id in `carry_forward_job_card_id` so the audit trail links the
+    two.
+    """
+
+    __tablename__ = "job_card_short_close"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=PLANT_A_UUID)
+    job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, index=True)
+    planned_qty = Column(Float, nullable=False)
+    produced_qty = Column(Float, nullable=False)
+    gap_qty = Column(Float, nullable=False)
+    reason_code = Column(String(40), nullable=False)
+    decision = Column(String(20), nullable=False, default="HOLD")
+    # CARRY_FORWARD | SHORT_CLOSE_SO | HOLD
+    carry_forward_job_card_id = Column(UUID(as_uuid=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    actor_id = Column(String(200), nullable=True)
+    actor_role = Column(String(80), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class MachineDowntime(Base):
+    """One row per downtime event on a machine, with normalized reason code."""
+
+    __tablename__ = "machine_downtime"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=PLANT_A_UUID)
+    machine_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    machine_code = Column(String(80), nullable=True)
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=True)  # NULL = still down
+    duration_minutes = Column(Float, nullable=True)
+    reason_code = Column(String(40), nullable=False)
+    notes = Column(Text, nullable=True)
+    is_planned = Column(Boolean, nullable=False, default=False)
+    actor_id = Column(String(200), nullable=True)
+    actor_role = Column(String(80), nullable=True)
+    affected_job_card_ids = Column(JSONB, nullable=False, default=list)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

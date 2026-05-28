@@ -401,6 +401,12 @@ export function AdminLandingPage() {
             {[
               { href: "/system/users", label: "Role matrix", icon: Users },
               { href: "/system/tolerances", label: "Variance tolerances", icon: Wrench },
+              { href: "/system/scheduler", label: "Scheduler status", icon: Wrench },
+              { href: "/master/reason-codes", label: "Reason codes", icon: ClipboardCheck },
+              { href: "/master/employees", label: "Employees", icon: Users },
+              { href: "/master/shifts", label: "Shifts", icon: Wrench },
+              { href: "/master/holidays", label: "Plant calendar", icon: Wrench },
+              { href: "/operations/control", label: "Operations control", icon: Wrench },
               { href: "/reports", label: "Report hub", icon: ClipboardCheck },
               { href: "/analytics", label: "Analytics", icon: BarChart3 },
               { href: "/planning/tracker", label: "Tracker", icon: Wrench },

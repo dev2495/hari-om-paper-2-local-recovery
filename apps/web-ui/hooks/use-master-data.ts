@@ -695,3 +695,143 @@ export function useDeleteMachine() {
         },
     })
 }
+
+// ──────────────────────────────────────────────────────────────────────────
+// Shop-floor masters
+// ──────────────────────────────────────────────────────────────────────────
+
+export function useEmployees() {
+    return useQuery({
+        queryKey: ["employees"],
+        queryFn: async () => {
+            const { data } = await masterApi.getEmployees()
+            return Array.isArray(data) ? data : []
+        },
+    })
+}
+
+export function useCreateEmployee() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createEmployee(data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["employees"] }),
+    })
+}
+
+export function useUpdateEmployee() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateEmployee(id, data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["employees"] }),
+    })
+}
+
+export function useDeleteEmployee() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteEmployee(id),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["employees"] }),
+    })
+}
+
+export function useShifts() {
+    return useQuery({
+        queryKey: ["shifts"],
+        queryFn: async () => {
+            const { data } = await masterApi.getShifts()
+            return Array.isArray(data) ? data : []
+        },
+    })
+}
+
+export function useCreateShift() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createShift(data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shifts"] }),
+    })
+}
+
+export function useUpdateShift() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateShift(id, data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shifts"] }),
+    })
+}
+
+export function useDeleteShift() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteShift(id),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["shifts"] }),
+    })
+}
+
+export function useHolidays(year?: number) {
+    return useQuery({
+        queryKey: ["holidays", year || "all"],
+        queryFn: async () => {
+            const { data } = await masterApi.getHolidays(year ? { year } : undefined)
+            return Array.isArray(data) ? data : []
+        },
+    })
+}
+
+export function useCreateHoliday() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createHoliday(data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["holidays"] }),
+    })
+}
+
+export function useUpdateHoliday() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateHoliday(id, data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["holidays"] }),
+    })
+}
+
+export function useDeleteHoliday() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteHoliday(id),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["holidays"] }),
+    })
+}
+
+export function useReasonCodes(category?: string) {
+    return useQuery({
+        queryKey: ["reason-codes", category || "all"],
+        queryFn: async () => {
+            const { data } = await masterApi.getReasonCodes(category ? { category } : undefined)
+            return Array.isArray(data) ? data : []
+        },
+    })
+}
+
+export function useCreateReasonCode() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createReasonCode(data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reason-codes"] }),
+    })
+}
+
+export function useUpdateReasonCode() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateReasonCode(id, data),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reason-codes"] }),
+    })
+}
+
+export function useDeleteReasonCode() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (id: string) => masterApi.deleteReasonCode(id),
+        onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reason-codes"] }),
+    })
+}

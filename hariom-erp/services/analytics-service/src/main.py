@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts
 from src.cache import _build_cache_key
 from src.routers.loss import _aggregate_loss_by_supplier
+from src.scheduler import get_status as get_scheduler_status, start_scheduler
 
 
 def _aggregate_shift_variance(rows):
@@ -112,6 +113,18 @@ app.include_router(dispatch.router)
 app.include_router(quality.router)
 app.include_router(reports.router)
 app.include_router(deep_cuts.router)
+
+
+@app.on_event("startup")
+def _start_scheduler_on_startup() -> None:
+    """Boot the APScheduler the moment the app is ready."""
+    start_scheduler()
+
+
+@app.get("/scheduler/status")
+def scheduler_status() -> dict:
+    """Health snapshot of the in-process scheduler — surfaced on /system."""
+    return get_scheduler_status()
 
 @app.get("/")
 def health_check():

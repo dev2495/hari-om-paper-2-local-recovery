@@ -298,6 +298,20 @@ def create_customer(
     db.commit()
     db.refresh(db_customer)
     setattr(db_customer, "is_active", bool(db_customer.active))
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="customer_created",
+            entity_type="customer",
+            entity_id=str(db_customer.id),
+            plant_id=str(plant_id),
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Customer {db_customer.name} created",
+            payload={"code": db_customer.customer_code, "name": db_customer.name},
+        )
+    except Exception:
+        pass
     return db_customer
 
 
@@ -353,6 +367,19 @@ def deactivate_customer(
         raise HTTPException(status_code=404, detail="Customer not found")
     db_customer.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="customer_deactivated",
+            entity_type="customer",
+            entity_id=str(db_customer.id),
+            plant_id=str(plant_id),
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Customer {db_customer.name} deactivated",
+        )
+    except Exception:
+        pass
     return {"message": "Customer deactivated successfully"}
 
 

@@ -330,3 +330,98 @@ class ToolMaster(Base):
         UniqueConstraint("plant_id", "category", "name", name="uq_tool_plant_category_name"),
         UniqueConstraint("plant_id", "code", name="uq_tool_plant_code"),
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Shop-floor masters
+# ──────────────────────────────────────────────────────────────────────────
+
+
+class Employee(Base):
+    """People who work the shop floor: operators, supervisors, packers, QC, dispatch."""
+
+    __tablename__ = "employee"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    employee_code = Column(String(40), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    role = Column(String(60), nullable=True)  # operator, supervisor, packer, qc, dispatch, etc.
+    department = Column(String(80), nullable=True)  # WINDER / OVEN / PROCESS / PACKING / QC / DISPATCH / GENERAL
+    phone = Column(String(50), nullable=True)
+    email = Column(String(200), nullable=True)
+    skills = Column(Text, nullable=True)  # CSV of stage types they can operate
+    default_shift = Column(String(40), nullable=True)  # shift code from ShiftDefinition
+    joining_date = Column(DateTime, nullable=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "employee_code", name="uq_employee_plant_code"),
+    )
+
+
+class ShiftDefinition(Base):
+    """Named shift patterns per plant — e.g. Day A 06:00–14:00, Night C 22:00–06:00."""
+
+    __tablename__ = "shift_definition"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(20), nullable=False, index=True)  # A / B / C / DAY / NIGHT
+    name = Column(String(120), nullable=False)
+    start_time = Column(String(5), nullable=False)  # "HH:MM" 24h
+    end_time = Column(String(5), nullable=False)
+    hours = Column(Float, nullable=False, default=8.0)
+    is_night = Column(Boolean, default=False, nullable=False)
+    break_minutes = Column(Integer, nullable=False, default=30)
+    night_premium_percent = Column(Float, nullable=False, default=0.0)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "code", name="uq_shift_plant_code"),
+    )
+
+
+class PlantHoliday(Base):
+    """Non-working days per plant — public holidays, plant shutdowns, planned maintenance."""
+
+    __tablename__ = "plant_holiday"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    holiday_date = Column(DateTime, nullable=False, index=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    holiday_type = Column(String(40), nullable=False, default="PUBLIC_HOLIDAY")
+    # PUBLIC_HOLIDAY | PLANT_HOLIDAY | MAINTENANCE_DAY | STRIKE | POWER_CUT | OTHER
+    description = Column(String(300), nullable=True)
+    impact_shifts = Column(String(100), nullable=True)  # CSV of shift codes affected, empty = all
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "holiday_date", "holiday_type", name="uq_holiday_plant_date_type"),
+    )
+
+
+class ReasonCode(Base):
+    """Normalized reason taxonomy for downtime / scrap / QC reject / short-close / RM issue / return."""
+
+    __tablename__ = "reason_code"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code = Column(String(40), nullable=False, index=True)  # e.g. DT-POWER, SCR-MOISTURE, SHORT-RM
+    label = Column(String(200), nullable=False)
+    category = Column(String(40), nullable=False, index=True)
+    # DOWNTIME | SCRAP | QC_REJECT | SHORT_CLOSE | RM_ISSUE | RETURN | OTHER
+    severity = Column(String(20), nullable=False, default="WATCH")  # OK | WATCH | CRITICAL
+    description = Column(String(500), nullable=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "code", name="uq_reason_plant_code"),
+    )

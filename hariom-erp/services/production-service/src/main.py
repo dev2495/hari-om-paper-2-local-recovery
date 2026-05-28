@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from .database import Base, engine
-from .routers import dispatch, jobs, planning, quality, reconciliation, reel_issue, reports
+from .routers import dispatch, jobs, operations, planning, quality, reconciliation, reel_issue, reports
 
 Base.metadata.create_all(bind=engine)
 
@@ -47,6 +47,21 @@ def _ensure_schema_compatibility():
                 "CHECK (capacity_unit IN ('BAMBOOS_PER_DAY','METERS_PER_DAY','BATCHES_PER_DAY','TUBES_PER_DAY'))"
             )
         )
+        # Operations honesty pass — short-close + downtime tables are created
+        # by metadata.create_all above; the indexes here keep the lookups fast
+        # for the report-time joins.
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_job_card_short_close_job_card "
+                "ON job_card_short_close (job_card_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_machine_downtime_machine_window "
+                "ON machine_downtime (machine_id, started_at)"
+            )
+        )
 
 
 _ensure_schema_compatibility()
@@ -72,6 +87,7 @@ app.include_router(reports.router)
 app.include_router(reconciliation.router)
 app.include_router(dispatch.router)
 app.include_router(quality.router)
+app.include_router(operations.router)
 
 
 @app.get("/")

@@ -529,3 +529,72 @@ export function useAddReelIssue() {
     },
   })
 }
+
+
+// ──────────────────────────────────────────────────────────────────────────
+// Operations honesty hooks (short-close, downtime, data-entry-lag)
+// ──────────────────────────────────────────────────────────────────────────
+
+export function useShortCloseJobCard() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ jobCardId, data, plantId }: { jobCardId: string; data: any; plantId?: string }) =>
+      productionApi.shortCloseJobCard(jobCardId, data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["short-closes"] })
+    },
+  })
+}
+
+export function useShortCloses(params?: { start_date?: string; end_date?: string }) {
+  return useQuery({
+    queryKey: ["short-closes", params || {}],
+    queryFn: async () => {
+      const { data } = await productionApi.listShortCloses(params)
+      return Array.isArray(data) ? data : []
+    },
+  })
+}
+
+export function useLogDowntime() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId?: string }) =>
+      productionApi.logDowntime(data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["downtime"] })
+      queryClient.invalidateQueries({ queryKey: ["machine-utilization"] })
+    },
+  })
+}
+
+export function useUpdateDowntime() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data, plantId }: { id: string; data: any; plantId?: string }) =>
+      productionApi.updateDowntime(id, data, plantId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["downtime"] }),
+  })
+}
+
+export function useDowntime(params?: { start_date?: string; end_date?: string; machine_id?: string }) {
+  return useQuery({
+    queryKey: ["downtime", params || {}],
+    queryFn: async () => {
+      const { data } = await productionApi.listDowntime(params)
+      return Array.isArray(data) ? data : []
+    },
+  })
+}
+
+export function useDataEntryLag(params?: { start_date?: string; end_date?: string; threshold_hours?: number }) {
+  return useQuery({
+    queryKey: ["data-entry-lag", params || {}],
+    queryFn: async () => {
+      const { data } = await productionApi.getDataEntryLag(params)
+      return data || { summary: { sample_size: 0, median_minutes: 0, p90_minutes: 0, late_count: 0, threshold_minutes: 360 }, laggard_rows: [] }
+    },
+  })
+}

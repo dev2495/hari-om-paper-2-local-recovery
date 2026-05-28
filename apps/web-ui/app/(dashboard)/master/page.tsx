@@ -23,6 +23,18 @@ const workspaceGroups = [
     ],
   },
   {
+    title: "Shop-Floor Masters",
+    icon: Layers,
+    eyebrow: "People · time · reasons",
+    description: "The masters that feed honest operational accounting — who's on shift, what days the plant runs, what reasons we use for downtime, scrap, and short-close.",
+    links: [
+      { href: "/master/employees", title: "Employees", description: "Operators, supervisors, packers, QC inspectors. Drives per-operator productivity rollups." },
+      { href: "/master/shifts", title: "Shifts", description: "Named work windows per plant. Sets the OEE Availability denominator and night-premium attribution." },
+      { href: "/master/holidays", title: "Plant Calendar", description: "Public holidays, plant shutdowns, maintenance days. OTIF math respects this calendar." },
+      { href: "/master/reason-codes", title: "Reason Codes", description: "Normalized reasons for downtime, scrap, QC reject, short-close, RM issues, returns." },
+    ],
+  },
+  {
     title: "System Setup",
     icon: ShieldCheck,
     eyebrow: "Plant-level governance",
@@ -32,6 +44,17 @@ const workspaceGroups = [
       { href: "/system/plants", title: "Plants", description: "Plant code, name, and activation state that feeds the top scope switcher." },
       { href: "/system/machines", title: "Machines", description: "Machine registry and capacity fields used by the planner and production handoff." },
       { href: "/system/tolerances", title: "Tolerance Editor", description: "Per-plant variance bands used by reconciliation and period close controls." },
+      { href: "/system/scheduler", title: "Scheduler", description: "Health of the daily owner-pack cron and the hourly heartbeat. Surfaces last-run / next-run / errors." },
+    ],
+  },
+  {
+    title: "Operations",
+    icon: ShieldCheck,
+    eyebrow: "Floor truth — log it, audit it",
+    description: "The places where supervisors record what really happened: short-closes with reasons, downtime events, data-entry lag.",
+    links: [
+      { href: "/operations/control", title: "Operations Control", description: "Short-close a job card with a reason + carry-forward decision. Log downtime events on machines." },
+      { href: "/reports/operations", title: "Operations Command Report", description: "Read side of the cockpit — data-entry lag, short-close + downtime rollup, machine utilization heatmap." },
     ],
   },
 ]

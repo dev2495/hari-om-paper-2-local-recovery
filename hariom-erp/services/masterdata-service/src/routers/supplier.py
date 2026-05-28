@@ -180,6 +180,20 @@ def create_supplier(
     db.commit()
     db.refresh(model)
     setattr(model, "is_active", bool(model.active))
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="supplier_created",
+            entity_type="supplier",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Supplier {model.name} created",
+            payload={"code": model.supplier_code, "name": model.name, "category": model.category},
+        )
+    except Exception:
+        pass
     return model
 
 
@@ -267,6 +281,19 @@ def delete_supplier(
         raise HTTPException(status_code=404, detail="Supplier not found")
     model.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="supplier_deactivated",
+            entity_type="supplier",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Supplier {model.name} deactivated",
+        )
+    except Exception:
+        pass
     return {"message": "Supplier deactivated successfully"}
 
 

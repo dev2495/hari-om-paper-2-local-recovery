@@ -239,6 +239,24 @@ export const masterApi = {
   createVendorContact: (vendorId: string, data: any) => api.post(`/api/master/vendors/${vendorId}/contacts`, data),
   updateVendorContact: (vendorId: string, contactId: string, data: any) =>
     api.put(`/api/master/vendors/${vendorId}/contacts/${contactId}`, data),
+  // Shop-floor masters
+  getEmployees: () => api.get("/api/master/employees"),
+  createEmployee: (data: any) => api.post("/api/master/employees", data),
+  updateEmployee: (id: string, data: any) => api.put(`/api/master/employees/${id}`, data),
+  deleteEmployee: (id: string) => api.delete(`/api/master/employees/${id}`),
+  getShifts: () => api.get("/api/master/shifts"),
+  createShift: (data: any) => api.post("/api/master/shifts", data),
+  updateShift: (id: string, data: any) => api.put(`/api/master/shifts/${id}`, data),
+  deleteShift: (id: string) => api.delete(`/api/master/shifts/${id}`),
+  getHolidays: (params?: any) => api.get("/api/master/holidays", { params }),
+  createHoliday: (data: any) => api.post("/api/master/holidays", data),
+  updateHoliday: (id: string, data: any) => api.put(`/api/master/holidays/${id}`, data),
+  deleteHoliday: (id: string) => api.delete(`/api/master/holidays/${id}`),
+  getReasonCodes: (params?: any) => api.get("/api/master/reason-codes", { params }),
+  createReasonCode: (data: any) => api.post("/api/master/reason-codes", data),
+  updateReasonCode: (id: string, data: any) => api.put(`/api/master/reason-codes/${id}`, data),
+  deleteReasonCode: (id: string) => api.delete(`/api/master/reason-codes/${id}`),
+
   deleteVendorContact: (vendorId: string, contactId: string) =>
     api.delete(`/api/master/vendors/${vendorId}/contacts/${contactId}`),
 
@@ -391,6 +409,19 @@ export const productionApi = {
     api.get("/api/production/weekly-drift", { ...withPlantHeader(plantId), params }),
   getBooksState: (plantId?: string) =>
     api.get("/api/production/books-state", withPlantHeader(plantId)),
+  // Operations honesty endpoints
+  shortCloseJobCard: (jobCardId: string, data: any, plantId?: string) =>
+    api.post(`/api/production/operations/short-close/${jobCardId}`, data, withPlantHeader(plantId)),
+  listShortCloses: (params?: any, plantId?: string) =>
+    api.get("/api/production/operations/short-close", { params, ...(withPlantHeader(plantId) || {}) }),
+  logDowntime: (data: any, plantId?: string) =>
+    api.post("/api/production/operations/downtime", data, withPlantHeader(plantId)),
+  updateDowntime: (downtimeId: string, data: any, plantId?: string) =>
+    api.put(`/api/production/operations/downtime/${downtimeId}`, data, withPlantHeader(plantId)),
+  listDowntime: (params?: any, plantId?: string) =>
+    api.get("/api/production/operations/downtime", { params, ...(withPlantHeader(plantId) || {}) }),
+  getDataEntryLag: (params?: any, plantId?: string) =>
+    api.get("/api/production/operations/data-entry-lag", { params, ...(withPlantHeader(plantId) || {}) }),
   // Per-plant tolerance settings
   getToleranceSettings: (plantId?: string) =>
     api.get("/api/production/tolerance-settings", withPlantHeader(plantId)),
