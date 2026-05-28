@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Customer Master — Hari Om</title>
+<link rel="stylesheet" href="../reports-suite/shared.css" />
+<style>
+  .grid-master {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(380px, 0.9fr);
+    gap: 18px;
+  }
+  @media (max-width: 1100px) { .grid-master { grid-template-columns: 1fr; } }
+  .customer-row {
+    display: grid;
+    grid-template-columns: 24px 120px minmax(180px, 1.4fr) 80px 110px 110px 130px 90px 110px 80px 36px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  .customer-row.head {
+    background: rgba(15, 23, 42, 0.025);
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+  }
+  .customer-row.selected {
+    background: linear-gradient(90deg, rgba(4,120,87,0.10), rgba(4,120,87,0));
+    box-shadow: inset 3px 0 0 var(--emerald);
+  }
+  .customer-row:hover { background: rgba(15, 23, 42, 0.025); }
+  .checkbox { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--ink-4); display: inline-block; }
+  .checkbox.on {
+    background: var(--ink); border-color: var(--ink);
+    background-image: linear-gradient(45deg, transparent 38%, #fff 38%, #fff 60%, transparent 60%),
+                      linear-gradient(-45deg, transparent 38%, #fff 38%, #fff 60%, transparent 60%);
+  }
+  .row-action { width: 28px; height: 28px; display: inline-grid; place-items: center; border-radius: 6px; cursor: pointer; color: var(--ink-3); }
+  .row-action:hover { background: rgba(15, 23, 42, 0.06); }
+  .drawer {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 0;
+    overflow: hidden;
+    box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08);
+    position: sticky;
+    top: 24px;
+  }
+  .drawer-header {
+    padding: 18px 18px 14px;
+    background: linear-gradient(160deg, #0b1220 0%, #047857 100%);
+    color: #fff;
+  }
+  .drawer-tabs { display: flex; gap: 4px; padding: 8px 12px 0; background: #fafafa; border-bottom: 1px solid var(--line); }
+  .drawer-tab { font-size: 11px; font-weight: 700; padding: 8px 10px; cursor: pointer; color: var(--ink-3); border-bottom: 2px solid transparent; text-transform: uppercase; letter-spacing: 0.7px; }
+  .drawer-tab.active { color: var(--ink); border-bottom-color: var(--emerald); }
+  .drawer-body { padding: 14px 16px; }
+  .drawer-section { border-bottom: 1px dashed var(--line); padding: 12px 0; }
+  .drawer-section:last-child { border-bottom: 0; }
+  .field-row { display: grid; grid-template-columns: 100px 1fr; gap: 8px; padding: 4px 0; font-size: 12.5px; }
+  .field-row .lab { color: var(--ink-3); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .field-row .val { color: var(--ink); }
+  .contact-card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; background: #fbfbfd; }
+  .contact-card.primary { border-color: var(--emerald); background: #ecfdf5; }
+  .order-row {
+    display: grid; grid-template-columns: 110px 1fr 90px 90px 90px;
+    padding: 6px 0; font-size: 12px; border-bottom: 1px dashed var(--line);
+    align-items: center;
+  }
+  .order-row:last-child { border-bottom: 0; }
+  .modal-floating {
+    position: fixed; right: 24px; bottom: 24px;
+    width: 460px; background: #fff; border-radius: 16px;
+    box-shadow: 0 30px 80px rgba(15, 23, 42, 0.20);
+    border: 1px solid var(--line);
+    z-index: 50;
+  }
+  .modal-floating .head { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .modal-floating .body { padding: 14px 16px; }
+  .modal-floating .actions { padding: 12px 16px; border-top: 1px solid var(--line); text-align: right; }
+  .csv-zone {
+    border: 2px dashed var(--line-strong); border-radius: 12px;
+    background: #f8fafc; padding: 18px; text-align: center;
+    color: var(--ink-3); font-size: 13px;
+  }
+  .csv-preview { margin-top: 12px; max-height: 140px; overflow: auto; font-size: 11.5px; }
+  .csv-preview table { width: 100%; border-collapse: collapse; }
+  .csv-preview th, .csv-preview td { border-bottom: 1px solid var(--line); padding: 4px 6px; text-align: left; }
+  .perf-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .perf-mini .card { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: #fff; }
+  .perf-mini .lab { font-size: 9.5px; font-weight: 800; text-transform: uppercase; color: var(--ink-3); letter-spacing: 0.7px; }
+  .perf-mini .val { font-size: 18px; font-weight: 800; color: var(--ink); margin-top: 4px; }
+  .perf-mini .delta { font-size: 10.5px; font-weight: 700; margin-top: 3px; }
+</style>
+</head>
+<body>
+<div class="mockup-banner">MOCKUP — CUSTOMER MASTER REDESIGN</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Foundation</div>
+    <a class="nav" href="vendor-master.html">Vendors</a>
+    <a class="nav active" href="#">Customers</a>
+    <a class="nav" href="#">Items</a>
+    <a class="nav" href="#">Tube sizes</a>
+    <a class="nav" href="#">Locations</a>
+    <div class="group">Intelligence</div>
+    <a class="nav" href="../reports-suite/01-hub.html">Reports</a>
+    <a class="nav" href="../reports-suite/01b-analytics.html">Analytics</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <span class="pill">Sales</span>
+      <input class="search" placeholder="Search customers, contacts, GSTs…" />
+      <span class="pill">Yash Owner</span>
+    </div>
+
+    <p style="font-size: 11px; font-weight: 700; color: var(--ink-3); margin: 0 0 12px">
+      Masters · <strong style="color: var(--ink)">Customers</strong>
+    </p>
+
+    <section class="hero" style="background: radial-gradient(120% 90% at 0% 0%, rgba(4,120,87,0.20), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, #0b1220 0%, #064e3b 60%, #047857 100%);">
+      <p class="eyebrow">Customer Master · cockpit</p>
+      <h1>47 active customers · ₹1.86 Cr open AR · OTIF out 94.2%</h1>
+      <p class="lead">Every customer on one cockpit — GST, ship-to addresses, open orders, OTIF, risk band, last dispatch, and the audit trail.</p>
+      <div class="chips">
+        <span class="chip">47 active</span>
+        <span class="chip amber">9 watch</span>
+        <span class="chip rose">5 critical</span>
+        <span class="chip emerald">3 new this month</span>
+      </div>
+    </section>
+
+    <div class="kpi-row" style="margin-top: 16px;">
+      <div class="kpi tone-emerald">
+        <div class="label">Active customers</div>
+        <div class="value">47</div>
+        <div class="sub">3 onboarded this month</div>
+        <div class="delta up">▲ +3 MoM</div>
+      </div>
+      <div class="kpi tone-amber">
+        <div class="label">Open AR</div>
+        <div class="value">₹1.86 Cr</div>
+        <div class="sub">Avg days to pay: 38</div>
+        <div class="delta up">▲ ₹14L vs prior</div>
+      </div>
+      <div class="kpi tone-cyan">
+        <div class="label">OTIF (out, 30d)</div>
+        <div class="value">94.2%</div>
+        <div class="sub">Target ≥ 92%</div>
+        <div class="delta up">▲ 1.4 pp</div>
+      </div>
+      <div class="kpi tone-rose">
+        <div class="label">At-risk customers</div>
+        <div class="value">14</div>
+        <div class="sub">9 watch · 5 critical</div>
+        <div class="delta up">▲ 2 WoW</div>
+      </div>
+    </div>
+
+    <div class="filter-bar" style="margin-top: 16px;">
+      <span class="lab">Search</span>
+      <input type="text" placeholder="customer, code, GST, contact…" style="width: 220px;" />
+      <span class="lab">Risk</span>
+      <select><option selected>All</option><option>Watch + Critical</option><option>Critical only</option></select>
+      <span class="lab">Status</span>
+      <select><option selected>Active</option><option>Inactive</option><option>All</option></select>
+      <span class="lab">Has open orders</span>
+      <select><option selected>Any</option><option>Yes</option><option>No</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">⇣ Import CSV</button>
+      <button class="btn">⇡ Export CSV</button>
+      <button class="btn primary">+ New customer</button>
+    </div>
+
+    <div class="grid-master" style="margin-top: 16px;">
+      <div class="panel" style="padding: 0; overflow: hidden;">
+        <div class="customer-row head">
+          <span></span>
+          <span>Code</span>
+          <span>Name · primary contact</span>
+          <span>Risk</span>
+          <span>Open orders</span>
+          <span>Outstanding ₹</span>
+          <span>OTIF</span>
+          <span>Last disp.</span>
+          <span>Status</span>
+          <span></span>
+          <span></span>
+        </div>
+
+        <div class="customer-row selected">
+          <span class="checkbox on"></span>
+          <span class="mono">CUST-ABC-T</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">ABC Tube Industries</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Mahesh Sharma · 90XX-XX-1100</div>
+          </span>
+          <span><span class="pill amber">WATCH</span></span>
+          <span class="num">14</span>
+          <span class="num">₹24.6L</span>
+          <span><span class="pill amber">88%</span></span>
+          <span class="num">21 May</span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="customer-row">
+          <span class="checkbox"></span>
+          <span class="mono">CUST-LP-M</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Lakshmi Paper Mills</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Pradeep Nair · 99XX-XX-3322</div>
+          </span>
+          <span><span class="pill emerald">OK</span></span>
+          <span class="num">9</span>
+          <span class="num">₹18.4L</span>
+          <span><span class="pill emerald">95%</span></span>
+          <span class="num">26 May</span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="customer-row">
+          <span class="checkbox"></span>
+          <span class="mono">CUST-PP-V</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Patel Packaging Pvt</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Anjali Patel · 88XX-XX-9090</div>
+          </span>
+          <span><span class="pill rose">CRITICAL</span></span>
+          <span class="num">7</span>
+          <span class="num">₹32.1L</span>
+          <span><span class="pill rose">73%</span></span>
+          <span class="num">14 May</span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="customer-row">
+          <span class="checkbox"></span>
+          <span class="mono">CUST-SK-T</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Shankar Trading Co.</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Rohit Iyer · 70XX-XX-2244</div>
+          </span>
+          <span><span class="pill emerald">OK</span></span>
+          <span class="num">5</span>
+          <span class="num">₹8.6L</span>
+          <span><span class="pill emerald">98%</span></span>
+          <span class="num">27 May</span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="customer-row">
+          <span class="checkbox"></span>
+          <span class="mono">CUST-KI-I</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Konark Industries</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Smita Joshi · 95XX-XX-5566</div>
+          </span>
+          <span><span class="pill amber">WATCH</span></span>
+          <span class="num">3</span>
+          <span class="num">₹4.2L</span>
+          <span><span class="pill amber">86%</span></span>
+          <span class="num">19 May</span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="customer-row" style="color: var(--ink-3);">
+          <span class="checkbox"></span>
+          <span class="mono">CUST-LEG-X</span>
+          <span>
+            <div style="font-weight: 700;">Legacy Customer X</div>
+            <div style="font-size: 11px;">No primary contact set</div>
+          </span>
+          <span><span class="pill" style="background:#f1f5f9; color: var(--ink-3); border-color: var(--line-strong);">—</span></span>
+          <span class="num">0</span>
+          <span class="num">₹—</span>
+          <span><span class="pill" style="background:#f1f5f9; color: var(--ink-3); border-color: var(--line-strong);">—</span></span>
+          <span class="num">2024-11-02</span>
+          <span><span class="pill" style="background:#f1f5f9; color: var(--ink-3); border-color: var(--line-strong);">INACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div style="display:flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); background: #fafbfc;">
+          <span style="font-size: 11px; color: var(--ink-3);">Showing 6 of 51 customers · 1 selected</span>
+          <span style="display:flex; gap: 8px;">
+            <button class="btn">Bulk activate</button>
+            <button class="btn">Bulk deactivate</button>
+            <button class="btn">Export selected</button>
+          </span>
+        </div>
+      </div>
+
+      <!-- RIGHT: detail drawer for ABC Tube Industries -->
+      <div class="drawer">
+        <div class="drawer-header">
+          <p class="eyebrow" style="color: #bbf7d0;">Customer · selected</p>
+          <h2 style="margin: 6px 0 4px; font-size: 22px; font-weight: 800;">ABC Tube Industries</h2>
+          <p style="font-size: 12px; opacity: 0.85; margin: 0;">CUST-ABC-T · Wholesale · since 2023-03</p>
+          <div class="chips" style="margin-top: 10px;">
+            <span class="chip" style="background: rgba(180,83,9,0.5); border-color: rgba(180,83,9,0.7); color: #fff;">WATCH</span>
+            <span class="chip" style="background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.3); color: #fff;">14 open orders</span>
+            <span class="chip" style="background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.3); color: #fff;">₹24.6L AR</span>
+          </div>
+        </div>
+        <div class="drawer-tabs">
+          <span class="drawer-tab active">Overview</span>
+          <span class="drawer-tab">Contacts (3)</span>
+          <span class="drawer-tab">Ship-to (2)</span>
+          <span class="drawer-tab">Orders (14)</span>
+          <span class="drawer-tab">Performance</span>
+        </div>
+        <div class="drawer-body">
+          <div class="drawer-section">
+            <div class="field-row"><span class="lab">Code</span><span class="val mono">CUST-ABC-T</span></div>
+            <div class="field-row"><span class="lab">Category</span><span class="val">Wholesale buyer (B2B)</span></div>
+            <div class="field-row"><span class="lab">GST</span><span class="val mono">27ABCDE9999A1Z3</span></div>
+            <div class="field-row"><span class="lab">PAN</span><span class="val mono">ABCDE9999A</span></div>
+            <div class="field-row"><span class="lab">Credit limit</span><span class="val">₹30L</span></div>
+            <div class="field-row"><span class="lab">Payment terms</span><span class="val">Net 45 · GRN-confirmed</span></div>
+            <div class="field-row"><span class="lab">Audit</span><span class="val" style="font-size: 11px; color: var(--ink-3);">Updated 2026-05-24 by sales.lead@</span></div>
+          </div>
+
+          <p class="eyebrow" style="margin: 4px 0 6px;">Contacts</p>
+          <div class="contact-card primary">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+              <strong style="font-size: 13px;">Mahesh Sharma</strong>
+              <span class="pill emerald">PRIMARY</span>
+            </div>
+            <p style="font-size: 12px; color: var(--ink-3); margin: 4px 0 0;">mahesh@abctube.in · +91 90XX-XX-1100 · Purchase head</p>
+          </div>
+          <div class="contact-card">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+              <strong style="font-size: 13px;">Geeta Rao</strong>
+              <span class="row-action" title="Edit">✎</span>
+            </div>
+            <p style="font-size: 12px; color: var(--ink-3); margin: 4px 0 0;">accounts@abctube.in · +91 99XX-XX-7733 · Accounts</p>
+          </div>
+          <button class="btn" style="margin-top: 6px; width: 100%;">+ Add contact</button>
+
+          <p class="eyebrow" style="margin: 16px 0 6px;">Recent orders</p>
+          <div class="order-row" style="font-weight: 800; font-size: 10.5px; color: var(--ink-3); text-transform: uppercase;">
+            <span>Order #</span><span>Items</span><span class="num">Qty</span><span class="num">Value</span><span>Status</span>
+          </div>
+          <div class="order-row">
+            <span class="mono">SO-1042</span>
+            <span>FG-DIAM-42 · KRAFT-120-GSM</span>
+            <span class="num">2,400</span>
+            <span class="num">₹6.8L</span>
+            <span><span class="pill rose">DELAYED</span></span>
+          </div>
+          <div class="order-row">
+            <span class="mono">SO-1051</span>
+            <span>FG-DIAM-65</span>
+            <span class="num">1,800</span>
+            <span class="num">₹5.4L</span>
+            <span><span class="pill amber">RELEASED</span></span>
+          </div>
+          <div class="order-row">
+            <span class="mono">SO-1037</span>
+            <span>FG-DIAM-42</span>
+            <span class="num">3,200</span>
+            <span class="num">₹9.6L</span>
+            <span><span class="pill emerald">CLOSED</span></span>
+          </div>
+          <a class="drill" href="#" style="margin-top: 6px; display: inline-block; font-size: 12px;">Open all 14 orders →</a>
+
+          <p class="eyebrow" style="margin: 16px 0 6px;">Performance · last 90d</p>
+          <div class="perf-mini">
+            <div class="card">
+              <div class="lab">OTIF</div>
+              <div class="val">88%</div>
+              <div class="delta down" style="color: var(--rose);">▼ 4 pp</div>
+            </div>
+            <div class="card">
+              <div class="lab">Days to pay</div>
+              <div class="val">52</div>
+              <div class="delta up" style="color: var(--rose);">▲ 8 d</div>
+            </div>
+            <div class="card">
+              <div class="lab">Complaints</div>
+              <div class="val">2</div>
+              <div class="delta flat" style="color: var(--ink-3);">• flat</div>
+            </div>
+          </div>
+
+          <div style="display:flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);">
+            <button class="btn primary" style="flex: 1;">Edit customer</button>
+            <button class="btn">Deactivate</button>
+            <button class="btn" style="color: var(--rose); border-color: rgba(190,18,60,0.3);">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup · Hari Om Paper · Customer Master redesign · screenshot-grade only
+    </p>
+  </main>
+</div>
+
+<!-- Floating CSV-import modal preview -->
+<div class="modal-floating">
+  <div class="head" style="display:flex; justify-content: space-between; align-items: center;">
+    <div>
+      <p class="eyebrow" style="margin: 0; font-size: 10px;">Bulk action</p>
+      <strong style="font-size: 14px;">⇣ Import customers from CSV</strong>
+    </div>
+    <span class="row-action">✕</span>
+  </div>
+  <div class="body">
+    <div class="csv-zone">
+      <strong>Drag &amp; drop CSV here</strong>
+      <p style="margin: 6px 0 0; font-size: 11px;">or <a href="#" style="color: var(--brand); font-weight: 700;">browse file</a> · expected columns: code, name, gst, pan, address, contact_name, contact_phone, contact_email</p>
+    </div>
+    <p style="font-size: 11px; color: var(--ink-3); margin: 12px 0 6px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">Preview (5 rows, all valid)</p>
+    <div class="csv-preview">
+      <table>
+        <thead><tr><th>Code</th><th>Name</th><th>GST</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td class="mono">CUST-NEW-1</td><td>Mumbai Tube Co.</td><td class="mono">27ABCDE…1Z3</td><td><span class="pill emerald">VALID</span></td></tr>
+          <tr><td class="mono">CUST-NEW-2</td><td>Pune Paper Works</td><td class="mono">27FGHIJ…2X4</td><td><span class="pill emerald">VALID</span></td></tr>
+          <tr><td class="mono">CUST-NEW-3</td><td>Delhi Industries</td><td class="mono">07KLMNO…3Y5</td><td><span class="pill emerald">VALID</span></td></tr>
+          <tr><td class="mono">CUST-NEW-4</td><td>Bangalore Pkg.</td><td class="mono">29PQRST…4W6</td><td><span class="pill emerald">VALID</span></td></tr>
+          <tr><td class="mono">CUST-NEW-5</td><td>Chennai Tubes</td><td class="mono">33UVWXY…5V7</td><td><span class="pill amber">DUP CODE</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn">Cancel</button>
+    <button class="btn">Skip invalid</button>
+    <button class="btn primary">Commit 4 rows</button>
+  </div>
+</div>
+
+</body>
+</html>

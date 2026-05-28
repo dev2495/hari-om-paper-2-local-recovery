@@ -78,9 +78,9 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   ],
   Admin: [
     { href: "/system/users", label: "Role Matrix", detail: "Manage users, roles, and governance." },
+    { href: "/system/tolerances", label: "Tolerance Editor", detail: "Set per-plant variance bands used by reconciliation." },
     { href: "/quality", label: "Quality Lifecycle", detail: "Review holds, inspections, and release decisions." },
     { href: "/reports/owner", label: "Owner Pack", detail: "Monitor cross-plant operations." },
-    { href: "/planning", label: "Planning Board", detail: "Inspect route-level readiness." },
   ],
   PlantManager: [
     { href: "/planning/board?section=winder", label: "Winder Plan", detail: "Schedule machine and shift assignments." },

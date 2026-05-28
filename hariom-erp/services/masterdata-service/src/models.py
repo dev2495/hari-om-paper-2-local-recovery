@@ -182,6 +182,10 @@ class Customer(Base):
     tax_id = Column(String(100), nullable=True)
     dispatch_contact_name = Column(String(200), nullable=True)
     dispatch_contact_phone = Column(String(50), nullable=True)
+    # Master redesign — added so the cockpit UI can persist relationship metadata.
+    category = Column(String(80), nullable=True)
+    credit_limit = Column(Float, nullable=True)
+    payment_terms = Column(String(120), nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -204,6 +208,7 @@ class CustomerContact(Base):
     contact_phone = Column(String(50), nullable=True)
     contact_email = Column(String(200), nullable=True)
     notes = Column(Text, nullable=True)
+    is_primary = Column(Boolean, default=False, nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -218,6 +223,10 @@ class Supplier(Base):
     supplier_code = Column(String(50), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     category = Column(String(80), nullable=False, default="RAW_MATERIAL")
+    # Free-text category label used by the new master cockpit (the enum-style
+    # `category` above is preserved for backwards compatibility with existing
+    # screens that key off it).
+    category_label = Column(String(120), nullable=True)
     contact_name = Column(String(200), nullable=True)
     contact_phone = Column(String(50), nullable=True)
     contact_email = Column(String(200), nullable=True)
@@ -246,6 +255,7 @@ class SupplierContact(Base):
     contact_phone = Column(String(50), nullable=True)
     contact_email = Column(String(200), nullable=True)
     notes = Column(Text, nullable=True)
+    is_primary = Column(Boolean, default=False, nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)

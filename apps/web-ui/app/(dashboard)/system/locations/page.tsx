@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
-import { Building2, Factory, MapPin, Plus, Warehouse } from "lucide-react"
+import { Building2, Factory, MapPin, Plus, Warehouse, Wrench } from "lucide-react"
 
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { useAuth } from "@/context/AuthContext"
@@ -75,6 +75,7 @@ export default function SystemLocationsPage() {
           { href: "/system/plants", label: "Plants", icon: Building2 },
           { href: "/system/machines", label: "Machines", icon: Factory },
           { href: "/system/locations", label: "Locations", icon: MapPin },
+          { href: "/system/tolerances", label: "Tolerances", icon: Wrench },
         ].map((item) => (
           <Link
             key={item.href}

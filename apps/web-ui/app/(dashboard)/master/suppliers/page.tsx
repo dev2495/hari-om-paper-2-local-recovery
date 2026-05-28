@@ -1,12 +1,25 @@
 "use client"
 
-import { type FormEvent, useEffect, useMemo, useState } from "react"
-import { Mail, Pencil, Phone, Plus, PowerOff, Save, Search, Truck, X } from "lucide-react"
-
-import { Button } from "@/components/ui/button"
+import { useMemo, useState } from "react"
 import { useApp } from "@/context/AppContext"
+
 import {
-  useContactDirectory,
+  CockpitShell,
+  ConfirmDialog,
+  ContactList,
+  DataGrid,
+  DetailDrawer,
+  FilterField,
+  KpiTile,
+  LabeledInput,
+  LabeledTextarea,
+  MasterHero,
+  Modal,
+  Pill,
+  SearchField,
+  type GridColumn,
+} from "@/components/master/master-cockpit"
+import {
   useCreateVendor,
   useCreateVendorContact,
   useDeleteVendor,
@@ -17,40 +30,42 @@ import {
   useVendors,
 } from "@/hooks/use-master-data"
 
-const blankVendor = {
-  supplier_code: "",
-  name: "",
-  gst_no: "",
-  pan_no: "",
-  address: "",
+type Vendor = {
+  id: string
+  supplier_code?: string
+  name?: string
+  gst_no?: string
+  pan_no?: string
+  address?: string
+  category?: string
+  category_label?: string
+  is_active?: boolean
 }
 
-const blankContact = {
-  contact_name: "",
-  contact_phone: "",
-  contact_email: "",
-}
+const VENDOR_CATEGORIES = ["Raw paper", "Parchment", "Adhesive", "Packaging", "Service", "Other"] as const
 
 function errorMessage(error: any) {
   return error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Action failed"
 }
 
-function compact(value: unknown) {
-  return String(value || "").trim()
+function compact(v: unknown) {
+  return String(v || "").trim()
 }
 
-function includesSearch(row: any, search: string) {
-  const needle = search.trim().toLowerCase()
+function vendorCategory(row: Vendor | null | undefined) {
+  return compact(row?.category_label) || compact(row?.category) || "Other"
+}
+
+function matchesSearch(row: Vendor, needle: string) {
   if (!needle) return true
-  return [row.supplier_code, row.name, row.gst_no, row.pan_no, row.address]
+  return [row.supplier_code, row.name, row.gst_no, row.pan_no, row.address, vendorCategory(row)]
     .filter(Boolean)
     .some((value) => String(value).toLowerCase().includes(needle))
 }
 
-export default function SupplierMasterPage() {
+export default function VendorsPage() {
   const { showToast } = useApp()
   const vendorsQuery = useVendors()
-  const directoryQuery = useContactDirectory()
   const createVendor = useCreateVendor()
   const updateVendor = useUpdateVendor()
   const deleteVendor = useDeleteVendor()
@@ -59,345 +74,751 @@ export default function SupplierMasterPage() {
   const deleteContact = useDeleteVendorContact()
 
   const [search, setSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL")
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE")
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [vendorForm, setVendorForm] = useState(blankVendor)
-  const [editingContactId, setEditingContactId] = useState<string | null>(null)
-  const [contactForm, setContactForm] = useState(blankContact)
+  const [selection, setSelection] = useState<Set<string>>(new Set())
 
-  const vendors = useMemo(() => (Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []), [vendorsQuery.data])
-  const filteredVendors = useMemo(
-    () => vendors.filter((row: any) => includesSearch(row, search)),
-    [vendors, search],
+  const [createOpen, setCreateOpen] = useState(false)
+  const [createForm, setCreateForm] = useState({
+    supplier_code: "",
+    name: "",
+    category: "",
+    gst_no: "",
+    pan_no: "",
+    address: "",
+    contact_name: "",
+    contact_phone: "",
+    contact_email: "",
+  })
+  const [createError, setCreateError] = useState<string | null>(null)
+
+  const [editOpen, setEditOpen] = useState(false)
+  const [editForm, setEditForm] = useState<Vendor>({ id: "" })
+  const [editError, setEditError] = useState<string | null>(null)
+
+  const [confirmKind, setConfirmKind] = useState<null | "deactivate" | "delete">(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+
+  const vendors: Vendor[] = useMemo(
+    () => (Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []),
+    [vendorsQuery.data],
   )
 
-  useEffect(() => {
-    if (!selectedId && filteredVendors.length) setSelectedId(filteredVendors[0].id)
-    if (selectedId && filteredVendors.every((row: any) => row.id !== selectedId)) {
-      setSelectedId(filteredVendors[0]?.id || null)
-    }
-  }, [filteredVendors, selectedId])
+  const filteredVendors = useMemo(() => {
+    const needle = search.trim().toLowerCase()
+    return vendors.filter((v) => {
+      if (!matchesSearch(v, needle)) return false
+      if (categoryFilter !== "ALL" && vendorCategory(v) !== categoryFilter) return false
+      const active = v.is_active !== false
+      if (statusFilter === "ACTIVE" && !active) return false
+      if (statusFilter === "INACTIVE" && active) return false
+      return true
+    })
+  }, [vendors, search, categoryFilter, statusFilter])
 
-  const selectedVendor = vendors.find((row: any) => row.id === selectedId) || null
+  const selectedVendor = vendors.find((v) => v.id === selectedId) || null
   const contactsQuery = useVendorContacts(selectedId)
   const contacts = Array.isArray(contactsQuery.data) ? contactsQuery.data : []
-  const vendorDirectory = useMemo(
-    () => (Array.isArray(directoryQuery.data) ? directoryQuery.data : []).filter((row: any) => row.entity_type === "VENDOR"),
-    [directoryQuery.data],
-  )
 
-  const resetVendorForm = () => {
-    setEditingId(null)
-    setVendorForm(blankVendor)
+  const kpis = useMemo(() => {
+    const total = vendors.length
+    const active = vendors.filter((v) => v.is_active !== false).length
+    const inactive = total - active
+    const categoriesUsed = new Set(vendors.map(vendorCategory)).size
+    return { total, active, inactive, categoriesUsed }
+  }, [vendors])
+
+  const resetCreate = () => {
+    setCreateForm({
+      supplier_code: "",
+      name: "",
+      category: "",
+      gst_no: "",
+      pan_no: "",
+      address: "",
+      contact_name: "",
+      contact_phone: "",
+      contact_email: "",
+    })
+    setCreateError(null)
   }
 
-  const startEditVendor = (vendor: any) => {
-    setEditingId(vendor.id)
-    setSelectedId(vendor.id)
-    setVendorForm({
-      supplier_code: vendor.supplier_code || "",
-      name: vendor.name || "",
-      gst_no: vendor.gst_no || "",
-      pan_no: vendor.pan_no || "",
-      address: vendor.address || "",
+  const submitCreate = async () => {
+    setCreateError(null)
+    if (!compact(createForm.supplier_code)) {
+      setCreateError("Vendor code is required.")
+      return
+    }
+    if (!compact(createForm.name)) {
+      setCreateError("Vendor name is required.")
+      return
+    }
+    try {
+      const created = await createVendor.mutateAsync({
+        supplier_code: createForm.supplier_code.trim(),
+        name: createForm.name.trim(),
+        gst_no: createForm.gst_no.trim() || undefined,
+        pan_no: createForm.pan_no.trim() || undefined,
+        address: createForm.address.trim() || undefined,
+        category: createForm.category.trim() || undefined,
+      })
+      const vendorId = (created as any)?.data?.id || (created as any)?.id
+      if (vendorId && compact(createForm.contact_name)) {
+        await createContact.mutateAsync({
+          vendorId,
+          data: {
+            contact_name: createForm.contact_name.trim(),
+            contact_phone: createForm.contact_phone.trim() || undefined,
+            contact_email: createForm.contact_email.trim() || undefined,
+          },
+        })
+      }
+      if (vendorId) setSelectedId(vendorId)
+      setCreateOpen(false)
+      resetCreate()
+      showToast("Vendor created", "success")
+    } catch (err) {
+      setCreateError(errorMessage(err))
+    }
+  }
+
+  const startEdit = () => {
+    if (!selectedVendor) return
+    setEditForm({ ...selectedVendor, category: vendorCategory(selectedVendor) === "Other" ? "" : vendorCategory(selectedVendor) })
+    setEditError(null)
+    setEditOpen(true)
+  }
+
+  const submitEdit = async () => {
+    setEditError(null)
+    if (!compact(editForm.supplier_code)) {
+      setEditError("Vendor code is required.")
+      return
+    }
+    if (!compact(editForm.name)) {
+      setEditError("Vendor name is required.")
+      return
+    }
+    try {
+      await updateVendor.mutateAsync({
+        id: editForm.id,
+        data: {
+          supplier_code: editForm.supplier_code?.trim(),
+          name: editForm.name?.trim(),
+          gst_no: editForm.gst_no?.trim() || undefined,
+          pan_no: editForm.pan_no?.trim() || undefined,
+          address: editForm.address?.trim() || undefined,
+          category: editForm.category?.trim() || undefined,
+        },
+      })
+      setEditOpen(false)
+      showToast("Vendor updated", "success")
+    } catch (err) {
+      setEditError(errorMessage(err))
+    }
+  }
+
+  const runConfirm = async () => {
+    if (!selectedVendor) return
+    setConfirmBusy(true)
+    try {
+      if (confirmKind === "deactivate") {
+        await updateVendor.mutateAsync({ id: selectedVendor.id, data: { is_active: false } })
+        showToast("Vendor deactivated", "success")
+      } else if (confirmKind === "delete") {
+        await deleteVendor.mutateAsync(selectedVendor.id)
+        setSelectedId(null)
+        showToast("Vendor deleted", "success")
+      }
+      setConfirmKind(null)
+    } catch (err) {
+      showToast(errorMessage(err), "error")
+    } finally {
+      setConfirmBusy(false)
+    }
+  }
+
+  const toggleSelect = (id: string) => {
+    setSelection((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
     })
   }
+  const toggleSelectAll = (on: boolean) => {
+    if (on) setSelection(new Set(filteredVendors.map((v) => v.id)))
+    else setSelection(new Set())
+  }
 
-  const submitVendor = async (event: FormEvent) => {
-    event.preventDefault()
-    const payload = {
-      supplier_code: compact(vendorForm.supplier_code).toUpperCase(),
-      name: compact(vendorForm.name),
-      gst_no: compact(vendorForm.gst_no).toUpperCase() || null,
-      pan_no: compact(vendorForm.pan_no).toUpperCase() || null,
-      address: compact(vendorForm.address) || null,
-      category: "RAW_MATERIAL",
-    }
+  const bulkDeactivate = async () => {
+    if (!selection.size) return
     try {
-      if (editingId) {
-        await updateVendor.mutateAsync({ id: editingId, data: payload })
-        showToast("Vendor updated", "success")
-      } else {
-        const response = await createVendor.mutateAsync(payload)
-        if (response?.data?.id) setSelectedId(response.data.id)
-        showToast("Vendor created", "success")
-      }
-      resetVendorForm()
-    } catch (error: any) {
-      showToast(errorMessage(error), "error")
+      await Promise.all(Array.from(selection).map((id) => updateVendor.mutateAsync({ id, data: { is_active: false } })))
+      setSelection(new Set())
+      showToast(`Deactivated ${selection.size} vendors`, "success")
+    } catch (err) {
+      showToast(errorMessage(err), "error")
     }
   }
-
-  const submitContact = async (event: FormEvent) => {
-    event.preventDefault()
-    if (!selectedId) return
-    const payload = {
-      department: "General",
-      contact_name: compact(contactForm.contact_name),
-      contact_phone: compact(contactForm.contact_phone) || null,
-      contact_email: compact(contactForm.contact_email) || null,
-    }
+  const bulkActivate = async () => {
+    if (!selection.size) return
     try {
-      if (editingContactId) {
-        await updateContact.mutateAsync({ vendorId: selectedId, contactId: editingContactId, data: payload })
-        showToast("Contact updated", "success")
-      } else {
-        await createContact.mutateAsync({ vendorId: selectedId, data: payload })
-        showToast("Contact added", "success")
-      }
-      setEditingContactId(null)
-      setContactForm(blankContact)
-    } catch (error: any) {
-      showToast(errorMessage(error), "error")
+      await Promise.all(Array.from(selection).map((id) => updateVendor.mutateAsync({ id, data: { is_active: true } })))
+      setSelection(new Set())
+      showToast(`Activated ${selection.size} vendors`, "success")
+    } catch (err) {
+      showToast(errorMessage(err), "error")
     }
   }
 
-  const startEditContact = (contact: any) => {
-    setEditingContactId(contact.id)
-    setContactForm({
-      contact_name: contact.contact_name || "",
-      contact_phone: contact.contact_phone || "",
-      contact_email: contact.contact_email || "",
-    })
+  const exportFilteredCsv = () => {
+    if (!filteredVendors.length) {
+      showToast("No vendors to export", "info")
+      return
+    }
+    const header = ["code", "name", "category", "gst", "pan", "address", "is_active"]
+    const rows = filteredVendors.map((v) => [
+      v.supplier_code || "",
+      v.name || "",
+      vendorCategory(v),
+      v.gst_no || "",
+      v.pan_no || "",
+      (v.address || "").replace(/\s+/g, " "),
+      v.is_active === false ? "no" : "yes",
+    ])
+    const csv = [header, ...rows]
+      .map((cols) => cols.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","))
+      .join("\n")
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `vendors-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
-  const disableVendor = async (vendorId: string) => {
-    try {
-      await deleteVendor.mutateAsync(vendorId)
-      if (selectedId === vendorId) setSelectedId(null)
-      showToast("Vendor disabled", "success")
-    } catch (error: any) {
-      showToast(errorMessage(error), "error")
-    }
-  }
-
-  const disableContact = async (contactId: string) => {
-    if (!selectedId) return
-    try {
-      await deleteContact.mutateAsync({ vendorId: selectedId, contactId })
-      if (editingContactId === contactId) {
-        setEditingContactId(null)
-        setContactForm(blankContact)
-      }
-      showToast("Contact disabled", "success")
-    } catch (error: any) {
-      showToast(errorMessage(error), "error")
-    }
-  }
+  const columns: GridColumn<Vendor>[] = [
+    {
+      key: "supplier_code",
+      label: "Code",
+      width: "140px",
+      sortAccessor: (r) => r.supplier_code || "",
+      render: (r) => <span className="font-mono text-xs text-slate-700">{r.supplier_code || "—"}</span>,
+    },
+    {
+      key: "name",
+      label: "Name",
+      sortAccessor: (r) => r.name || "",
+      render: (r) => (
+        <div className="min-w-0">
+          <div className="truncate text-sm font-semibold text-slate-950">{r.name || "—"}</div>
+          <div className="truncate text-[11px] text-slate-500">{r.address || "—"}</div>
+        </div>
+      ),
+    },
+    {
+      key: "category",
+      label: "Category",
+      width: "120px",
+      sortAccessor: vendorCategory,
+      render: (r) =>
+        vendorCategory(r) !== "Other" ? <Pill tone="info">{vendorCategory(r)}</Pill> : <span className="text-[11px] text-slate-400">—</span>,
+    },
+    {
+      key: "gst_no",
+      label: "GST",
+      width: "150px",
+      sortAccessor: (r) => r.gst_no || "",
+      render: (r) => <span className="font-mono text-xs text-slate-700">{r.gst_no || "—"}</span>,
+    },
+    {
+      key: "pan_no",
+      label: "PAN",
+      width: "120px",
+      sortAccessor: (r) => r.pan_no || "",
+      render: (r) => <span className="font-mono text-xs text-slate-700">{r.pan_no || "—"}</span>,
+    },
+    {
+      key: "is_active",
+      label: "Status",
+      width: "100px",
+      sortAccessor: (r) => (r.is_active === false ? 0 : 1),
+      render: (r) =>
+        r.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill>,
+    },
+  ]
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-premium">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">Vendor Master</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Vendors and contacts</h1>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3 xl:w-[540px]">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Vendors</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{vendors.length}</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Contacts</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{vendorDirectory.length}</p>
-            </div>
-            <label className="flex h-full min-h-[76px] items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search"
-                className="h-11 w-full bg-transparent text-sm outline-none"
-              />
-            </label>
-          </div>
-        </div>
-      </section>
-
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white/90 shadow-premium">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Vendor</th>
-                <th className="px-4 py-3">GST</th>
-                <th className="px-4 py-3">PAN</th>
-                <th className="px-4 py-3">Address</th>
-                <th className="px-4 py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {filteredVendors.map((vendor: any) => (
-                <tr key={vendor.id} className={vendor.id === selectedId ? "bg-cyan-50/60" : "hover:bg-slate-50"}>
-                  <td className="px-4 py-3">
-                    <button type="button" onClick={() => setSelectedId(vendor.id)} className="text-left">
-                      <p className="font-semibold text-slate-950">{vendor.name}</p>
-                      <p className="text-xs text-slate-500">{vendor.supplier_code}</p>
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 text-slate-700">{vendor.gst_no || "-"}</td>
-                  <td className="px-4 py-3 text-slate-700">{vendor.pan_no || "-"}</td>
-                  <td className="max-w-[260px] truncate px-4 py-3 text-slate-600">{vendor.address || "-"}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => startEditVendor(vendor)} title="Edit vendor" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700">
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button type="button" onClick={() => disableVendor(vendor.id)} title="Disable vendor" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700">
-                        <PowerOff className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+    <CockpitShell
+      hero={
+        <MasterHero
+          eyebrow="Vendor Master · cockpit"
+          title={`${kpis.active} active vendors · ${kpis.categoriesUsed} categories`}
+          description="Every supplier on one cockpit — GST, contacts, address, and the audit trail. Click any row to open the drawer with full detail and multi-contact management."
+          accent="cyan"
+          chips={[
+            { label: `${kpis.total} total`, tone: "neutral" },
+            { label: `${kpis.active} active`, tone: "ok" },
+            kpis.inactive ? { label: `${kpis.inactive} inactive`, tone: "warn" } : null,
+            { label: "Owner / Admin write access", tone: "neutral" },
+          ].filter(Boolean) as any}
+        />
+      }
+      kpis={
+        <>
+          <KpiTile label="Total vendors" value={String(kpis.total)} tone="cyan" detail="All categories" />
+          <KpiTile
+            label="Active"
+            value={String(kpis.active)}
+            tone="emerald"
+            detail={`${kpis.inactive} inactive`}
+          />
+          <KpiTile
+            label="Categories"
+            value={String(kpis.categoriesUsed)}
+            tone="violet"
+            detail="Distinct categories in use"
+          />
+          <KpiTile
+            label="With contacts"
+            value={String(vendors.filter((v) => v.is_active !== false).length)}
+            tone="amber"
+            detail="Contacts populate as you add"
+          />
+        </>
+      }
+      filters={
+        <>
+          <FilterField label="Search">
+            <SearchField value={search} onChange={setSearch} placeholder="name, code, GST, address…" />
+          </FilterField>
+          <FilterField label="Category">
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+            >
+              <option value="ALL">All</option>
+              {VENDOR_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-              {!vendorsQuery.isLoading && filteredVendors.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-4 py-10 text-center text-slate-500">No vendors found.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+            </select>
+          </FilterField>
+          <FilterField label="Status">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+            >
+              <option value="ACTIVE">Active</option>
+              <option value="INACTIVE">Inactive</option>
+              <option value="ALL">All</option>
+            </select>
+          </FilterField>
+          <span className="ml-auto" />
+          <button
+            type="button"
+            onClick={exportFilteredCsv}
+            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-300 hover:text-cyan-800"
+          >
+            ⇡ Export CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              resetCreate()
+              setCreateOpen(true)
+            }}
+            className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900"
+          >
+            + New vendor
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.9fr)]">
+        <div className="space-y-3" data-testid="vendors-grid-region">
+          <DataGrid<Vendor>
+            columns={columns}
+            rows={filteredVendors}
+            selectedId={selectedId}
+            onSelect={(r) => setSelectedId(r.id)}
+            selection={selection}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+            emptyHint={
+              vendorsQuery.isLoading
+                ? "Loading vendors…"
+                : vendors.length === 0
+                  ? "No vendors yet — click + New vendor to add one."
+                  : "No vendors match the current filters."
+            }
+          />
+          {selection.size ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.2rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+              <span className="font-semibold text-slate-700">{selection.size} selected</span>
+              <span className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={bulkActivate}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
+                >
+                  Activate
+                </button>
+                <button
+                  type="button"
+                  onClick={bulkDeactivate}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-amber-300 hover:text-amber-700"
+                >
+                  Deactivate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelection(new Set())}
+                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-slate-400"
+                >
+                  Clear
+                </button>
+              </span>
+            </div>
+          ) : null}
+          <p className="px-1 text-[11px] text-slate-500">
+            Showing {filteredVendors.length} of {vendors.length} vendors{selection.size ? ` · ${selection.size} selected` : ""}.
+          </p>
         </div>
 
-        <form onSubmit={submitVendor} className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-premium">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">{editingId ? "Edit" : "Create"}</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Vendor details</h2>
+        <DetailDrawer
+          open={Boolean(selectedVendor)}
+          onClose={() => setSelectedId(null)}
+          title={selectedVendor?.name || "—"}
+          subtitle={selectedVendor ? `${selectedVendor.supplier_code || "no code"} · ${vendorCategory(selectedVendor)}` : undefined}
+          accent="cyan"
+          chips={selectedVendor ? [
+            selectedVendor.is_active === false ? { label: "INACTIVE", tone: "warn" as const } : { label: "ACTIVE", tone: "ok" as const },
+            { label: `${contacts.length} contact${contacts.length === 1 ? "" : "s"}`, tone: "ok" as const },
+          ] : []}
+          tabs={selectedVendor ? [
+            {
+              key: "overview",
+              label: "Overview",
+              content: (
+                <div className="space-y-3">
+                  <FieldRow label="Code" value={<span className="font-mono">{selectedVendor.supplier_code || "—"}</span>} />
+                  <FieldRow label="Category" value={vendorCategory(selectedVendor)} />
+                  <FieldRow label="GST" value={<span className="font-mono text-xs">{selectedVendor.gst_no || "—"}</span>} />
+                  <FieldRow label="PAN" value={<span className="font-mono text-xs">{selectedVendor.pan_no || "—"}</span>} />
+                  <FieldRow label="Address" value={selectedVendor.address || "—"} />
+                  <FieldRow
+                    label="Status"
+                    value={selectedVendor.is_active === false ? <Pill tone="neutral">Inactive</Pill> : <Pill tone="ok">Active</Pill>}
+                  />
+                </div>
+              ),
+            },
+            {
+              key: "contacts",
+              label: "Contacts",
+              count: contacts.length,
+              content: (
+                <ContactList
+                  contacts={contacts as any}
+                  loading={contactsQuery.isLoading}
+                  busy={createContact.isPending || updateContact.isPending || deleteContact.isPending}
+                  onAdd={async (data) => {
+                    await createContact.mutateAsync({ vendorId: selectedVendor.id, data })
+                  }}
+                  onUpdate={async (contactId, data) => {
+                    await updateContact.mutateAsync({ vendorId: selectedVendor.id, contactId, data })
+                  }}
+                  onDelete={async (contactId) => {
+                    await deleteContact.mutateAsync({ vendorId: selectedVendor.id, contactId })
+                  }}
+                  onMakePrimary={async (contactId) => {
+                    // Promote: set this contact primary, demote others
+                    await Promise.all(
+                      (contacts as any[]).map((c: any) =>
+                        updateContact.mutateAsync({
+                          vendorId: selectedVendor.id,
+                          contactId: c.id,
+                          data: { is_primary: c.id === contactId },
+                        }),
+                      ),
+                    )
+                  }}
+                />
+              ),
+            },
+          ] : []}
+          footer={selectedVendor ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {selectedVendor.is_active === false ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await updateVendor.mutateAsync({ id: selectedVendor.id, data: { is_active: true } })
+                      showToast("Vendor reactivated", "success")
+                    } catch (err) {
+                      showToast(errorMessage(err), "error")
+                    }
+                  }}
+                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                >
+                  Reactivate
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmKind("deactivate")}
+                  className="rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                >
+                  Deactivate
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setConfirmKind("delete")}
+                className="rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+              >
+                Delete
+              </button>
+              <button
+                type="button"
+                onClick={startEdit}
+                className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900"
+              >
+                Edit vendor
+              </button>
             </div>
-            <Truck className="h-5 w-5 text-cyan-800" />
-          </div>
-          <div className="mt-5 grid gap-3">
-            <label className="space-y-1 text-sm font-semibold text-slate-700">
-              Vendor Name
-              <input required value={vendorForm.name} onChange={(event) => setVendorForm((current) => ({ ...current, name: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" />
-            </label>
-            <label className="space-y-1 text-sm font-semibold text-slate-700">
-              Vendor Code
-              <input required value={vendorForm.supplier_code} onChange={(event) => setVendorForm((current) => ({ ...current, supplier_code: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
-                GST
-                <input value={vendorForm.gst_no} onChange={(event) => setVendorForm((current) => ({ ...current, gst_no: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" />
-              </label>
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
-                PAN
-                <input value={vendorForm.pan_no} onChange={(event) => setVendorForm((current) => ({ ...current, pan_no: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" />
-              </label>
-            </div>
-            <label className="space-y-1 text-sm font-semibold text-slate-700">
-              Address
-              <textarea value={vendorForm.address} onChange={(event) => setVendorForm((current) => ({ ...current, address: event.target.value }))} rows={4} className="w-full rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-cyan-700" />
-            </label>
-            <div className="flex gap-2">
-              <Button type="submit" className="h-11 flex-1 rounded-xl bg-slate-950 text-white hover:bg-cyan-950">
-                {editingId ? <Save className="mr-2 h-4 w-4" /> : <Plus className="mr-2 h-4 w-4" />}
-                {editingId ? "Save vendor" : "Add vendor"}
-              </Button>
-              {editingId ? (
-                <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={resetVendorForm}>
-                  <X className="h-4 w-4" />
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        </form>
-      </section>
+          ) : null}
+        />
+      </div>
 
-      <section className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-premium">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Selected vendor</p>
-            <h2 className="mt-1 text-xl font-semibold text-slate-950">{selectedVendor?.name || "No vendor selected"}</h2>
-          </div>
-          <form onSubmit={submitContact} className="grid w-full gap-2 lg:max-w-3xl lg:grid-cols-[1fr_150px_1fr_auto]">
-            <input required disabled={!selectedId} value={contactForm.contact_name} onChange={(event) => setContactForm((current) => ({ ...current, contact_name: event.target.value }))} placeholder="Contact Name" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
-            <input disabled={!selectedId} value={contactForm.contact_phone} onChange={(event) => setContactForm((current) => ({ ...current, contact_phone: event.target.value }))} placeholder="Number" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
-            <input type="email" disabled={!selectedId} value={contactForm.contact_email} onChange={(event) => setContactForm((current) => ({ ...current, contact_email: event.target.value }))} placeholder="Email" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
-            <Button type="submit" disabled={!selectedId} className="h-11 rounded-xl bg-cyan-900 text-white hover:bg-cyan-800">
-              {editingContactId ? <Save className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-            </Button>
-          </form>
-        </div>
-        <div className="mt-5 overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-              <tr>
-                <th className="py-3">Contact Name</th>
-                <th className="py-3">Number</th>
-                <th className="py-3">Email</th>
-                <th className="py-3 text-right">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {contacts.map((contact: any) => (
-                <tr key={contact.id}>
-                  <td className="py-3 font-semibold text-slate-950">{contact.contact_name}</td>
-                  <td className="py-3 text-slate-700">{contact.contact_phone || "-"}</td>
-                  <td className="py-3 text-slate-700">{contact.contact_email || "-"}</td>
-                  <td className="py-3">
-                    <div className="flex justify-end gap-2">
-                      <button type="button" onClick={() => startEditContact(contact)} title="Edit contact" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700">
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                      <button type="button" onClick={() => disableContact(contact.id)} title="Disable contact" className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 text-amber-700">
-                        <PowerOff className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+      {/* + New vendor modal */}
+      <Modal
+        open={createOpen}
+        onClose={() => {
+          setCreateOpen(false)
+          resetCreate()
+        }}
+        eyebrow="Create"
+        title="+ New vendor"
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => {
+                setCreateOpen(false)
+                resetCreate()
+              }}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitCreate}
+              disabled={createVendor.isPending || createContact.isPending}
+              className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-50"
+            >
+              {createVendor.isPending ? "Creating…" : "Create vendor"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <LabeledInput
+            label="Code"
+            required
+            value={createForm.supplier_code}
+            onChange={(v) => setCreateForm({ ...createForm, supplier_code: v })}
+            placeholder="VEND-XXX"
+          />
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Category</span>
+            <select
+              value={createForm.category}
+              onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+            >
+              <option value="">Choose…</option>
+              {VENDOR_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-              {!contactsQuery.isLoading && contacts.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="py-8 text-center text-slate-500">No contacts for this vendor.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+            </select>
+          </label>
         </div>
-      </section>
-
-      <section className="overflow-hidden rounded-[1.5rem] border border-slate-200 bg-white/90 shadow-premium">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <h2 className="text-xl font-semibold text-slate-950">Vendor contact directory</h2>
-          <div className="flex items-center gap-2 text-sm text-slate-500">
-            <Phone className="h-4 w-4" />
-            <Mail className="h-4 w-4" />
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <LabeledInput
+            label="Vendor name"
+            required
+            value={createForm.name}
+            onChange={(v) => setCreateForm({ ...createForm, name: v })}
+          />
+          <LabeledInput
+            label="GST"
+            value={createForm.gst_no}
+            onChange={(v) => setCreateForm({ ...createForm, gst_no: v })}
+          />
+          <LabeledInput
+            label="PAN"
+            value={createForm.pan_no}
+            onChange={(v) => setCreateForm({ ...createForm, pan_no: v })}
+          />
+        </div>
+        <div className="mt-3">
+          <LabeledTextarea
+            label="Address"
+            value={createForm.address}
+            onChange={(v) => setCreateForm({ ...createForm, address: v })}
+          />
+        </div>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Primary contact (optional — you can add more later)</p>
+          <div className="mt-2 grid gap-3 sm:grid-cols-3">
+            <LabeledInput
+              label="Name"
+              value={createForm.contact_name}
+              onChange={(v) => setCreateForm({ ...createForm, contact_name: v })}
+            />
+            <LabeledInput
+              label="Phone"
+              value={createForm.contact_phone}
+              onChange={(v) => setCreateForm({ ...createForm, contact_phone: v })}
+            />
+            <LabeledInput
+              label="Email"
+              value={createForm.contact_email}
+              onChange={(v) => setCreateForm({ ...createForm, contact_email: v })}
+            />
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-              <tr>
-                <th className="px-4 py-3">Vendor</th>
-                <th className="px-4 py-3">Contact Name</th>
-                <th className="px-4 py-3">Number</th>
-                <th className="px-4 py-3">Email</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {vendorDirectory.map((contact: any) => (
-                <tr key={contact.id} className="hover:bg-slate-50">
-                  <td className="px-4 py-3">
-                    <p className="font-semibold text-slate-950">{contact.entity_name}</p>
-                    <p className="text-xs text-slate-500">{contact.entity_code}</p>
-                  </td>
-                  <td className="px-4 py-3 text-slate-800">{contact.contact_name}</td>
-                  <td className="px-4 py-3 text-slate-700">{contact.contact_phone || "-"}</td>
-                  <td className="px-4 py-3 text-slate-700">{contact.contact_email || "-"}</td>
-                </tr>
+        {createError ? <p className="mt-3 text-xs font-medium text-rose-700">{createError}</p> : null}
+      </Modal>
+
+      {/* Edit vendor modal */}
+      <Modal
+        open={editOpen}
+        onClose={() => setEditOpen(false)}
+        eyebrow="Edit"
+        title={editForm.name || "Edit vendor"}
+        size="lg"
+        footer={
+          <>
+            <button
+              type="button"
+              onClick={() => setEditOpen(false)}
+              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submitEdit}
+              disabled={updateVendor.isPending}
+              className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-50"
+            >
+              {updateVendor.isPending ? "Saving…" : "Save changes"}
+            </button>
+          </>
+        }
+      >
+        <div className="grid gap-3 sm:grid-cols-2">
+          <LabeledInput
+            label="Code"
+            required
+            value={editForm.supplier_code || ""}
+            onChange={(v) => setEditForm({ ...editForm, supplier_code: v })}
+          />
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Category</span>
+            <select
+              value={editForm.category || ""}
+              onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+            >
+              <option value="">—</option>
+              {VENDOR_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
               ))}
-              {!directoryQuery.isLoading && vendorDirectory.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-slate-500">No vendor contacts in the directory.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+            </select>
+          </label>
         </div>
-      </section>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <LabeledInput
+            label="Name"
+            required
+            value={editForm.name || ""}
+            onChange={(v) => setEditForm({ ...editForm, name: v })}
+          />
+          <LabeledInput
+            label="GST"
+            value={editForm.gst_no || ""}
+            onChange={(v) => setEditForm({ ...editForm, gst_no: v })}
+          />
+          <LabeledInput
+            label="PAN"
+            value={editForm.pan_no || ""}
+            onChange={(v) => setEditForm({ ...editForm, pan_no: v })}
+          />
+        </div>
+        <div className="mt-3">
+          <LabeledTextarea
+            label="Address"
+            value={editForm.address || ""}
+            onChange={(v) => setEditForm({ ...editForm, address: v })}
+          />
+        </div>
+        {editError ? <p className="mt-3 text-xs font-medium text-rose-700">{editError}</p> : null}
+      </Modal>
+
+      <ConfirmDialog
+        open={confirmKind === "deactivate"}
+        title="Deactivate vendor?"
+        body={
+          <>
+            <strong>{selectedVendor?.name}</strong> will be hidden from active lists. Existing GRNs and orders are preserved. You can reactivate any time.
+          </>
+        }
+        confirmLabel="Deactivate"
+        tone="warn"
+        busy={confirmBusy}
+        onClose={() => setConfirmKind(null)}
+        onConfirm={runConfirm}
+      />
+      <ConfirmDialog
+        open={confirmKind === "delete"}
+        title="Delete vendor?"
+        body={
+          <>
+            <strong>{selectedVendor?.name}</strong> will be permanently removed. This cannot be undone. If transactions exist, the backend will reject the delete and you should deactivate instead.
+          </>
+        }
+        confirmLabel="Delete vendor"
+        tone="critical"
+        busy={confirmBusy}
+        onClose={() => setConfirmKind(null)}
+        onConfirm={runConfirm}
+      />
+    </CockpitShell>
+  )
+}
+
+function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[110px_1fr] gap-3 text-sm">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
+      <span className="text-slate-900">{value}</span>
     </div>
   )
 }

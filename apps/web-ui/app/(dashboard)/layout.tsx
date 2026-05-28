@@ -207,7 +207,7 @@ const navigationUnits: NavGroup[] = [
         name: "System",
         href: "/system/users",
         icon: ShieldCheck,
-        description: "Users, plants, machine setup, and platform governance.",
+        description: "Users, plants, machine setup, tolerance bands, and platform governance.",
         roles: ["Owner", "Admin"],
       },
       {
@@ -306,7 +306,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         name: "System",
         href: "/system/users",
         icon: ShieldCheck,
-        description: "User, plant, and machine governance surfaces for the recovered ERP.",
+        description: "User, plant, machine, tolerance, and governance surfaces for the recovered ERP.",
       }
     }
     const exact = flatLinks.find((item) => pathname === item.href)

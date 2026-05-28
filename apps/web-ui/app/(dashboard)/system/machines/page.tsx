@@ -1,11 +1,39 @@
 "use client"
 
+import Link from "next/link"
 import { CrudTable } from "@/components/common/crud-table"
 import { MachineForm } from "@/components/forms/master-forms"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/AuthContext"
 import { useCreateMachine, useDeleteMachine, useMachines, useUpdateMachine } from "@/hooks/use-master-data"
-import { PowerOff, RotateCcw, Wrench } from "lucide-react"
+import { Building2, Factory, MapPin, PowerOff, RotateCcw, Users2, Wrench } from "lucide-react"
+
+function SystemSetupNav() {
+    const items = [
+        { href: "/system/users", label: "Users", icon: Users2 },
+        { href: "/system/plants", label: "Plants", icon: Building2 },
+        { href: "/system/machines", label: "Machines", icon: Factory },
+        { href: "/system/locations", label: "Locations", icon: MapPin },
+        { href: "/system/tolerances", label: "Tolerances", icon: Wrench },
+    ]
+
+    return (
+        <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
+            {items.map((item) => (
+                <Link
+                    key={item.href}
+                    href={item.href}
+                    className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
+                        item.href === "/system/machines" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                >
+                    <item.icon className="h-4 w-4" />
+                    {item.label}
+                </Link>
+            ))}
+        </section>
+    )
+}
 
 function machineState(row: any) {
     if (row?.is_active === false || row?.active === false) return "DISABLED"
@@ -77,60 +105,63 @@ export default function MachinesPage() {
     ]
 
     return (
-        <CrudTable
-            title="Machines"
-            columns={columns}
-            data={data}
-            isLoading={isLoading}
-            onAdd={(payload) => createMutation.mutateAsync(payload)}
-            onEdit={(id, payload) => updateMutation.mutateAsync({ id, data: payload })}
-            rowActions={(row) => {
-                const state = machineState(row)
-                return (
-                    <>
-                        {state === "UP" ? (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Send to maintenance"
-                            aria-label="Send to maintenance"
-                            className="rounded-xl border border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
-                            disabled={writeBlocked || updateMutation.isPending}
-                            onClick={() => setMachineState(row, "MAINT")}
-                        >
-                            <Wrench className="h-4 w-4" />
-                        </Button>
-                        ) : (
+        <div className="space-y-5">
+            <SystemSetupNav />
+            <CrudTable
+                title="Machines"
+                columns={columns}
+                data={data}
+                isLoading={isLoading}
+                onAdd={(payload) => createMutation.mutateAsync(payload)}
+                onEdit={(id, payload) => updateMutation.mutateAsync({ id, data: payload })}
+                rowActions={(row) => {
+                    const state = machineState(row)
+                    return (
+                        <>
+                            {state === "UP" ? (
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                title="Restore machine"
-                                aria-label="Restore machine"
-                                className="rounded-xl border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
-                                disabled={writeBlocked || updateMutation.isPending}
-                                onClick={() => setMachineState(row, "UP")}
-                            >
-                                <RotateCcw className="h-4 w-4" />
-                            </Button>
-                        )}
-                        {state !== "DISABLED" ? (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                title="Disable machine"
-                                aria-label="Disable machine"
+                                title="Send to maintenance"
+                                aria-label="Send to maintenance"
                                 className="rounded-xl border border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
-                                disabled={writeBlocked || deleteMutation.isPending}
-                                onClick={() => deleteMutation.mutateAsync(row.id)}
+                                disabled={writeBlocked || updateMutation.isPending}
+                                onClick={() => setMachineState(row, "MAINT")}
                             >
-                                <PowerOff className="h-4 w-4" />
+                                <Wrench className="h-4 w-4" />
                             </Button>
-                        ) : null}
-                    </>
-                )
-            }}
-            FormComponent={MachineForm}
-            dialogContentClassName="max-w-2xl"
-        />
+                            ) : (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Restore machine"
+                                    aria-label="Restore machine"
+                                    className="rounded-xl border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+                                    disabled={writeBlocked || updateMutation.isPending}
+                                    onClick={() => setMachineState(row, "UP")}
+                                >
+                                    <RotateCcw className="h-4 w-4" />
+                                </Button>
+                            )}
+                            {state !== "DISABLED" ? (
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    title="Disable machine"
+                                    aria-label="Disable machine"
+                                    className="rounded-xl border border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
+                                    disabled={writeBlocked || deleteMutation.isPending}
+                                    onClick={() => deleteMutation.mutateAsync(row.id)}
+                                >
+                                    <PowerOff className="h-4 w-4" />
+                                </Button>
+                            ) : null}
+                        </>
+                    )
+                }}
+                FormComponent={MachineForm}
+                dialogContentClassName="max-w-2xl"
+            />
+        </div>
     )
 }

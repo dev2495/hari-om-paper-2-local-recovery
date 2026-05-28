@@ -30,6 +30,7 @@ NAV_ITEMS = [
     {"label": "Dispatch", "href": "/dispatch", "roles": ["Owner", "Admin", "Planner", "Store", "Sales", "Dispatch"]},
     {"label": "Reports", "href": "/reports", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch"]},
     {"label": "User Management", "href": "/system/users", "roles": ["Owner", "Admin"]},
+    {"label": "Variance Tolerances", "href": "/system/tolerances", "roles": ["Owner", "Admin"]},
 ]
 
 QUICK_ACTIONS = [
@@ -39,6 +40,7 @@ QUICK_ACTIONS = [
     {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Operator"]},
     {"label": "Open Reports", "href": "/reports/owner", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch"]},
     {"label": "Role Matrix", "href": "/system/users", "roles": ["Owner", "Admin"]},
+    {"label": "Variance Tolerances", "href": "/system/tolerances", "roles": ["Owner", "Admin"]},
 ]
 
 

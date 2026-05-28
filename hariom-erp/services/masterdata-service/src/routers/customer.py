@@ -35,6 +35,10 @@ class CustomerCreate(BaseModel):
     dispatch_contact_name: Optional[str] = None
     dispatch_contact_phone: Optional[str] = None
     tax_id: Optional[str] = None
+    # Master redesign fields (additive — optional, default None).
+    category: Optional[str] = None
+    credit_limit: Optional[float] = None
+    payment_terms: Optional[str] = None
 
 
 class CustomerUpdate(BaseModel):
@@ -54,6 +58,12 @@ class CustomerUpdate(BaseModel):
     dispatch_contact_phone: Optional[str] = None
     tax_id: Optional[str] = None
     active: Optional[bool] = None
+    # Allow the UI cockpit to write back its is_active alias; downstream the
+    # handler maps both `active` and `is_active` to the model.
+    is_active: Optional[bool] = None
+    category: Optional[str] = None
+    credit_limit: Optional[float] = None
+    payment_terms: Optional[str] = None
 
 
 class CustomerResponse(BaseModel):
@@ -75,6 +85,11 @@ class CustomerResponse(BaseModel):
     dispatch_contact_phone: Optional[str]
     plant_id: str
     active: bool
+    # Mirrored "is_active" so the UI cockpit's expectation matches the response.
+    is_active: Optional[bool] = None
+    category: Optional[str] = None
+    credit_limit: Optional[float] = None
+    payment_terms: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -87,6 +102,8 @@ class CustomerContactCreate(BaseModel):
     contact_phone: Optional[str] = None
     contact_email: Optional[EmailStr] = None
     notes: Optional[str] = None
+    is_primary: Optional[bool] = None
+    designation: Optional[str] = None  # convenience alias the UI may pass as a label
 
 
 class CustomerContactUpdate(BaseModel):
@@ -96,6 +113,8 @@ class CustomerContactUpdate(BaseModel):
     contact_email: Optional[EmailStr] = None
     notes: Optional[str] = None
     active: Optional[bool] = None
+    is_primary: Optional[bool] = None
+    designation: Optional[str] = None
 
 
 class CustomerContactResponse(BaseModel):
@@ -106,6 +125,7 @@ class CustomerContactResponse(BaseModel):
     contact_phone: Optional[str]
     contact_email: Optional[str]
     notes: Optional[str]
+    is_primary: bool = False
     plant_id: str
     active: bool
     created_at: Optional[datetime] = None
@@ -157,6 +177,9 @@ def _customer_payload(data: dict) -> dict:
         "tax_id": tax_id,
         "dispatch_contact_name": dispatch_contact_name,
         "dispatch_contact_phone": dispatch_contact_phone,
+        "category": (data.get("category") or None),
+        "credit_limit": data.get("credit_limit"),
+        "payment_terms": (data.get("payment_terms") or None),
     }
 
 
@@ -202,16 +225,42 @@ def _apply_customer_update(model: models.Customer, update_data: dict) -> None:
         model.tax_id = update_data.get("tax_id")
     if "active" in update_data:
         model.active = bool(update_data.get("active"))
+    # UI cockpit alias — `is_active` maps to the same field.
+    if "is_active" in update_data and update_data.get("is_active") is not None:
+        model.active = bool(update_data.get("is_active"))
+    if "category" in update_data:
+        model.category = update_data.get("category") or None
+    if "credit_limit" in update_data:
+        raw_limit = update_data.get("credit_limit")
+        try:
+            model.credit_limit = float(raw_limit) if raw_limit is not None and raw_limit != "" else None
+        except (TypeError, ValueError):
+            model.credit_limit = None
+    if "payment_terms" in update_data:
+        model.payment_terms = update_data.get("payment_terms") or None
 
 
 @router.get("/", response_model=List[CustomerResponse])
 def get_customers(
+    include_inactive: bool = True,
     db: Session = Depends(get_db),
-    plant_scope: dict = Depends(get_current_plant_scope)
+    plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.Customer).filter(models.Customer.active == True)
+    """Return customer rows for the active plant scope.
+
+    Default behaviour is to include inactive rows — the new master cockpit
+    expects to filter client-side. Pass ``include_inactive=false`` to restore
+    the legacy "active-only" behaviour any older callers depended on.
+    """
+    query = db.query(models.Customer)
+    if not include_inactive:
+        query = query.filter(models.Customer.active == True)
     query = apply_plant_scope(query, models.Customer.plant_id, plant_scope)
-    return query.order_by(models.Customer.name.asc()).all()
+    rows = query.order_by(models.Customer.name.asc()).all()
+    # Mirror `active` → `is_active` for the cockpit UI.
+    for r in rows:
+        setattr(r, "is_active", bool(r.active))
+    return rows
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)
@@ -224,6 +273,7 @@ def get_customer(
     customer = apply_plant_scope(query, models.Customer.plant_id, plant_scope).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    setattr(customer, "is_active", bool(customer.active))
     return customer
 
 
@@ -232,7 +282,7 @@ def create_customer(
     customer: CustomerCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
@@ -247,6 +297,7 @@ def create_customer(
     db.add(db_customer)
     db.commit()
     db.refresh(db_customer)
+    setattr(db_customer, "is_active", bool(db_customer.active))
     return db_customer
 
 
@@ -256,7 +307,7 @@ def update_customer(
     customer_update: CustomerUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
@@ -281,6 +332,7 @@ def update_customer(
     _apply_customer_update(db_customer, update_data)
     db.commit()
     db.refresh(db_customer)
+    setattr(db_customer, "is_active", bool(db_customer.active))
     return db_customer
 
 
@@ -289,7 +341,7 @@ def deactivate_customer(
     customer_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"]))
+    current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
@@ -319,7 +371,11 @@ def get_customer_contacts(
         models.CustomerContact.active == True,
     )
     query = apply_plant_scope(query, models.CustomerContact.plant_id, plant_scope)
-    return query.order_by(models.CustomerContact.department.asc(), models.CustomerContact.contact_name.asc()).all()
+    return query.order_by(
+        models.CustomerContact.is_primary.desc(),
+        models.CustomerContact.department.asc(),
+        models.CustomerContact.contact_name.asc(),
+    ).all()
 
 
 @router.post("/{customer_id}/contacts", response_model=CustomerContactResponse)
@@ -328,7 +384,7 @@ def create_customer_contact(
     payload: CustomerContactCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
     del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
@@ -338,16 +394,39 @@ def create_customer_contact(
     ).first()
     if not customer:
         raise HTTPException(status_code=404, detail="Customer not found")
+    # If no other primary contact exists yet, the first one we add becomes primary.
+    has_primary = (
+        db.query(models.CustomerContact)
+        .filter(
+            models.CustomerContact.customer_id == customer_id,
+            models.CustomerContact.is_primary == True,
+            models.CustomerContact.active == True,
+        )
+        .first()
+        is not None
+    )
+    designation = (payload.designation or "").strip() if payload.designation else ""
+    department_value = designation or (payload.department or "General").strip() or "General"
+    explicit_primary = bool(payload.is_primary)
     model = models.CustomerContact(
         customer_id=customer_id,
-        department=(payload.department or "General").strip() or "General",
+        department=department_value,
         contact_name=payload.contact_name.strip(),
         contact_phone=payload.contact_phone,
         contact_email=str(payload.contact_email) if payload.contact_email else None,
         notes=payload.notes,
+        is_primary=explicit_primary or not has_primary,
         plant_id=plant_id,
     )
     db.add(model)
+    db.flush()
+    # If this new contact is primary, demote everyone else.
+    if model.is_primary:
+        db.query(models.CustomerContact).filter(
+            models.CustomerContact.customer_id == customer_id,
+            models.CustomerContact.id != model.id,
+            models.CustomerContact.is_primary == True,
+        ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
     return model
@@ -360,7 +439,7 @@ def update_customer_contact(
     payload: CustomerContactUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
     del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
@@ -372,13 +451,27 @@ def update_customer_contact(
     if not model:
         raise HTTPException(status_code=404, detail="Customer contact not found")
     update_data = payload.model_dump(exclude_unset=True)
+    promote_to_primary = False
     for field, value in update_data.items():
+        if field == "designation" and value is not None:
+            model.department = str(value).strip() or "General"
+            continue
         if field in {"department", "contact_name"} and value is not None:
             setattr(model, field, str(value).strip())
         elif field == "contact_email" and value is not None:
             model.contact_email = str(value)
+        elif field == "is_primary":
+            new_primary = bool(value)
+            model.is_primary = new_primary
+            promote_to_primary = new_primary
         else:
             setattr(model, field, value)
+    if promote_to_primary:
+        # Demote every other contact under the same customer.
+        db.query(models.CustomerContact).filter(
+            models.CustomerContact.customer_id == customer_id,
+            models.CustomerContact.id != contact_id,
+        ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
     return model
@@ -390,7 +483,7 @@ def delete_customer_contact(
     contact_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
     del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)

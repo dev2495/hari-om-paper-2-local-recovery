@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useDeferredValue, useMemo, useState } from "react"
-import { Building2, ChevronRight, Factory, Plus, Search, Shield, User as UserIcon, Users2 } from "lucide-react"
+import { Building2, ChevronRight, Factory, Plus, Search, Shield, User as UserIcon, Users2, Wrench } from "lucide-react"
 
 import { useAuth } from "@/context/AuthContext"
 import { usePlants, useUsers } from "@/hooks/use-system"
@@ -123,6 +123,7 @@ export default function UsersPage() {
           { href: "/system/plants", label: "Plants", icon: Building2, active: false },
           { href: "/system/machines", label: "Machines", icon: Factory, active: false },
           { href: "/system/locations", label: "Locations", icon: Building2, active: false },
+          { href: "/system/tolerances", label: "Tolerances", icon: Wrench, active: false },
         ].map((item) => (
           <Link
             key={item.href}

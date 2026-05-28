@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Master redesign mockups — Hari Om</title>
+<link rel="stylesheet" href="../reports-suite/shared.css" />
+</head>
+<body>
+<div class="mockup-banner">MASTER REDESIGN · MOCKUP INDEX</div>
+<main class="content" style="max-width: 1100px; margin: 0 auto; padding: 40px 32px;">
+  <section class="hero" style="margin-bottom: 28px;">
+    <p class="eyebrow">Mockup walkthrough</p>
+    <h1>Vendor + Customer Master redesign — relationship cockpits.</h1>
+    <p class="lead">Two screenshot-grade mockups proving the new vendor/customer pages: KPI strip · filter spine · sortable data grid · detail drawer with tabs · create-as-modal · CSV import preview. Pairs with <code>MASTER_REDESIGN_REPORT.md</code>.</p>
+    <div class="chips">
+      <span class="chip">Read order: vendor → customer</span>
+      <span class="chip">No build · design only</span>
+      <span class="chip emerald">Approve before wiring</span>
+    </div>
+  </section>
+
+  <div class="report-grid" style="grid-template-columns: repeat(2, 1fr); gap: 18px;">
+    <a class="report-tile t-inv" href="vendor-master.html" style="text-decoration: none; color: inherit;">
+      <div class="arrow">→</div>
+      <h4>Vendor master</h4>
+      <p>Supplier cockpit. KPI strip (active vendors, lifetime spend, vendor OTIF, quality compliance), filter spine, data grid with last-GRN / spend / OTIF columns, detail drawer with Overview · Contacts · Addresses · Transactions · Performance tabs. Floating "+ New vendor" modal preview.</p>
+      <div class="kpis">
+        <span class="micro"><b>4</b> KPI tiles</span>
+        <span class="micro"><b>11</b> grid columns</span>
+        <span class="micro"><b>5</b> drawer tabs</span>
+      </div>
+    </a>
+    <a class="report-tile t-sales" href="customer-master.html" style="text-decoration: none; color: inherit;">
+      <div class="arrow">→</div>
+      <h4>Customer master</h4>
+      <p>Customer cockpit. KPI strip (active customers, open AR, OTIF out, at-risk count), filter spine, data grid with risk pill / open orders / outstanding / OTIF / last-dispatch, detail drawer with Overview · Contacts · Ship-to · Orders · Performance tabs. Floating CSV-import modal preview.</p>
+      <div class="kpis">
+        <span class="micro"><b>4</b> KPI tiles</span>
+        <span class="micro"><b>11</b> grid columns</span>
+        <span class="micro">CSV import</span>
+      </div>
+    </a>
+  </div>
+
+  <section class="panel" style="margin-top: 24px;">
+    <div class="panel-header">
+      <div>
+        <p class="eyebrow">Design system</p>
+        <h3>Why we redesigned both</h3>
+        <p class="sub">The current /master/vendors and /master/customers screens treat a relationship master as an HTML form: sparse table, always-open right-rail create panel, contacts wedged at the bottom, no KPIs, no filters, no transactional context. The redesign turns each master into a relationship cockpit.</p>
+      </div>
+    </div>
+    <table class="tbl">
+      <thead><tr><th>What changed</th><th>Before</th><th>After</th></tr></thead>
+      <tbody>
+        <tr><td>Add form</td><td>Always-open right rail (~30% viewport)</td><td>Modal · opens on demand only</td></tr>
+        <tr><td>Contacts</td><td>Detached strip at the bottom</td><td>Nested under the parent row in the drawer</td></tr>
+        <tr><td>KPI overview</td><td>None</td><td>4 relationship-specific KPI tiles at the top</td></tr>
+        <tr><td>Filters</td><td>Search only</td><td>Search · category · status · state · open-orders / overdue-GRN toggle</td></tr>
+        <tr><td>Transactional context</td><td>Not visible</td><td>Last GRN, spend, OTIF, quality (vendor) · open orders, AR, OTIF, risk (customer)</td></tr>
+        <tr><td>Status semantics</td><td>Unlabeled power-off icon</td><td>Status pill column + bulk activate/deactivate</td></tr>
+        <tr><td>Bulk operations</td><td>None</td><td>Multi-select · CSV import (with preview) · CSV export</td></tr>
+        <tr><td>Edit flow</td><td>Inline pencil with no obvious save</td><td>Drawer with Edit button → form mode → save / cancel footer</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <p style="text-align: center; color: var(--ink-4); font-size: 12px; margin-top: 36px;">
+    Each mockup uses only the shared reports-suite stylesheet — no JS, no build step. Open one and view source to see the structure.
+  </p>
+</main>
+</body>
+</html>

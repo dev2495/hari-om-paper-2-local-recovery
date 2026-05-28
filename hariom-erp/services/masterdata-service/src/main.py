@@ -40,6 +40,15 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS primary_contact_name VARCHAR(200)"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS primary_contact_phone VARCHAR(50)"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS primary_contact_email VARCHAR(200)"))
+        # Master redesign columns (additive; legacy clients see them as NULL).
+        connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS category VARCHAR(80)"))
+        connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS credit_limit DOUBLE PRECISION"))
+        connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(120)"))
+        connection.execute(text("ALTER TABLE customer_contact ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT FALSE"))
+        connection.execute(text("ALTER TABLE supplier ADD COLUMN IF NOT EXISTS category_label VARCHAR(120)"))
+        connection.execute(text("ALTER TABLE supplier_contact ADD COLUMN IF NOT EXISTS is_primary BOOLEAN DEFAULT FALSE"))
+        connection.execute(text("UPDATE customer_contact SET is_primary = FALSE WHERE is_primary IS NULL"))
+        connection.execute(text("UPDATE supplier_contact SET is_primary = FALSE WHERE is_primary IS NULL"))
 
         connection.execute(text("UPDATE customer SET address = COALESCE(address, billing_address, shipping_address)"))
         connection.execute(text("UPDATE customer SET gst_no = COALESCE(gst_no, tax_id)"))
@@ -186,7 +195,7 @@ def _ensure_schema_compatibility() -> None:
                 """
                 INSERT INTO customer_contact (
                     id, customer_id, department, contact_name, contact_phone, contact_email,
-                    notes, plant_id, active, created_at
+                    notes, plant_id, active, is_primary, created_at
                 )
                 SELECT
                     (
@@ -204,6 +213,7 @@ def _ensure_schema_compatibility() -> None:
                     NULL,
                     customer.plant_id,
                     TRUE,
+                    TRUE,
                     NOW()
                 FROM customer
                 WHERE NOT EXISTS (
@@ -219,6 +229,49 @@ def _ensure_schema_compatibility() -> None:
                     OR NULLIF(customer.contact_email, '') IS NOT NULL
                 )
                 ON CONFLICT (id) DO NOTHING
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE customer_contact contact
+                SET is_primary = TRUE
+                WHERE contact.active = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM customer_contact existing
+                      WHERE existing.customer_id = contact.customer_id
+                        AND existing.active = TRUE
+                        AND existing.is_primary = TRUE
+                  )
+                  AND contact.id = (
+                      SELECT chosen.id
+                      FROM customer_contact chosen
+                      WHERE chosen.customer_id = contact.customer_id
+                        AND chosen.active = TRUE
+                      ORDER BY chosen.created_at ASC NULLS LAST, chosen.contact_name ASC
+                      LIMIT 1
+                  )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                WITH ranked AS (
+                    SELECT
+                        id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY customer_id
+                            ORDER BY is_primary DESC, created_at ASC NULLS LAST, contact_name ASC
+                        ) AS rank
+                    FROM customer_contact
+                    WHERE active = TRUE
+                )
+                UPDATE customer_contact contact
+                SET is_primary = (ranked.rank = 1)
+                FROM ranked
+                WHERE contact.id = ranked.id
                 """
             )
         )
@@ -272,7 +325,7 @@ def _ensure_schema_compatibility() -> None:
                 """
                 INSERT INTO supplier_contact (
                     id, supplier_id, department, contact_name, contact_phone, contact_email,
-                    notes, plant_id, active, created_at
+                    notes, plant_id, active, is_primary, created_at
                 )
                 SELECT
                     (
@@ -290,6 +343,7 @@ def _ensure_schema_compatibility() -> None:
                     NULL,
                     supplier.plant_id,
                     TRUE,
+                    TRUE,
                     NOW()
                 FROM supplier
                 WHERE NOT EXISTS (
@@ -303,6 +357,49 @@ def _ensure_schema_compatibility() -> None:
                     OR NULLIF(supplier.contact_email, '') IS NOT NULL
                 )
                 ON CONFLICT (id) DO NOTHING
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE supplier_contact contact
+                SET is_primary = TRUE
+                WHERE contact.active = TRUE
+                  AND NOT EXISTS (
+                      SELECT 1 FROM supplier_contact existing
+                      WHERE existing.supplier_id = contact.supplier_id
+                        AND existing.active = TRUE
+                        AND existing.is_primary = TRUE
+                  )
+                  AND contact.id = (
+                      SELECT chosen.id
+                      FROM supplier_contact chosen
+                      WHERE chosen.supplier_id = contact.supplier_id
+                        AND chosen.active = TRUE
+                      ORDER BY chosen.created_at ASC NULLS LAST, chosen.contact_name ASC
+                      LIMIT 1
+                  )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                WITH ranked AS (
+                    SELECT
+                        id,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY supplier_id
+                            ORDER BY is_primary DESC, created_at ASC NULLS LAST, contact_name ASC
+                        ) AS rank
+                    FROM supplier_contact
+                    WHERE active = TRUE
+                )
+                UPDATE supplier_contact contact
+                SET is_primary = (ranked.rank = 1)
+                FROM ranked
+                WHERE contact.id = ranked.id
                 """
             )
         )

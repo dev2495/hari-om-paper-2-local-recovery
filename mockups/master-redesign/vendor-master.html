@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Vendor Master — Hari Om</title>
+<link rel="stylesheet" href="../reports-suite/shared.css" />
+<style>
+  /* Mockup-only additions on top of the shared reports stylesheet. */
+  .grid-master {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(380px, 0.9fr);
+    gap: 18px;
+  }
+  @media (max-width: 1100px) { .grid-master { grid-template-columns: 1fr; } }
+  .vendor-row {
+    display: grid;
+    grid-template-columns: 24px 130px minmax(180px, 1.4fr) 110px 120px 130px 140px 110px 90px 80px 36px;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 12.5px;
+  }
+  .vendor-row.head {
+    background: rgba(15, 23, 42, 0.025);
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+    color: var(--ink-3);
+    text-transform: uppercase;
+  }
+  .vendor-row.selected {
+    background: linear-gradient(90deg, rgba(14,116,144,0.10), rgba(14,116,144,0));
+    box-shadow: inset 3px 0 0 var(--cyan);
+  }
+  .vendor-row:hover { background: rgba(15, 23, 42, 0.025); }
+  .checkbox {
+    width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid var(--ink-4);
+    display: inline-block;
+  }
+  .checkbox.on {
+    background: var(--ink); border-color: var(--ink);
+    background-image: linear-gradient(45deg, transparent 38%, #fff 38%, #fff 60%, transparent 60%),
+                      linear-gradient(-45deg, transparent 38%, #fff 38%, #fff 60%, transparent 60%);
+  }
+  .row-action {
+    width: 28px; height: 28px; display: inline-grid; place-items: center;
+    border-radius: 6px; cursor: pointer; color: var(--ink-3);
+  }
+  .row-action:hover { background: rgba(15, 23, 42, 0.06); }
+  .drawer {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 0;
+    overflow: hidden;
+    box-shadow: 0 18px 60px rgba(15, 23, 42, 0.08);
+    position: sticky;
+    top: 24px;
+  }
+  .drawer-header {
+    padding: 18px 18px 14px;
+    background: linear-gradient(160deg, #0b1220 0%, #0e7490 100%);
+    color: #fff;
+  }
+  .drawer-tabs {
+    display: flex; gap: 4px; padding: 8px 12px 0;
+    background: #fafafa; border-bottom: 1px solid var(--line);
+  }
+  .drawer-tab {
+    font-size: 11px; font-weight: 700; padding: 8px 10px; cursor: pointer;
+    color: var(--ink-3); border-bottom: 2px solid transparent;
+    text-transform: uppercase; letter-spacing: 0.7px;
+  }
+  .drawer-tab.active { color: var(--ink); border-bottom-color: var(--cyan); }
+  .drawer-body { padding: 14px 16px; max-height: none; }
+  .drawer-section { border-bottom: 1px dashed var(--line); padding: 12px 0; }
+  .drawer-section:last-child { border-bottom: 0; }
+  .field-row { display: grid; grid-template-columns: 100px 1fr; gap: 8px; padding: 4px 0; font-size: 12.5px; }
+  .field-row .lab { color: var(--ink-3); font-weight: 700; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; }
+  .field-row .val { color: var(--ink); }
+  .contact-card {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; margin-bottom: 8px; background: #fbfbfd;
+  }
+  .contact-card.primary { border-color: var(--emerald); background: #ecfdf5; }
+  .modal-floating {
+    position: fixed; right: 24px; bottom: 24px;
+    width: 380px; background: #fff; border-radius: 16px;
+    box-shadow: 0 30px 80px rgba(15, 23, 42, 0.20);
+    border: 1px solid var(--line);
+    z-index: 50;
+  }
+  .modal-floating .head { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .modal-floating .body { padding: 14px 16px; }
+  .modal-floating .field { margin-bottom: 8px; }
+  .modal-floating .field label {
+    display: block; font-size: 10px; font-weight: 800; text-transform: uppercase;
+    color: var(--ink-3); letter-spacing: 0.7px; margin-bottom: 3px;
+  }
+  .modal-floating .field input, .modal-floating .field select {
+    width: 100%; padding: 7px 9px; border: 1px solid var(--line-strong);
+    border-radius: 7px; font-size: 13px;
+  }
+  .modal-floating .actions { padding: 12px 16px; border-top: 1px solid var(--line); text-align: right; }
+  .perf-mini {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+  }
+  .perf-mini .card {
+    border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; background: #fff;
+  }
+  .perf-mini .lab { font-size: 9.5px; font-weight: 800; text-transform: uppercase; color: var(--ink-3); letter-spacing: 0.7px; }
+  .perf-mini .val { font-size: 18px; font-weight: 800; color: var(--ink); margin-top: 4px; }
+  .perf-mini .delta { font-size: 10.5px; font-weight: 700; margin-top: 3px; }
+</style>
+</head>
+<body>
+<div class="mockup-banner">MOCKUP — VENDOR MASTER REDESIGN</div>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><span class="dot"></span> Hari Om · TubeOS</div>
+    <div class="group">Foundation</div>
+    <a class="nav active" href="#">Vendors</a>
+    <a class="nav" href="customer-master.html">Customers</a>
+    <a class="nav" href="#">Items</a>
+    <a class="nav" href="#">Tube sizes</a>
+    <a class="nav" href="#">Locations</a>
+    <div class="group">Intelligence</div>
+    <a class="nav" href="../reports-suite/01-hub.html">Reports</a>
+    <a class="nav" href="../reports-suite/01b-analytics.html">Analytics</a>
+  </aside>
+
+  <main class="content">
+    <div class="topbar">
+      <span class="pill lock">Books locked thru 30 Apr</span>
+      <span class="pill">Plant: PLANT_A</span>
+      <span class="pill">Owner</span>
+      <input class="search" placeholder="Search vendors, contacts, GSTs…" />
+      <span class="pill">Yash Owner</span>
+    </div>
+
+    <p style="font-size: 11px; font-weight: 700; color: var(--ink-3); margin: 0 0 12px">
+      Masters · <strong style="color: var(--ink)">Vendors</strong>
+    </p>
+
+    <!-- Hero + KPI strip -->
+    <section class="hero" style="background: radial-gradient(120% 90% at 0% 0%, rgba(14,116,144,0.20), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, #0b1220 0%, #14274b 60%, #1d4ed8 100%);">
+      <p class="eyebrow">Vendor Master · cockpit</p>
+      <h1>11 active vendors · ₹3.42 Cr lifetime spend · OTIF in 88.4%</h1>
+      <p class="lead">Every supplier on one cockpit — GST, contacts, transactions, OTIF, quality, and the audit trail of who edited what. Click any row to open the drawer.</p>
+      <div class="chips">
+        <span class="chip">12 vendors total</span>
+        <span class="chip emerald">11 active</span>
+        <span class="chip amber">2 with overdue GRN</span>
+        <span class="chip rose">1 below quality target</span>
+      </div>
+    </section>
+
+    <div class="kpi-row" style="margin-top: 16px;">
+      <div class="kpi tone-cyan">
+        <div class="label">Active vendors</div>
+        <div class="value">11</div>
+        <div class="sub">1 inactive · 4 categories</div>
+        <div class="delta up">▲ 2 added this quarter</div>
+      </div>
+      <div class="kpi tone-violet">
+        <div class="label">Lifetime spend (12mo)</div>
+        <div class="value">₹3.42 Cr</div>
+        <div class="sub">Top vendor 28% share</div>
+        <div class="delta flat">• flat MoM</div>
+      </div>
+      <div class="kpi tone-emerald">
+        <div class="label">Vendor OTIF (in)</div>
+        <div class="value">88.4%</div>
+        <div class="sub">Target ≥ 90%</div>
+        <div class="delta down">▼ 1.2 pp vs prior</div>
+      </div>
+      <div class="kpi tone-rose">
+        <div class="label">Quality compliance</div>
+        <div class="value">94.6%</div>
+        <div class="sub">Lots passed / inspected</div>
+        <div class="delta up">▲ 0.4 pp WoW</div>
+      </div>
+    </div>
+
+    <!-- Filter spine -->
+    <div class="filter-bar" style="margin-top: 16px;">
+      <span class="lab">Search</span>
+      <input type="text" value="" placeholder="vendor, code, GST, phone…" style="width: 220px;" />
+      <span class="lab">Category</span>
+      <select>
+        <option>All</option>
+        <option selected>Raw paper</option>
+        <option>Parchment</option>
+        <option>Adhesive</option>
+        <option>Packaging</option>
+        <option>Service</option>
+      </select>
+      <span class="lab">Status</span>
+      <select><option selected>Active</option><option>Inactive</option><option>All</option></select>
+      <span class="lab">State</span>
+      <select><option selected>All states</option><option>GJ</option><option>MH</option><option>UP</option></select>
+      <span style="margin-left: auto"></span>
+      <button class="btn">⇣ Import CSV</button>
+      <button class="btn">⇡ Export CSV</button>
+      <button class="btn primary">+ New vendor</button>
+    </div>
+
+    <div class="grid-master" style="margin-top: 16px;">
+      <!-- LEFT: data grid -->
+      <div class="panel" style="padding: 0; overflow: hidden;">
+        <div class="vendor-row head">
+          <span></span>
+          <span>Code</span>
+          <span>Name · primary contact</span>
+          <span>Category</span>
+          <span>GST</span>
+          <span>Last GRN</span>
+          <span>Spend (12mo)</span>
+          <span>OTIF</span>
+          <span>Status</span>
+          <span></span>
+          <span></span>
+        </div>
+
+        <div class="vendor-row selected">
+          <span class="checkbox on"></span>
+          <span class="mono">PARCH-SEED-A</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Parchment Seed Supplier</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Ramesh Patel · 99XX-XX-2341</div>
+          </span>
+          <span><span class="pill">Parchment</span></span>
+          <span class="mono">24ABCDE…1Z2</span>
+          <span class="num">11 May</span>
+          <span class="num">₹84.6L</span>
+          <span><span class="pill emerald">92%</span></span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="vendor-row">
+          <span class="checkbox"></span>
+          <span class="mono">RM-SEED-A</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">RM Seed Supplier</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Suresh Kumar · 98XX-XX-1124</div>
+          </span>
+          <span><span class="pill">Raw paper</span></span>
+          <span class="mono">24FGHIJ…9Z8</span>
+          <span class="num">22 May</span>
+          <span class="num">₹1.18 Cr</span>
+          <span><span class="pill emerald">94%</span></span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="vendor-row">
+          <span class="checkbox"></span>
+          <span class="mono">KRAFT-MILL-G</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Gujarat Kraft Mills</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Anita Shah · 90XX-XX-0021</div>
+          </span>
+          <span><span class="pill">Raw paper</span></span>
+          <span class="mono">24KLMNO…3X5</span>
+          <span class="num">19 May</span>
+          <span class="num">₹62.4L</span>
+          <span><span class="pill amber">86%</span></span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="vendor-row">
+          <span class="checkbox"></span>
+          <span class="mono">ADH-CHEM-IN</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">IndChem Adhesives</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Pooja Mehta · 88XX-XX-7755</div>
+          </span>
+          <span><span class="pill">Adhesive</span></span>
+          <span class="mono">27ZZZZZ…0A1</span>
+          <span class="num">06 May</span>
+          <span class="num">₹18.2L</span>
+          <span><span class="pill rose">71%</span></span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="vendor-row">
+          <span class="checkbox"></span>
+          <span class="mono">PACK-BOXES-V</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">Veer Packaging</div>
+            <div style="font-size: 11px; color: var(--ink-3);">Vikram Joshi · 70XX-XX-2200</div>
+          </span>
+          <span><span class="pill">Packaging</span></span>
+          <span class="mono">24PQRST…6B4</span>
+          <span class="num">14 May</span>
+          <span class="num">₹6.8L</span>
+          <span><span class="pill emerald">96%</span></span>
+          <span><span class="pill emerald">ACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="vendor-row">
+          <span class="checkbox"></span>
+          <span class="mono">PARCH-WHITE-N</span>
+          <span>
+            <div style="font-weight: 700; color: var(--ink);">North Parchment Co.</div>
+            <div style="font-size: 11px; color: var(--ink-3);">— no primary contact —</div>
+          </span>
+          <span><span class="pill">Parchment</span></span>
+          <span class="mono">07UVWXY…1C9</span>
+          <span class="num">02 Apr</span>
+          <span class="num">₹4.1L</span>
+          <span><span class="pill amber">82%</span></span>
+          <span><span class="pill amber">ON HOLD</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div class="vendor-row" style="color: var(--ink-3);">
+          <span class="checkbox"></span>
+          <span class="mono">OLD-PAPER-J</span>
+          <span>
+            <div style="font-weight: 700;">JK Old Stock</div>
+            <div style="font-size: 11px;">Legacy account · no contact</div>
+          </span>
+          <span><span class="pill">Raw paper</span></span>
+          <span class="mono">—</span>
+          <span class="num">2024-12-11</span>
+          <span class="num">₹—</span>
+          <span><span class="pill" style="background:#f1f5f9; color: var(--ink-3); border-color: var(--line-strong);">—</span></span>
+          <span><span class="pill" style="background:#f1f5f9; color: var(--ink-3); border-color: var(--line-strong);">INACTIVE</span></span>
+          <span class="row-action" title="Edit">✎</span>
+          <span class="row-action" title="More">⋯</span>
+        </div>
+
+        <div style="display:flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-top: 1px solid var(--line); background: #fafbfc;">
+          <span style="font-size: 11px; color: var(--ink-3);">Showing 7 of 12 vendors · 1 selected</span>
+          <span style="display:flex; gap: 8px;">
+            <button class="btn">Bulk activate</button>
+            <button class="btn">Bulk deactivate</button>
+            <button class="btn">Export selected</button>
+          </span>
+        </div>
+      </div>
+
+      <!-- RIGHT: detail drawer -->
+      <div class="drawer">
+        <div class="drawer-header">
+          <p class="eyebrow" style="color: #bae6fd;">Vendor · selected</p>
+          <h2 style="margin: 6px 0 4px; font-size: 22px; font-weight: 800;">Parchment Seed Supplier</h2>
+          <p style="font-size: 12px; opacity: 0.85; margin: 0;">PARCH-SEED-A · Parchment · Plant_A approved</p>
+          <div class="chips" style="margin-top: 10px;">
+            <span class="chip" style="background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.3); color: #fff;">since 2024-08</span>
+            <span class="chip" style="background: rgba(4,120,87,0.5); border-color: rgba(4,120,87,0.7); color: #fff;">ACTIVE</span>
+            <span class="chip" style="background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.3); color: #fff;">OTIF 92%</span>
+          </div>
+        </div>
+        <div class="drawer-tabs">
+          <span class="drawer-tab active">Overview</span>
+          <span class="drawer-tab">Contacts (2)</span>
+          <span class="drawer-tab">Addresses</span>
+          <span class="drawer-tab">Transactions (14)</span>
+          <span class="drawer-tab">Performance</span>
+        </div>
+        <div class="drawer-body">
+          <!-- Overview tab body -->
+          <div class="drawer-section">
+            <div class="field-row"><span class="lab">Code</span><span class="val mono">PARCH-SEED-A</span></div>
+            <div class="field-row"><span class="lab">Category</span><span class="val">Parchment supplier</span></div>
+            <div class="field-row"><span class="lab">GST</span><span class="val mono">24ABCDE1234F1Z2</span></div>
+            <div class="field-row"><span class="lab">PAN</span><span class="val mono">ABCDE1234F</span></div>
+            <div class="field-row"><span class="lab">Address</span><span class="val">Plant A approved parchment supplier, GIDC Phase 2, Ahmedabad</span></div>
+            <div class="field-row"><span class="lab">Audit</span><span class="val" style="font-size: 11px; color: var(--ink-3);">Updated 2026-05-22 by yash.owner@</span></div>
+          </div>
+
+          <!-- Contacts preview (showing how the Contacts tab looks) -->
+          <p class="eyebrow" style="margin: 4px 0 6px;">Contacts</p>
+          <div class="contact-card primary">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+              <strong style="font-size: 13px;">Ramesh Patel</strong>
+              <span class="pill emerald">PRIMARY</span>
+            </div>
+            <p style="font-size: 12px; color: var(--ink-3); margin: 4px 0 0;">ramesh@parchseed.in · +91 99XX-XX-2341 · Director</p>
+          </div>
+          <div class="contact-card">
+            <div style="display:flex; justify-content: space-between; align-items: center;">
+              <strong style="font-size: 13px;">Kiran Shah</strong>
+              <span class="row-action" title="Edit">✎</span>
+            </div>
+            <p style="font-size: 12px; color: var(--ink-3); margin: 4px 0 0;">kiran@parchseed.in · +91 98XX-XX-9912 · Accounts</p>
+          </div>
+          <button class="btn" style="margin-top: 6px; width: 100%;">+ Add contact</button>
+
+          <!-- Performance mini-strip -->
+          <p class="eyebrow" style="margin: 16px 0 6px;">Performance · last 90d</p>
+          <div class="perf-mini">
+            <div class="card">
+              <div class="lab">OTIF</div>
+              <div class="val">92.0%</div>
+              <div class="delta up" style="color: var(--emerald);">▲ 3 pp</div>
+            </div>
+            <div class="card">
+              <div class="lab">Lead time</div>
+              <div class="val">6.4 d</div>
+              <div class="delta down" style="color: var(--emerald);">▼ 1.2 d</div>
+            </div>
+            <div class="card">
+              <div class="lab">Defects</div>
+              <div class="val">1.4%</div>
+              <div class="delta down" style="color: var(--emerald);">▼ 0.4 pp</div>
+            </div>
+          </div>
+
+          <!-- Action footer -->
+          <div style="display:flex; gap: 8px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line);">
+            <button class="btn primary" style="flex: 1;">Edit vendor</button>
+            <button class="btn">Deactivate</button>
+            <button class="btn" style="color: var(--rose); border-color: rgba(190,18,60,0.3);">Delete</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p style="margin-top: 28px; color: var(--ink-4); font-size: 11px; text-align: center;">
+      Mockup · Hari Om Paper · Vendor Master redesign · screenshot-grade only
+    </p>
+  </main>
+</div>
+
+<!-- Floating "+ New vendor" modal preview -->
+<div class="modal-floating">
+  <div class="head" style="display:flex; justify-content: space-between; align-items: center;">
+    <div>
+      <p class="eyebrow" style="margin: 0; font-size: 10px;">Create</p>
+      <strong style="font-size: 14px;">+ New vendor</strong>
+    </div>
+    <span class="row-action">✕</span>
+  </div>
+  <div class="body">
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      <div class="field"><label>Code *</label><input type="text" placeholder="VEND-XXX" /></div>
+      <div class="field"><label>Category *</label><select><option>Raw paper</option><option>Parchment</option><option>Adhesive</option><option>Packaging</option></select></div>
+    </div>
+    <div class="field"><label>Vendor name *</label><input type="text" /></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      <div class="field"><label>GST</label><input type="text" /></div>
+      <div class="field"><label>PAN</label><input type="text" /></div>
+    </div>
+    <p style="font-size: 11px; color: var(--ink-3); margin: 10px 0 4px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;">Primary contact</p>
+    <div class="field"><label>Name</label><input type="text" /></div>
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+      <div class="field"><label>Phone</label><input type="text" /></div>
+      <div class="field"><label>Email</label><input type="text" /></div>
+    </div>
+  </div>
+  <div class="actions">
+    <button class="btn">Cancel</button>
+    <button class="btn primary">Create vendor</button>
+  </div>
+</div>
+
+</body>
+</html>

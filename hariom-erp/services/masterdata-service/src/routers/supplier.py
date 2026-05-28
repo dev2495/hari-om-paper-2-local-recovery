@@ -23,6 +23,7 @@ class SupplierCreate(BaseModel):
     supplier_code: str
     name: str
     category: str = "RAW_MATERIAL"
+    category_label: Optional[str] = None
     contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
     contact_email: Optional[str] = None
@@ -35,6 +36,7 @@ class SupplierUpdate(BaseModel):
     supplier_code: Optional[str] = None
     name: Optional[str] = None
     category: Optional[str] = None
+    category_label: Optional[str] = None
     contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
     contact_email: Optional[str] = None
@@ -42,6 +44,8 @@ class SupplierUpdate(BaseModel):
     pan_no: Optional[str] = None
     address: Optional[str] = None
     active: Optional[bool] = None
+    # UI cockpit alias — backend stores `active`.
+    is_active: Optional[bool] = None
 
 
 class SupplierResponse(BaseModel):
@@ -49,6 +53,7 @@ class SupplierResponse(BaseModel):
     supplier_code: str
     name: str
     category: str
+    category_label: Optional[str] = None
     contact_name: Optional[str]
     contact_phone: Optional[str]
     contact_email: Optional[str]
@@ -57,6 +62,8 @@ class SupplierResponse(BaseModel):
     address: Optional[str]
     plant_id: str
     active: bool
+    # Mirrored for the cockpit UI.
+    is_active: Optional[bool] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -69,6 +76,8 @@ class SupplierContactCreate(BaseModel):
     contact_phone: Optional[str] = None
     contact_email: Optional[EmailStr] = None
     notes: Optional[str] = None
+    is_primary: Optional[bool] = None
+    designation: Optional[str] = None
 
 
 class SupplierContactUpdate(BaseModel):
@@ -78,6 +87,8 @@ class SupplierContactUpdate(BaseModel):
     contact_email: Optional[EmailStr] = None
     notes: Optional[str] = None
     active: Optional[bool] = None
+    is_primary: Optional[bool] = None
+    designation: Optional[str] = None
 
 
 class SupplierContactResponse(BaseModel):
@@ -88,6 +99,7 @@ class SupplierContactResponse(BaseModel):
     contact_phone: Optional[str]
     contact_email: Optional[str]
     notes: Optional[str]
+    is_primary: bool = False
     plant_id: str
     active: bool
     created_at: Optional[datetime] = None
@@ -102,12 +114,20 @@ def _clean_code(value: str) -> str:
 
 @router.get("/", response_model=List[SupplierResponse])
 def get_suppliers(
+    include_inactive: bool = True,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.Supplier).filter(models.Supplier.active == True)
+    """Return suppliers in scope. Defaults to including inactive rows so the new
+    vendor cockpit can filter client-side."""
+    query = db.query(models.Supplier)
+    if not include_inactive:
+        query = query.filter(models.Supplier.active == True)
     query = apply_plant_scope(query, models.Supplier.plant_id, plant_scope)
-    return query.order_by(models.Supplier.name.asc()).all()
+    rows = query.order_by(models.Supplier.name.asc()).all()
+    for r in rows:
+        setattr(r, "is_active", bool(r.active))
+    return rows
 
 
 @router.post("/", response_model=SupplierResponse)
@@ -131,10 +151,23 @@ def create_supplier(
     if existing:
         raise HTTPException(status_code=409, detail="Supplier code or name already exists in this plant")
 
+    label = (supplier.category_label or supplier.category or "").strip() or None
+    # Map common cockpit categories down to the canonical enum so reports keep working.
+    category_canon_map = {
+        "Raw paper": "RAW_MATERIAL",
+        "Parchment": "PARCHMENT",
+        "Adhesive": "ADHESIVE",
+        "Packaging": "PACKAGING",
+        "Service": "SERVICE",
+        "Other": "OTHER",
+    }
+    raw_category = supplier.category.strip()
+    canon_category = category_canon_map.get(raw_category, raw_category.upper()) or "RAW_MATERIAL"
     model = models.Supplier(
         supplier_code=code,
         name=name,
-        category=supplier.category.strip().upper() or "RAW_MATERIAL",
+        category=canon_category,
+        category_label=label,
         contact_name=supplier.contact_name,
         contact_phone=supplier.contact_phone,
         contact_email=supplier.contact_email,
@@ -146,6 +179,7 @@ def create_supplier(
     db.add(model)
     db.commit()
     db.refresh(model)
+    setattr(model, "is_active", bool(model.active))
     return model
 
 
@@ -189,11 +223,30 @@ def update_supplier(
         elif key == "name" and value is not None:
             setattr(model, key, str(value).strip())
         elif key == "category" and value is not None:
-            setattr(model, key, str(value).strip().upper())
+            # Preserve the user-visible label and persist the canonical enum.
+            category_canon_map = {
+                "Raw paper": "RAW_MATERIAL",
+                "Parchment": "PARCHMENT",
+                "Adhesive": "ADHESIVE",
+                "Packaging": "PACKAGING",
+                "Service": "SERVICE",
+                "Other": "OTHER",
+            }
+            raw = str(value).strip()
+            canon = category_canon_map.get(raw, raw.upper()) or "RAW_MATERIAL"
+            setattr(model, key, canon)
+            # If the UI passed a friendly label, capture it for display.
+            if raw and raw not in category_canon_map.values():
+                model.category_label = raw
+        elif key == "category_label" and value is not None:
+            model.category_label = str(value).strip() or None
+        elif key == "is_active" and value is not None:
+            model.active = bool(value)
         else:
             setattr(model, key, value)
     db.commit()
     db.refresh(model)
+    setattr(model, "is_active", bool(model.active))
     return model
 
 
@@ -232,7 +285,11 @@ def get_supplier_contacts(
         models.SupplierContact.active == True,
     )
     query = apply_plant_scope(query, models.SupplierContact.plant_id, plant_scope)
-    return query.order_by(models.SupplierContact.department.asc(), models.SupplierContact.contact_name.asc()).all()
+    return query.order_by(
+        models.SupplierContact.is_primary.desc(),
+        models.SupplierContact.department.asc(),
+        models.SupplierContact.contact_name.asc(),
+    ).all()
 
 
 @router.post("/{supplier_id}/contacts", response_model=SupplierContactResponse)
@@ -254,16 +311,37 @@ def create_supplier_contact(
     contact_name = payload.contact_name.strip()
     if not contact_name:
         raise HTTPException(status_code=422, detail="contact_name is required")
+    has_primary = (
+        db.query(models.SupplierContact)
+        .filter(
+            models.SupplierContact.supplier_id == supplier_id,
+            models.SupplierContact.is_primary == True,
+            models.SupplierContact.active == True,
+        )
+        .first()
+        is not None
+    )
+    designation = (payload.designation or "").strip() if payload.designation else ""
+    department_value = designation or (payload.department or "General").strip() or "General"
+    explicit_primary = bool(payload.is_primary)
     model = models.SupplierContact(
         supplier_id=supplier_id,
-        department=(payload.department or "General").strip() or "General",
+        department=department_value,
         contact_name=contact_name,
         contact_phone=payload.contact_phone,
         contact_email=str(payload.contact_email) if payload.contact_email else None,
         notes=payload.notes,
+        is_primary=explicit_primary or not has_primary,
         plant_id=plant_id,
     )
     db.add(model)
+    db.flush()
+    if model.is_primary:
+        db.query(models.SupplierContact).filter(
+            models.SupplierContact.supplier_id == supplier_id,
+            models.SupplierContact.id != model.id,
+            models.SupplierContact.is_primary == True,
+        ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
     return model
@@ -288,7 +366,11 @@ def update_supplier_contact(
     if not model:
         raise HTTPException(status_code=404, detail="Supplier contact not found")
     update_data = payload.model_dump(exclude_unset=True)
+    promote_to_primary = False
     for field, value in update_data.items():
+        if field == "designation" and value is not None:
+            model.department = str(value).strip() or "General"
+            continue
         if field == "department" and value is not None:
             model.department = str(value).strip() or "General"
         elif field == "contact_name" and value is not None:
@@ -298,8 +380,17 @@ def update_supplier_contact(
             model.contact_name = resolved_name
         elif field == "contact_email" and value is not None:
             model.contact_email = str(value)
+        elif field == "is_primary":
+            new_primary = bool(value)
+            model.is_primary = new_primary
+            promote_to_primary = new_primary
         else:
             setattr(model, field, value)
+    if promote_to_primary:
+        db.query(models.SupplierContact).filter(
+            models.SupplierContact.supplier_id == supplier_id,
+            models.SupplierContact.id != contact_id,
+        ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
     return model
