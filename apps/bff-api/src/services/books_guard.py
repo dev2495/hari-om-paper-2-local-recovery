@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://localhost:8004")
 REDIS_URL = os.getenv("BFF_BOOKS_GUARD_REDIS_URL") or os.getenv("REDIS_URL") or ""
+REQUIRE_SHARED_CACHE = os.getenv("BFF_BOOKS_GUARD_REQUIRE_SHARED_CACHE", "false").lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 _CACHE_TTL_SEC = 60
 _TIMEOUT_SEC = 5.0
@@ -52,9 +58,11 @@ class _RedisCache:
         self._url = url
         self._client: Any = None
         self._down_until: float = 0.0
+        self._last_error: Optional[str] = None
 
     async def _get_client(self) -> Optional[Any]:
         if not self._url:
+            self._last_error = "REDIS_URL is not configured"
             return None
         if time.time() < self._down_until:
             return None
@@ -65,14 +73,17 @@ class _RedisCache:
             import redis.asyncio as redis_async  # type: ignore
         except Exception as exc:  # pragma: no cover - import-time guard
             logger.warning("redis package not available: %s", exc)
+            self._last_error = str(exc)[:300]
             self._down_until = time.time() + 300.0
             return None
         try:
             self._client = redis_async.from_url(self._url, decode_responses=True)
             # Verify on first use so we fail fast rather than on the first .get
             await self._client.ping()
+            self._last_error = None
         except Exception as exc:
             logger.warning("Redis not reachable, falling back to in-process cache: %s", exc)
+            self._last_error = str(exc)[:300]
             self._client = None
             self._down_until = time.time() + 30.0
             return None
@@ -86,6 +97,7 @@ class _RedisCache:
             raw = await client.get(f"{_REDIS_KEY_PREFIX}{plant_id}")
         except Exception as exc:
             logger.warning("Redis GET failed, dropping cache layer: %s", exc)
+            self._last_error = str(exc)[:300]
             self._client = None
             self._down_until = time.time() + 30.0
             return None
@@ -108,6 +120,7 @@ class _RedisCache:
             )
         except Exception as exc:
             logger.warning("Redis SETEX failed, ignoring: %s", exc)
+            self._last_error = str(exc)[:300]
             self._client = None
             self._down_until = time.time() + 30.0
 
@@ -129,8 +142,25 @@ class _RedisCache:
                         break
         except Exception as exc:
             logger.warning("Redis invalidate failed: %s", exc)
+            self._last_error = str(exc)[:300]
             self._client = None
             self._down_until = time.time() + 30.0
+
+    def status(self) -> dict[str, Any]:
+        if not self._url:
+            state = "not_configured"
+        elif self._client is not None:
+            state = "connected"
+        elif time.time() < self._down_until:
+            state = "temporarily_down"
+        else:
+            state = "not_connected"
+        return {
+            "configured": bool(self._url),
+            "state": state,
+            "down_until": self._down_until if self._down_until else None,
+            "last_error": self._last_error,
+        }
 
 
 _redis_cache = _RedisCache(REDIS_URL)
@@ -149,6 +179,18 @@ async def fetch_books_state(token: str, plant_id: str) -> Optional[dict[str, Any
     cached = await _redis_cache.get(plant_id)
     if cached is not None:
         return cached
+
+    if REQUIRE_SHARED_CACHE:
+        redis_status = _redis_cache.status()
+        if redis_status["state"] != "connected":
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "BOOKS_GUARD_SHARED_CACHE_REQUIRED",
+                    "message": "Shared books-lock cache is required but Redis is not available.",
+                    "redis": redis_status,
+                },
+            )
 
     # In-process fallback (covers Redis-down and single-instance deploys)
     inprocess = _inprocess_cache.get(plant_id)
@@ -297,3 +339,21 @@ def invalidate_books_cache_sync(plant_id: Optional[str] = None) -> None:
         _inprocess_cache.pop(plant_id, None)
     else:
         _inprocess_cache.clear()
+
+
+def books_guard_status() -> dict[str, Any]:
+    """Expose cache mode for readiness/ops checks."""
+    redis_status = _redis_cache.status()
+    if REQUIRE_SHARED_CACHE:
+        mode = "shared_required"
+    elif redis_status["configured"]:
+        mode = "redis_with_inprocess_fallback"
+    else:
+        mode = "inprocess_only"
+    return {
+        "ttl_seconds": _CACHE_TTL_SEC,
+        "mode": mode,
+        "require_shared_cache": REQUIRE_SHARED_CACHE,
+        "redis": redis_status,
+        "inprocess_keys": len(_inprocess_cache),
+    }

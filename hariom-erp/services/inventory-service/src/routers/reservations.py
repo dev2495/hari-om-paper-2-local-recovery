@@ -162,6 +162,8 @@ def list_reservations(
     line_id: Optional[uuid.UUID] = Query(None),
     item_id: Optional[uuid.UUID] = Query(None),
     status: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(get_current_user),
@@ -180,7 +182,7 @@ def list_reservations(
             raise HTTPException(status_code=400, detail="Invalid reservation status")
         query = query.filter(Reservation.status == status_enum)
 
-    rows = query.order_by(Reservation.created_at.desc()).all()
+    rows = query.order_by(Reservation.created_at.desc()).offset(offset).limit(limit).all()
     return [_serialize_reservation(row) for row in rows]
 
 

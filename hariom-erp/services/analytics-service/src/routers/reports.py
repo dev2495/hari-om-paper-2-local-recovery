@@ -747,6 +747,82 @@ def _require_internal_token(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Invalid internal report token")
 
 
+def send_daily_owner_pack_now(*, report_date: date | None = None, include_recipients: bool = False) -> dict[str, Any]:
+    resolved_date = report_date or date.today()
+    report = build_daily_owner_pack(report_date=resolved_date)
+    html = render_owner_pack_html(report, report_date=resolved_date)
+    pdf_bytes = render_owner_pack_pdf(report, report_date=resolved_date)
+    recipients = [row["email"] for row in get_owner_recipients() if row.get("email")]
+    if not recipients:
+        raise RuntimeError("No active Owner recipients configured")
+    persist_owner_pack_pdf(pdf_bytes, resolved_date)
+    try:
+        send_owner_pack_email(report_date=resolved_date, pdf_bytes=pdf_bytes, html=html, recipients=recipients)
+        emit_delivery_notification(
+            success=True,
+            report_date=resolved_date,
+            detail=f"Daily owner close pack sent to {len(recipients)} owner recipients.",
+        )
+    except Exception as exc:
+        emit_delivery_notification(
+            success=False,
+            report_date=resolved_date,
+            detail=f"Daily owner close pack failed: {exc}",
+        )
+        raise
+    result = {
+        "status": "sent",
+        "report_date": resolved_date.isoformat(),
+        "recipient_count": len(recipients),
+    }
+    if include_recipients:
+        result["recipients"] = recipients
+    return result
+
+
+def run_exceptions_check_now(*, report_date: date | None = None) -> dict[str, Any]:
+    resolved_date = report_date or date.today()
+    token, user = _resolve_daily_owner_token()
+    allowed_plants = [str(value) for value in (user.get("allowed_plant_ids") or user.get("allowed_plants") or []) if value]
+    plant_scope = {
+        "scope_all": True,
+        "selected_plant_id": None,
+        "allowed_plants": allowed_plants,
+    }
+    exceptions = _build_reports(
+        token,
+        plant_scope,
+        resolved_date.isoformat(),
+        resolved_date.isoformat(),
+        "day",
+    )["exceptions"]
+    summary = exceptions.get("summary") or {}
+    exception_count = int(summary.get("delayed_orders") or 0) + int(summary.get("active_qc_holds") or 0) + int(summary.get("low_stock_items") or 0)
+    if exception_count > 0:
+        requests.post(
+            f"{AUTH_SERVICE_URL}/notifications/events",
+            headers={
+                "x-internal-token": INTERNAL_EVENT_TOKEN,
+                "content-type": "application/json",
+            },
+            json={
+                "event_type": "REPORT_EXCEPTIONS_FOUND",
+                "title": "Daily exceptions need review",
+                "message": f"{exception_count} owner-report exceptions were found for {resolved_date.isoformat()}.",
+                "href": "/reports/exceptions",
+                "recipient_roles": ["Owner", "Admin"],
+                "payload": {"report_date": resolved_date.isoformat(), "summary": summary},
+            },
+            timeout=15.0,
+        )
+    return {
+        "status": "checked",
+        "report_date": resolved_date.isoformat(),
+        "exception_count": exception_count,
+        "summary": summary,
+    }
+
+
 @router.get("/owner-pack")
 def owner_pack_report(
     start_date: Optional[str] = Query(default=None),
@@ -792,32 +868,11 @@ def owner_pack_report_pdf(
 def send_daily_owner_pack(request: Request, report_date: Optional[str] = Query(default=None)):
     _require_internal_token(request)
     resolved_date = _parse_day(report_date, date.today())
-    report = build_daily_owner_pack(report_date=resolved_date)
-    html = render_owner_pack_html(report, report_date=resolved_date)
-    pdf_bytes = render_owner_pack_pdf(report, report_date=resolved_date)
-    recipients = [row["email"] for row in get_owner_recipients() if row.get("email")]
-    if not recipients:
-        raise HTTPException(status_code=400, detail="No active Owner recipients configured")
-    persist_owner_pack_pdf(pdf_bytes, resolved_date)
     try:
-        send_owner_pack_email(report_date=resolved_date, pdf_bytes=pdf_bytes, html=html, recipients=recipients)
-        emit_delivery_notification(
-            success=True,
-            report_date=resolved_date,
-            detail=f"Daily owner close pack sent to {len(recipients)} owner recipients.",
-        )
+        result = send_daily_owner_pack_now(report_date=resolved_date, include_recipients=True)
     except Exception as exc:
-        emit_delivery_notification(
-            success=False,
-            report_date=resolved_date,
-            detail=f"Daily owner close pack failed: {exc}",
-        )
-        raise
-    return {
-        "status": "sent",
-        "report_date": resolved_date.isoformat(),
-        "recipients": recipients,
-    }
+        raise HTTPException(status_code=500, detail=str(exc))
+    return result
 
 
 @router.get("/production")

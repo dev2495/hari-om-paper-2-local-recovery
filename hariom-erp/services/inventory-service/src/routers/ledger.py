@@ -149,10 +149,15 @@ def get_ledger(
                     continue
                 filtered.append(row)
             ledger = filtered
+        total_count = len(ledger)
+        ledger = ledger[offset : offset + limit]
         return {
             "type": "item",
             "item_id": str(item_id),
-            "transaction_count": len(ledger),
+            "transaction_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + len(ledger)) < total_count,
             "ledger": ledger
         }
     
@@ -195,10 +200,15 @@ def get_ledger(
                     continue
                 filtered.append(row)
             ledger = filtered
+        total_count = len(ledger)
+        ledger = ledger[offset : offset + limit]
         return {
             "type": "batch",
             "batch_id": str(batch_id),
-            "transaction_count": len(ledger),
+            "transaction_count": total_count,
+            "limit": limit,
+            "offset": offset,
+            "has_more": (offset + len(ledger)) < total_count,
             "ledger": ledger
         }
 

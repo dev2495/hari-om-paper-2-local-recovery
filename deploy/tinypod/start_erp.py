@@ -116,7 +116,7 @@ class ManagedProcess:
     name: str
     cwd: Path
     command: list[str]
-    health_url: str
+    health_url: str | None
     extra_env: dict[str, str]
 
 
@@ -168,6 +168,13 @@ PROCESSES = [
         cwd=ROOT / "hariom-erp/services/analytics-service",
         command=[PYTHON, "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", ANALYTICS_PORT],
         health_url=f"{ANALYTICS_URL}/health",
+        extra_env={"DATABASE_URL": database_url("analyticsdb")},
+    ),
+    ManagedProcess(
+        name="analytics-worker",
+        cwd=ROOT / "hariom-erp/services/analytics-service",
+        command=[PYTHON, "-m", "src.job_worker"],
+        health_url=None,
         extra_env={"DATABASE_URL": database_url("analyticsdb")},
     ),
     ManagedProcess(
@@ -284,7 +291,8 @@ def main() -> int:
 
     for spec in PROCESSES:
         start_process(spec)
-        wait_for_http(spec.name, spec.health_url)
+        if spec.health_url:
+            wait_for_http(spec.name, spec.health_url)
 
     print(f"[ready] Hari Om ERP web UI is serving on 0.0.0.0:{WEB_UI_PORT}", flush=True)
 

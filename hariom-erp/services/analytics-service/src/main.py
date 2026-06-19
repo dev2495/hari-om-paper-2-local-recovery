@@ -1,9 +1,10 @@
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts
+from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts, jobs
 from src.cache import _build_cache_key
 from src.dependencies import get_token
+from src.job_queue import ensure_job_schema
 from src.routers.loss import _aggregate_loss_by_supplier
 from src.scheduler import get_status as get_scheduler_status, start_scheduler
 
@@ -114,11 +115,13 @@ app.include_router(dispatch.router)
 app.include_router(quality.router)
 app.include_router(reports.router)
 app.include_router(deep_cuts.router)
+app.include_router(jobs.router)
 
 
 @app.on_event("startup")
 def _start_scheduler_on_startup() -> None:
     """Boot the APScheduler the moment the app is ready."""
+    ensure_job_schema()
     start_scheduler()
 
 

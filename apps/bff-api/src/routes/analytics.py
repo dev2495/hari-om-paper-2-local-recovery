@@ -161,3 +161,13 @@ async def get_item_velocity(request: Request, token: str = Depends(get_token)):
 async def get_scheduler_status(request: Request, token: str = Depends(get_token)):
     """Scheduler health snapshot for the /system UI."""
     return await proxy_to_service(ANALYTICS_SERVICE_URL, "/scheduler/status", request, token)
+
+
+@router.get("/jobs/summary")
+async def get_background_jobs_summary(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/jobs/summary", request, token)
+
+
+@router.get("/jobs/recent")
+async def get_background_jobs_recent(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/jobs/recent", request, token)

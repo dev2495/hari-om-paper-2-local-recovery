@@ -1,59 +1,43 @@
 """In-process scheduler for analytics-service.
 
-Uses APScheduler's BackgroundScheduler with a tiny `cron_jobs` table that
-tracks last-run / next-run / status so the /system UI can surface a health
+Uses APScheduler's BackgroundScheduler to enqueue durable background jobs and
+record last-run / next-run / status so the /system UI can surface a health
 panel. Jobs are configured via env vars so the deployment owner controls
 exactly what fires when:
 
     OWNER_PACK_CRON       06:30 daily (default)
     EXCEPTIONS_CRON       every 60 min (default)
     SCHEDULER_ENABLED     "true" (default)
-    OWNER_PACK_IN_PROCESS "false" (default)  — see dedup note below
+    OWNER_PACK_IN_PROCESS true on Railway, false elsewhere unless overridden
 
-APScheduler is lazily imported so the rest of the service starts even if the
-package isn't installed locally. When it's missing or fails to start, the
-endpoints under /scheduler still respond — they just report "scheduler
-disabled" in their status payloads.
-
-Owner-pack dedup decision (P1.9)
---------------------------------
-The owner-pack is also wired as a Render cron service (``render.yaml`` —
-``hariom-owner-pack-daily``). Render cron is the **canonical** trigger because
-it has platform-level de-duplication across the deploy and only fires once
-per scheduled time regardless of how many web replicas are running.
-
-To prevent customers from receiving the same digest twice per day, the
-in-process scheduler only registers ``owner_pack_daily`` when the operator
-explicitly opts in via ``OWNER_PACK_IN_PROCESS=true``. ``render.yaml`` sets
-this to ``"false"`` on the web service so the in-process job is dormant in
-production. Local dev and self-hosted installs without Render can flip
-``OWNER_PACK_IN_PROCESS=true`` to use the in-process path instead.
-
-The hourly ``exceptions_check_hourly`` heartbeat is *always* registered (when
-``SCHEDULER_ENABLED=true``) because the ``/scheduler/status`` panel needs a
-live job to report on — the heartbeat is a no-op ``/health`` ping with no
-side effects, so duplication across replicas is harmless.
+APScheduler is lazily imported, but the production requirements include it so
+scheduled owner packs and exception checks are available after deploy. The
+scheduler only enqueues idempotent jobs; `src.job_worker` performs the long
+work with database locking/retry/dead-letter visibility.
 """
 from __future__ import annotations
 
 import logging
 import os
 import threading
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Optional
 
-import requests
+from src.job_queue import ensure_job_schema, enqueue_job, process_due_jobs, queue_summary
 
 logger = logging.getLogger(__name__)
 
 OWNER_PACK_CRON = os.getenv("OWNER_PACK_CRON", "30 6 * * *")  # 06:30 daily
 EXCEPTIONS_CRON = os.getenv("EXCEPTIONS_CRON", "0 * * * *")    # hourly on the hour
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
-# P1.9 — Default false so the Render cron is the only owner-pack trigger.
-# Set OWNER_PACK_IN_PROCESS=true on non-Render deploys.
-OWNER_PACK_IN_PROCESS = os.getenv("OWNER_PACK_IN_PROCESS", "false").lower() in {"1", "true", "yes", "on"}
+# Railway does not have the Render cron defined in render.yaml. Default the
+# in-process trigger on for Railway and off elsewhere unless explicitly set.
+_OWNER_PACK_DEFAULT = "true" if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_SERVICE_ID") else "false"
+OWNER_PACK_IN_PROCESS = os.getenv("OWNER_PACK_IN_PROCESS", _OWNER_PACK_DEFAULT).lower() in {"1", "true", "yes", "on"}
 ANALYTICS_INTERNAL_URL = os.getenv("ANALYTICS_INTERNAL_URL", "http://127.0.0.1:18007")
 INTERNAL_EVENT_TOKEN = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")
+JOB_WORKER_POLL_SECONDS = int(os.getenv("ANALYTICS_JOB_WORKER_POLL_SECONDS", "60"))
+JOB_WORKER_MAX_PER_TICK = int(os.getenv("ANALYTICS_JOB_WORKER_MAX_PER_TICK", "3"))
 
 
 # In-memory job status table. Persistent across requests within one process.
@@ -75,21 +59,22 @@ def _run_owner_pack() -> None:
     started = datetime.utcnow()
     _record(job_id, last_started_at=started.isoformat(), status="RUNNING")
     try:
-        r = requests.post(
-            f"{ANALYTICS_INTERNAL_URL}/reports/owner-pack/send-daily",
-            headers={"X-Internal-Token": INTERNAL_EVENT_TOKEN},
-            timeout=120,
+        report_date = date.today().isoformat()
+        job, created = enqueue_job(
+            "owner_pack_daily",
+            {"report_date": report_date},
+            idempotency_key=f"owner_pack_daily:{report_date}",
+            max_attempts=3,
         )
-        ok = r.status_code < 300
         _record(
             job_id,
             last_finished_at=datetime.utcnow().isoformat(),
-            status="OK" if ok else "FAIL",
-            last_http=r.status_code,
-            last_error=None if ok else r.text[:200],
+            status="QUEUED" if created else "DUPLICATE",
+            job_id=job.id,
+            last_error=None,
         )
     except Exception as exc:
-        logger.warning("owner_pack_daily run failed: %s", exc)
+        logger.warning("owner_pack_daily enqueue failed: %s", exc)
         _record(
             job_id,
             last_finished_at=datetime.utcnow().isoformat(),
@@ -99,30 +84,50 @@ def _run_owner_pack() -> None:
 
 
 def _run_exceptions_check() -> None:
-    """Hourly heartbeat that confirms the cron is firing.
-
-    We hit our own /health endpoint (no JWT required) so the job stays green
-    even without service-account credentials. The job's purpose is to prove
-    the scheduler is alive — actual exception alerts live in a separate
-    notifier that's not yet wired (documented as a roadmap item).
-    """
+    """Hourly durable exception-report job."""
     job_id = "exceptions_check_hourly"
     started = datetime.utcnow()
     _record(job_id, last_started_at=started.isoformat(), status="RUNNING")
     try:
-        r = requests.get(
-            f"{ANALYTICS_INTERNAL_URL}/health",
-            timeout=5,
+        now = datetime.utcnow()
+        job, created = enqueue_job(
+            "exceptions_check_hourly",
+            {"report_date": date.today().isoformat()},
+            idempotency_key=f"exceptions_check_hourly:{now.strftime('%Y-%m-%dT%H')}",
+            max_attempts=3,
         )
         _record(
             job_id,
             last_finished_at=datetime.utcnow().isoformat(),
-            status="OK" if r.status_code < 300 else "FAIL",
-            last_http=r.status_code,
-            last_error=None if r.status_code < 300 else r.text[:200],
+            status="QUEUED" if created else "DUPLICATE",
+            job_id=job.id,
+            last_error=None,
         )
     except Exception as exc:
-        logger.warning("exceptions_check_hourly failed: %s", exc)
+        logger.warning("exceptions_check_hourly enqueue failed: %s", exc)
+        _record(
+            job_id,
+            last_finished_at=datetime.utcnow().isoformat(),
+            status="FAIL",
+            last_error=str(exc)[:200],
+        )
+
+
+def _run_job_worker_tick() -> None:
+    job_id = "background_job_worker"
+    started = datetime.utcnow()
+    _record(job_id, last_started_at=started.isoformat(), status="RUNNING")
+    try:
+        result = process_due_jobs(max_jobs=JOB_WORKER_MAX_PER_TICK)
+        _record(
+            job_id,
+            last_finished_at=datetime.utcnow().isoformat(),
+            status="OK",
+            result=result,
+            last_error=None,
+        )
+    except Exception as exc:
+        logger.warning("background job worker tick failed: %s", exc)
         _record(
             job_id,
             last_finished_at=datetime.utcnow().isoformat(),
@@ -142,11 +147,13 @@ def start_scheduler() -> Optional[Any]:
     try:
         from apscheduler.schedulers.background import BackgroundScheduler  # type: ignore
         from apscheduler.triggers.cron import CronTrigger  # type: ignore
+        from apscheduler.triggers.interval import IntervalTrigger  # type: ignore
     except Exception as exc:  # pragma: no cover - import guard
         logger.warning("apscheduler not installed; scheduler disabled: %s", exc)
         return None
 
     try:
+        ensure_job_schema()
         sched = BackgroundScheduler(timezone=os.getenv("PLANT_TIMEZONE", "Asia/Kolkata"))
         # P1.9 — owner_pack_daily is opt-in to avoid duplicate emails. The
         # Render cron service is the canonical trigger in production; the
@@ -163,7 +170,7 @@ def start_scheduler() -> Optional[Any]:
         else:
             logger.info(
                 "owner_pack_daily skipped in-process (OWNER_PACK_IN_PROCESS=false); "
-                "relying on external Render cron"
+                "relying on an external platform cron or manual trigger"
             )
         # Heartbeat is always registered when the scheduler is enabled so the
         # /scheduler/status panel has a live job to surface.
@@ -174,6 +181,14 @@ def start_scheduler() -> Optional[Any]:
             replace_existing=True,
         )
         seeded_jobs.append("exceptions_check_hourly")
+        sched.add_job(
+            _run_job_worker_tick,
+            IntervalTrigger(seconds=max(10, JOB_WORKER_POLL_SECONDS)),
+            id="background_job_worker",
+            replace_existing=True,
+            max_instances=1,
+        )
+        seeded_jobs.append("background_job_worker")
         sched.start()
         _scheduler_instance = sched
         # Seed initial status rows so the UI doesn't show blanks until first run.
@@ -203,6 +218,10 @@ def get_status() -> dict[str, Any]:
                 next_runs[job.id] = job.next_run_time.isoformat() if job.next_run_time else None
         except Exception:
             pass
+    try:
+        queue = queue_summary()
+    except Exception as exc:
+        queue = {"available": False, "error": str(exc)[:160]}
     return {
         "enabled": bool(_scheduler_instance is not None),
         "owner_pack_cron": OWNER_PACK_CRON,
@@ -210,4 +229,5 @@ def get_status() -> dict[str, Any]:
         "owner_pack_in_process": OWNER_PACK_IN_PROCESS,
         "next_runs": next_runs,
         "jobs": snapshot,
+        "queue": queue,
     }

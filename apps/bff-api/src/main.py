@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 
 from src.middleware.auth import extract_token
 from src.routes import analytics, auth, dispatch, inventory, master, production, purchase, sales, spec, workspace
+from src.services.books_guard import books_guard_status
 from src.services.plant_guard import assert_plant_allowed
 
 app = FastAPI(
@@ -48,6 +49,7 @@ _BOOKS_GUARD_DETAIL_CODES = frozenset(
     {
         "BOOKS_LOCKED",
         "BOOKS_STATE_UNAVAILABLE",
+        "BOOKS_GUARD_SHARED_CACHE_REQUIRED",
         "PLANT_REQUIRED_FOR_DATED_WRITE",
         "FUTURE_DATE_NOT_ALLOWED",
     }
@@ -119,4 +121,4 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "service": "bff-api"}
+    return {"status": "healthy", "service": "bff-api", "books_guard": books_guard_status()}
