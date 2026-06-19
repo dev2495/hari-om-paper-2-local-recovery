@@ -41,6 +41,19 @@ _PLANT_GUARD_BYPASS_PREFIXES = (
 )
 
 
+# P1.4 — Books-guard error codes whose detail dicts must be surfaced raw to the
+# UI (not wrapped as {"detail": {...}}) so the frontend can read .code/.message
+# instead of rendering `[object Object]`.
+_BOOKS_GUARD_DETAIL_CODES = frozenset(
+    {
+        "BOOKS_LOCKED",
+        "BOOKS_STATE_UNAVAILABLE",
+        "PLANT_REQUIRED_FOR_DATED_WRITE",
+        "FUTURE_DATE_NOT_ALLOWED",
+    }
+)
+
+
 @app.middleware("http")
 async def plant_scope_guard(request: Request, call_next):
     path = request.url.path or ""
@@ -58,6 +71,26 @@ async def plant_scope_guard(request: Request, call_next):
                     body = {"detail": detail}
                 return JSONResponse(status_code=exc.status_code, content=body)
     return await call_next(request)
+
+
+@app.exception_handler(HTTPException)
+async def _unwrap_structured_guard_errors(request: Request, exc: HTTPException):
+    """P1.4 — Surface books-guard (and other structured guard) errors as the raw
+    detail dict instead of FastAPI's default {"detail": {...}} envelope.
+
+    The UI reads ``data.detail.code`` / ``data.detail.message`` directly; wrapping
+    the dict caused ``[object Object]`` to render in error banners.
+    """
+    detail = exc.detail
+    if isinstance(detail, dict):
+        code = detail.get("code")
+        if isinstance(code, str) and code in _BOOKS_GUARD_DETAIL_CODES:
+            return JSONResponse(status_code=exc.status_code, content=detail)
+    if isinstance(detail, dict):
+        body = detail
+    else:
+        body = {"detail": detail}
+    return JSONResponse(status_code=exc.status_code, content=body)
 
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(master.router, prefix="/api/master", tags=["Master Data"])

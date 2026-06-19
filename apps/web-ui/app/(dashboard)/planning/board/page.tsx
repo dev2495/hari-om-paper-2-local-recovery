@@ -226,6 +226,23 @@ function plannerJobCardId(job: any) {
   return String(job?.job_card_id || job?.id || job?.segment_id || "")
 }
 
+function CarryForwardBadge({ job }: { job: any }) {
+  if (!job?.is_carry_forward) return null
+  const sourceId = job?.carry_forward_source_job_card_id ? String(job.carry_forward_source_job_card_id) : ""
+  const reasonCode = job?.carry_forward_reason_code ? String(job.carry_forward_reason_code) : ""
+  const title = sourceId
+    ? `From JC ${sourceId}${reasonCode ? ` · ${reasonCode}` : ""}`
+    : "Carry-forward top-up"
+  return (
+    <span
+      title={title}
+      className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-900"
+    >
+      ↻ Carry-forward
+    </span>
+  )
+}
+
 type DropTarget = {
   machine_id: string | null
   plan_date: string | null
@@ -1450,6 +1467,7 @@ export default function PlanningBoardPage() {
                                       {jobCardRef(job)}
                                     </span>
                                   </p>
+                                  <CarryForwardBadge job={job} />
                                   <span className="shrink-0 rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
                                     {formatWhole(job.segment_planned_qty)}
                                   </span>
@@ -1664,6 +1682,7 @@ export default function PlanningBoardPage() {
                                             {jobCardRef(job)}
                                           </span>
                                         </p>
+                                        <CarryForwardBadge job={job} />
                                         <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-700">
                                           {formatWhole(job.segment_planned_qty)}
                                         </span>

@@ -137,7 +137,6 @@ def create_supplier(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     code = _clean_code(supplier.supplier_code)
     name = supplier.name.strip()
@@ -188,6 +187,7 @@ def create_supplier(
             entity_type="supplier",
             entity_id=str(model.id),
             plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
             actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
             summary=f"Supplier {model.name} created",
             payload={"code": model.supplier_code, "name": model.name, "category": model.category},
@@ -205,7 +205,6 @@ def update_supplier(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.Supplier).filter(
         models.Supplier.id == supplier_id,
@@ -261,6 +260,21 @@ def update_supplier(
     db.commit()
     db.refresh(model)
     setattr(model, "is_active", bool(model.active))
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="supplier_updated",
+            entity_type="supplier",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Supplier {model.name} updated",
+            payload={"fields_changed": list(updates.keys())},
+        )
+    except Exception:
+        pass
     return model
 
 
@@ -271,7 +285,6 @@ def delete_supplier(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.Supplier).filter(
         models.Supplier.id == supplier_id,
@@ -289,6 +302,7 @@ def delete_supplier(
             entity_type="supplier",
             entity_id=str(model.id),
             plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
             actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
             summary=f"Supplier {model.name} deactivated",
         )
@@ -327,7 +341,6 @@ def create_supplier_contact(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     supplier = db.query(models.Supplier).filter(
         models.Supplier.id == supplier_id,
@@ -371,6 +384,26 @@ def create_supplier_contact(
         ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="supplier_contact_created",
+            entity_type="supplier_contact",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Supplier contact {model.contact_name} created for {supplier.name}",
+            payload={
+                "supplier_id": str(supplier_id),
+                "contact_name": model.contact_name,
+                "department": model.department,
+                "is_primary": bool(model.is_primary),
+            },
+        )
+    except Exception:
+        pass
     return model
 
 
@@ -383,7 +416,6 @@ def update_supplier_contact(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.SupplierContact).filter(
         models.SupplierContact.id == contact_id,
@@ -420,6 +452,24 @@ def update_supplier_contact(
         ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="supplier_contact_updated",
+            entity_type="supplier_contact",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Supplier contact {model.contact_name} updated",
+            payload={
+                "supplier_id": str(supplier_id),
+                "fields_changed": list(update_data.keys()),
+            },
+        )
+    except Exception:
+        pass
     return model
 
 
@@ -431,7 +481,6 @@ def delete_supplier_contact(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.SupplierContact).filter(
         models.SupplierContact.id == contact_id,
@@ -442,4 +491,19 @@ def delete_supplier_contact(
         raise HTTPException(status_code=404, detail="Supplier contact not found")
     model.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="supplier_contact_deleted",
+            entity_type="supplier_contact",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Supplier contact {model.contact_name} deactivated",
+            payload={"supplier_id": str(supplier_id)},
+        )
+    except Exception:
+        pass
     return {"message": "Supplier contact deactivated successfully"}

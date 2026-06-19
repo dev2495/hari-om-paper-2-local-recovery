@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 import uuid
@@ -33,7 +34,10 @@ from ..models import (
     TransactionType,
 )
 from ..services.stock_control import compute_stock_statement
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
+
+_audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/inventory/stock-control", tags=["inventory-stock-control"])
 
@@ -448,6 +452,25 @@ def create_opening_load(
         db.rollback()
         raise HTTPException(status_code=400, detail="Opening load could not be posted; check duplicate refs") from exc
     db.refresh(header)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_control_adjusted",
+            entity_type="inventory_opening_load",
+            entity_id=str(header.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Opening load {header.document_no} posted with {len(header.lines or [])} line(s)",
+            payload={
+                "document_no": header.document_no,
+                "effective_date": header.effective_date.isoformat(),
+                "status": header.status,
+                "line_count": len(header.lines or []),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_control_adjusted (opening_load) %s: %s", header.id, exc)
     return {
         "id": str(header.id),
         "document_no": header.document_no,
@@ -514,6 +537,26 @@ def create_certification(
         db.add(_line_from_statement(header.id, row))
     db.commit()
     db.refresh(header)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_certification_created",
+            entity_type="inventory_certification",
+            entity_id=str(header.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Stock certification draft created for {payload.period_start} → {payload.period_end}",
+            payload={
+                "period_start": payload.period_start.isoformat(),
+                "period_end": payload.period_end.isoformat(),
+                "fiscal_year_label": header.fiscal_year_label,
+                "status": header.status,
+                "line_count": len(header.lines or []),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_certification_created %s: %s", header.id, exc)
     return _serialize_certification(header, include_lines=True)
 
 
@@ -568,6 +611,25 @@ def update_certification(
 
     db.commit()
     db.refresh(header)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_certification_updated",
+            entity_type="inventory_certification",
+            entity_id=str(header.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Stock certification draft updated ({len(payload.lines)} line patch(es))",
+            payload={
+                "period_start": header.period_start.isoformat(),
+                "period_end": header.period_end.isoformat(),
+                "line_patches": len(payload.lines),
+                "notes_changed": payload.notes is not None,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_certification_updated %s: %s", header.id, exc)
     return _serialize_certification(header, include_lines=True)
 
 
@@ -594,6 +656,26 @@ def certify_stock(
         header.notes = payload.notes
     db.commit()
     db.refresh(header)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_certified",
+            entity_type="inventory_certification",
+            entity_id=str(header.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Stock certified for {header.period_start} → {header.period_end}",
+            payload={
+                "period_start": header.period_start.isoformat(),
+                "period_end": header.period_end.isoformat(),
+                "fiscal_year_label": header.fiscal_year_label,
+                "certified_by": _actor(current_user),
+                "line_count": len(header.lines or []),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_certified %s: %s", header.id, exc)
     return _serialize_certification(header, include_lines=True)
 
 
@@ -702,6 +784,26 @@ def create_carry_forward(
         db.rollback()
         raise HTTPException(status_code=400, detail="Carry-forward document already exists") from exc
     db.refresh(carry)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_carry_forward_created",
+            entity_type="inventory_carry_forward",
+            entity_id=str(carry.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Carry-forward {carry.document_no} created from certification {header.id}",
+            payload={
+                "document_no": carry.document_no,
+                "opening_date": carry.opening_date.isoformat(),
+                "fiscal_year_label": carry.fiscal_year_label,
+                "certification_id": str(header.id),
+                "line_count": len(carry.lines or []),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_carry_forward_created %s: %s", carry.id, exc)
     return {
         "id": str(carry.id),
         "document_no": carry.document_no,
@@ -816,6 +918,27 @@ def post_opening_from_carry_forward(
         db.rollback()
         raise HTTPException(status_code=400, detail="Failed to post opening load") from exc
     db.refresh(header)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_control_adjusted",
+            entity_type="inventory_opening_load",
+            entity_id=str(header.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Opening load {header.document_no} posted from carry-forward {cf.document_no} ({posted_lines} line(s))",
+            payload={
+                "document_no": header.document_no,
+                "effective_date": header.effective_date.isoformat(),
+                "carry_forward_id": str(cf.id),
+                "carry_forward_doc_no": cf.document_no,
+                "line_count": posted_lines,
+                "status": header.status,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_control_adjusted (cf-post) %s: %s", header.id, exc)
     return {
         "opening_load_id": str(header.id),
         "document_no": header.document_no,

@@ -688,6 +688,23 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - any new recipe/trial payload is attached to the new version id, not the disabled old version
 - The spec UI now says `Create New Version` / `Save as New Version + Recipe` so users do not assume they are overwriting an old approved sheet.
 
+### 2026-06-20 · Production-readiness review fixes and canonical route cleanup
+- Added `HANDOFF_PRODUCTION_READY_2026-06-20.md` as the live handoff tracker for this pass.
+- Added BFF route-contract regression coverage in `apps/bff-api/tests/test_route_contracts.py`; current spec and production BFF route tables now verify one handler per method/path.
+- Removed the dead stale spec-sheet helper math from `components/specs/spec-sheet-utils.ts`; the file now only contains the live `resolveSpecTitle` helper. Canonical formula enforcement is covered by `apps/web-ui/scripts/validate-spec-canonical.cjs`.
+- Aligned active web defaults in `apps/web-ui/lib/spec-sheet.ts` to `DEFAULT_MOISTURE_AVG = 9` and `DEFAULT_WET_DIVISOR = 0.91`.
+- Migrated real master page implementations into the canonical `/masters/*` route family, removed the old `/master` app source directory, and kept `/master` compatibility at the Next redirect layer only.
+- Updated visible links for planner, dispatch, reason-code, employee, shift, and holiday surfaces to canonical `/planning/board`, `/logistics/dispatch`, and `/masters/*` routes.
+- Added `apps/web-ui/scripts/validate-route-canonical.cjs` and wired `npm test` to run help coverage, canonical spec validation, route canonical validation, and TS unit tests.
+- Declared the `sucrase` test transformer in `apps/web-ui/package.json`, refreshed `package-lock.json`, and applied compatible audit fixes; `npm audit --audit-level=high` reports zero vulnerabilities.
+- Replaced `scripts/run_verification.sh` with the current gates: BFF route contracts, spec math parity, web dependency audit, web tests, lint, typecheck, and production build. It no longer starts Docker, installs Python packages, or assumes the old BFF port.
+- Final verification during this pass:
+  - `env PYTHONPATH=apps/bff-api hariom-erp/venv-runtime/bin/pytest apps/bff-api/tests/test_route_contracts.py` passed (`2 passed`).
+  - `env PYTHONPATH=hariom-erp/services/spec-service/src hariom-erp/venv-runtime/bin/pytest hariom-erp/services/spec-service/tests/test_spec_math.py` passed (`28 passed`).
+  - `npm run test` passed (`PASS 21/21`, `PASS 3/3`, `PASS 2/2` plus static validators).
+  - `npm audit --audit-level=high` passed with zero vulnerabilities.
+  - `bash scripts/run_verification.sh` passed end to end, including lint, typecheck, and `next build`.
+
 ### 2026-05-25 · Production-readiness cleanup for routes, roles, defaults, and verification
 - Removed duplicated BFF spec route declarations and added the missing `/api/spec/defaults` GET/PUT proxy.
 - Exposed per-plant spec defaults in spec-service through `GET/PUT /specs/defaults`, backed by `global_spec_defaults` and guarded so only Owner/Admin can update.

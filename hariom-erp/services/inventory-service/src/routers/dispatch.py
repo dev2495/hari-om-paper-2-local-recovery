@@ -1,3 +1,4 @@
+import logging
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
@@ -20,7 +21,10 @@ from ..services import (
     get_item_balance,
     validate_batch_sufficient_available_stock,
 )
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import require_role, get_current_plant
+
+_audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 
@@ -107,6 +111,28 @@ def create_dispatch(
             raise HTTPException(status_code=404, detail="Existing dispatch transaction not found")
         response = _existing_dispatch_response(existing_by_id, dispatch, db)
         db.commit()
+        try:
+            emit_audit_event(
+                token=current_user.get("token", ""),
+                event_type="dispatch_recorded",
+                entity_type="stock_transaction",
+                entity_id=str(existing_by_id.id),
+                plant_id=str(plant_id),
+                actor_role=str((current_user.get("roles") or ["?"])[0]),
+                actor_email=current_user.get("sub"),
+                summary=f"Dispatch lineage backfilled for ref {dispatch.dispatch_ref} (idempotent)",
+                payload={
+                    "dispatch_ref": dispatch.dispatch_ref,
+                    "item_id": str(dispatch.item_id),
+                    "batch_id": str(existing_by_id.batch_id) if existing_by_id.batch_id else None,
+                    "qty_dispatched": float(abs(existing_by_id.qty_change)),
+                    "production_job_id": str(dispatch.production_job_id) if dispatch.production_job_id else None,
+                    "sales_order_id": str(dispatch.sales_order_id) if dispatch.sales_order_id else None,
+                    "idempotent": True,
+                },
+            )
+        except Exception as exc:
+            _audit_logger.warning("audit emit failed for dispatch_recorded (idempotent) %s: %s", existing_by_id.id, exc)
         return response
 
     external_ref = dispatch.external_ref or dispatch.dispatch_ref
@@ -117,6 +143,27 @@ def create_dispatch(
     if existing:
         response = _existing_dispatch_response(existing, dispatch, db)
         db.commit()
+        try:
+            emit_audit_event(
+                token=current_user.get("token", ""),
+                event_type="dispatch_recorded",
+                entity_type="stock_transaction",
+                entity_id=str(existing.id),
+                plant_id=str(plant_id),
+                actor_role=str((current_user.get("roles") or ["?"])[0]),
+                actor_email=current_user.get("sub"),
+                summary=f"Dispatch lineage backfilled for ref {dispatch.dispatch_ref} (idempotent)",
+                payload={
+                    "dispatch_ref": dispatch.dispatch_ref,
+                    "external_ref": external_ref,
+                    "item_id": str(dispatch.item_id),
+                    "batch_id": str(existing.batch_id) if existing.batch_id else None,
+                    "qty_dispatched": float(abs(existing.qty_change)),
+                    "idempotent": True,
+                },
+            )
+        except Exception as exc:
+            _audit_logger.warning("audit emit failed for dispatch_recorded (idempotent) %s: %s", existing.id, exc)
         return response
 
     selected_batch_id = dispatch.batch_id
@@ -178,6 +225,29 @@ def create_dispatch(
     )
     db.add(transaction)
     db.commit()
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="dispatch_recorded",
+            entity_type="stock_transaction",
+            entity_id=str(transaction.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Dispatched {dispatch.qty} of {item.item_code} (Ref: {dispatch.dispatch_ref})",
+            payload={
+                "dispatch_ref": dispatch.dispatch_ref,
+                "external_ref": external_ref,
+                "item_id": str(dispatch.item_id),
+                "item_code": item.item_code,
+                "batch_id": str(selected_batch_id),
+                "qty_dispatched": float(dispatch.qty),
+                "production_job_id": str(dispatch.production_job_id) if dispatch.production_job_id else None,
+                "sales_order_id": str(dispatch.sales_order_id) if dispatch.sales_order_id else None,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for dispatch_recorded %s: %s", transaction.id, exc)
 
     return DispatchResponse(
         transaction_id=transaction.id,

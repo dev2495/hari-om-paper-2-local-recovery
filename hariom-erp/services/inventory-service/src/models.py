@@ -193,6 +193,7 @@ class StockTransaction(Base):
     stock_status = Column(String(20), nullable=False, default="UNRESTRICTED")
     movement_metadata = Column(JSON, nullable=True)
 
+    effective_date = Column(Date, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     item = relationship("ItemMaster", back_populates="transactions")

@@ -170,10 +170,15 @@ def get_item_ledger(item_id: str, db: Session) -> List[Dict]:
     ledger = []
     for txn in transactions:
         running_balance += txn.qty_change
+        effective_iso = (
+            txn.effective_date.isoformat()
+            if getattr(txn, "effective_date", None) is not None
+            else txn.created_at.date().isoformat()
+        )
         ledger.append(
             {
                 "transaction_id": str(txn.id),
-                "date": txn.created_at.isoformat(),
+                "date": effective_iso,
                 "type": txn.transaction_type.value,
                 "qty_change": txn.qty_change,
                 "reference": f"{txn.reference_type.value}:{str(txn.reference_id)}",
@@ -201,10 +206,15 @@ def get_batch_ledger(batch_id: str, db: Session) -> List[Dict]:
     ledger = []
     for txn in transactions:
         running_balance += txn.qty_change
+        effective_iso = (
+            txn.effective_date.isoformat()
+            if getattr(txn, "effective_date", None) is not None
+            else txn.created_at.date().isoformat()
+        )
         ledger.append(
             {
                 "transaction_id": str(txn.id),
-                "date": txn.created_at.isoformat(),
+                "date": effective_iso,
                 "type": txn.transaction_type.value,
                 "qty_change": txn.qty_change,
                 "reference": f"{txn.reference_type.value}:{str(txn.reference_id)}",

@@ -82,10 +82,12 @@ This file is the quick pickup map for the system structure. Use it together with
   - notch geometry preview/edit surface
 - `apps/web-ui/hooks/use-specs.ts`
   - spec preview and suggestion hooks
-- `hariom-erp/services/spec-service/src/calculators/weight.py`
-  - canonical recipe suggestion and preview math
-- `hariom-erp/services/spec-service/src/calculators/yield_calc.py`
-  - canonical bamboo min/max/increment/cut-loss enforcement
+- `apps/web-ui/lib/spec-math.ts`
+  - TypeScript mirror of the canonical spec-sheet math
+- `hariom-erp/services/spec-service/src/spec_math.py`
+  - authoritative Python spec-sheet math, recipe validation, and bamboo min/max/increment/cut-loss enforcement
+- `hariom-erp/services/spec-service/src/calculators.py`
+  - compatibility wrapper that delegates preview math to `spec_math.compute_preview`
 - `hariom-erp/services/production-service/src/routers/planning.py`
   - consumes saved spec snapshot to generate planner and job-card manufacturing truth
 
@@ -99,6 +101,9 @@ This file is the quick pickup map for the system structure. Use it together with
 - `/planning/tracker`
 - `/production/job-cards`
 - `/production/reconciliation`
+- `/operations/control`
+- `/logistics/dispatch`
+- `/masters`
 - `/reports`
 
 ## Canonical Runtime Commands

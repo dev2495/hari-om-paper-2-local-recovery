@@ -56,12 +56,45 @@ def _ensure_schema_compatibility():
                 "ON job_card_short_close (job_card_id)"
             )
         )
+        # NOTE: the legacy single-column idempotency guard
+        # (uq_short_close_job_card on job_card_id alone) is intentionally NOT
+        # (re)created here. Short-close uniqueness is now per
+        # (job_card_id, stage_type) so a PROCESS-level short-close can coexist
+        # with the whole-card ("JOB_CARD") one. The swap to
+        # uq_short_close_job_card_stage — including dropping the old index on
+        # legacy volumes — happens in the guarded migration block below.
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS ix_machine_downtime_machine_window "
                 "ON machine_downtime (machine_id, started_at)"
             )
         )
+
+    # Carry-forward / process-level short-close + HOLD follow-up + downtime
+    # reschedule columns. Each statement runs in its own transaction and is
+    # guarded so that a failure on one (e.g. a constraint that no longer
+    # exists) does not abort the rest of the migration.
+    _short_close_downtime_migrations = [
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS stage_type VARCHAR(20) NOT NULL DEFAULT 'JOB_CARD'",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS hold_status VARCHAR(20)",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS resolved_by VARCHAR(200)",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS resolution_decision VARCHAR(20)",
+        "ALTER TABLE job_card_short_close ADD COLUMN IF NOT EXISTS resolution_note TEXT",
+        "ALTER TABLE machine_downtime ADD COLUMN IF NOT EXISTS reschedule_status VARCHAR(20)",
+        # Swap the uniqueness so PROCESS-level short-close is allowed alongside
+        # the whole-card ("JOB_CARD") one.
+        "ALTER TABLE job_card_short_close DROP CONSTRAINT IF EXISTS uq_short_close_job_card",
+        "DROP INDEX IF EXISTS uq_short_close_job_card",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_short_close_job_card_stage "
+        "ON job_card_short_close (job_card_id, stage_type)",
+    ]
+    for _statement in _short_close_downtime_migrations:
+        try:
+            with engine.begin() as connection:
+                connection.execute(text(_statement))
+        except Exception as exc:  # pragma: no cover - defensive migration guard
+            print(f"[schema-compat] skipped statement: {_statement!r} ({exc})")
 
 
 _ensure_schema_compatibility()

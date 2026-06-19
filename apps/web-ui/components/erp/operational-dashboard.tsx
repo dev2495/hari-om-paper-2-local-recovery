@@ -72,9 +72,9 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
         <Panel title="Action Queue" subtitle="Only the next operational actions.">
           <div className="grid gap-3 md:grid-cols-2">
             <ActionLink href="/sales-orders" title="Approve / release sales orders" detail={`${draftOrders} still waiting on sales/planner release.`} />
-            <ActionLink href="/planning" title="Schedule route stages" detail={`${plannerSummary.jobs || 0} jobs on today’s planning board.`} />
+            <ActionLink href="/planning/board?section=winder" title="Schedule route stages" detail={`${plannerSummary.jobs || 0} jobs on today’s planning board.`} />
             <ActionLink href="/production/job-cards" title="Review job card truth" detail={`${jobCardRows.length} active cards with stage-level actuals.`} />
-            <ActionLink href="/dispatch" title="Seal dispatches" detail={`${readyDispatchRows.length} finished jobs available for customer handoff.`} />
+            <ActionLink href="/logistics/dispatch" title="Seal dispatches" detail={`${readyDispatchRows.length} finished jobs available for customer handoff.`} />
           </div>
         </Panel>
 

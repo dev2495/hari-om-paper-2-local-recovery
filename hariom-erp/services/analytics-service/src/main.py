@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts
 from src.cache import _build_cache_key
+from src.dependencies import get_token
 from src.routers.loss import _aggregate_loss_by_supplier
 from src.scheduler import get_status as get_scheduler_status, start_scheduler
 
@@ -122,8 +123,12 @@ def _start_scheduler_on_startup() -> None:
 
 
 @app.get("/scheduler/status")
-def scheduler_status() -> dict:
-    """Health snapshot of the in-process scheduler — surfaced on /system."""
+def scheduler_status(token: str = Depends(get_token)) -> dict:
+    """Health snapshot of the in-process scheduler — surfaced on /system.
+
+    P2.9 — Requires a bearer token so direct backend calls cannot leak cron
+    timings or error messages. The BFF proxy already forwards Authorization.
+    """
     return get_scheduler_status()
 
 @app.get("/")

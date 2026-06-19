@@ -16,12 +16,13 @@ the existing scope helpers Just Work.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import date, datetime
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -33,6 +34,9 @@ from ..utils.auth import (
     get_current_plant_scope,
     require_role,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -50,6 +54,35 @@ def _trim(v: Optional[str]) -> Optional[str]:
 def _attach_is_active(row):
     setattr(row, "is_active", bool(row.active))
     return row
+
+
+def _actor_role(current_user: dict) -> str:
+    """Best-effort actor role string from the JWT claims."""
+    if not isinstance(current_user, dict):
+        return "?"
+    role = current_user.get("acting_role")
+    if role:
+        return str(role)
+    roles = current_user.get("roles") or []
+    if isinstance(roles, list) and roles:
+        return str(roles[0])
+    return str(current_user.get("role") or "?")
+
+
+def _actor_token(current_user: dict) -> str:
+    if not isinstance(current_user, dict):
+        return ""
+    return str(current_user.get("token") or "")
+
+
+def _actor_email(current_user: dict) -> Optional[str]:
+    if not isinstance(current_user, dict):
+        return None
+    return current_user.get("sub") or current_user.get("email")
+
+
+# Shift HH:MM 24-hour regex: 00:00 … 23:59.
+SHIFT_TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -129,7 +162,6 @@ def create_employee(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     code = (payload.employee_code or "").strip().upper()
     name = (payload.name or "").strip()
@@ -157,6 +189,21 @@ def create_employee(
     db.add(model)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="employee_created",
+            entity_type="employee",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Employee {model.name} ({model.employee_code}) created",
+            payload={"code": model.employee_code, "name": model.name, "role": model.role},
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (employee_created): %s", exc)
     return _attach_is_active(model)
 
 
@@ -168,7 +215,6 @@ def update_employee(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.Employee)
@@ -192,6 +238,21 @@ def update_employee(
             setattr(model, key, value)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="employee_updated",
+            entity_type="employee",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Employee {model.name} ({model.employee_code}) updated",
+            payload={"changed_keys": sorted(updates.keys())},
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (employee_updated): %s", exc)
     return _attach_is_active(model)
 
 
@@ -202,7 +263,6 @@ def deactivate_employee(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.Employee)
@@ -213,6 +273,20 @@ def deactivate_employee(
         raise HTTPException(status_code=404, detail="Employee not found")
     model.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="employee_deactivated",
+            entity_type="employee",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Employee {model.name} ({model.employee_code}) deactivated",
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (employee_deactivated): %s", exc)
     return {"message": "Employee deactivated"}
 
 
@@ -227,8 +301,16 @@ class ShiftCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: str
     name: str
-    start_time: str  # "HH:MM" 24h
-    end_time: str
+    start_time: str = Field(
+        ...,
+        pattern=SHIFT_TIME_PATTERN,
+        description="24-hour clock time in HH:MM (00:00–23:59).",
+    )
+    end_time: str = Field(
+        ...,
+        pattern=SHIFT_TIME_PATTERN,
+        description="24-hour clock time in HH:MM (00:00–23:59).",
+    )
     hours: float = 8.0
     is_night: bool = False
     break_minutes: int = 30
@@ -239,8 +321,16 @@ class ShiftUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     code: Optional[str] = None
     name: Optional[str] = None
-    start_time: Optional[str] = None
-    end_time: Optional[str] = None
+    start_time: Optional[str] = Field(
+        default=None,
+        pattern=SHIFT_TIME_PATTERN,
+        description="24-hour clock time in HH:MM (00:00–23:59).",
+    )
+    end_time: Optional[str] = Field(
+        default=None,
+        pattern=SHIFT_TIME_PATTERN,
+        description="24-hour clock time in HH:MM (00:00–23:59).",
+    )
     hours: Optional[float] = None
     is_night: Optional[bool] = None
     break_minutes: Optional[int] = None
@@ -290,7 +380,6 @@ def create_shift(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     code = (payload.code or "").strip().upper()
     name = (payload.name or "").strip()
@@ -317,6 +406,27 @@ def create_shift(
     db.add(model)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="shift_created",
+            entity_type="shift",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Shift {model.name} ({model.code}) created {model.start_time}-{model.end_time}",
+            payload={
+                "code": model.code,
+                "name": model.name,
+                "start_time": model.start_time,
+                "end_time": model.end_time,
+                "is_night": bool(model.is_night),
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (shift_created): %s", exc)
     return _attach_is_active(model)
 
 
@@ -328,7 +438,6 @@ def update_shift(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.ShiftDefinition)
@@ -350,6 +459,21 @@ def update_shift(
             setattr(model, key, value)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="shift_updated",
+            entity_type="shift",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Shift {model.name} ({model.code}) updated",
+            payload={"changed_keys": sorted(updates.keys())},
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (shift_updated): %s", exc)
     return _attach_is_active(model)
 
 
@@ -360,7 +484,6 @@ def deactivate_shift(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.ShiftDefinition)
@@ -371,6 +494,20 @@ def deactivate_shift(
         raise HTTPException(status_code=404, detail="Shift not found")
     model.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="shift_deactivated",
+            entity_type="shift",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Shift {model.name} ({model.code}) deactivated",
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (shift_deactivated): %s", exc)
     return {"message": "Shift deactivated"}
 
 
@@ -433,7 +570,6 @@ def create_holiday(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     h_type = (payload.holiday_type or "").strip().upper() or "PUBLIC_HOLIDAY"
     dt_value = datetime.combine(payload.holiday_date, datetime.min.time())
@@ -458,6 +594,25 @@ def create_holiday(
     db.add(model)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="holiday_created",
+            entity_type="holiday",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Holiday {h_type} on {payload.holiday_date.isoformat()} created",
+            payload={
+                "holiday_date": payload.holiday_date.isoformat(),
+                "holiday_type": h_type,
+                "description": model.description,
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (holiday_created): %s", exc)
     return model
 
 
@@ -469,7 +624,6 @@ def update_holiday(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.PlantHoliday)
@@ -489,6 +643,21 @@ def update_holiday(
         model.impact_shifts = _trim(updates["impact_shifts"])
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="holiday_updated",
+            entity_type="holiday",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Holiday {model.holiday_type} on {model.holiday_date.date().isoformat()} updated",
+            payload={"changed_keys": sorted(updates.keys())},
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (holiday_updated): %s", exc)
     return model
 
 
@@ -499,7 +668,6 @@ def delete_holiday(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.PlantHoliday)
@@ -508,8 +676,24 @@ def delete_holiday(
     )
     if not model:
         raise HTTPException(status_code=404, detail="Holiday not found")
+    holiday_summary = f"Holiday {model.holiday_type} on {model.holiday_date.date().isoformat()} removed"
+    holiday_id_str = str(model.id)
     db.delete(model)
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="holiday_deleted",
+            entity_type="holiday",
+            entity_id=holiday_id_str,
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=holiday_summary,
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (holiday_deleted): %s", exc)
     return {"message": "Holiday removed"}
 
 
@@ -587,7 +771,6 @@ def create_reason(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     code = (payload.code or "").strip().upper()
     label = (payload.label or "").strip()
@@ -617,6 +800,26 @@ def create_reason(
     db.add(model)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="reason_code_created",
+            entity_type="reason_code",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Reason code {model.code} ({model.category}/{model.severity}) created",
+            payload={
+                "code": model.code,
+                "label": model.label,
+                "category": model.category,
+                "severity": model.severity,
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (reason_code_created): %s", exc)
     return _attach_is_active(model)
 
 
@@ -628,7 +831,6 @@ def update_reason(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.ReasonCode)
@@ -660,6 +862,21 @@ def update_reason(
             setattr(model, key, value)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="reason_code_updated",
+            entity_type="reason_code",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Reason code {model.code} updated",
+            payload={"changed_keys": sorted(updates.keys())},
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (reason_code_updated): %s", exc)
     return _attach_is_active(model)
 
 
@@ -670,7 +887,6 @@ def deactivate_reason(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = (
         db.query(models.ReasonCode)
@@ -681,4 +897,18 @@ def deactivate_reason(
         raise HTTPException(status_code=404, detail="Reason code not found")
     model.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=_actor_token(current_user),
+            event_type="reason_code_deactivated",
+            entity_type="reason_code",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=_actor_role(current_user),
+            actor_email=_actor_email(current_user),
+            summary=f"Reason code {model.code} deactivated",
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed (reason_code_deactivated): %s", exc)
     return {"message": "Reason code deactivated"}

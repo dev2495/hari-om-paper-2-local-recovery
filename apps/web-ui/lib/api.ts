@@ -420,6 +420,14 @@ export const productionApi = {
     api.put(`/api/production/operations/downtime/${downtimeId}`, data, withPlantHeader(plantId)),
   listDowntime: (params?: any, plantId?: string) =>
     api.get("/api/production/operations/downtime", { params, ...(withPlantHeader(plantId) || {}) }),
+  listHolds: (plantId?: string) =>
+    api.get("/api/production/operations/short-close/holds", withPlantHeader(plantId)),
+  resolveHold: (shortCloseId: string, data: any, plantId?: string) =>
+    api.post(`/api/production/operations/short-close/${shortCloseId}/resolve-hold`, data, withPlantHeader(plantId)),
+  listRescheduleQueue: (plantId?: string) =>
+    api.get("/api/production/operations/downtime/reschedule-queue", withPlantHeader(plantId)),
+  updateRescheduleStatus: (downtimeId: string, data: any, plantId?: string) =>
+    api.put(`/api/production/operations/downtime/${downtimeId}/reschedule-status`, data, withPlantHeader(plantId)),
   getDataEntryLag: (params?: any, plantId?: string) =>
     api.get("/api/production/operations/data-entry-lag", { params, ...(withPlantHeader(plantId) || {}) }),
   // Per-plant tolerance settings

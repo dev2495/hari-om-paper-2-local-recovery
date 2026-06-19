@@ -7,7 +7,7 @@ const nextConfig = {
     return [
       {
         source: "/master",
-        destination: "/masters/papers",
+        destination: "/masters",
         permanent: true,
       },
       {
@@ -21,8 +21,48 @@ const nextConfig = {
         permanent: true,
       },
       {
+        source: "/planning",
+        destination: "/planning/board",
+        permanent: true,
+      },
+      {
+        source: "/production/planner",
+        destination: "/planning/board",
+        permanent: true,
+      },
+      {
+        source: "/production/planner/print",
+        destination: "/planning/print",
+        permanent: true,
+      },
+      {
+        source: "/dispatch",
+        destination: "/logistics/dispatch",
+        permanent: true,
+      },
+      {
+        source: "/dispatch/:jobCardId/print",
+        destination: "/logistics/dispatch/:jobCardId/print",
+        permanent: true,
+      },
+      {
+        source: "/dispatch/:jobCardId",
+        destination: "/logistics/dispatch",
+        permanent: true,
+      },
+      {
+        source: "/specs",
+        destination: "/specifications",
+        permanent: true,
+      },
+      {
         source: "/specs/:id/edit",
         destination: "/specifications/:id/edit",
+        permanent: true,
+      },
+      {
+        source: "/specs/:path*",
+        destination: "/specifications/:path*",
         permanent: true,
       },
     ]

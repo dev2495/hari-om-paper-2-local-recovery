@@ -1,3 +1,5 @@
+from datetime import date
+import logging
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,7 +21,10 @@ from ..services import (
     validate_batch_sufficient_stock,
     validate_sufficient_stock,
 )
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import require_role, get_current_plant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/issue", tags=["issue"])
 MANUAL_REASON_CODES = {
@@ -38,6 +43,7 @@ class IssueCreate(BaseModel):
     notes: Optional[str] = None
     allow_raw_paper_exception: bool = False
     external_ref: Optional[str] = None
+    effective_date: Optional[date] = None
 
 
 class IssueResponse(BaseModel):
@@ -120,6 +126,8 @@ def create_issue(
         if not selected_batch_id:
             raise HTTPException(status_code=400, detail="No batch with sufficient stock found")
 
+    effective_date_value = issue.effective_date or date.today()
+
     transaction = StockTransaction(
         item_id=issue.item_id,
         batch_id=selected_batch_id,
@@ -138,9 +146,33 @@ def create_issue(
             "manual_exception": True,
         },
         external_ref=issue.external_ref,
+        effective_date=effective_date_value,
     )
     db.add(transaction)
     db.commit()
+
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_issued",
+            entity_type="stock_transaction",
+            entity_id=str(transaction.id),
+            plant_id=str(plant_id),
+            actor_role=current_user.get("role"),
+            actor_email=current_user.get("sub"),
+            summary=f"Manual issue: {issue.qty} {item.uom.value} of {item.name} ({reason_code})",
+            payload={
+                "item_id": str(issue.item_id),
+                "batch_id": str(selected_batch_id),
+                "qty": float(issue.qty),
+                "production_job_id": str(issue.production_job_id),
+                "reason_code": reason_code,
+                "effective_date": effective_date_value.isoformat(),
+                "manual_exception": True,
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed for stock_issued (%s): %s", transaction.id, exc)
 
     return IssueResponse(
         transaction_id=transaction.id,

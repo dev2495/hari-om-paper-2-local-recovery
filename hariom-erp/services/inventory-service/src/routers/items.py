@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
@@ -6,7 +7,10 @@ from datetime import datetime
 import uuid
 from ..database import get_db
 from ..models import ItemMaster, ItemType, TrackingMode
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_user, require_role, get_current_plant, get_current_plant_scope
+
+_audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/items", tags=["items"])
 
@@ -226,6 +230,28 @@ def create_item(
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="item_created",
+            entity_type="item",
+            entity_id=str(db_item.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Item {db_item.item_code} ({db_item.name}) created",
+            payload={
+                "item_code": db_item.item_code,
+                "name": db_item.name,
+                "type": item_type,
+                "tracking_mode": tracking_mode,
+                "uom": payload["uom"],
+                "unit_cost": payload.get("unit_cost"),
+                "cost_source": payload.get("cost_source"),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for item_created %s: %s", db_item.id, exc)
     return db_item
 
 
@@ -254,6 +280,7 @@ def update_item(
     if next_type != ItemType.RAW_PAPER.value and next_tracking == TrackingMode.REEL.value:
         raise HTTPException(status_code=400, detail="Only RAW_PAPER items can use REEL tracking")
 
+    changed_fields: list[str] = []
     for field in (
         "name",
         "type",
@@ -268,9 +295,28 @@ def update_item(
     ):
         if field in payload:
             setattr(db_item, field, payload[field])
+            changed_fields.append(field)
 
     db.commit()
     db.refresh(db_item)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="item_updated",
+            entity_type="item",
+            entity_id=str(db_item.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Item {db_item.item_code} updated ({', '.join(changed_fields) or 'no change'})",
+            payload={
+                "item_code": db_item.item_code,
+                "changed_fields": changed_fields,
+                "updates": {key: payload[key] for key in changed_fields},
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for item_updated %s: %s", db_item.id, exc)
     return db_item
 
 @router.get("/{item_id}", response_model=ItemResponse)
@@ -340,6 +386,24 @@ def delete_item(
 
     db_item.active = "false"
     db.commit()
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="item_deleted",
+            entity_type="item",
+            entity_id=str(db_item.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Item {db_item.item_code} soft-deleted (force={bool(force)})",
+            payload={
+                "item_code": db_item.item_code,
+                "force": bool(force),
+                "soft_delete": True,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for item_deleted %s: %s", db_item.id, exc)
     return {
         "id": str(db_item.id),
         "item_code": db_item.item_code,

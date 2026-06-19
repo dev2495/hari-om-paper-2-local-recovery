@@ -144,6 +144,18 @@ def ensure_runtime_schema() -> None:
       )
     )
     connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS stock_transaction "
+        "ADD COLUMN IF NOT EXISTS effective_date DATE"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE INDEX IF NOT EXISTS ix_stock_transaction_effective_date "
+        "ON stock_transaction (effective_date)"
+      )
+    )
+    connection.execute(
       text("UPDATE stock_transaction SET stock_status = 'UNRESTRICTED' WHERE stock_status IS NULL")
     )
 

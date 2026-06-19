@@ -8,11 +8,31 @@ exactly what fires when:
     OWNER_PACK_CRON       06:30 daily (default)
     EXCEPTIONS_CRON       every 60 min (default)
     SCHEDULER_ENABLED     "true" (default)
+    OWNER_PACK_IN_PROCESS "false" (default)  — see dedup note below
 
 APScheduler is lazily imported so the rest of the service starts even if the
 package isn't installed locally. When it's missing or fails to start, the
 endpoints under /scheduler still respond — they just report "scheduler
 disabled" in their status payloads.
+
+Owner-pack dedup decision (P1.9)
+--------------------------------
+The owner-pack is also wired as a Render cron service (``render.yaml`` —
+``hariom-owner-pack-daily``). Render cron is the **canonical** trigger because
+it has platform-level de-duplication across the deploy and only fires once
+per scheduled time regardless of how many web replicas are running.
+
+To prevent customers from receiving the same digest twice per day, the
+in-process scheduler only registers ``owner_pack_daily`` when the operator
+explicitly opts in via ``OWNER_PACK_IN_PROCESS=true``. ``render.yaml`` sets
+this to ``"false"`` on the web service so the in-process job is dormant in
+production. Local dev and self-hosted installs without Render can flip
+``OWNER_PACK_IN_PROCESS=true`` to use the in-process path instead.
+
+The hourly ``exceptions_check_hourly`` heartbeat is *always* registered (when
+``SCHEDULER_ENABLED=true``) because the ``/scheduler/status`` panel needs a
+live job to report on — the heartbeat is a no-op ``/health`` ping with no
+side effects, so duplication across replicas is harmless.
 """
 from __future__ import annotations
 
@@ -29,6 +49,9 @@ logger = logging.getLogger(__name__)
 OWNER_PACK_CRON = os.getenv("OWNER_PACK_CRON", "30 6 * * *")  # 06:30 daily
 EXCEPTIONS_CRON = os.getenv("EXCEPTIONS_CRON", "0 * * * *")    # hourly on the hour
 SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+# P1.9 — Default false so the Render cron is the only owner-pack trigger.
+# Set OWNER_PACK_IN_PROCESS=true on non-Render deploys.
+OWNER_PACK_IN_PROCESS = os.getenv("OWNER_PACK_IN_PROCESS", "false").lower() in {"1", "true", "yes", "on"}
 ANALYTICS_INTERNAL_URL = os.getenv("ANALYTICS_INTERNAL_URL", "http://127.0.0.1:18007")
 INTERNAL_EVENT_TOKEN = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")
 
@@ -125,24 +148,44 @@ def start_scheduler() -> Optional[Any]:
 
     try:
         sched = BackgroundScheduler(timezone=os.getenv("PLANT_TIMEZONE", "Asia/Kolkata"))
-        sched.add_job(
-            _run_owner_pack,
-            CronTrigger.from_crontab(OWNER_PACK_CRON),
-            id="owner_pack_daily",
-            replace_existing=True,
-        )
+        # P1.9 — owner_pack_daily is opt-in to avoid duplicate emails. The
+        # Render cron service is the canonical trigger in production; the
+        # in-process variant only registers when OWNER_PACK_IN_PROCESS=true.
+        seeded_jobs: list[str] = []
+        if OWNER_PACK_IN_PROCESS:
+            sched.add_job(
+                _run_owner_pack,
+                CronTrigger.from_crontab(OWNER_PACK_CRON),
+                id="owner_pack_daily",
+                replace_existing=True,
+            )
+            seeded_jobs.append("owner_pack_daily")
+        else:
+            logger.info(
+                "owner_pack_daily skipped in-process (OWNER_PACK_IN_PROCESS=false); "
+                "relying on external Render cron"
+            )
+        # Heartbeat is always registered when the scheduler is enabled so the
+        # /scheduler/status panel has a live job to surface.
         sched.add_job(
             _run_exceptions_check,
             CronTrigger.from_crontab(EXCEPTIONS_CRON),
             id="exceptions_check_hourly",
             replace_existing=True,
         )
+        seeded_jobs.append("exceptions_check_hourly")
         sched.start()
         _scheduler_instance = sched
-        # Seed initial status rows
-        for job_id in ("owner_pack_daily", "exceptions_check_hourly"):
+        # Seed initial status rows so the UI doesn't show blanks until first run.
+        for job_id in seeded_jobs:
             _record(job_id, status="SCHEDULED", last_error=None)
-        logger.info("Scheduler started: owner_pack_daily=%s, exceptions_check_hourly=%s", OWNER_PACK_CRON, EXCEPTIONS_CRON)
+        logger.info(
+            "Scheduler started: jobs=%s owner_pack_cron=%s exceptions_cron=%s in_process_owner_pack=%s",
+            seeded_jobs,
+            OWNER_PACK_CRON,
+            EXCEPTIONS_CRON,
+            OWNER_PACK_IN_PROCESS,
+        )
         return sched
     except Exception as exc:
         logger.warning("Scheduler failed to start: %s", exc)
@@ -164,6 +207,7 @@ def get_status() -> dict[str, Any]:
         "enabled": bool(_scheduler_instance is not None),
         "owner_pack_cron": OWNER_PACK_CRON,
         "exceptions_cron": EXCEPTIONS_CRON,
+        "owner_pack_in_process": OWNER_PACK_IN_PROCESS,
         "next_runs": next_runs,
         "jobs": snapshot,
     }

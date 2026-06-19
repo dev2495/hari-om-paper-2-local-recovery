@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime
 from typing import List, Optional
 import uuid
@@ -20,7 +21,10 @@ from ..services import (
     get_available_item_qty,
     get_reserved_qty,
 )
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_user, require_role, get_current_plant
+
+_audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["reservations"])
 
@@ -128,6 +132,27 @@ def create_reservation(
     db.add(reservation)
     db.commit()
     db.refresh(reservation)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="reservation_created",
+            entity_type="reservation",
+            entity_id=str(reservation.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Reserved {payload.qty} of item {payload.item_id} for SO line {payload.sales_order_line_id}",
+            payload={
+                "sales_order_id": str(payload.sales_order_id),
+                "sales_order_line_id": str(payload.sales_order_line_id),
+                "item_id": str(payload.item_id),
+                "batch_id": str(selected_batch_id) if selected_batch_id else None,
+                "spec_id": str(payload.spec_id) if payload.spec_id else None,
+                "reserved_qty": float(payload.qty),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for reservation_created %s: %s", reservation.id, exc)
     return _serialize_reservation(reservation)
 
 
@@ -179,6 +204,26 @@ def release_reservation(
     reservation.status = ReservationStatus.RELEASED
     reservation.released_at = datetime.utcnow()
     db.commit()
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="reservation_released",
+            entity_type="reservation",
+            entity_id=str(reservation.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Reservation {reservation.id} released",
+            payload={
+                "sales_order_id": str(reservation.sales_order_id),
+                "sales_order_line_id": str(reservation.sales_order_line_id),
+                "item_id": str(reservation.item_id),
+                "batch_id": str(reservation.batch_id) if reservation.batch_id else None,
+                "reserved_qty": float(reservation.reserved_qty),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for reservation_released %s: %s", reservation.id, exc)
 
     return {
         "message": "Reservation released",
@@ -249,6 +294,30 @@ def consume_reservation(
 
     db.commit()
     db.refresh(reservation)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="reservation_consumed",
+            entity_type="reservation",
+            entity_id=str(reservation.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Reservation {reservation.id} consumed {payload.qty} via dispatch {payload.dispatch_ref}",
+            payload={
+                "sales_order_id": str(reservation.sales_order_id),
+                "sales_order_line_id": str(reservation.sales_order_line_id),
+                "item_id": str(reservation.item_id),
+                "batch_id": str(reservation.batch_id) if reservation.batch_id else None,
+                "qty_consumed": float(payload.qty),
+                "dispatch_ref": payload.dispatch_ref,
+                "transaction_id": str(txn.id),
+                "remaining_qty": max(0.0, reservation.reserved_qty - reservation.consumed_qty),
+                "status": reservation.status.value,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for reservation_consumed %s: %s", reservation.id, exc)
 
     return {
         "message": "Reservation consumed and dispatch transaction posted",

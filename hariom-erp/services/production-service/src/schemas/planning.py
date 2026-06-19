@@ -182,6 +182,9 @@ class QueueJobCardItem(BaseModel):
     planned_start: Optional[datetime] = None
     planned_end: Optional[datetime] = None
     created_at: datetime
+    is_carry_forward: bool = False
+    carry_forward_source_job_card_id: Optional[UUID] = None
+    carry_forward_reason_code: Optional[str] = None
 
 
 class QueueMachineBucket(BaseModel):

@@ -72,7 +72,7 @@ export function landingPathForRole(role: string | null | undefined) {
 export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Owner: [
     { href: "/reports/owner", label: "Owner Pack", detail: "Review KPI stack, OTIF, and exceptions." },
-    { href: "/planning", label: "Planning Board", detail: "Check route loading and bottlenecks." },
+    { href: "/planning/board?section=winder", label: "Planning Board", detail: "Check route loading and bottlenecks." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Validate active cards and stage completion." },
     { href: "/production/reconciliation", label: "Reconciliation", detail: "Close cost and material variances." },
   ],
@@ -86,11 +86,11 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/planning/board?section=winder", label: "Winder Plan", detail: "Schedule machine and shift assignments." },
     { href: "/quality", label: "Quality Desk", detail: "Log inspections and release active holds." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Track cards through the production spine." },
-    { href: "/dispatch", label: "Dispatch Ready", detail: "Confirm finished jobs ready for handoff." },
+    { href: "/logistics/dispatch", label: "Dispatch Ready", detail: "Confirm finished jobs ready for handoff." },
   ],
   Planner: [
     { href: "/sales-orders", label: "Sales Queue", detail: "Review approvals and pending releases." },
-    { href: "/planning", label: "Planning Workspace", detail: "Plan by stage, machine, and shift." },
+    { href: "/planning/board?section=winder", label: "Planning Workspace", detail: "Plan by stage, machine, and shift." },
     { href: "/planning/tracker", label: "Tracker", detail: "Monitor WIP and delays by stage." },
     { href: "/specifications/new", label: "Spec Sheet", detail: "Create recipe-backed specification sheets." },
   ],
@@ -110,7 +110,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/sales-orders/new", label: "Create Sales Order", detail: "Capture PO demand and release needs." },
     { href: "/sales-orders", label: "Sales Orders", detail: "Approve, release, and track line items." },
     { href: "/reports/sales", label: "Sales Reports", detail: "Track OTIF and delayed commitments." },
-    { href: "/dispatch", label: "Dispatch Status", detail: "Check commercial handoff status." },
+    { href: "/logistics/dispatch", label: "Dispatch Status", detail: "Check commercial handoff status." },
   ],
   Operator: [
     { href: "/production/supervisor-entry", label: "QR / Stage Entry", detail: "Scan job card and enter stage output." },

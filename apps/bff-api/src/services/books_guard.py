@@ -17,7 +17,7 @@ import json
 import logging
 import os
 import time
-from datetime import date as DateT
+from datetime import date as DateT, timedelta
 from typing import Any, Optional
 
 import httpx
@@ -222,6 +222,21 @@ async def assert_not_backdated(
     candidate_date = _parse_iso_date(candidate)
     if candidate_date is None:
         return
+
+    # P2.6 — Reject future-dated entries (more than 1 day ahead of today).
+    # The 1-day cushion preserves overnight / cross-timezone leeway while
+    # blocking "post a stage 2 weeks in the future" mistakes.
+    today = DateT.today()
+    if candidate_date > today + timedelta(days=1):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "FUTURE_DATE_NOT_ALLOWED",
+                "message": "Cannot post a transaction more than 1 day in the future",
+                "candidate_date": candidate_date.isoformat(),
+            },
+        )
+
     if not plant_id or plant_id.upper() == "ALL":
         raise HTTPException(
             status_code=422,

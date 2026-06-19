@@ -7,8 +7,10 @@
     "build": "next build",
     "help:validate": "node scripts/validate-help-coverage.cjs",
     "lint": "next lint --dir app --dir components --dir hooks --dir lib",
-    "test": "node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts && node -r ./node_modules/sucrase/register __tests__/spec-sheet-suggestions.test.ts && node -r ./node_modules/sucrase/register __tests__/reconciliation-math.test.ts",
-    "verify": "npm run lint && npm run help:validate && npm run test && npx tsc --noEmit --pretty false && npm run build",
+    "test": "npm run test:static && npm run test:unit",
+    "test:static": "node scripts/validate-help-coverage.cjs && node scripts/validate-spec-canonical.cjs && node scripts/validate-route-canonical.cjs",
+    "test:unit": "node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts && node -r ./node_modules/sucrase/register __tests__/spec-sheet-suggestions.test.ts && node -r ./node_modules/sucrase/register __tests__/reconciliation-math.test.ts",
+    "verify": "npm run lint && npm run test && npx tsc --noEmit --pretty false && npm run build",
     "start": "next start"
   },
   "dependencies": {
@@ -36,6 +38,7 @@
     "eslint": "^8.57.0",
     "eslint-config-next": "15.5.15",
     "postcss": "8.5.12",
+    "sucrase": "^3.35.0",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3"
   },

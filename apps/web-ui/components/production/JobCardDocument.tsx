@@ -6,8 +6,9 @@ import { QRCodeSVG } from "qrcode.react"
 import { useEffect, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
+import { useAuth } from "@/context/AuthContext"
 import { useReelIssues } from "@/hooks/use-inventory"
-import { useMandrels } from "@/hooks/use-master-data"
+import { useEmployees, useMandrels, useShifts } from "@/hooks/use-master-data"
 import { displayPlantScope } from "@/lib/plant-scope"
 import {
   useCompleteStageEntry,
@@ -21,6 +22,17 @@ type StageName = "SLITTING" | "WINDER" | "OVEN" | "PROCESS" | "PACKING" | "QC" |
 
 const STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
 const PLANNER_GATED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
+const STAGES_REQUIRING_SHIFT: StageName[] = ["WINDER", "PROCESS"]
+const LATE_ENTRY_THRESHOLD_HOURS = 6
+
+function computeHoursLate(endTimeValue: any): number {
+  if (!endTimeValue) return 0
+  const endDate = new Date(String(endTimeValue))
+  if (!Number.isFinite(endDate.getTime())) return 0
+  const diffMs = Date.now() - endDate.getTime()
+  if (diffMs <= 0) return 0
+  return diffMs / (1000 * 60 * 60)
+}
 
 type Props = {
   jobCardId?: string
@@ -67,6 +79,7 @@ function blankWinderEntry() {
     start_time: "",
     end_time: "",
     cycle_time: "",
+    shift_code: "",
     winding_meters_produced: "",
     accepted_winding_meters: "",
     reject_winding_meters: "",
@@ -93,6 +106,7 @@ function blankSlittingEntry() {
     start_time: "",
     end_time: "",
     cycle_time: "",
+    shift_code: "",
     parent_reel_id: "",
     child_reel_ids_text: "",
     slit_output_weight_kg: "",
@@ -109,6 +123,7 @@ function blankOvenEntry() {
     start_time: "",
     end_time: "",
     cycle_time: "",
+    shift_code: "",
     bamboo_count_in: "",
     bamboo_count_out: "",
     pre_oven_weight_kg: "",
@@ -127,6 +142,7 @@ function blankProcessEntry() {
     start_time: "",
     end_time: "",
     cycle_time: "",
+    shift_code: "",
     process_qty: "",
     reject_qty: "",
     reject_reason: "",
@@ -235,7 +251,7 @@ function stageMachineField(stage: StageName): string | null {
   return null
 }
 
-function parseStageForms(card: any, machineLabelMap: Map<string, string>) {
+function parseStageForms(card: any, machineLabelMap: Map<string, string>, defaultShift: string = "") {
   const rows = Array.isArray(card?.stages) ? card.stages : []
   const segments = Array.isArray(card?.stage_segments) ? card.stage_segments : []
   const forms: Record<string, any> = {}
@@ -247,17 +263,21 @@ function parseStageForms(card: any, machineLabelMap: Map<string, string>) {
     const machineLabel =
       machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : ""
     const normalizedEntry = normalizeStageEntry(stageName, row?.entry_snapshot)
+    const baseEntry = machineField && !normalizedEntry[machineField]
+      ? { ...normalizedEntry, [machineField]: machineLabel }
+      : { ...normalizedEntry }
+    if (!baseEntry.shift_code) {
+      const inheritedShift = row?.shift_code || segment?.shift_code || defaultShift || ""
+      if (inheritedShift) {
+        baseEntry.shift_code = String(inheritedShift)
+      }
+    }
     forms[stageName] = {
       segment_id: segment?.id || null,
       remarks: row?.remarks || "",
       override_reason: row?.actuals_snapshot?.override_reason || "",
       reel_issue_ids: Array.isArray(row?.reel_issue_ids) ? row.reel_issue_ids : [],
-      entry_snapshot: machineField && !normalizedEntry[machineField]
-        ? {
-            ...normalizedEntry,
-            [machineField]: machineLabel,
-          }
-        : normalizedEntry,
+      entry_snapshot: baseEntry,
     }
   }
   return forms
@@ -390,12 +410,30 @@ function MatrixBlock({
 
 export default function JobCardDocument({ jobCardId, mode }: Props) {
   const { showToast } = useApp()
+  const { user } = useAuth()
   const jobCardQuery = usePlanningJobCard(jobCardId)
   const saveDraftMutation = useSaveStageDraft()
   const completeStageMutation = useCompleteStageEntry()
   const machineLabelMap = useMachineLabelMap()
   const mandrelsQuery = useMandrels()
+  const shiftsQuery = useShifts()
+  const employeesQuery = useEmployees()
   const [stageForms, setStageForms] = useState<Record<string, any>>({})
+  const activeEmployees = useMemo(() => {
+    const rows = Array.isArray(employeesQuery.data) ? employeesQuery.data : []
+    return rows.filter((row: any) => row && (row.id ?? null) !== null && row.is_active !== false && row.active !== false)
+  }, [employeesQuery.data])
+  const employeesLoadFailed = Boolean(employeesQuery.isError)
+  const userDefaultShift = (user as any)?.default_shift || ""
+  const shiftOptions = useMemo(() => {
+    const rows = Array.isArray(shiftsQuery.data) ? shiftsQuery.data : []
+    return rows
+      .filter((row: any) => row && (row.code || row.shift_code))
+      .map((row: any) => ({
+        code: String(row.code || row.shift_code || ""),
+        name: String(row.name || row.shift_name || row.code || row.shift_code || ""),
+      }))
+  }, [shiftsQuery.data])
 
   const card = jobCardQuery.data
   const documentSnapshot = card?.document_snapshot || {}
@@ -441,9 +479,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
   useEffect(() => {
     if (card) {
-      setStageForms(parseStageForms(card, machineLabelMap))
+      setStageForms(parseStageForms(card, machineLabelMap, userDefaultShift))
     }
-  }, [card, machineLabelMap])
+  }, [card, machineLabelMap, userDefaultShift])
 
   const availableReelIssues = useMemo(() => {
     const rows = Array.isArray(reelIssuesQuery.data) ? reelIssuesQuery.data : []
@@ -689,6 +727,10 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     } else if (stageMeta?.machine_id) {
       payload.machine_id = stageMeta.machine_id
     }
+    const submittedShift = (entry.shift_code || "").toString().trim() || assignment.shiftCode || stageMeta?.shift_code || ""
+    if (submittedShift) {
+      payload.shift_code = submittedShift
+    }
     if (stage === "SLITTING" && entry.slit_output_weight_kg !== "") {
       payload.input_qty = Number(entry.slit_output_weight_kg)
     }
@@ -764,6 +806,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     if (assignment.missingRequiredAssignment) {
       showToast("Planner must assign machine and shift before supervisor entry can continue.", "error")
       return
+    }
+    if (STAGES_REQUIRING_SHIFT.includes(stage)) {
+      const formEntry = stageForms[stage]?.entry_snapshot || {}
+      const stageShift = (formEntry.shift_code || "").toString().trim() || assignment.shiftCode || ""
+      if (!stageShift) {
+        showToast(`Shift selection is required before saving ${stage}.`, "error")
+        return
+      }
     }
     try {
       if (saveMode === "draft") {
@@ -1208,7 +1258,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <LabeledValue label="Planned Slitter" value={entry.slitter_no || assignment.machineLabel || "Unscheduled"} />
           <LabeledValue label="Planned Shift" value={assignment.shiftLabel || "-"} />
-          {renderSimpleField(stage, "Operator Name", "operator_name")}
+          {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
           {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
@@ -1216,7 +1266,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
           {renderSimpleField(stage, "Parent Reel ID", "parent_reel_id")}
           {renderSimpleField(stage, "Child Reel IDs", "child_reel_ids_text")}
+          {renderShiftPicker(stage)}
         </div>
+        {renderLateEntryWarning(stage)}
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
@@ -1260,6 +1312,120 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="mt-1">
           <TextInput type={type} value={value} onChange={(next) => updateSnapshotField(stage, field, next)} />
         </div>
+      </div>
+    )
+  }
+
+  function employeesForStage(stage: StageName) {
+    const wanted = String(stage || "").toUpperCase()
+    const matched = activeEmployees.filter((emp: any) => {
+      const dept = String(emp.department || "").toUpperCase()
+      if (dept && dept === wanted) return true
+      const skills = String(emp.skills || "").toUpperCase()
+      if (!skills) return false
+      return skills
+        .split(/[,;/|]/)
+        .map((token: string) => token.trim())
+        .filter(Boolean)
+        .includes(wanted)
+    })
+    // Never show an empty dropdown — fall back to all active employees.
+    return matched.length > 0 ? matched : activeEmployees
+  }
+
+  function renderOperatorPicker(
+    stage: StageName,
+    label: string,
+    field: string = "operator_name",
+    idField: string = "operator_employee_id",
+  ) {
+    const value = stageForms[stage]?.entry_snapshot?.[field] ?? ""
+    if (!stageEditable(stage)) {
+      return <LabeledValue label={label} value={value} />
+    }
+    // Graceful fallback: if the employee master failed to load, keep free-text entry so logging is never blocked.
+    if (employeesLoadFailed) {
+      return renderSimpleField(stage, label, field)
+    }
+    const selectedId = stageForms[stage]?.entry_snapshot?.[idField] ?? ""
+    const options = employeesForStage(stage)
+    // If the saved name isn't a known employee, keep it visible as a free-text legacy value.
+    const hasLegacyName = Boolean(value) && !options.some((emp: any) => String(emp.name || "") === String(value))
+    return (
+      <div className="border border-slate-300 px-2 py-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+        <div className="mt-1">
+          <select
+            value={selectedId ? String(selectedId) : ""}
+            onChange={(event) => {
+              const empId = event.target.value
+              const emp = options.find((candidate: any) => String(candidate.id) === empId)
+              updateStageForm(stage, (current) => ({
+                ...current,
+                entry_snapshot: {
+                  ...(current.entry_snapshot || {}),
+                  [field]: emp ? String(emp.name || "") : "",
+                  [idField]: emp ? String(emp.id) : "",
+                },
+              }))
+            }}
+            className="h-11 w-full rounded-2xl border border-slate-300 bg-white/95 px-3 text-sm font-medium text-slate-900 shadow-sm"
+          >
+            <option value="">{hasLegacyName ? value : "Select operator…"}</option>
+            {options.map((emp: any) => (
+              <option key={String(emp.id)} value={String(emp.id)}>
+                {emp.name}{emp.employee_code ? ` — ${emp.employee_code}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+    )
+  }
+
+  function renderLateEntryWarning(stage: StageName) {
+    const entry = stageForms[stage]?.entry_snapshot
+    if (!entry) return null
+    if (!stageEditable(stage)) return null
+    const hoursLate = computeHoursLate(entry.end_time)
+    if (hoursLate <= LATE_ENTRY_THRESHOLD_HOURS) return null
+    const hoursLabel = hoursLate >= 24 ? `${Math.round(hoursLate / 24 * 10) / 10} days` : `${Math.round(hoursLate * 10) / 10} hours`
+    return (
+      <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 no-print">
+        Recording {hoursLabel} late — confirm shift selection below.
+      </div>
+    )
+  }
+
+  function renderShiftPicker(stage: StageName) {
+    const currentValue = stageForms[stage]?.entry_snapshot?.shift_code ?? ""
+    const isRequired = STAGES_REQUIRING_SHIFT.includes(stage)
+    const label = `Shift${isRequired ? " *" : ""}`
+    if (!stageEditable(stage)) {
+      const display = currentValue || stageAssignment(stage).shiftCode || "-"
+      return <LabeledValue label="Shift" value={display} />
+    }
+    const options = shiftOptions
+    return (
+      <div className={`border px-2 py-2 ${isRequired && !currentValue ? "border-amber-400 bg-amber-50" : "border-slate-300"}`}>
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+        <div className="mt-1">
+          <select
+            value={currentValue || ""}
+            onChange={(event) => updateSnapshotField(stage, "shift_code", event.target.value)}
+            className="h-11 w-full rounded-2xl border border-slate-300 bg-white/95 px-3 text-sm font-medium text-slate-900 shadow-sm"
+          >
+            <option value="">{isRequired ? "Select shift…" : "Optional"}</option>
+            {options.map((opt) => (
+              <option key={opt.code} value={opt.code}>
+                {opt.code}{opt.name && opt.name !== opt.code ? ` — ${opt.name}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
+        {isRequired && !currentValue ? (
+          <div className="mt-1 text-[10px] font-semibold text-amber-700">Shift selection is required for this stage.</div>
+        ) : null}
       </div>
     )
   }
@@ -1326,13 +1492,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <LabeledValue label="Planned Winder" value={entry.winder_no || assignment.machineLabel || "Unscheduled"} />
           <LabeledValue label="Planned Shift" value={assignment.shiftLabel || "-"} />
-          {renderSimpleField(stage, "Operator Name", "operator_name")}
+          {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
           {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
           {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderShiftPicker(stage)}
         </div>
+        {renderLateEntryWarning(stage)}
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
@@ -1456,13 +1624,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <LabeledValue label="Planned Oven" value={entry.oven_no || assignment.machineLabel || "Unscheduled"} />
           <LabeledValue label="Planned Shift" value={assignment.shiftLabel || "-"} />
-          {renderSimpleField(stage, "Operator Name", "operator_name")}
+          {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
           {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
           {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderShiftPicker(stage)}
         </div>
+        {renderLateEntryWarning(stage)}
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
@@ -1524,13 +1694,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           <LabeledValue label="Planned Process Line" value={entry.process_line_no || assignment.machineLabel || "Unscheduled"} />
           <LabeledValue label="Planned Shift" value={assignment.shiftLabel || "-"} />
-          {renderSimpleField(stage, "Operator Name", "operator_name")}
+          {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
           {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
           {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderShiftPicker(stage)}
         </div>
+        {renderLateEntryWarning(stage)}
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
@@ -1635,7 +1807,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </div>
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
-          {renderSimpleField(stage, "Inspector", "inspector_name")}
+          {renderOperatorPicker(stage, "Inspector", "inspector_name", "inspector_employee_id")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
           {renderSimpleField(stage, "Sample Size", "sample_size", "number")}
           {renderSimpleField(stage, "Accepted Qty", "accepted_qty", "number")}

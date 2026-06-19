@@ -519,10 +519,16 @@ class JobCardShortClose(Base):
     """
 
     __tablename__ = "job_card_short_close"
+    __table_args__ = (
+        UniqueConstraint("job_card_id", "stage_type", name="uq_short_close_job_card_stage"),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=PLANT_A_UUID)
     job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, index=True)
+    # Which stage the short-close targets. A whole-card short-close uses "JOB_CARD".
+    # Allowed: JOB_CARD | WINDER | OVEN | PROCESS | SLITTING | PACKING | QC
+    stage_type = Column(String(20), nullable=False, default="JOB_CARD")
     planned_qty = Column(Float, nullable=False)
     produced_qty = Column(Float, nullable=False)
     gap_qty = Column(Float, nullable=False)
@@ -533,6 +539,13 @@ class JobCardShortClose(Base):
     notes = Column(Text, nullable=True)
     actor_id = Column(String(200), nullable=True)
     actor_role = Column(String(80), nullable=True)
+    # HOLD follow-up tracking (only set when decision == "HOLD"): OPEN | RESOLVED
+    hold_status = Column(String(20), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String(200), nullable=True)
+    # The final CARRY_FORWARD | SHORT_CLOSE_SO chosen at resolve time
+    resolution_decision = Column(String(20), nullable=True)
+    resolution_note = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -554,5 +567,7 @@ class MachineDowntime(Base):
     actor_id = Column(String(200), nullable=True)
     actor_role = Column(String(80), nullable=True)
     affected_job_card_ids = Column(JSONB, nullable=False, default=list)
+    # Planner reschedule nudge: NULL=none, PENDING|DONE|DISMISSED
+    reschedule_status = Column(String(20), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

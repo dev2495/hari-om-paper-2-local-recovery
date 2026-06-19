@@ -284,7 +284,6 @@ def create_customer(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     payload = _customer_payload(customer.model_dump())
     exists = db.query(models.Customer).filter(
@@ -306,6 +305,7 @@ def create_customer(
             entity_type="customer",
             entity_id=str(db_customer.id),
             plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
             actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
             summary=f"Customer {db_customer.name} created",
             payload={"code": db_customer.customer_code, "name": db_customer.name},
@@ -323,7 +323,6 @@ def update_customer(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     db_customer = db.query(models.Customer).filter(
         models.Customer.id == customer_id,
@@ -347,6 +346,21 @@ def update_customer(
     db.commit()
     db.refresh(db_customer)
     setattr(db_customer, "is_active", bool(db_customer.active))
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="customer_updated",
+            entity_type="customer",
+            entity_id=str(db_customer.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Customer {db_customer.name} updated",
+            payload={"fields_changed": list(update_data.keys())},
+        )
+    except Exception:
+        pass
     return db_customer
 
 
@@ -357,7 +371,6 @@ def deactivate_customer(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     db_customer = db.query(models.Customer).filter(
         models.Customer.id == customer_id,
@@ -375,6 +388,7 @@ def deactivate_customer(
             entity_type="customer",
             entity_id=str(db_customer.id),
             plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
             actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
             summary=f"Customer {db_customer.name} deactivated",
         )
@@ -413,7 +427,6 @@ def create_customer_contact(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     customer = db.query(models.Customer).filter(
         models.Customer.id == customer_id,
@@ -456,6 +469,26 @@ def create_customer_contact(
         ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="customer_contact_created",
+            entity_type="customer_contact",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Customer contact {model.contact_name} created for {customer.name}",
+            payload={
+                "customer_id": str(customer_id),
+                "contact_name": model.contact_name,
+                "department": model.department,
+                "is_primary": bool(model.is_primary),
+            },
+        )
+    except Exception:
+        pass
     return model
 
 
@@ -468,7 +501,6 @@ def update_customer_contact(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.CustomerContact).filter(
         models.CustomerContact.id == contact_id,
@@ -501,6 +533,24 @@ def update_customer_contact(
         ).update({"is_primary": False}, synchronize_session=False)
     db.commit()
     db.refresh(model)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="customer_contact_updated",
+            entity_type="customer_contact",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Customer contact {model.contact_name} updated",
+            payload={
+                "customer_id": str(customer_id),
+                "fields_changed": list(update_data.keys()),
+            },
+        )
+    except Exception:
+        pass
     return model
 
 
@@ -512,7 +562,6 @@ def delete_customer_contact(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    del current_user
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.CustomerContact).filter(
         models.CustomerContact.id == contact_id,
@@ -523,4 +572,19 @@ def delete_customer_contact(
         raise HTTPException(status_code=404, detail="Customer contact not found")
     model.active = False
     db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", "") if isinstance(current_user, dict) else "",
+            event_type="customer_contact_deleted",
+            entity_type="customer_contact",
+            entity_id=str(model.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]) if isinstance(current_user, dict) else None,
+            actor_email=current_user.get("sub") if isinstance(current_user, dict) else None,
+            summary=f"Customer contact {model.contact_name} deactivated",
+            payload={"customer_id": str(customer_id)},
+        )
+    except Exception:
+        pass
     return {"message": "Customer contact deactivated successfully"}

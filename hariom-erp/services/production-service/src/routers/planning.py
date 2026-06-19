@@ -23,6 +23,7 @@ from ..models import (
     AuditEvent,
     Dispatch,
     JobCard,
+    JobCardShortClose,
     JobCardStage,
     JobCardStageSegment,
     MachineStageCapacityProfile,
@@ -3491,6 +3492,26 @@ def _apply_plant_scope_filter(query, column, plant_scope: dict):
     return query.filter(column == _to_uuid(plant_scope["selected_plant_id"]))
 
 
+def _carry_forward_lookup(db: Session, plant_scope: dict) -> dict[str, dict[str, Optional[str]]]:
+    """Build a lookup keyed by carry-forward (top-up) job_card_id.
+
+    Returns { str(carry_forward_job_card_id): {"source": str(job_card_id), "reason": reason_code} }
+    so the planner board/queue can badge top-up cards with their originating JC. The
+    lookup is built once per board/queue request and threaded into the item builders.
+    """
+    query = db.query(JobCardShortClose).filter(JobCardShortClose.carry_forward_job_card_id.isnot(None))
+    query = _apply_plant_scope_filter(query, JobCardShortClose.plant_id, plant_scope)
+    lookup: dict[str, dict[str, Optional[str]]] = {}
+    for row in query.all():
+        if not row.carry_forward_job_card_id:
+            continue
+        lookup[str(row.carry_forward_job_card_id)] = {
+            "source": str(row.job_card_id),
+            "reason": row.reason_code,
+        }
+    return lookup
+
+
 def _customer_name_from_snapshot(spec_snapshot: dict[str, Any]) -> Optional[str]:
     return (
         spec_snapshot.get("customer_name_snapshot")
@@ -3819,8 +3840,10 @@ def _queue_item_from_stage_row(
     stage_row: JobCardStage,
     sales_order: Optional[SalesOrder],
     remaining_segments: int = 1,
+    carry_forward_lookup: Optional[dict[str, dict[str, Optional[str]]]] = None,
 ) -> QueueJobCardItem:
     spec_snapshot = job_card.spec_snapshot or {}
+    carry_forward_entry = (carry_forward_lookup or {}).get(str(job_card.id))
     segment_qty = float(queue_entry.planned_qty or job_card.planned_qty or 0.0)
     math_context = _planner_job_math(
         job_card=job_card,
@@ -3889,6 +3912,11 @@ def _queue_item_from_stage_row(
         planned_start=stage_row.planned_start,
         planned_end=stage_row.planned_end,
         created_at=job_card.created_at,
+        is_carry_forward=carry_forward_entry is not None,
+        carry_forward_source_job_card_id=(
+            _nullable_uuid(carry_forward_entry.get("source")) if carry_forward_entry else None
+        ),
+        carry_forward_reason_code=(carry_forward_entry.get("reason") if carry_forward_entry else None),
     )
 
 
@@ -3992,6 +4020,7 @@ def _build_stage_board_view(
     plant_scope: dict,
     token: str,
     plant_id: str,
+    carry_forward_lookup: Optional[dict[str, dict[str, Optional[str]]]] = None,
 ) -> tuple[PlanningBoardStageView, list[PlanningSuggestion]]:
     rows = _query_stage_queue_rows(
         db=db,
@@ -4009,7 +4038,14 @@ def _build_stage_board_view(
     for queue_entry, job_card, stage_row, sales_order in rows:
         spec_lookup[str(job_card.id)] = job_card.spec_snapshot or {}
         remaining_segments = len(_open_stage_segments(db, job_card.id, stage_row.stage_type))
-        item = _queue_item_from_stage_row(queue_entry, job_card, stage_row, sales_order, remaining_segments)
+        item = _queue_item_from_stage_row(
+            queue_entry,
+            job_card,
+            stage_row,
+            sales_order,
+            remaining_segments,
+            carry_forward_lookup=carry_forward_lookup,
+        )
         if queue_entry.machine_id:
             lane_key = f"{stage}:{str(queue_entry.machine_id)}:{queue_entry.shift_code or 'SHIFT_A'}"
         elif stage in {"QC", "DISPATCH"} and queue_entry.shift_code:
@@ -4322,12 +4358,20 @@ def get_stage_queue(
         plant_scope=plant_scope,
     )
 
+    carry_forward_lookup = _carry_forward_lookup(db, plant_scope)
     bucket_map: dict[str, list[QueueJobCardItem]] = {}
     for queue_entry, job_card, stage_row, sales_order in rows:
         machine_key = str(queue_entry.machine_id) if queue_entry.machine_id else "UNASSIGNED"
         remaining_segments = len(_open_stage_segments(db, job_card.id, stage_row.stage_type))
         bucket_map.setdefault(machine_key, []).append(
-            _queue_item_from_stage_row(queue_entry, job_card, stage_row, sales_order, remaining_segments)
+            _queue_item_from_stage_row(
+                queue_entry,
+                job_card,
+                stage_row,
+                sales_order,
+                remaining_segments,
+                carry_forward_lookup=carry_forward_lookup,
+            )
         )
 
     buckets: list[QueueMachineBucket] = []
@@ -4382,6 +4426,7 @@ def get_planning_board(
         stage_order = ["SLITTING"]
     stage_views: list[PlanningBoardStageView] = []
     suggestions: list[PlanningSuggestion] = []
+    carry_forward_lookup = _carry_forward_lookup(db, plant_scope)
     for stage_name in stage_order:
         stage_view, stage_suggestions = _build_stage_board_view(
             db=db,
@@ -4391,6 +4436,7 @@ def get_planning_board(
             plant_scope=plant_scope,
             token=current_user.get("token", ""),
             plant_id=machine_scope_plant,
+            carry_forward_lookup=carry_forward_lookup,
         )
         stage_views.append(stage_view)
         suggestions.extend(stage_suggestions)

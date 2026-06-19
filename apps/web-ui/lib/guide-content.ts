@@ -610,6 +610,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/production\/entry(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/eod-entry(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/supervisor-entry(?:\/.*)?$/, guideId: "job-cards" },
+  { pattern: /^\/operations(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "stock-lifecycle" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },
   { pattern: /^\/(?:dispatch|logistics\/dispatch)(?:\/.*)?$/, guideId: "dispatch" },

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Any, Optional
 import uuid
@@ -22,7 +23,10 @@ from ..models import (
     StockTransaction,
     TransactionType,
 )
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_user, require_role
+
+_audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/inventory/purchase", tags=["inventory-purchase"])
 
@@ -234,6 +238,26 @@ def create_purchase_order(
         )
     db.commit()
     db.refresh(order)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="purchase_order_created",
+            entity_type="purchase_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Purchase order {order.po_no} created with {len(payload.lines)} line(s) for {payload.supplier_name}",
+            payload={
+                "po_no": order.po_no,
+                "supplier_id": str(payload.supplier_id),
+                "supplier_name": payload.supplier_name,
+                "line_count": len(payload.lines),
+                "expected_date": payload.expected_date.isoformat() if payload.expected_date else None,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for purchase_order_created %s: %s", order.id, exc)
     return _serialize_order(order)
 
 
@@ -254,6 +278,25 @@ def approve_purchase_order(
     order.approved_at = datetime.utcnow()
     db.commit()
     db.refresh(order)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="purchase_order_approved",
+            entity_type="purchase_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Purchase order {order.po_no} approved",
+            payload={
+                "po_no": order.po_no,
+                "supplier_id": str(order.supplier_id),
+                "supplier_name": order.supplier_name_snapshot,
+                "approved_by": _actor(current_user),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for purchase_order_approved %s: %s", order.id, exc)
     return _serialize_order(order)
 
 
@@ -377,6 +420,28 @@ def post_grn(
         db.rollback()
         raise HTTPException(status_code=400, detail="GRN could not be posted; check duplicate references") from exc
     db.refresh(receipt)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_received",
+            entity_type="purchase_receipt",
+            entity_id=str(receipt.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"GRN {receipt.grn_no} posted against PO {order.po_no} ({len(response_lines)} line(s))",
+            payload={
+                "grn_no": receipt.grn_no,
+                "purchase_order_id": str(order.id),
+                "po_no": order.po_no,
+                "receipt_status": receipt.status,
+                "order_status": order.status,
+                "received_date": receipt.received_date.isoformat(),
+                "line_count": len(response_lines),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for stock_received (GRN) %s: %s", receipt.id, exc)
     return {
         "id": str(receipt.id),
         "purchase_order_id": str(order.id),
@@ -455,6 +520,26 @@ def update_receipt_line_qc(
     if line.receipt:
         line.receipt.status = _receipt_status([receipt_line.qc_status for receipt_line in line.receipt.lines or []])
     db.commit()
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="purchase_receipt_qc_updated",
+            entity_type="purchase_receipt_line",
+            entity_id=str(line.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"QC status for receipt line set to {payload.status}",
+            payload={
+                "qc_status": payload.status,
+                "batch_id": str(line.batch_id) if line.batch_id else None,
+                "batch_stock_status": line.batch.stock_status if line.batch else None,
+                "receipt_id": str(line.receipt_id) if line.receipt_id else None,
+                "notes": payload.notes,
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for purchase_receipt_qc_updated %s: %s", line.id, exc)
     return {
         "id": str(line.id),
         "qc_status": line.qc_status,

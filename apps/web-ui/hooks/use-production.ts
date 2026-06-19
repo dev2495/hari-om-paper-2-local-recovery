@@ -598,3 +598,47 @@ export function useDataEntryLag(params?: { start_date?: string; end_date?: strin
     },
   })
 }
+
+export function useHolds() {
+  return useQuery({
+    queryKey: ["short-close-holds"],
+    queryFn: async () => {
+      const { data } = await productionApi.listHolds()
+      return Array.isArray(data) ? data : []
+    },
+  })
+}
+
+export function useResolveHold() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ shortCloseId, data, plantId }: { shortCloseId: string; data: any; plantId?: string }) =>
+      productionApi.resolveHold(shortCloseId, data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["short-close-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["short-closes"] })
+    },
+  })
+}
+
+export function useRescheduleQueue() {
+  return useQuery({
+    queryKey: ["downtime-reschedule-queue"],
+    queryFn: async () => {
+      const { data } = await productionApi.listRescheduleQueue()
+      return Array.isArray(data) ? data : []
+    },
+  })
+}
+
+export function useUpdateRescheduleStatus() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data, plantId }: { id: string; data: any; plantId?: string }) =>
+      productionApi.updateRescheduleStatus(id, data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["downtime-reschedule-queue"] })
+      queryClient.invalidateQueries({ queryKey: ["downtime"] })
+    },
+  })
+}

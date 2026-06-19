@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+import logging
 import re
 from typing import Optional
 import uuid
@@ -9,7 +10,10 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import InventoryLocation, ItemMaster, ReferenceType, StockBatch, StockTransaction, TrackingMode, TransactionType
 from ..services import get_batch_balance, get_item_balance
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import require_role, get_current_plant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/inward", tags=["inward"])
 
@@ -49,6 +53,7 @@ class InwardCreate(BaseModel):
     reference_id: Optional[uuid.UUID] = None
     spec_id: Optional[uuid.UUID] = None
     external_ref: Optional[str] = None
+    effective_date: Optional[date] = None
 
     @field_validator("supplier_name")
     @classmethod
@@ -132,6 +137,8 @@ def create_inward(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid reference_type")
 
+    effective_date_value = inward.effective_date or date.today()
+
     transaction = StockTransaction(
         item_id=inward.item_id,
         batch_id=batch.id,
@@ -150,9 +157,35 @@ def create_inward(
             "cost_source": inward.cost_source or ("SUPPLIER" if inward.unit_cost is not None else None),
         },
         external_ref=inward.external_ref,
+        effective_date=effective_date_value,
     )
     db.add(transaction)
     db.commit()
+
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="stock_received",
+            entity_type="stock_transaction",
+            entity_id=str(transaction.id),
+            plant_id=str(plant_id),
+            actor_role=current_user.get("role"),
+            actor_email=current_user.get("sub"),
+            summary=f"Inward {batch_no}: {inward.qty} {item.uom.value} of {item.name} from {inward.supplier_name}",
+            payload={
+                "item_id": str(inward.item_id),
+                "batch_id": str(batch.id),
+                "batch_no": batch_no,
+                "qty": float(inward.qty),
+                "supplier_id": str(inward.supplier_id),
+                "supplier_name": inward.supplier_name,
+                "reference_type": ref_type.value,
+                "effective_date": effective_date_value.isoformat(),
+                "stock_status": batch.stock_status,
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed for stock_received (%s): %s", transaction.id, exc)
 
     return InwardResponse(
         batch_id=batch.id,

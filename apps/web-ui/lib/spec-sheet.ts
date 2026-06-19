@@ -278,8 +278,8 @@ export type ProcessGuidanceRow = {
   moistureBand: string
 }
 
-export const DEFAULT_MOISTURE_AVG = 8
-export const DEFAULT_WET_DIVISOR = 0.905
+export const DEFAULT_MOISTURE_AVG = 9
+export const DEFAULT_WET_DIVISOR = 0.91
 export const DEFAULT_TOLERANCE_BANDS: ToleranceBands = {
   id: 0.5,
   od: 0.5,

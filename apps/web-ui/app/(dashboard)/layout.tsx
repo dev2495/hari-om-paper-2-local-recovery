@@ -87,7 +87,7 @@ const navigationUnits: NavGroup[] = [
       },
       {
         name: "Planner",
-        href: "/production/planner",
+        href: "/planning/board",
         icon: Sparkles,
         description: "Machine queues, shift scheduling, and stage balancing.",
         roles: ["Owner", "Admin", "Planner", "PlantManager"],

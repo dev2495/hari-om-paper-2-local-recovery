@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+import logging
 import re
 import uuid
 from typing import Optional
@@ -9,7 +10,10 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import InventoryLocation, ItemType, ItemMaster, ReferenceType, StockBatch, StockTransaction, TransactionType
 from ..services import get_item_balance
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import require_role, get_current_plant
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fg-inward", tags=["fg-inward"])
 
@@ -43,6 +47,8 @@ class FGInwardCreate(BaseModel):
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "UNRESTRICTED"
     external_ref: Optional[str] = None
+    effective_date: Optional[date] = None
+    actual_end: Optional[datetime] = None
 
 
 class FGInwardResponse(BaseModel):
@@ -111,6 +117,15 @@ def create_fg_inward(
                 message="FG inward already posted (idempotent)",
             )
 
+    # Resolve effective_date: explicit > actual_end (date) > today.
+    effective_date_value: date
+    if fg_inward.effective_date is not None:
+        effective_date_value = fg_inward.effective_date
+    elif fg_inward.actual_end is not None:
+        effective_date_value = fg_inward.actual_end.date()
+    else:
+        effective_date_value = date.today()
+
     batch = StockBatch(
         item_id=fg_inward.item_id,
         batch_no=batch_no,
@@ -135,9 +150,33 @@ def create_fg_inward(
         stock_status=stock_status,
         movement_metadata={"batch_no": batch_no},
         external_ref=fg_inward.external_ref,
+        effective_date=effective_date_value,
     )
     db.add(transaction)
     db.commit()
+
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="fg_inward_created",
+            entity_type="stock_transaction",
+            entity_id=str(transaction.id),
+            plant_id=str(plant_id),
+            actor_role=current_user.get("role"),
+            actor_email=current_user.get("sub"),
+            summary=f"FG inward {batch_no}: {fg_inward.qty} {item.uom.value} of {item.name}",
+            payload={
+                "item_id": str(fg_inward.item_id),
+                "batch_id": str(batch.id),
+                "batch_no": batch_no,
+                "qty": float(fg_inward.qty),
+                "production_job_id": str(fg_inward.production_job_id),
+                "effective_date": effective_date_value.isoformat(),
+                "stock_status": stock_status,
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed for fg_inward_created (%s): %s", transaction.id, exc)
 
     return FGInwardResponse(
         batch_id=batch.id,
@@ -170,6 +209,8 @@ class ManualFGInwardCreate(BaseModel):
     batch_no: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "UNRESTRICTED"
+    effective_date: Optional[date] = None
+    actual_end: Optional[datetime] = None
 
 
 @router.post("/manual", response_model=FGInwardResponse)
@@ -236,6 +277,15 @@ def create_manual_fg_inward(
                 message="Manual FG inward already posted (idempotent)",
             )
 
+    # Resolve effective_date: explicit > actual_end (date) > today.
+    effective_date_value: date
+    if payload.effective_date is not None:
+        effective_date_value = payload.effective_date
+    elif payload.actual_end is not None:
+        effective_date_value = payload.actual_end.date()
+    else:
+        effective_date_value = date.today()
+
     batch = StockBatch(
         item_id=payload.item_id,
         batch_no=batch_no,
@@ -267,9 +317,34 @@ def create_manual_fg_inward(
             "ref": payload.reference or "",
         },
         external_ref=external_ref,
+        effective_date=effective_date_value,
     )
     db.add(transaction)
     db.commit()
+
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="fg_inward_created",
+            entity_type="stock_transaction",
+            entity_id=str(transaction.id),
+            plant_id=str(plant_id),
+            actor_role=current_user.get("role"),
+            actor_email=current_user.get("sub"),
+            summary=f"Manual FG inward ({reason}) {batch_no}: {payload.qty} {item.uom.value} of {item.name}",
+            payload={
+                "item_id": str(payload.item_id),
+                "batch_id": str(batch.id),
+                "batch_no": batch_no,
+                "qty": float(payload.qty),
+                "reason_code": reason,
+                "effective_date": effective_date_value.isoformat(),
+                "stock_status": stock_status,
+                "manual": True,
+            },
+        )
+    except Exception as exc:
+        logger.warning("audit emit failed for fg_inward_created/manual (%s): %s", transaction.id, exc)
 
     return FGInwardResponse(
         batch_id=batch.id,

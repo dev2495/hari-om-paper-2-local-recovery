@@ -447,7 +447,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
               </div>
               <p className="text-lg font-semibold text-slate-950">{formatMetric(orderRows.length)}</p>
             </Link>
-            <Link href="/planning" className="flex items-center justify-between rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300">
+            <Link href="/planning/board?section=winder" className="flex items-center justify-between rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300">
               <div>
                 <p className="text-sm font-semibold text-slate-950">Planning Board</p>
                 <p className="text-xs text-slate-500">Stage backlog and schedule load</p>

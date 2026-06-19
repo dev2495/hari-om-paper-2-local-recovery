@@ -321,6 +321,25 @@ async def list_short_close(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/short-close", request, token)
 
 
+@router.get("/operations/short-close/holds")
+async def list_short_close_holds(request: Request, token: str = Depends(get_token)):
+    """List HOLD short-closes still awaiting a final decision (plant-scoped)."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/operations/short-close/holds", request, token
+    )
+
+
+@router.post("/operations/short-close/{short_close_id}/resolve-hold")
+async def post_resolve_hold(short_close_id: str, request: Request, token: str = Depends(get_token)):
+    """Resolve an open HOLD short-close with a final CARRY_FORWARD or SHORT_CLOSE_SO decision."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL,
+        f"/operations/short-close/{short_close_id}/resolve-hold",
+        request,
+        token,
+    )
+
+
 @router.post("/operations/downtime")
 async def post_downtime(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/downtime", request, token)
@@ -336,6 +355,27 @@ async def put_downtime(downtime_id: str, request: Request, token: str = Depends(
 @router.get("/operations/downtime")
 async def list_downtime(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/downtime", request, token)
+
+
+@router.get("/operations/downtime/reschedule-queue")
+async def get_downtime_reschedule_queue(request: Request, token: str = Depends(get_token)):
+    """Downtime rows with affected job cards still needing a reschedule decision."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/operations/downtime/reschedule-queue", request, token
+    )
+
+
+@router.put("/operations/downtime/{downtime_id}/reschedule-status")
+async def put_downtime_reschedule_status(
+    downtime_id: str, request: Request, token: str = Depends(get_token)
+):
+    """Mark a downtime's reschedule follow-up as DONE or DISMISSED."""
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL,
+        f"/operations/downtime/{downtime_id}/reschedule-status",
+        request,
+        token,
+    )
 
 
 @router.get("/operations/data-entry-lag")

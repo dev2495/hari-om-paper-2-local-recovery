@@ -32,6 +32,7 @@ hariom-erp/.venv-direct/
 
 EXPORT_REPORT.txt
 /output/
+/hariom-erp/output/
 /reports/
 !apps/web-ui/app/(dashboard)/reports/
 !apps/web-ui/app/(dashboard)/reports/**

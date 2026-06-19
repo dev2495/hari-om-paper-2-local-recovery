@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from typing import List, Optional
+import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -22,6 +23,8 @@ from ..utils.auth import (
     get_current_user,
     require_role,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
@@ -72,6 +75,25 @@ class SalesOrderLineReleasePayload(BaseModel):
 
 class ReleaseLotJobCardSyncPayload(BaseModel):
     job_card_id: uuid.UUID
+
+
+class ReleaseLotReallocatePayload(BaseModel):
+    carry_forward_job_card_id: uuid.UUID
+    gap_qty: float
+
+
+def carry_forward_lot_split(original_released_qty: float, gap_qty: float) -> tuple[float, float]:
+    """Compute the P1.10 release-lot split (pure, no DB).
+
+    The original lot shrinks to the produced portion; a NEW lot carries the
+    gap. Total released qty across both lots is conserved (modulo float
+    rounding) and the original never goes negative.
+
+    Returns ``(shrunk_original_qty, new_lot_qty)``.
+    """
+    gap = float(gap_qty or 0.0)
+    shrunk = max(0.0, round(float(original_released_qty or 0.0) - gap, 4))
+    return shrunk, gap
 
 
 class SalesOrderLineShortClosePayload(BaseModel):
@@ -843,6 +865,87 @@ def sync_release_lot_job_card(
         "created_by": lot.released_by or "unknown",
         "approved_by": lot.released_by_identity or lot.released_by,
         "created_at": lot.created_at,
+    }
+
+
+@router.post("/release-lots/{release_lot_id}/reallocate-carry-forward", response_model=SalesOrderReleaseLotResponse)
+def reallocate_release_lot_carry_forward(
+    release_lot_id: uuid.UUID,
+    payload: ReleaseLotReallocatePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "Sales", "Planner", "PlantManager"])),
+):
+    """Split a release lot so a carry-forward top-up job card owns the gap qty.
+
+    Called server-to-server from production-service when a short-close carries the
+    gap forward. Total released qty across the two lots stays constant: the original
+    lot shrinks to the produced portion and a new lot is minted for the gap, pointed
+    at the top-up job card.
+    """
+    original = (
+        db.query(SalesOrderReleaseLot)
+        .join(SalesOrderLine)
+        .join(SalesOrder)
+        .options(joinedload(SalesOrderReleaseLot.line).joinedload(SalesOrderLine.sales_order))
+        .filter(SalesOrderReleaseLot.id == release_lot_id, SalesOrder.plant_id == plant_id)
+        .first()
+    )
+    if not original:
+        raise HTTPException(status_code=404, detail="Release lot not found")
+
+    shrunk_qty, gap_qty = carry_forward_lot_split(original.released_qty, payload.gap_qty)
+    original.released_qty = shrunk_qty
+
+    new_lot = SalesOrderReleaseLot(
+        id=uuid.uuid4(),
+        sales_order_id=original.sales_order_id,
+        sales_order_line_id=original.sales_order_line_id,
+        product_code=original.product_code,
+        released_qty=gap_qty,
+        winder_machine_id=original.winder_machine_id,
+        job_card_id=payload.carry_forward_job_card_id,
+        status="released",
+        released_by=current_user.get("sub", "unknown"),
+        released_by_identity=current_user.get("sub"),
+        released_at=datetime.utcnow(),
+    )
+    db.add(new_lot)
+    db.commit()
+    db.refresh(new_lot)
+
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="release_lot_reallocated_carry_forward",
+            entity_type="sales_order_release_lot",
+            entity_id=str(new_lot.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=(
+                f"Split release lot {release_lot_id} for carry-forward: "
+                f"{round(gap_qty, 2)} pcs reallocated to job card "
+                f"{payload.carry_forward_job_card_id} (new lot {new_lot.id})."
+            ),
+        )
+    except Exception as exc:  # pragma: no cover - audit is best-effort
+        logger.warning("Failed to emit release_lot_reallocated_carry_forward audit event: %s", exc)
+
+    return {
+        "id": new_lot.id,
+        "order_id": original.sales_order_id,
+        "line_id": new_lot.sales_order_line_id,
+        "release_lot_id": new_lot.id,
+        "release_qty": new_lot.released_qty,
+        "winder_machine_id": new_lot.winder_machine_id,
+        "product_code": new_lot.product_code,
+        "status": new_lot.status,
+        "job_card_id": new_lot.job_card_id,
+        "created_by": new_lot.released_by or "unknown",
+        "approved_by": new_lot.released_by_identity or new_lot.released_by,
+        "created_at": new_lot.created_at,
     }
 
 

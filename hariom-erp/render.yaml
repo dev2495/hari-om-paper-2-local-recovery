@@ -25,6 +25,12 @@ services:
         sync: false
       - key: OWNER_PACK_OUTPUT_DIR
         value: /var/data/owner-pack
+      # P1.9 — Render cron below is the canonical owner-pack trigger. Disable
+      # the in-process APScheduler owner-pack job so customers never receive
+      # the same daily email twice. The in-process scheduler still runs to
+      # provide the hourly heartbeat that powers /scheduler/status.
+      - key: OWNER_PACK_IN_PROCESS
+        value: "false"
 
   # Render schedules use UTC; 14:30 UTC is 20:00 IST.
   - type: cron

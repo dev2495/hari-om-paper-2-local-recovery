@@ -26,6 +26,7 @@ const routePatterns = [
   { pattern: /^\/inventory(?:\/.*)?$/, guideId: "inventory" },
   { pattern: /^\/(?:planning|planning\/board|production\/planner)(?:\/.*)?$/, guideId: "planning" },
   { pattern: /^\/(?:job-cards|production\/job-cards|production\/entry|production\/eod-entry|production\/supervisor-entry)(?:\/.*)?$/, guideId: "job-cards" },
+  { pattern: /^\/operations(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "stock-lifecycle" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },
   { pattern: /^\/(?:dispatch|logistics\/dispatch)(?:\/.*)?$/, guideId: "dispatch" },

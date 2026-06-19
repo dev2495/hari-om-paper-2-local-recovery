@@ -1,3 +1,4 @@
+import logging
 from datetime import date, datetime
 from typing import List, Optional
 import uuid
@@ -16,7 +17,10 @@ from ..models import (
     ReelScanSource,
     ReelStatus,
 )
+from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
+
+_audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/reel-issues", tags=["reel-issues"])
 
@@ -170,6 +174,27 @@ def create_reel_issue(
     db.add(issue)
     db.commit()
     db.refresh(issue)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="reel_issue_created",
+            entity_type="reel_issue",
+            entity_id=str(issue.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Reel issued ({payload.issued_weight_kg} kg) to {payload.issue_section} on shift {payload.shift}",
+            payload={
+                "reel_id": str(payload.reel_id),
+                "issue_section": payload.issue_section,
+                "machine_id": str(payload.machine_id) if payload.machine_id else None,
+                "shift": payload.shift,
+                "issue_date": payload.issue_date.isoformat(),
+                "issued_weight_kg": float(payload.issued_weight_kg),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for reel_issue_created %s: %s", issue.id, exc)
     return _serialize_issue(issue)
 
 
@@ -287,4 +312,23 @@ def close_reel_issue(
 
     db.commit()
     db.refresh(issue)
+    try:
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="reel_issue_closed",
+            entity_type="reel_issue",
+            entity_id=str(issue.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"Reel issue closed (consumed {consumed} kg)",
+            payload={
+                "reel_id": str(issue.reel_id),
+                "consumed_weight_kg": consumed,
+                "remaining_weight_kg": float(issue.remaining_weight_kg or 0.0),
+                "reel_status": reel.status.value if hasattr(reel.status, "value") else str(reel.status),
+            },
+        )
+    except Exception as exc:
+        _audit_logger.warning("audit emit failed for reel_issue_closed %s: %s", issue.id, exc)
     return _serialize_issue(issue)

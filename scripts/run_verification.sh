@@ -2,33 +2,38 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-${ROOT_DIR}/hariom-erp/venv-runtime/bin/python}"
+PYTEST="$ROOT_DIR/hariom-erp/venv-runtime/bin/pytest"
 
-echo "==> Python compile: service routers and canonical spec math"
-"${PYTHON_BIN}" -m py_compile \
-  "${ROOT_DIR}/apps/bff-api/src/routes/spec.py" \
-  "${ROOT_DIR}/apps/bff-api/src/routes/inventory.py" \
-  "${ROOT_DIR}/hariom-erp/services/spec-service/src/main.py" \
-  "${ROOT_DIR}/hariom-erp/services/spec-service/src/routers/specs.py" \
-  "${ROOT_DIR}/hariom-erp/services/spec-service/src/routers/calculations.py" \
-  "${ROOT_DIR}/hariom-erp/services/spec-service/src/calculators.py" \
-  "${ROOT_DIR}/hariom-erp/services/spec-service/src/spec_math.py" \
-  "${ROOT_DIR}/scripts/verify_spec_math_parity.py" \
-  "${ROOT_DIR}/scripts/opening_stock_live_smoke.py"
+cd "$ROOT_DIR"
 
-echo "==> Spec-service math tests"
-(
-  cd "${ROOT_DIR}/hariom-erp/services/spec-service"
-  "${PYTHON_BIN}" -m pytest tests/test_spec_math.py
-)
+if [[ ! -x "$PYTEST" ]]; then
+  echo "Missing repo pytest runtime: $PYTEST" >&2
+  exit 1
+fi
 
-echo "==> Python/TypeScript spec math parity"
-"${PYTHON_BIN}" "${ROOT_DIR}/scripts/verify_spec_math_parity.py"
+echo "== BFF route contracts =="
+env PYTHONPATH=apps/bff-api "$PYTEST" apps/bff-api/tests/test_route_contracts.py
 
-echo "==> Web verification"
-(
-  cd "${ROOT_DIR}/apps/web-ui"
-  npm run verify
-)
+echo "== Spec math parity =="
+env PYTHONPATH=hariom-erp/services/spec-service/src "$PYTEST" hariom-erp/services/spec-service/tests/test_spec_math.py
 
-echo "==> Verification complete"
+echo "== Web dependency audit =="
+cd "$ROOT_DIR/apps/web-ui"
+if [[ ! -d node_modules ]]; then
+  npm ci
+fi
+npm audit --audit-level=high
+
+echo "== Web tests =="
+npm run test
+
+echo "== Web lint =="
+npm run lint
+
+echo "== Web typecheck =="
+npx tsc --noEmit --pretty false
+
+echo "== Web production build =="
+npm run build
+
+echo "Verification completed."
