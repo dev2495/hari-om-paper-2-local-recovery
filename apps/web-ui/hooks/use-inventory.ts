@@ -447,6 +447,103 @@ export function useCloseReelIssue() {
   })
 }
 
+export function useInventoryQualityTemplates(materialType?: string) {
+  return useQuery({
+    queryKey: ["inventory-quality-templates", materialType || "all"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getQualityTemplates(materialType ? { material_type: materialType } : undefined)
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useUpsertInventoryQualityTemplate() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.upsertQualityTemplate(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-templates"] })
+    },
+  })
+}
+
+export function usePendingInventoryQuality() {
+  return useQuery({
+    queryKey: ["inventory-quality-pending"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getPendingQuality()
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useInventoryQualityInspections(params?: any) {
+  return useQuery({
+    queryKey: ["inventory-quality-inspections", params || {}],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInventoryQualityInspections(params)
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateInventoryQualityInspection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createInventoryQualityInspection(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-pending"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-inspections"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-location-occupancy"] })
+    },
+  })
+}
+
+export function useCustomerRejections(params?: any) {
+  return useQuery({
+    queryKey: ["inventory-customer-rejections", params || {}],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getCustomerRejections(params)
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateCustomerRejection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createCustomerRejection(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-customer-rejections"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-pending"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+    },
+  })
+}
+
+export function useDisposeCustomerRejection() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => inventoryApi.disposeCustomerRejection(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-customer-rejections"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-pending"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-inspections"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+    },
+  })
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // Lifecycle gap hooks
 // ──────────────────────────────────────────────────────────────────────────

@@ -397,6 +397,99 @@ async def close_reel_issue(issue_id: str, request: Request, token: str = Depends
     return response
 
 
+@router.get("/quality/templates")
+async def list_quality_templates(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/templates", request, token)
+
+
+@router.post("/quality/templates")
+async def upsert_quality_template(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/templates", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_QC_TEMPLATE_UPDATED",
+        title=f"QC parameter updated: {payload.get('label') or payload.get('parameter_key') or 'parameter'}",
+        message="An inward QC parameter list was changed.",
+        href="/quality",
+        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store"],
+        payload={"template_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
+@router.get("/quality/pending")
+async def list_pending_quality(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/pending", request, token)
+
+
+@router.get("/quality/inspections")
+async def list_inventory_quality_inspections(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/inspections", request, token)
+
+
+@router.post("/quality/inspections")
+async def create_inventory_quality_inspection(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/inspections", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_QC_RECORDED",
+        title=f"Inventory QC {payload.get('status') or 'recorded'}",
+        message="A held inward item was inspected and its stock status was updated.",
+        href="/quality",
+        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store"],
+        payload={"inspection_id": str(payload.get("id") or ""), "entity_id": str(payload.get("entity_id") or "")},
+    )
+    return response
+
+
+@router.get("/quality/customer-rejections")
+async def list_customer_rejections(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/customer-rejections", request, token)
+
+
+@router.post("/quality/customer-rejections")
+async def create_customer_rejection(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/customer-rejections", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="CUSTOMER_REJECTION_INWARDED",
+        title=f"Customer rejection inward: {payload.get('customer_name') or 'customer'}",
+        message="Rejected finished goods were brought back under QC hold.",
+        href="/quality",
+        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
+        payload={"customer_rejection_id": str(payload.get("id") or ""), "batch_id": str(payload.get("batch_id") or "")},
+    )
+    return response
+
+
+@router.post("/quality/customer-rejections/{rejection_id}/disposition")
+async def dispose_customer_rejection(rejection_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/quality/customer-rejections/{rejection_id}/disposition",
+        request,
+        token,
+    )
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="CUSTOMER_REJECTION_DISPOSED",
+        title=f"Customer rejection disposition: {payload.get('disposition') or payload.get('status') or 'updated'}",
+        message="Rejected finished goods were assigned to rework, release, block, or scrap.",
+        href="/quality",
+        recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
+        payload={"customer_rejection_id": rejection_id, "status": str(payload.get("status") or "")},
+    )
+    return response
+
+
 @router.get("/valuation/summary")
 async def get_valuation_summary(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/valuation/summary", request, token)

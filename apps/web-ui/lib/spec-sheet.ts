@@ -50,15 +50,14 @@ export type SpecProfile = {
     notch_depth_mm?: number | null
     notching_holder?: string | null
     notching_blade?: string | null
-    groove?: string | null
+    holder?: string | null
+    blade?: string | null
+    v_flat?: string | null
     punch?: string | null
-    tochha?: string | null
-    tochha_type?: string | null
-    wider_tool?: string | null
-    height_gauge_go?: number | null
-    height_gauge_set?: number | null
-    height_gauge_no_go?: number | null
-    die?: string | null
+    notch_wider?: boolean | null
+    notch_patti?: boolean | null
+    notch_direction?: string | null
+    tube_direction?: string | null
     diagram?: Record<string, any>
   }
   process_guidance: {
@@ -304,18 +303,17 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
     field_key: "notch_type",
     label: "Notch Type",
     field_type: "select",
-    options: ["RHS - FORWARD", "LHS - FORWARD", "TOP - Forword Notch", "CENTER", "NONE"],
+    options: ["DROP DOWN", "SIDE NOTCH", "TOP NOTCH", "CENTER", "NONE"],
   },
   { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "number" },
   { field_key: "notch_depth_mm", label: "Notch Depth", field_type: "number" },
-  { field_key: "tochha", label: "Tochha", field_type: "select" },
-  { field_key: "tochha_type", label: "Tochha Type", field_type: "select", options: ["LOWER", "UPPER", "STEP", "NONE", "Lower", "Upper"] },
-  { field_key: "notching_holder", label: "Notching Holder", field_type: "select" },
-  { field_key: "notching_blade", label: "Notching Blade", field_type: "select" },
-  { field_key: "groove", label: "Groove", field_type: "select" },
-  { field_key: "punch", label: "Punch", field_type: "select" },
-  { field_key: "die", label: "Die", field_type: "select" },
-  { field_key: "wider_tool", label: "Wider Tool", field_type: "select" },
+  { field_key: "notching_blade", label: "Blade", field_type: "select" },
+  { field_key: "notching_holder", label: "Holder", field_type: "select" },
+  { field_key: "v_flat", label: "V + Flat", field_type: "select", options: ["V", "FLAT", "V + FLAT", "NA"] },
+  { field_key: "punch", label: "Punch", field_type: "select", options: ["SINGLE", "DOUBLE", "NA"] },
+  { field_key: "notch_wider", label: "Notch Wider", field_type: "boolean" },
+  { field_key: "notch_patti", label: "Notch Patti", field_type: "boolean" },
+  { field_key: "notch_direction", label: "Notch Direction", field_type: "select", options: ["FORWARD", "REVERSE"] },
   { field_key: "winder_tool_required", label: "Winder Tool", field_type: "boolean" },
   { field_key: "bundle_type", label: "Bundle Type", field_type: "text" },
   { field_key: "bundle_code", label: "Bundle Code", field_type: "text" },
@@ -331,9 +329,6 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "fadda_per_box", label: "Fadda / Box", field_type: "number" },
   { field_key: "bopp_required", label: "BOPP Required", field_type: "boolean" },
   { field_key: "special_instructions", label: "Packing Instructions", field_type: "text" },
-  { field_key: "height_gauge_go", label: "Height Gauge GO", field_type: "number" },
-  { field_key: "height_gauge_set", label: "Height Gauge SET", field_type: "number" },
-  { field_key: "height_gauge_no_go", label: "Height Gauge NO GO", field_type: "number" },
   { field_key: "valid_upto", label: "Valid Upto", field_type: "text" },
   { field_key: "prepared_by", label: "Prepared By", field_type: "text" },
   { field_key: "prepared_date", label: "Prepared Date", field_type: "text" },

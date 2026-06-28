@@ -19,7 +19,7 @@ export default function RawMaterialInwardPage() {
     supplier_id: "",
     location: "",
     external_ref: "",
-    stock_status: "UNRESTRICTED",
+    stock_status: "QC_HOLD",
   })
   const [submitError, setSubmitError] = useState("")
 
@@ -41,7 +41,7 @@ export default function RawMaterialInwardPage() {
             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-100/80">Stores receipt / direct GRN</p>
             <h1 className="mt-2 text-2xl font-semibold">Raw Material Inward</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">
-              Post bulk adhesive, parchment, packing, and non-reel material receipts with vendor id, batch/rate, location, and optional incoming QC hold.
+              Post bulk adhesive, parchment, packing, and non-reel material receipts with vendor id, batch/rate, location, and mandatory incoming QC hold.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -58,8 +58,8 @@ export default function RawMaterialInwardPage() {
         {[
           ["1", "Purchase reference", "PO/GRN number stays on the ledger external reference."],
           ["2", "Receipt posting", "Vendor id, cost, and location are mandatory for a priced batch."],
-          ["3", "Incoming QC", "Use QC hold when a receipt needs inspection before issue."],
-          ["4", "Stock use", "Unrestricted batches become available to production issue."],
+          ["3", "Incoming QC", "Every receipt stays on QC hold until inspection passes."],
+          ["4", "Stock use", "Only QC-approved batches become available to production issue."],
         ].map(([step, title, detail]) => (
           <div key={step} className="rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm">
             <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-700">Step {step}</p>
@@ -95,7 +95,7 @@ export default function RawMaterialInwardPage() {
                 reference_type: "PURCHASE",
                 external_ref: inward.external_ref || undefined,
               })
-              setInward((current) => ({ ...current, batch_no: "", qty: "", unit_cost: "", external_ref: "", stock_status: "UNRESTRICTED" }))
+              setInward((current) => ({ ...current, batch_no: "", qty: "", unit_cost: "", external_ref: "", stock_status: "QC_HOLD" }))
             } catch (error: any) {
               setSubmitError(error?.response?.data?.detail || error?.message || "Inward posting failed.")
             }
@@ -165,7 +165,6 @@ export default function RawMaterialInwardPage() {
             onChange={(e) => setInward((s) => ({ ...s, stock_status: e.target.value }))}
             className="h-11 rounded-xl border border-slate-200 px-3"
           >
-            <option value="UNRESTRICTED">Unrestricted stock</option>
             <option value="QC_HOLD">Incoming QC hold</option>
             <option value="BLOCKED">Blocked stock</option>
           </select>

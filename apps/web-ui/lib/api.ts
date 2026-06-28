@@ -484,6 +484,15 @@ export const inventoryApi = {
   createReelIssue: (data: any) => api.post("/api/inventory/reel-issues", data),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
   closeReelIssue: (id: string, data: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data),
+  getQualityTemplates: (params?: any) => api.get("/api/inventory/quality/templates", { params }),
+  upsertQualityTemplate: (data: any) => api.post("/api/inventory/quality/templates", data),
+  getPendingQuality: () => api.get("/api/inventory/quality/pending"),
+  getInventoryQualityInspections: (params?: any) => api.get("/api/inventory/quality/inspections", { params }),
+  createInventoryQualityInspection: (data: any) => api.post("/api/inventory/quality/inspections", data),
+  getCustomerRejections: (params?: any) => api.get("/api/inventory/quality/customer-rejections", { params }),
+  createCustomerRejection: (data: any) => api.post("/api/inventory/quality/customer-rejections", data),
+  disposeCustomerRejection: (id: string, data: any) =>
+    api.post(`/api/inventory/quality/customer-rejections/${id}/disposition`, data),
   // Lifecycle gap endpoints
   createManualFgInward: (data: any, plantId?: string) =>
     api.post("/api/inventory/fg-inward/manual", data, withPlantHeader(plantId)),

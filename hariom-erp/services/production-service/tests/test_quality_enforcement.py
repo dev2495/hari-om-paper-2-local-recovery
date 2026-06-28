@@ -84,21 +84,17 @@ class QualityEnforcementTests(unittest.TestCase):
 
         self.assertEqual([failure["label"] for failure in failures], ["Weight"])
 
-    def test_process_stage_completion_requires_qc_inspection_or_override(self):
+    def test_process_stage_completion_is_non_blocking_without_qc_inspection(self):
         job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
 
-        with self.assertRaises(HTTPException) as exc:
-            self._gate()(
-                db=_InspectionSession([]),
-                plant_id=PLANT_ID,
-                job_card=job_card,
-                selected_stage="WINDER",
-                quality_checks={},
-                override_reason=None,
-            )
-
-        self.assertEqual(exc.exception.status_code, 409)
-        self.assertIn("QC inspection", exc.exception.detail)
+        self._gate()(
+            db=_InspectionSession([]),
+            plant_id=PLANT_ID,
+            job_card=job_card,
+            selected_stage="WINDER",
+            quality_checks={},
+            override_reason=None,
+        )
 
     def test_process_stage_completion_accepts_existing_qc_inspection(self):
         job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())

@@ -214,10 +214,13 @@ function defaultFormState(): FormState {
       winder_tool_required: "false",
       plastic_required: "false",
       bopp_required: "false",
-      tube_direction: "OPPOSITE OF THE NOTCH",
+      notch_direction: "FORWARD",
+      tube_direction: "FORWARD",
       notch_type: "NONE",
-      tochha_type: "NONE",
-      wider_tool: "",
+      v_flat: "NA",
+      punch: "NA",
+      notch_wider: "false",
+      notch_patti: "false",
     },
     processGuidance: DEFAULT_PROCESS_GUIDANCE,
     selectedGuidanceIndex: 1,
@@ -595,13 +598,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }, [tools])
 
   const toolFieldCategoryMap: Record<string, string[]> = {
+    notch_type: ["NOTCH_TYPE"],
     notching_holder: ["NOTCHING_HOLDER"],
     notching_blade: ["NOTCHING_BLADE"],
-    groove: ["GROOVE", "GURU"],
+    v_flat: ["V_FLAT"],
     punch: ["PUNCH"],
-    die: ["DIE"],
-    wider_tool: ["WIDER_TOOL"],
-    tochha: ["TOCHHA"],
   }
   const externalSelectOptionsByField = useMemo<Record<string, string[]>>(
     () => ({
@@ -1002,9 +1003,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       notchDistanceMm: distance,
       notchDepthMm: depth,
       notchType: String(form.dynamicValues.notch_type || ""),
-      tubeDirection: String(form.dynamicValues.tube_direction || ""),
+      tubeDirection: String(form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || ""),
     }
-  }, [form.dynamicValues.notch_type, form.dynamicValues.tube_direction, form.notchDiagram.title, notchDepthMm, notchDistanceMm, tubeLengthMm])
+  }, [form.dynamicValues.notch_direction, form.dynamicValues.notch_type, form.dynamicValues.tube_direction, form.notchDiagram.title, notchDepthMm, notchDistanceMm, tubeLengthMm])
 
   const previewSummary = useMemo(() => (previewQuery.data?.summary || {}) as Record<string, any>, [previewQuery.data?.summary])
 
@@ -1063,10 +1064,26 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }, [specFields, specFieldsLoaded])
 
   useEffect(() => {
-    if (!specFieldsLoaded || catalogBootstrapped || missingFieldDefinitions.length === 0 || ensureCatalog.isPending) return
+    if (
+      !specFieldsLoaded ||
+      !hasConcreteWritePlant ||
+      catalogBootstrapped ||
+      missingFieldDefinitions.length === 0 ||
+      ensureCatalog.isPending
+    ) {
+      return
+    }
     setCatalogBootstrapped(true)
-    ensureCatalog.mutate(specFields || [])
-  }, [catalogBootstrapped, ensureCatalog, missingFieldDefinitions.length, specFields, specFieldsLoaded])
+    ensureCatalog.mutate({ existingFields: specFields || [], plantId: activePlant || undefined })
+  }, [
+    activePlant,
+    catalogBootstrapped,
+    ensureCatalog,
+    hasConcreteWritePlant,
+    missingFieldDefinitions.length,
+    specFields,
+    specFieldsLoaded,
+  ])
 
   useEffect(() => {
     if (!isCreate || !selectedTube) return
@@ -1183,6 +1200,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       dynamicValues: {
         ...defaultState.dynamicValues,
         ...dynamicMap,
+        notch_direction: dynamicMap.notch_direction || dynamicMap.tube_direction || defaultState.dynamicValues.notch_direction,
         groove: dynamicMap.groove || dynamicMap.guru || "",
         box_code: dynamicMap.box_code || dynamicMap.box || "",
         box: dynamicMap.box || dynamicMap.box_code || "",
@@ -1585,15 +1603,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         notch_depth_mm: parseMmValue(form.dynamicValues.notch_depth_mm),
         notching_holder: form.dynamicValues.notching_holder || null,
         notching_blade: form.dynamicValues.notching_blade || null,
-        groove: form.dynamicValues.groove || form.dynamicValues.guru || null,
+        blade: form.dynamicValues.notching_blade || null,
+        holder: form.dynamicValues.notching_holder || null,
+        v_flat: form.dynamicValues.v_flat || null,
         punch: form.dynamicValues.punch || null,
-        tochha: form.dynamicValues.tochha || null,
-        tochha_type: form.dynamicValues.tochha_type || null,
-        wider_tool: form.dynamicValues.wider_tool || null,
-        height_gauge_go: safeNumber(form.dynamicValues.height_gauge_go || 0) || null,
-        height_gauge_set: safeNumber(form.dynamicValues.height_gauge_set || 0) || null,
-        height_gauge_no_go: safeNumber(form.dynamicValues.height_gauge_no_go || 0) || null,
-        die: form.dynamicValues.die || null,
+        notch_wider: boolFromString(form.dynamicValues.notch_wider),
+        notch_patti: boolFromString(form.dynamicValues.notch_patti),
+        notch_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
+        tube_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
         diagram: form.notchDiagram,
       },
       process_guidance: {
@@ -2612,23 +2629,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
             <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
             <div className="grid gap-3 md:grid-cols-3">
-              {renderScalarField("tube_direction", "Tube Direction")}
               {renderScalarField("notch_type", "Notch Type")}
-              {renderScalarField("notch_position", "Notch Position")}
-              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Expected notch distance mm")}
-              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Expected notch depth mm")}
-              {renderScalarField("tochha", "Tochha")}
-              {renderScalarField("tochha_type", "Tochha Type")}
-              {renderScalarField("notching_holder", "Notching Holder")}
-              {renderScalarField("notching_blade", "Notching Blade")}
-              {renderScalarField("groove", "Groove")}
+              {renderScalarField("notch_direction", "Notch Direction")}
+              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Distance mm")}
+              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Depth mm")}
+              {renderScalarField("notching_blade", "Blade")}
+              {renderScalarField("notching_holder", "Holder")}
+              {renderScalarField("v_flat", "V + Flat")}
               {renderScalarField("punch", "Punch")}
-              {renderScalarField("die", "Die")}
-              {renderScalarField("wider_tool", "WIDER TOOL")}
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {renderScalarField("height_gauge_go", "Height Gauge GO", "number")}
-              {renderScalarField("height_gauge_no_go", "Height Gauge NO GO", "number")}
+              {renderScalarField("notch_wider", "Notch Wider")}
+              {renderScalarField("notch_patti", "Notch Patti")}
             </div>
           </div>
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">

@@ -27,6 +27,7 @@ router = APIRouter(prefix="/reel-issues", tags=["reel-issues"])
 VALID_SHIFTS = {"A", "B", "C", "GENERAL", "DAY", "NIGHT"}
 VALID_STATUSES = {"OPEN", "CLOSED"}
 VALID_SECTIONS = {"WINDER_SECTION", "SLITTING_SECTION"}
+ISSUABLE_STOCK_STATUSES = {"UNRESTRICTED", "WIP"}
 
 
 def _to_uuid(value: str, field: str = "plant_id") -> uuid.UUID:
@@ -149,6 +150,8 @@ def create_reel_issue(
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="Reel is not issuable")
+    if str(reel.stock_status or "").upper() not in ISSUABLE_STOCK_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Reel is not QC-approved for issue ({reel.stock_status})")
     if payload.issued_weight_kg > float(reel.current_weight_kg or 0.0):
         raise HTTPException(status_code=400, detail="Issued weight exceeds available reel weight")
 

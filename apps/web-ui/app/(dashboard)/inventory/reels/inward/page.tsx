@@ -30,7 +30,7 @@ export default function ReelInwardPage() {
     inward_weight_kg: "",
     unit_cost: "",
     inward_date: dayjs().format("YYYY-MM-DD"),
-    stock_status: "UNRESTRICTED",
+    stock_status: "QC_HOLD",
   })
   const itemsQuery = useInventoryItems()
   const vendorsQuery = useVendors()
@@ -95,6 +95,7 @@ export default function ReelInwardPage() {
         reel_code: "",
         inward_weight_kg: "",
         unit_cost: "",
+        stock_status: "QC_HOLD",
       }))
       reelsQuery.refetch()
     } catch (error: any) {
@@ -108,7 +109,7 @@ export default function ReelInwardPage() {
         <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="text-2xl font-semibold">Reel Inward (Barcode Assisted)</h1>
-            <p className="mt-1 text-sm text-cyan-100">Confirm vendor id, rate, weight, location, and optional incoming QC hold. The system generates the reel code.</p>
+            <p className="mt-1 text-sm text-cyan-100">Confirm vendor id, rate, weight, location, and incoming QC hold. The system generates the reel code.</p>
           </div>
           <Link href="/purchase" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-white/10">
             Purchase flow
@@ -222,13 +223,10 @@ export default function ReelInwardPage() {
               onChange={(event) => setForm((current) => ({ ...current, stock_status: event.target.value }))}
               className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
             >
-              <option value="UNRESTRICTED">Unrestricted stock</option>
               <option value="QC_HOLD">Incoming QC hold</option>
               <option value="BLOCKED">Blocked stock</option>
             </select>
-            {form.stock_status === "QC_HOLD" ? (
-              <p className="mt-1 text-[11px] text-amber-700">Reel remains held until incoming QC is cleared.</p>
-            ) : null}
+            <p className="mt-1 text-[11px] text-amber-700">Reel remains held until incoming QC is cleared.</p>
           </div>
 
           <div>

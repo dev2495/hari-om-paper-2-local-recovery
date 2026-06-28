@@ -24,6 +24,16 @@ import {
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import {
+  useCreateCustomerRejection,
+  useCreateInventoryQualityInspection,
+  useCustomerRejections,
+  useDisposeCustomerRejection,
+  useInventoryItems,
+  useInventoryLocations,
+  useInventoryQualityTemplates,
+  usePendingInventoryQuality,
+} from "@/hooks/use-inventory"
+import {
   useCreateQualityHold,
   useCreateQualityInspection,
   usePlanningJobCards,
@@ -79,6 +89,31 @@ function compactId(value?: string | null) {
   return text.length > 10 ? text.slice(0, 8) : text || "-"
 }
 
+function normalizeMaterialType(value?: string | null) {
+  const text = String(value || "OTHER").toUpperCase()
+  if (text === "PAPER" || text === "REEL") return "RAW_PAPER"
+  if (text === "FG") return "FINISHED_GOOD"
+  return text
+}
+
+function coerceReadings(values: Record<string, string>, templates: any[]) {
+  return Object.fromEntries(
+    Object.entries(values)
+      .filter(([, value]) => String(value).trim() !== "")
+      .map(([key, value]) => {
+        const template = templates.find((row: any) => String(row.parameter_key) === key)
+        if (template?.input_type === "number") return [key, Number(value)]
+        return [key, value]
+      }),
+  )
+}
+
+function formatJsonSummary(value: any) {
+  const entries = Object.entries(value || {}).filter(([, item]) => item !== null && item !== undefined && item !== "")
+  if (!entries.length) return "-"
+  return entries.slice(0, 4).map(([key, item]) => `${key}: ${item}`).join(" | ")
+}
+
 export default function QualityLifecyclePage() {
   const { showToast } = useApp()
   const { activePlant } = useAuth()
@@ -87,18 +122,51 @@ export default function QualityLifecyclePage() {
   const [stageType, setStageType] = useState("WINDER")
   const [readings, setReadings] = useState<Record<string, string>>({})
   const [manualHoldReason, setManualHoldReason] = useState("")
+  const [selectedPendingId, setSelectedPendingId] = useState("")
+  const [inventoryReadings, setInventoryReadings] = useState<Record<string, string>>({})
+  const [inventoryInspectionStatus, setInventoryInspectionStatus] = useState("PASS")
+  const [inventoryDisposition, setInventoryDisposition] = useState("ACCEPT")
+  const [inventoryNotes, setInventoryNotes] = useState("")
+  const [customerReturn, setCustomerReturn] = useState({
+    item_id: "",
+    rejected_qty: "",
+    customer_name: "",
+    invoice_ref: "",
+    dispatch_ref: "",
+    reason_code: "CUSTOMER_REJECT",
+    reason_notes: "",
+    location_id: "",
+    source_job_card_id: "",
+    source_spec_id: "",
+  })
 
   const jobCardsQuery = usePlanningJobCards({ limit: 200 })
   const inspectionsQuery = useQualityInspections({ limit: 120 })
   const holdsQuery = useQualityHolds({ limit: 120 })
+  const itemsQuery = useInventoryItems()
+  const locationsQuery = useInventoryLocations()
+  const pendingQualityQuery = usePendingInventoryQuality()
+  const customerRejectionsQuery = useCustomerRejections({ limit: 80 })
   const createInspection = useCreateQualityInspection()
   const createHold = useCreateQualityHold()
   const releaseHold = useReleaseQualityHold()
+  const createInventoryInspection = useCreateInventoryQualityInspection()
+  const createCustomerRejection = useCreateCustomerRejection()
+  const disposeCustomerRejection = useDisposeCustomerRejection()
 
   const jobs = useMemo(() => asArray(jobCardsQuery.data), [jobCardsQuery.data])
   const inspections = useMemo(() => asArray(inspectionsQuery.data), [inspectionsQuery.data])
   const holds = useMemo(() => asArray(holdsQuery.data), [holdsQuery.data])
+  const inventoryItems = useMemo(() => asArray(itemsQuery.data), [itemsQuery.data])
+  const locations = useMemo(() => asArray(locationsQuery.data), [locationsQuery.data])
+  const pendingQuality = useMemo(() => asArray(pendingQualityQuery.data), [pendingQualityQuery.data])
+  const customerRejections = useMemo(() => asArray(customerRejectionsQuery.data), [customerRejectionsQuery.data])
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
+  const selectedPending = pendingQuality.find((row: any) => `${row.entity_type}:${row.entity_id}` === selectedPendingId) || null
+  const selectedPendingMaterial = normalizeMaterialType(selectedPending?.material_type)
+  const inventoryTemplatesQuery = useInventoryQualityTemplates(selectedPending ? selectedPendingMaterial : "RAW_PAPER")
+  const inventoryTemplates = useMemo(() => asArray(inventoryTemplatesQuery.data), [inventoryTemplatesQuery.data])
+  const finishedGoods = useMemo(() => inventoryItems.filter((item: any) => String(item.type || "").toUpperCase() === "FINISHED_GOOD"), [inventoryItems])
 
   const jobMap = useMemo(() => {
     const rows = new Map<string, any>()
@@ -119,6 +187,7 @@ export default function QualityLifecyclePage() {
   const failedInspections = inspections.filter((row: any) => String(row.status || "").toUpperCase() === "FAIL")
   const passedInspections = inspections.filter((row: any) => String(row.status || "").toUpperCase() === "PASS")
   const passRate = inspections.length ? (passedInspections.length / inspections.length) * 100 : 100
+  const openCustomerRejections = customerRejections.filter((row: any) => !row.closed_at && !["UNRESTRICTED", "SCRAP"].includes(String(row.status || "").toUpperCase()))
 
   const mutationPlantForJob = (jobId: string) => {
     const jobPlant = plantForJob(jobMap.get(String(jobId)))
@@ -207,6 +276,95 @@ export default function QualityLifecyclePage() {
     }
   }
 
+  const handleInventoryQcSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!selectedPending) {
+      showToast("Select held inward material before saving QC.", "error")
+      return
+    }
+    try {
+      const response = await createInventoryInspection.mutateAsync({
+        entity_type: selectedPending.entity_type,
+        entity_id: selectedPending.entity_id,
+        material_type: selectedPendingMaterial,
+        source: selectedPending.source || "INWARD",
+        status: inventoryInspectionStatus,
+        disposition: inventoryDisposition,
+        readings: coerceReadings(inventoryReadings, inventoryTemplates),
+        notes: inventoryNotes || undefined,
+      })
+      const stockStatus = response?.data?.stock_status || inventoryDisposition
+      showToast(`Inventory QC saved. Stock status: ${stockStatus}`, "success")
+      setInventoryReadings({})
+      setInventoryNotes("")
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Inventory QC save failed."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    }
+  }
+
+  const handleCustomerReturnSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!customerReturn.item_id || !customerReturn.customer_name || !customerReturn.rejected_qty) {
+      showToast("Finished good, customer, and rejected qty are required.", "error")
+      return
+    }
+    try {
+      await createCustomerRejection.mutateAsync({
+        item_id: customerReturn.item_id,
+        rejected_qty: Number(customerReturn.rejected_qty),
+        customer_name: customerReturn.customer_name,
+        invoice_ref: customerReturn.invoice_ref || undefined,
+        dispatch_ref: customerReturn.dispatch_ref || undefined,
+        reason_code: customerReturn.reason_code || "CUSTOMER_REJECT",
+        reason_notes: customerReturn.reason_notes || undefined,
+        location_id: customerReturn.location_id || undefined,
+        source_job_card_id: customerReturn.source_job_card_id || undefined,
+        source_spec_id: customerReturn.source_spec_id || undefined,
+        trace_snapshot: {
+          job_card_ref: customerReturn.source_job_card_id || "",
+          spec_ref: customerReturn.source_spec_id || "",
+        },
+      })
+      showToast("Customer rejected material inwarded under QC hold.", "success")
+      setCustomerReturn({
+        item_id: "",
+        rejected_qty: "",
+        customer_name: "",
+        invoice_ref: "",
+        dispatch_ref: "",
+        reason_code: "CUSTOMER_REJECT",
+        reason_notes: "",
+        location_id: "",
+        source_job_card_id: "",
+        source_spec_id: "",
+      })
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Customer rejection inward failed."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    }
+  }
+
+  const handleCustomerDisposition = async (rejection: any, disposition: string) => {
+    try {
+      await disposeCustomerRejection.mutateAsync({
+        id: String(rejection.id),
+        data: {
+          disposition,
+          notes: `Disposition recorded from quality desk for ${rejection.reason_code || "customer rejection"}.`,
+          readings: {
+            reject_reason: rejection.reason_code || "CUSTOMER_REJECT",
+            rework_possible: ["REWORK", "REHEAT", "SEGREGATE"].includes(disposition) ? "YES" : "NO",
+          },
+        },
+      })
+      showToast(`Customer rejection moved to ${disposition}.`, "success")
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Disposition failed."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    }
+  }
+
   return (
     <div className="space-y-6" data-testid="quality:page">
       <ExecutiveHero
@@ -231,6 +389,8 @@ export default function QualityLifecyclePage() {
         <MetricCard label="Pass Rate" value={`${passRate.toFixed(1)}%`} detail="Latest inspection window" icon={CheckCircle2} tone="cyan" />
         <MetricCard label="Failures" value={failedInspections.length} detail="Auto-hold candidates from readings" icon={AlertTriangle} tone={failedInspections.length ? "amber" : "slate"} />
         <MetricCard label="Released Holds" value={releasedHolds.length} detail="Closed quality interventions" icon={UnlockKeyhole} tone="violet" />
+        <MetricCard label="Inward QC" value={pendingQuality.length} detail="Held material awaiting release" icon={FlaskConical} tone={pendingQuality.length ? "amber" : "emerald"} />
+        <MetricCard label="Customer Rejects" value={openCustomerRejections.length} detail="Returned FG under disposition" icon={ClipboardCheck} tone={openCustomerRejections.length ? "rose" : "slate"} />
       </MetricRail>
 
       <Panel
@@ -252,6 +412,261 @@ export default function QualityLifecyclePage() {
           ))}
         </div>
       </Panel>
+
+      <div className="grid gap-5 2xl:grid-cols-[1.05fr_0.95fr]">
+        <Panel
+          title="Incoming material QC"
+          subtitle="Bulk inwards and paper reels stay held here until QC releases them to production issue."
+        >
+          <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+            <div className="space-y-2">
+              {pendingQualityQuery.isLoading ? (
+                <EmptyState label="Loading held material..." />
+              ) : pendingQuality.length === 0 ? (
+                <EmptyState label="No inward material is waiting for QC." />
+              ) : (
+                pendingQuality.slice(0, 12).map((row: any) => {
+                  const key = `${row.entity_type}:${row.entity_id}`
+                  const active = key === selectedPendingId
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => {
+                        setSelectedPendingId(key)
+                        setInventoryReadings({})
+                        setInventoryInspectionStatus("PASS")
+                        setInventoryDisposition("ACCEPT")
+                        setInventoryNotes("")
+                      }}
+                      className={[
+                        "w-full rounded-2xl border px-4 py-3 text-left transition",
+                        active ? "border-cyan-300 bg-cyan-50 shadow-sm" : "border-slate-200 bg-white hover:border-cyan-200",
+                      ].join(" ")}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-slate-950">{row.label}</p>
+                        <StatusBadge value={row.stock_status} />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-500">{row.source} | {row.material_type} | Qty {Number(row.qty || 0).toLocaleString()}</p>
+                      <p className="mt-1 text-xs text-slate-500">{row.supplier_or_customer || "No supplier/customer"} | {readableDate(row.created_at)}</p>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+
+            <form onSubmit={handleInventoryQcSubmit} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">{selectedPending ? selectedPending.label : "Select held material"}</p>
+                  <p className="mt-1 text-xs text-slate-500">{selectedPending ? `${selectedPendingMaterial} QC template` : "Adhesive, parchment, raw paper, and FG returns use editable QC parameters."}</p>
+                </div>
+                {selectedPending ? <StatusBadge value={selectedPending.stock_status} /> : null}
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Result</span>
+                  <select
+                    value={inventoryInspectionStatus}
+                    onChange={(event) => {
+                      const next = event.target.value
+                      setInventoryInspectionStatus(next)
+                      setInventoryDisposition(next === "PASS" ? "ACCEPT" : "BLOCK")
+                    }}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  >
+                    <option value="PASS">Pass and release</option>
+                    <option value="FAIL">Fail / hold decision</option>
+                    <option value="SKIPPED">Skipped with note</option>
+                  </select>
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Disposition</span>
+                  <select
+                    value={inventoryDisposition}
+                    onChange={(event) => setInventoryDisposition(event.target.value)}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                  >
+                    <option value="ACCEPT">Release to stock</option>
+                    <option value="BLOCK">Block stock</option>
+                    <option value="SCRAP">Scrap</option>
+                    <option value="REWORK">Rework</option>
+                    <option value="REHEAT">Reheat</option>
+                    <option value="SEGREGATE">Segregate</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                {inventoryTemplates.map((field: any) => (
+                  <label key={field.parameter_key} className="space-y-1">
+                    <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                      {field.label}{field.required ? " *" : ""}
+                    </span>
+                    {field.input_type === "select" ? (
+                      <select
+                        value={inventoryReadings[field.parameter_key] || ""}
+                        onChange={(event) => setInventoryReadings((current) => ({ ...current, [field.parameter_key]: event.target.value }))}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                      >
+                        <option value="">Select</option>
+                        {asArray(field.options).map((option: any) => (
+                          <option key={String(option)} value={String(option)}>{String(option)}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type={field.input_type === "number" ? "number" : "text"}
+                        step="0.001"
+                        value={inventoryReadings[field.parameter_key] || ""}
+                        onChange={(event) => setInventoryReadings((current) => ({ ...current, [field.parameter_key]: event.target.value }))}
+                        className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+
+              <textarea
+                value={inventoryNotes}
+                onChange={(event) => setInventoryNotes(event.target.value)}
+                placeholder="QC remarks, reason, or approval note"
+                className="mt-4 min-h-20 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm"
+              />
+              <button
+                type="submit"
+                disabled={!selectedPending || createInventoryInspection.isPending}
+                className="mt-3 w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Save inward QC decision
+              </button>
+            </form>
+          </div>
+        </Panel>
+
+        <Panel
+          title="Customer rejection inward"
+          subtitle="Returned finished goods enter QC hold, then move to rework, reheat, segregate, scrap, or release."
+        >
+          <form onSubmit={handleCustomerReturnSubmit} className="grid gap-3 md:grid-cols-2">
+            <select
+              required
+              value={customerReturn.item_id}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, item_id: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            >
+              <option value="">Finished good</option>
+              {finishedGoods.map((item: any) => (
+                <option key={item.id} value={item.id}>{item.item_code} - {item.name}</option>
+              ))}
+            </select>
+            <input
+              required
+              type="number"
+              min="0.001"
+              step="0.001"
+              placeholder="Rejected qty"
+              value={customerReturn.rejected_qty}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, rejected_qty: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            />
+            <input
+              required
+              placeholder="Customer name"
+              value={customerReturn.customer_name}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, customer_name: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            />
+            <input
+              placeholder="Invoice no."
+              value={customerReturn.invoice_ref}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, invoice_ref: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            />
+            <input
+              placeholder="Dispatch ref"
+              value={customerReturn.dispatch_ref}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, dispatch_ref: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            />
+            <select
+              value={customerReturn.location_id}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, location_id: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            >
+              <option value="">Return location</option>
+              {locations.map((location: any) => (
+                <option key={location.id} value={location.id}>{location.code} - {location.warehouse}</option>
+              ))}
+            </select>
+            <select
+              value={customerReturn.source_job_card_id}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, source_job_card_id: event.target.value }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            >
+              <option value="">Trace to job card</option>
+              {jobs.slice(0, 120).map((job: any) => (
+                <option key={job.id} value={job.id}>{jobLabel(job)}</option>
+              ))}
+            </select>
+            <input
+              placeholder="Reason code"
+              value={customerReturn.reason_code}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, reason_code: event.target.value.toUpperCase() }))}
+              className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            />
+            <textarea
+              placeholder="Customer complaint / QC note"
+              value={customerReturn.reason_notes}
+              onChange={(event) => setCustomerReturn((current) => ({ ...current, reason_notes: event.target.value }))}
+              className="min-h-20 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm md:col-span-2"
+            />
+            <button
+              type="submit"
+              disabled={createCustomerRejection.isPending}
+              className="rounded-xl bg-rose-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60 md:col-span-2"
+            >
+              Inward rejected FG under QC hold
+            </button>
+          </form>
+
+          <div className="mt-5 space-y-3">
+            {customerRejections.length === 0 ? (
+              <EmptyState label="No customer rejections recorded." />
+            ) : (
+              customerRejections.slice(0, 8).map((row: any) => (
+                <article key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">{row.customer_name} | Qty {Number(row.rejected_qty || 0).toLocaleString()}</p>
+                      <p className="mt-1 text-xs text-slate-500">{row.reason_code} | Invoice {row.invoice_ref || "-"} | Dispatch {row.dispatch_ref || "-"}</p>
+                      <p className="mt-1 text-xs text-slate-500">Trace {formatJsonSummary(row.trace_snapshot)}</p>
+                    </div>
+                    <StatusBadge value={row.status} />
+                  </div>
+                  {!row.closed_at ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {["REWORK", "REHEAT", "SEGREGATE", "SCRAP", "ACCEPT", "BLOCK"].map((action) => (
+                        <button
+                          key={action}
+                          type="button"
+                          onClick={() => handleCustomerDisposition(row, action)}
+                          disabled={disposeCustomerRejection.isPending}
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-300 hover:text-cyan-700 disabled:opacity-60"
+                        >
+                          {action}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </article>
+              ))
+            )}
+          </div>
+        </Panel>
+      </div>
 
       <div className="grid gap-5 2xl:grid-cols-[0.95fr_1.05fr]">
         <Panel

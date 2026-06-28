@@ -636,9 +636,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <RoleSwitcher compact />
               <NotificationCenter />
               {showAdminControls ? <PlantSwitcher compact /> : null}
-              <Button variant="outline" className="rounded-full border-slate-200 bg-white px-3.5 text-xs" onClick={handleLogout}>
-                <LogOut className="mr-2 h-3.5 w-3.5" />
-                Logout
+              <Button variant="outline" className="h-10 rounded-full border-slate-200 bg-white px-3.5 text-xs max-[480px]:w-10 max-[480px]:px-0" onClick={handleLogout}>
+                <LogOut className="h-3.5 w-3.5 sm:mr-2" />
+                <span className="hidden sm:inline">Logout</span>
               </Button>
             </div>
           </div>

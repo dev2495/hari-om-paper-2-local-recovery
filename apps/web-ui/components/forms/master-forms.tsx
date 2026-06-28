@@ -689,8 +689,10 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
             {...register("category", { required: true })}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
+            <option value="NOTCH_TYPE">Notch Type</option>
             <option value="NOTCHING_HOLDER">Notching Holder</option>
             <option value="NOTCHING_BLADE">Notching Blade</option>
+            <option value="V_FLAT">V + Flat</option>
             <option value="GROOVE">Groove</option>
             <option value="PUNCH">Punch</option>
             <option value="TOCHHA">Tochha</option>

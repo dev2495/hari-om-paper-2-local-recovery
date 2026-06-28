@@ -1087,8 +1087,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Tube Direction</div>
-                      <div className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.tube_direction || "-"}</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Notch Direction</div>
+                      <div className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div>
                     </div>
                     <div>
                       <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Wet Rule</div>
@@ -1190,7 +1190,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Parchment Pattern</div><div className="mt-1 text-sm font-semibold text-slate-900">{parchmentPattern}</div><div className="mt-1 text-xs text-slate-500">{parchmentFamily} family</div></div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Notch</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.notch_type || "No notch"}</div><div className="mt-1 text-xs text-slate-500">Distance {documentSnapshot?.setup_tooling?.notch_distance || "-"} · Depth {documentSnapshot?.setup_tooling?.notch_depth || "-"} · Holder {documentSnapshot?.setup_tooling?.notching_holder || "-"}</div></div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Notch</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.notch_type || "No notch"}</div><div className="mt-1 text-xs text-slate-500">Distance {documentSnapshot?.setup_tooling?.notch_distance || "-"} · Depth {documentSnapshot?.setup_tooling?.notch_depth || "-"} · Direction {documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div><div className="mt-1 text-xs text-slate-500">Blade {documentSnapshot?.setup_tooling?.blade || "-"} · Holder {documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || "-"} · Punch {documentSnapshot?.setup_tooling?.punch || "-"}</div></div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Packing</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.packing_instructions || "Packed by route stage when required"}</div><div className="mt-1 text-xs text-slate-500">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.box_size || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} / box</div></div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Bamboo Math</div><div className="mt-1 text-sm font-semibold text-slate-900">{formatNumber(documentSnapshot?.header?.target_bamboo_count, 0)} bamboo target · {formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)} pcs/bamboo</div><div className="mt-1 text-xs text-slate-500">{formatNumber(selectedBambooLength, 0)} mm selected · {formatNumber(usableBambooLength, 0)} mm usable · {formatNumber(trimLossMm, 0)} mm trim</div></div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Output Truth</div><div className="mt-1 text-sm font-semibold text-slate-900">{formatNumber(wipQty, 0)} open pcs · {formatNumber(documentSnapshot?.material_truth?.produced_output_qty, 0)} produced · {formatNumber(documentSnapshot?.material_truth?.packed_qty, 0)} packed</div></div>
@@ -2776,16 +2776,13 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <LabeledValue label="Notch Type" value={documentSnapshot?.setup_tooling?.notch_type || ""} />
             <LabeledValue label="Notch Distance" value={documentSnapshot?.setup_tooling?.notch_distance || ""} />
             <LabeledValue label="Notch Depth" value={documentSnapshot?.setup_tooling?.notch_depth || ""} />
-            <LabeledValue label="Notching Holder" value={documentSnapshot?.setup_tooling?.notching_holder || ""} />
+            <LabeledValue label="Notch Direction" value={documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || ""} />
+            <LabeledValue label="Holder" value={documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || ""} />
             <LabeledValue label="Punch" value={documentSnapshot?.setup_tooling?.punch || ""} />
             <LabeledValue label="Blade" value={documentSnapshot?.setup_tooling?.blade || ""} />
-            <LabeledValue label="Groove" value={documentSnapshot?.setup_tooling?.groove || ""} />
-            <LabeledValue label="Tochha" value={documentSnapshot?.setup_tooling?.tochha || ""} />
-            <LabeledValue label="Tochha Type" value={documentSnapshot?.setup_tooling?.tochha_type || ""} />
-            <LabeledValue label="Wider Tool" value={documentSnapshot?.setup_tooling?.wider_tool || ""} />
-            <LabeledValue label="Height Gauge GO" value={documentSnapshot?.setup_tooling?.height_gauge_go || ""} />
-            <LabeledValue label="Height Gauge NO GO" value={documentSnapshot?.setup_tooling?.height_gauge_no_go || ""} />
-            <LabeledValue label="Die" value={documentSnapshot?.setup_tooling?.die || ""} />
+            <LabeledValue label="V + Flat" value={documentSnapshot?.setup_tooling?.v_flat || ""} />
+            <LabeledValue label="Notch Wider" value={documentSnapshot?.setup_tooling?.notch_wider === true || documentSnapshot?.setup_tooling?.notch_wider === "true" ? "Yes" : documentSnapshot?.setup_tooling?.notch_wider === false || documentSnapshot?.setup_tooling?.notch_wider === "false" ? "No" : ""} />
+            <LabeledValue label="Notch Patti" value={documentSnapshot?.setup_tooling?.notch_patti === true || documentSnapshot?.setup_tooling?.notch_patti === "true" ? "Yes" : documentSnapshot?.setup_tooling?.notch_patti === false || documentSnapshot?.setup_tooling?.notch_patti === "false" ? "No" : ""} />
             <LabeledValue label="Qty / Box" value={documentSnapshot?.setup_tooling?.qty_per_box || ""} />
             <LabeledValue label="Box" value={documentSnapshot?.setup_tooling?.box || ""} />
             <LabeledValue label="Special Instructions" value={documentSnapshot?.setup_tooling?.special_instructions || ""} className="md:col-span-3" />

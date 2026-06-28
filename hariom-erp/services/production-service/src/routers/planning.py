@@ -1733,12 +1733,20 @@ def _merge_spec_snapshot(base_snapshot: dict[str, Any], spec_payload: dict[str, 
         "notch_depth_mm": dynamic_map.get("notch_depth_mm"),
         "notching_holder": dynamic_map.get("notching_holder"),
         "notching_blade": dynamic_map.get("notching_blade"),
-        "groove": dynamic_map.get("groove") or dynamic_map.get("guru"),
+        "blade": dynamic_map.get("notching_blade"),
+        "holder": dynamic_map.get("notching_holder"),
+        "v_flat": dynamic_map.get("v_flat") or dynamic_map.get("groove"),
         "punch": dynamic_map.get("punch"),
+        "notch_wider": dynamic_map.get("notch_wider"),
+        "notch_patti": dynamic_map.get("notch_patti"),
+        "notch_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
+        "tube_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
+        "groove": dynamic_map.get("groove"),
+        "wider_tool": dynamic_map.get("wider_tool"),
         "tochha": dynamic_map.get("tochha"),
         "tochha_type": dynamic_map.get("tochha_type"),
-        "wider_tool": dynamic_map.get("wider_tool"),
         "height_gauge_go": dynamic_map.get("height_gauge_go"),
+        "height_gauge_set": dynamic_map.get("height_gauge_set"),
         "height_gauge_no_go": dynamic_map.get("height_gauge_no_go"),
         "die": dynamic_map.get("die"),
         "top_paper_required": dynamic_map.get("top_paper_required"),
@@ -2003,19 +2011,24 @@ def _build_document_snapshot(
         "setup_tooling": {
             "mandrel": str(spec_snapshot.get("mandrel_id") or ""),
             "spec_reference": spec_snapshot.get("spec_reference") or "",
-            "tube_direction": spec_snapshot.get("tube_direction") or "",
+            "tube_direction": spec_snapshot.get("notch_direction") or spec_snapshot.get("tube_direction") or "",
+            "notch_direction": spec_snapshot.get("notch_direction") or spec_snapshot.get("tube_direction") or "",
             "notch_position": spec_snapshot.get("notch_position") or "",
             "notch_type": spec_snapshot.get("notch_type") or "",
             "notch_distance": spec_snapshot.get("notch_distance_mm") or "",
             "notch_depth": spec_snapshot.get("notch_depth_mm") or "",
-            "notching_holder": spec_snapshot.get("notching_holder") or "",
+            "notching_holder": spec_snapshot.get("notching_holder") or spec_snapshot.get("holder") or "",
             "punch": spec_snapshot.get("punch") or "",
-            "blade": spec_snapshot.get("notching_blade") or "",
+            "blade": spec_snapshot.get("notching_blade") or spec_snapshot.get("blade") or "",
+            "v_flat": spec_snapshot.get("v_flat") or spec_snapshot.get("groove") or "",
+            "notch_wider": spec_snapshot.get("notch_wider") or "",
+            "notch_patti": spec_snapshot.get("notch_patti") or "",
             "groove": spec_snapshot.get("groove") or "",
+            "wider_tool": spec_snapshot.get("wider_tool") or "",
             "tochha": spec_snapshot.get("tochha") or "",
             "tochha_type": spec_snapshot.get("tochha_type") or "",
-            "wider_tool": spec_snapshot.get("wider_tool") or "",
             "height_gauge_go": spec_snapshot.get("height_gauge_go") or "",
+            "height_gauge_set": spec_snapshot.get("height_gauge_set") or "",
             "height_gauge_no_go": spec_snapshot.get("height_gauge_no_go") or "",
             "die": spec_snapshot.get("die") or "",
             "bundle_type": spec_snapshot.get("bundle_type") or "",
@@ -2196,13 +2209,20 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "notching_holder": dynamic_map.get("notching_holder"),
         "punch": dynamic_map.get("punch"),
         "notching_blade": dynamic_map.get("notching_blade"),
-        "groove": dynamic_map.get("groove") or dynamic_map.get("guru"),
-        "tube_direction": dynamic_map.get("tube_direction"),
+        "blade": dynamic_map.get("notching_blade"),
+        "holder": dynamic_map.get("notching_holder"),
+        "v_flat": dynamic_map.get("v_flat") or dynamic_map.get("groove"),
+        "notch_wider": dynamic_map.get("notch_wider"),
+        "notch_patti": dynamic_map.get("notch_patti"),
+        "notch_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
+        "tube_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
         "notch_position": dynamic_map.get("notch_position"),
+        "groove": dynamic_map.get("groove"),
+        "wider_tool": dynamic_map.get("wider_tool"),
         "tochha": dynamic_map.get("tochha"),
         "tochha_type": dynamic_map.get("tochha_type"),
-        "wider_tool": dynamic_map.get("wider_tool"),
         "height_gauge_go": dynamic_map.get("height_gauge_go"),
+        "height_gauge_set": dynamic_map.get("height_gauge_set"),
         "height_gauge_no_go": dynamic_map.get("height_gauge_no_go"),
         "die": dynamic_map.get("die"),
         "bundle_type": dynamic_map.get("bundle_type"),
@@ -3048,16 +3068,10 @@ def _enforce_stage_quality_gate(
             detail="Final QC inspection is required before job card completion or FG handoff. Provide override_reason to continue.",
         )
 
-    if normalized_stage not in PROCESS_QC_STAGES:
-        return
-    if inline_checks:
-        return
-    if _quality_inspections_for_stage(db, job_card.id, normalized_stage, plant_id):
-        return
-    raise HTTPException(
-        status_code=409,
-        detail=f"{normalized_stage} completion requires a QC inspection or override_reason.",
-    )
+    # Routine process-stage QC is evidence, not a completion gate. If readings
+    # are supplied they are stored by _sync_quality_artifacts; failures open an
+    # active hold that blocks the next movement through the normal hold gate.
+    return
 
 
 def _stage_allows_fg_inward(*, selected_stage: str, final_qc_ready: bool) -> bool:

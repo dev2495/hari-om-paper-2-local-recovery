@@ -48,7 +48,7 @@ class InwardCreate(BaseModel):
     cost_source: Optional[str] = None
     location: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
-    stock_status: str = "UNRESTRICTED"
+    stock_status: str = "QC_HOLD"
     reference_type: str = "PURCHASE"
     reference_id: Optional[uuid.UUID] = None
     spec_id: Optional[uuid.UUID] = None
@@ -112,6 +112,9 @@ def create_inward(
     stock_status = inward.stock_status.strip().upper()
     if stock_status not in {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}:
         raise HTTPException(status_code=400, detail="Invalid stock_status")
+    # Client policy: fresh inward material must clear QC before floor issue.
+    if stock_status == "UNRESTRICTED":
+        stock_status = "QC_HOLD"
 
     batch_no = (inward.batch_no or "").strip() or _next_system_batch_no(db, item, plant_id)
 

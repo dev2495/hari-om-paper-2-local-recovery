@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -14,6 +16,7 @@ from .routers import (
     ledger,
     locations,
     purchase,
+    quality,
     reel_issues,
     reels,
     reservations,
@@ -328,6 +331,70 @@ def seed_default_locations() -> None:
 
 seed_default_locations()
 
+
+def seed_default_quality_templates() -> None:
+  """Seed editable QC parameter templates from the current client QC forms."""
+  presets = (
+    ("ADHESIVE", "viscosity", "Viscosity", "number", "[]", True, 10),
+    ("ADHESIVE", "temperature", "Temperature", "number", "[]", True, 20),
+    ("ADHESIVE", "solid_content", "Solid Content", "number", "[]", True, 30),
+    ("ADHESIVE", "color", "Color", "text", "[]", True, 40),
+    ("ADHESIVE", "ph", "PH", "number", "[]", True, 50),
+    ("PARCHMENT", "color_bleeding", "Color Bleeding", "select", '["PASS","FAIL"]', True, 10),
+    ("PARCHMENT", "gsm", "GSM", "number", "[]", True, 20),
+    ("PARCHMENT", "bf", "BF", "number", "[]", True, 30),
+    ("RAW_PAPER", "gsm", "GSM", "number", "[]", True, 10),
+    ("RAW_PAPER", "bs", "BS", "number", "[]", False, 20),
+    ("RAW_PAPER", "bf", "BF", "number", "[]", True, 30),
+    ("RAW_PAPER", "caliper_mm", "Caliper (mm)", "number", "[]", False, 40),
+    ("RAW_PAPER", "bulk", "Bulk", "number", "[]", False, 50),
+    ("RAW_PAPER", "ply_bond", "Ply Bond", "number", "[]", False, 60),
+    ("RAW_PAPER", "rct", "RCT", "number", "[]", False, 70),
+    ("RAW_PAPER", "cobb", "COBB", "number", "[]", False, 80),
+    ("RAW_PAPER", "moisture_pct", "Moisture %", "number", "[]", True, 90),
+    ("RAW_PAPER", "clear_for_slitting", "Clear For Slitting", "select", '["YES","NO","HOLD"]', True, 100),
+    ("FINISHED_GOOD", "visual_defect", "Visual Defect", "text", "[]", False, 10),
+    ("FINISHED_GOOD", "reject_reason", "Reject Reason", "text", "[]", True, 20),
+    ("FINISHED_GOOD", "rework_possible", "Rework Possible", "select", '["YES","NO"]', True, 30),
+  )
+  upsert_sql = text(
+    """
+    INSERT INTO inventory_quality_templates (
+      id, plant_id, material_type, parameter_key, label, input_type, options,
+      required, sort_order, active, created_at
+    )
+    VALUES (
+      :id, 'GLOBAL', :material_type, :parameter_key, :label, :input_type,
+      CAST(:options AS JSON), :required, :sort_order, 'true', NOW()
+    )
+    ON CONFLICT (plant_id, material_type, parameter_key) DO UPDATE SET
+      label = EXCLUDED.label,
+      input_type = EXCLUDED.input_type,
+      options = EXCLUDED.options,
+      required = EXCLUDED.required,
+      sort_order = EXCLUDED.sort_order,
+      active = 'true'
+    """
+  )
+  with engine.begin() as connection:
+    for material_type, key, label, input_type, options, required, sort_order in presets:
+      connection.execute(
+        upsert_sql,
+        {
+          "id": str(uuid.uuid4()),
+          "material_type": material_type,
+          "parameter_key": key,
+          "label": label,
+          "input_type": input_type,
+          "options": options,
+          "required": required,
+          "sort_order": sort_order,
+        },
+      )
+
+
+seed_default_quality_templates()
+
 app = FastAPI(
   title="Hari Om Paper Inventory Service",
   description="Inventory, inward, issue, reservation, and dispatch material control",
@@ -352,6 +419,7 @@ app.include_router(dispatch.router)
 app.include_router(reservations.router)
 app.include_router(locations.router)
 app.include_router(purchase.router)
+app.include_router(quality.router)
 app.include_router(reels.router)
 app.include_router(reel_issues.router)
 app.include_router(stock_moves.router)

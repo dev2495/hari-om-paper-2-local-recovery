@@ -11,6 +11,7 @@ from sqlalchemy import (
     ForeignKey,
     String,
     Enum as SQLEnum,
+    Text,
     UniqueConstraint,
     JSON,
 )
@@ -204,6 +205,88 @@ class StockTransaction(Base):
         CheckConstraint(
             "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP')",
             name="ck_stock_transaction_stock_status",
+        ),
+    )
+
+
+class InventoryQualityTemplate(Base):
+    __tablename__ = "inventory_quality_templates"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="GLOBAL")
+    material_type = Column(String(40), nullable=False, index=True)
+    parameter_key = Column(String(80), nullable=False)
+    label = Column(String(160), nullable=False)
+    input_type = Column(String(30), nullable=False, default="number")
+    options = Column(JSON, nullable=False, default=list)
+    required = Column(Boolean, nullable=False, default=False)
+    sort_order = Column(Float, nullable=False, default=0.0)
+    active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "material_type", "parameter_key", name="uq_inventory_qc_template_key"),
+    )
+
+
+class InventoryQualityInspection(Base):
+    __tablename__ = "inventory_quality_inspections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    material_type = Column(String(40), nullable=False, index=True)
+    source = Column(String(40), nullable=False, default="INWARD")
+    stage_type = Column(String(40), nullable=True)
+    status = Column(String(20), nullable=False, default="PENDING")
+    readings = Column(JSON, nullable=False, default=dict)
+    failures = Column(JSON, nullable=False, default=list)
+    disposition = Column(String(40), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("entity_type IN ('BATCH','REEL','CUSTOMER_REJECTION')", name="ck_inventory_qc_entity_type"),
+        CheckConstraint("source IN ('INWARD','CUSTOMER_REJECTION','PROCESS_STAGE')", name="ck_inventory_qc_source"),
+        CheckConstraint("status IN ('PENDING','PASS','FAIL','SKIPPED')", name="ck_inventory_qc_status"),
+    )
+
+
+class CustomerRejection(Base):
+    __tablename__ = "customer_rejections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    customer_id = Column(UUID(as_uuid=True), nullable=True)
+    customer_name = Column(String(200), nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True, index=True)
+    rejected_qty = Column(Float, nullable=False)
+    invoice_ref = Column(String(120), nullable=True)
+    dispatch_ref = Column(String(120), nullable=True)
+    reason_code = Column(String(80), nullable=False)
+    reason_notes = Column(Text, nullable=True)
+    source_job_card_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    source_dispatch_id = Column(UUID(as_uuid=True), nullable=True)
+    source_spec_id = Column(UUID(as_uuid=True), nullable=True)
+    status = Column(String(30), nullable=False, default="QC_HOLD")
+    disposition = Column(String(40), nullable=True)
+    qc_inspection_id = Column(UUID(as_uuid=True), nullable=True)
+    trace_snapshot = Column(JSON, nullable=False, default=dict)
+    created_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    closed_at = Column(DateTime, nullable=True)
+
+    item = relationship("ItemMaster")
+    batch = relationship("StockBatch")
+
+    __table_args__ = (
+        CheckConstraint("rejected_qty > 0", name="ck_customer_rejections_qty_positive"),
+        CheckConstraint(
+            "status IN ('QC_HOLD','WIP','UNRESTRICTED','SCRAP','BLOCKED','CLOSED')",
+            name="ck_customer_rejections_status",
         ),
     )
 

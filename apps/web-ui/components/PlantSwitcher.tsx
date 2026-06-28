@@ -139,7 +139,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                 }`}
             >
                 <Building2 className="h-3 w-3" />
-                <span className="max-w-[180px] truncate uppercase tracking-[0.18em]">{currentPlantName}</span>
+                <span className="max-w-[180px] truncate uppercase tracking-[0.18em] max-[480px]:max-w-[7rem]">{currentPlantName}</span>
             </div>
         )
     }
@@ -156,7 +156,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                 }`}
             >
                 <Building2 className="h-3 w-3" />
-                <span className="max-w-[180px] truncate uppercase tracking-[0.18em]">{currentPlantName}</span>
+                <span className="max-w-[180px] truncate uppercase tracking-[0.18em] max-[480px]:max-w-[7rem]">{currentPlantName}</span>
                 <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
             </button>
 

@@ -73,7 +73,7 @@ class ReelInwardCreate(BaseModel):
     unit_cost: Optional[float] = Field(default=None, ge=0)
     cost_source: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
-    stock_status: str = "UNRESTRICTED"
+    stock_status: str = "QC_HOLD"
 
     @field_validator("reel_code")
     @classmethod
@@ -234,6 +234,9 @@ def create_reel_inward(
     current_user: dict = Depends(require_role(["Store", "PlantManager"])),
 ):
     plant_uuid = _to_uuid(plant_id)
+    stock_status = payload.stock_status.strip().upper()
+    if stock_status == "UNRESTRICTED":
+        stock_status = "QC_HOLD"
     location = None
     if payload.location_id:
         location = db.query(InventoryLocation).filter(
@@ -279,7 +282,7 @@ def create_reel_inward(
             unit_cost=payload.unit_cost,
             cost_source=CostSource(payload.cost_source) if payload.cost_source else None,
             status=ReelStatus.IN_STOCK,
-            stock_status=payload.stock_status,
+            stock_status=stock_status,
             location_id=location.id if location else None,
             inward_date=payload.inward_date,
         )
