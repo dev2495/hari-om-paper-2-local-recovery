@@ -286,21 +286,25 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text(
         "UPDATE inventory_certifications "
-        "SET count_state = COALESCE(count_state, status, 'DRAFT'), "
-        "attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)"
+        "SET count_state = COALESCE(count_state, status, 'DRAFT')"
       )
+    )
+    connection.execute(
+      text("UPDATE inventory_certifications SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
     )
     connection.execute(
       text(
         "UPDATE inventory_certification_lines "
         "SET stock_status = COALESCE(stock_status, 'UNRESTRICTED'), "
         "count_state = COALESCE(count_state, 'DRAFT'), "
-        "recount_required = COALESCE(recount_required, FALSE), "
-        "attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)"
+        "recount_required = COALESCE(recount_required, FALSE)"
       )
     )
     connection.execute(
-      text("UPDATE stock_adjustment_vouchers SET attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)")
+      text("UPDATE inventory_certification_lines SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
+    )
+    connection.execute(
+      text("UPDATE stock_adjustment_vouchers SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
     )
     connection.execute(
       text(
@@ -309,9 +313,11 @@ def ensure_runtime_schema() -> None:
         "closure_status = COALESCE(closure_status, CASE WHEN closed_at IS NULL THEN 'OPEN' ELSE 'CLOSED' END), "
         "rework_cost = COALESCE(rework_cost, 0), "
         "scrap_cost = COALESCE(scrap_cost, 0), "
-        "cost_impact = COALESCE(cost_impact, 0), "
-        "attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)"
+        "cost_impact = COALESCE(cost_impact, 0)"
       )
+    )
+    connection.execute(
+      text("UPDATE customer_rejections SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
     )
 
 

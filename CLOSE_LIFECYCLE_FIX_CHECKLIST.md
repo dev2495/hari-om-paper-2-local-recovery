@@ -376,6 +376,7 @@ This pass closes the remaining production-readiness items found during the final
 - ✅ `python3 -m py_compile` on changed inventory and production routers.
 - ✅ Inventory service tests: 22 passed.
 - ✅ Production reconciliation tests: 5 passed.
+- ✅ Runtime schema backfill verified against both PostgreSQL `json` and `jsonb` attachment columns.
 - ✅ Runtime smoke through BFF:
   - `/api/production/period-state/2026-06` 200
   - `/api/production/books-state` 200
