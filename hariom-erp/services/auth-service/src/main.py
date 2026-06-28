@@ -127,10 +127,14 @@ def seed_default_plants():
             (PLANT_B_ID, "PLANT_B", "Plant B"),
         ]
         for plant_id, code, name in defaults:
-            plant = db.query(models.Plant).filter(models.Plant.code == code).first()
+            plant_by_code = db.query(models.Plant).filter(models.Plant.code == code).first()
+            plant_by_id = db.query(models.Plant).filter(models.Plant.id == plant_id).first()
+            plant = plant_by_code or plant_by_id
             if not plant:
                 db.add(models.Plant(id=plant_id, code=code, name=name, is_active=True))
             else:
+                if plant_by_code is None and plant.code != code:
+                    plant.code = code
                 if not plant.name:
                     plant.name = name
                 plant.is_active = True
