@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   BookMarked,
   CalendarDays,
+  Clock,
   ClipboardCheck,
   FileCheck2,
   FilePlus2,
@@ -40,12 +41,28 @@ import { inventoryApi } from "@/lib/api"
 import { displayPlantScope } from "@/lib/plant-scope"
 
 const today = () => new Date().toISOString().slice(0, 10)
+const dateTimeLocal = (value = new Date()) => {
+  const offset = value.getTimezoneOffset()
+  const local = new Date(value.getTime() - offset * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+const endOfDayLocal = (day: string) => `${day || today()}T23:59`
 const monthStart = () => {
   const now = new Date()
   return new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10)
 }
 const formatNumber = (value: unknown, digits = 0) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
 const formatKg = (value: unknown) => `${formatNumber(value, 2)} kg`
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "-"
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return String(value).replace("T", " ").slice(0, 16)
+  return parsed.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
+}
+const toDateTimeInput = (value?: string | null, fallback = dateTimeLocal()) => {
+  if (!value) return fallback
+  return String(value).replace("Z", "").slice(0, 16)
+}
 
 function normalizeRows(raw: any) {
   return Array.isArray(raw) ? raw : Array.isArray(raw?.items) ? raw.items : Array.isArray(raw?.rows) ? raw.rows : []
@@ -62,12 +79,15 @@ export default function InventoryStockControlPage() {
   const { activePlant } = useAuth()
   const [startDate, setStartDate] = useState(monthStart())
   const [endDate, setEndDate] = useState(today())
+  const [stockAsOfAt, setStockAsOfAt] = useState(() => endOfDayLocal(today()))
+  const [countTakenAt, setCountTakenAt] = useState(() => dateTimeLocal())
   const [selectedCertificationId, setSelectedCertificationId] = useState<string | null>(null)
   const [physicalDraft, setPhysicalDraft] = useState<Record<string, string>>({})
   const [sessionDraft, setSessionDraft] = useState({
     count_location_scope: "",
     counted_by: "",
     checked_by: "",
+    count_taken_at: "",
     attachment_refs: "",
   })
   const [lineAuditDraft, setLineAuditDraft] = useState<Record<string, Record<string, any>>>({})
@@ -82,6 +102,7 @@ export default function InventoryStockControlPage() {
   })
   const [adjustmentForm, setAdjustmentForm] = useState({
     effective_date: today(),
+    effective_at: dateTimeLocal(),
     item_id: "",
     qty_delta: "",
     reason_code: "MANUAL_CORRECTION",
@@ -91,7 +112,7 @@ export default function InventoryStockControlPage() {
   })
   const writeBlocked = !activePlant || activePlant === "ALL"
 
-  const statementQuery = useInventoryStockStatement({ start_date: startDate, end_date: endDate })
+  const statementQuery = useInventoryStockStatement({ start_date: startDate, end_date: endDate, stock_as_of_at: stockAsOfAt })
   const itemsQuery = useInventoryItems()
   const openingLoadsQuery = useOpeningLoads()
   const certificationsQuery = useStockCertifications()
@@ -127,6 +148,7 @@ export default function InventoryStockControlPage() {
   const adjustmentVouchers = normalizeRows(adjustmentVouchersQuery.data)
   const selectedCertification = certificationDetailQuery.data
   const certificationLines = normalizeRows(selectedCertification?.lines)
+  const manualOpeningLocked = openingLoads.length > 0
   const certificationVarianceQty = certificationLines.reduce(
     (sum: number, line: any) => sum + Math.abs(Number(line.variance_qty || 0)),
     0,
@@ -149,19 +171,32 @@ export default function InventoryStockControlPage() {
 
   useEffect(() => {
     if (!selectedCertification?.id) return
+    const selectedCountTakenAt = toDateTimeInput(selectedCertification.count_taken_at || selectedCertification.counted_at, dateTimeLocal())
     setSessionDraft({
       count_location_scope: selectedCertification.count_location_scope || "",
       counted_by: selectedCertification.counted_by || "",
       checked_by: selectedCertification.checked_by || "",
+      count_taken_at: selectedCountTakenAt,
       attachment_refs: Array.isArray(selectedCertification.attachment_refs) ? selectedCertification.attachment_refs.join(", ") : "",
     })
+    if (selectedCertification.stock_as_of_at) {
+      setStockAsOfAt(toDateTimeInput(selectedCertification.stock_as_of_at, endOfDayLocal(selectedCertification.period_end || endDate)))
+    }
+    if (selectedCertification.count_taken_at) {
+      setCountTakenAt(selectedCountTakenAt)
+    }
     setLineAuditDraft({})
   }, [
+    endDate,
     selectedCertification?.id,
     selectedCertification?.attachment_refs,
     selectedCertification?.checked_by,
     selectedCertification?.count_location_scope,
+    selectedCertification?.count_taken_at,
+    selectedCertification?.counted_at,
     selectedCertification?.counted_by,
+    selectedCertification?.period_end,
+    selectedCertification?.stock_as_of_at,
   ])
   const riskRows = statementRows.filter((row: any) => row.risk_level && row.risk_level !== "OK")
   const policyMissingRows = statementRows.filter((row: any) => row.policy_missing)
@@ -176,6 +211,7 @@ export default function InventoryStockControlPage() {
 
   async function postOpeningLoad(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (manualOpeningLocked) return
     if (!openingForm.item_id || !openingForm.qty) return
     const codeField = selectedItem?.tracking_mode === "REEL" ? "reel_code" : "batch_no"
     await createOpeningLoad.mutateAsync({
@@ -199,6 +235,8 @@ export default function InventoryStockControlPage() {
     const result = await createCertification.mutateAsync({
       period_start: startDate,
       period_end: endDate,
+      stock_as_of_at: stockAsOfAt,
+      count_taken_at: countTakenAt,
       count_location_scope: "ALL_LOCATIONS",
       notes: "Generated from stock-control statement.",
     })
@@ -214,22 +252,23 @@ export default function InventoryStockControlPage() {
     const lines = certificationLines.map((line: any) => {
       const draft = lineAuditDraft[line.id] || {}
       return {
-      line_id: line.id,
-      physical_qty: Number(physicalDraft[line.id] ?? line.physical_qty ?? line.closing_qty ?? 0),
-      stock_status: draft.stock_status ?? line.stock_status ?? "UNRESTRICTED",
-      bin_code: draft.bin_code ?? line.bin_code ?? undefined,
-      count_state: draft.count_state ?? line.count_state ?? "COUNTED",
-      counted_by: (draft.counted_by ?? line.counted_by ?? sessionDraft.counted_by) || undefined,
-      checked_by: (draft.checked_by ?? line.checked_by ?? sessionDraft.checked_by) || undefined,
-      recount_required: Boolean(draft.recount_required ?? line.recount_required ?? false),
-      recount_notes: draft.recount_notes ?? line.recount_notes ?? undefined,
-      notes: line.notes || undefined,
+        line_id: line.id,
+        physical_qty: Number(physicalDraft[line.id] ?? line.physical_qty ?? line.closing_qty ?? 0),
+        stock_status: draft.stock_status ?? line.stock_status ?? "UNRESTRICTED",
+        bin_code: draft.bin_code ?? line.bin_code ?? undefined,
+        count_state: draft.count_state ?? line.count_state ?? "COUNTED",
+        counted_by: (draft.counted_by ?? line.counted_by ?? sessionDraft.counted_by) || undefined,
+        checked_by: (draft.checked_by ?? line.checked_by ?? sessionDraft.checked_by) || undefined,
+        recount_required: Boolean(draft.recount_required ?? line.recount_required ?? false),
+        recount_notes: draft.recount_notes ?? line.recount_notes ?? undefined,
+        notes: line.notes || undefined,
       }
     })
     await updateCertification.mutateAsync({
       id: selectedCertification.id,
       data: {
         count_location_scope: sessionDraft.count_location_scope || undefined,
+        count_taken_at: sessionDraft.count_taken_at || countTakenAt,
         counted_by: sessionDraft.counted_by || undefined,
         checked_by: sessionDraft.checked_by || undefined,
         attachment_refs: sessionDraft.attachment_refs.split(",").map((value) => value.trim()).filter(Boolean),
@@ -258,6 +297,7 @@ export default function InventoryStockControlPage() {
     if (!adjustmentForm.item_id || !adjustmentForm.qty_delta) return
     await createAdjustmentVoucher.mutateAsync({
       effective_date: adjustmentForm.effective_date,
+      effective_at: adjustmentForm.effective_at,
       reason_code: adjustmentForm.reason_code || "MANUAL_CORRECTION",
       reason_notes: adjustmentForm.notes || undefined,
       source_type: "MANUAL",
@@ -290,7 +330,35 @@ export default function InventoryStockControlPage() {
             </label>
             <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
               To
-              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="bg-transparent outline-none" />
+              <input
+                type="date"
+                value={endDate}
+                onChange={(event) => {
+                  const nextDate = event.target.value
+                  setEndDate(nextDate)
+                  setStockAsOfAt((current) => current.startsWith(endDate) ? endOfDayLocal(nextDate) : current)
+                }}
+                className="bg-transparent outline-none"
+              />
+            </label>
+            <label className="flex items-center gap-2 rounded-full border border-cyan-200 bg-white px-3 py-1.5 text-xs font-semibold text-cyan-950">
+              <Clock className="h-3.5 w-3.5" />
+              Stock as of
+              <input
+                type="datetime-local"
+                value={stockAsOfAt}
+                onChange={(event) => setStockAsOfAt(event.target.value)}
+                className="w-[154px] bg-transparent outline-none"
+              />
+            </label>
+            <label className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
+              Count taken
+              <input
+                type="datetime-local"
+                value={countTakenAt}
+                onChange={(event) => setCountTakenAt(event.target.value)}
+                className="w-[154px] bg-transparent outline-none"
+              />
             </label>
             <FilterChip>{displayPlantScope(activePlant, "No plant selected")}</FilterChip>
             <Link href="/inventory/ledger" className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900">
@@ -377,7 +445,7 @@ export default function InventoryStockControlPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1fr_430px]">
-        <ChartCard eyebrow="Book statement" title="Opening + receipts - issues + adjustments = closing" description="Bulk items use stock transactions. Reel-tracked paper uses reel inward weight minus closed consumed weight.">
+        <ChartCard eyebrow="Book statement" title="Opening + receipts - issues + adjustments = closing" description={`Bulk items use stock transactions. Reel-tracked paper uses reel inward weight minus closed consumed weight. Snapshot: ${formatDateTime(statementQuery.data?.stock_as_of_at || stockAsOfAt)}.`}>
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topMovementRows}>
@@ -409,7 +477,7 @@ export default function InventoryStockControlPage() {
         </ChartCard>
 
         <div className="space-y-4">
-          <ChartCard eyebrow="Certification" title="Physical count close" description="Draft from book stock, enter count variances, then certify.">
+          <ChartCard eyebrow="Certification" title="Physical count close" description="Draft from book stock at the selected timestamp, enter the physical count taken time, then certify.">
             <button
               type="button"
               disabled={writeBlocked || createCertification.isPending}
@@ -434,32 +502,37 @@ export default function InventoryStockControlPage() {
                     <p className="font-semibold text-slate-950">{cert.period_start} to {cert.period_end}</p>
                     <span className={`rounded-full border px-2 py-1 text-[10px] font-bold ${certStatusTone(cert.status)}`}>{cert.status}</span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">{formatCompactCurrency(Number(cert.totals?.closing_value || 0))} · {cert.line_count || 0} lines</p>
+                  <p className="mt-1 text-xs text-slate-500">{formatDateTime(cert.stock_as_of_at)} · {formatCompactCurrency(Number(cert.totals?.closing_value || 0))} · {cert.line_count || 0} lines</p>
                 </button>
               ))}
               {!certifications.length ? <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">No stock certificates yet.</p> : null}
             </div>
           </ChartCard>
 
-          <ChartCard eyebrow="Opening load" title="Bootstrap opening stock" description="Use for go-live or controlled opening documents. Year carry-forward does not double-post stock.">
+          <ChartCard eyebrow="Opening load" title="Bootstrap opening stock" description="Use once at go-live for the first plant opening. Later openings come from certified carry-forward or adjustment vouchers.">
+            {manualOpeningLocked ? (
+              <p className="mb-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+                Opening stock already initialized for this plant. Use carry-forward posting for the next period or a dated adjustment voucher for corrections.
+              </p>
+            ) : null}
             <form onSubmit={postOpeningLoad} className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2">
-                <input value={openingForm.document_no} onChange={(event) => setOpeningForm((current) => ({ ...current, document_no: event.target.value }))} placeholder="Document no optional" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
-                <input type="date" value={openingForm.effective_date} onChange={(event) => setOpeningForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+                <input disabled={manualOpeningLocked} value={openingForm.document_no} onChange={(event) => setOpeningForm((current) => ({ ...current, document_no: event.target.value }))} placeholder="Document no optional" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
+                <input disabled={manualOpeningLocked} type="date" value={openingForm.effective_date} onChange={(event) => setOpeningForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
               </div>
-              <select required value={openingForm.item_id} onChange={(event) => setOpeningForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700">
+              <select disabled={manualOpeningLocked} required value={openingForm.item_id} onChange={(event) => setOpeningForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100">
                 <option value="">Select item</option>
                 {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
               </select>
               <div className="grid gap-2 sm:grid-cols-3">
-                <input required type="number" step="0.001" value={openingForm.qty} onChange={(event) => setOpeningForm((current) => ({ ...current, qty: event.target.value }))} placeholder="Qty" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
-                <input value={openingForm.batch_or_reel} onChange={(event) => setOpeningForm((current) => ({ ...current, batch_or_reel: event.target.value }))} placeholder={selectedItem?.tracking_mode === "REEL" ? "Reel code" : "Batch no"} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
-                <input type="number" step="0.01" value={openingForm.unit_cost} onChange={(event) => setOpeningForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+                <input disabled={manualOpeningLocked} required type="number" step="0.001" value={openingForm.qty} onChange={(event) => setOpeningForm((current) => ({ ...current, qty: event.target.value }))} placeholder="Qty" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
+                <input disabled={manualOpeningLocked} value={openingForm.batch_or_reel} onChange={(event) => setOpeningForm((current) => ({ ...current, batch_or_reel: event.target.value }))} placeholder={selectedItem?.tracking_mode === "REEL" ? "Reel code" : "Batch no"} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
+                <input disabled={manualOpeningLocked} type="number" step="0.01" value={openingForm.unit_cost} onChange={(event) => setOpeningForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
               </div>
-              <input value={openingForm.notes} onChange={(event) => setOpeningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Audit note" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
-              <button disabled={writeBlocked || createOpeningLoad.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-950 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-950 hover:text-white disabled:opacity-45">
+              <input disabled={manualOpeningLocked} value={openingForm.notes} onChange={(event) => setOpeningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Audit note" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100" />
+              <button disabled={writeBlocked || manualOpeningLocked || createOpeningLoad.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-950 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-950 hover:text-white disabled:opacity-45">
                 <BookMarked className="h-4 w-4" />
-                Post opening load
+                {manualOpeningLocked ? "Opening already initialized" : "Post opening load"}
               </button>
             </form>
           </ChartCard>
@@ -475,6 +548,8 @@ export default function InventoryStockControlPage() {
                 <FilterChip>{selectedCertification.fiscal_year_label || "FY not set"}</FilterChip>
                 <FilterChip>{selectedCertification.count_session_no || "Count session"}</FilterChip>
                 <FilterChip>{selectedCertification.count_state || "DRAFT"}</FilterChip>
+                <FilterChip>As of {formatDateTime(selectedCertification.stock_as_of_at)}</FilterChip>
+                <FilterChip>Count {formatDateTime(selectedCertification.count_taken_at || selectedCertification.counted_at)}</FilterChip>
                 <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-white disabled:opacity-45">
                   Save counts
                 </button>
@@ -493,7 +568,7 @@ export default function InventoryStockControlPage() {
                   </span>
                 ) : null}
               </div>
-              <div className="mb-4 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-4">
+              <div className="mb-4 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-5">
                 <input
                   value={sessionDraft.count_location_scope}
                   onChange={(event) => setSessionDraft((current) => ({ ...current, count_location_scope: event.target.value }))}
@@ -515,6 +590,16 @@ export default function InventoryStockControlPage() {
                   disabled={selectedCertification.status !== "DRAFT"}
                   className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100"
                 />
+                <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600">
+                  Count
+                  <input
+                    type="datetime-local"
+                    value={sessionDraft.count_taken_at}
+                    onChange={(event) => setSessionDraft((current) => ({ ...current, count_taken_at: event.target.value }))}
+                    disabled={selectedCertification.status !== "DRAFT"}
+                    className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none disabled:text-slate-500"
+                  />
+                </label>
                 <input
                   value={sessionDraft.attachment_refs}
                   onChange={(event) => setSessionDraft((current) => ({ ...current, attachment_refs: event.target.value }))}
@@ -606,7 +691,19 @@ export default function InventoryStockControlPage() {
           <ChartCard eyebrow="Adjustment voucher" title="Manual stock correction" description="Use for approved count correction, scrap discovery, or store correction. Reel items create adjustment reels for gains and scan reductions for losses.">
             <form onSubmit={postManualAdjustment} className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2">
-                <input type="date" value={adjustmentForm.effective_date} onChange={(event) => setAdjustmentForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+                <input
+                  type="date"
+                  value={adjustmentForm.effective_date}
+                  onChange={(event) => {
+                    const nextDate = event.target.value
+                    setAdjustmentForm((current) => ({
+                      ...current,
+                      effective_date: nextDate,
+                      effective_at: current.effective_at.startsWith(current.effective_date) ? `${nextDate}T23:59` : current.effective_at,
+                    }))
+                  }}
+                  className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700"
+                />
                 <select value={adjustmentForm.reason_code} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason_code: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700">
                   <option value="MANUAL_CORRECTION">Manual correction</option>
                   <option value="PHYSICAL_COUNT_VARIANCE">Physical count variance</option>
@@ -615,6 +712,15 @@ export default function InventoryStockControlPage() {
                   <option value="CUSTOMER_REJECTION">Customer rejection</option>
                 </select>
               </div>
+              <label className="flex h-11 items-center gap-2 rounded-xl border border-cyan-200 bg-white px-3 text-xs font-semibold text-cyan-950">
+                Effective time
+                <input
+                  type="datetime-local"
+                  value={adjustmentForm.effective_at}
+                  onChange={(event) => setAdjustmentForm((current) => ({ ...current, effective_at: event.target.value }))}
+                  className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none"
+                />
+              </label>
               <select required value={adjustmentForm.item_id} onChange={(event) => setAdjustmentForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700">
                 <option value="">Select item</option>
                 {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
@@ -641,7 +747,7 @@ export default function InventoryStockControlPage() {
                     <p className="font-semibold text-slate-950">{row.voucher_no}</p>
                     <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${String(row.status).toUpperCase() === "POSTED" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{row.status}</span>
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">{row.effective_date} · {row.reason_code} · {formatNumber(row.total_abs_qty, 2)} qty</p>
+                  <p className="mt-1 text-xs text-slate-500">{row.effective_at ? formatDateTime(row.effective_at) : row.effective_date} · {row.reason_code} · {formatNumber(row.total_abs_qty, 2)} qty</p>
                 </div>
               ))}
               {!adjustmentVouchers.length ? <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">No adjustment vouchers yet.</p> : null}

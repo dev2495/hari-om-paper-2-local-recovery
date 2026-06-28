@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timezone
 from typing import Any
 
 from sqlalchemy import and_, or_
@@ -44,13 +44,25 @@ def _day_end(value: date) -> datetime:
     return datetime.combine(value, time.max)
 
 
-def _issue_effective_date(issue: ReelIssue) -> date:
+def _naive_datetime(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _issue_effective_datetime(issue: ReelIssue) -> datetime:
     closed_at = getattr(issue, "closed_at", None)
     if closed_at:
-        return closed_at.date()
+        return _naive_datetime(closed_at) or _day_end(issue.issue_date)
     if getattr(issue, "created_at", None):
-        return issue.created_at.date()
-    return issue.issue_date
+        return _naive_datetime(issue.created_at) or _day_end(issue.issue_date)
+    return _day_end(issue.issue_date)
+
+
+def _issue_effective_date(issue: ReelIssue) -> date:
+    return _issue_effective_datetime(issue).date()
 
 
 def _issue_consumed_qty(issue: ReelIssue) -> float:
@@ -60,12 +72,18 @@ def _issue_consumed_qty(issue: ReelIssue) -> float:
     return max(0.0, float(issue.issued_weight_kg or 0.0) - float(issue.remaining_weight_kg or 0.0))
 
 
-def _transaction_business_date(txn: StockTransaction) -> date:
+def _transaction_business_datetime(txn: StockTransaction) -> datetime:
+    if getattr(txn, "effective_at", None):
+        return _naive_datetime(txn.effective_at) or _day_end(date.today())
     if getattr(txn, "effective_date", None):
-        return txn.effective_date
+        return _day_end(txn.effective_date)
     if getattr(txn, "created_at", None):
-        return txn.created_at.date()
-    return date.today()
+        return _naive_datetime(txn.created_at) or _day_end(date.today())
+    return _day_end(date.today())
+
+
+def _transaction_business_date(txn: StockTransaction) -> date:
+    return _transaction_business_datetime(txn).date()
 
 
 def _unit_cost_for_item(item: ItemMaster) -> tuple[float, str]:
@@ -137,17 +155,38 @@ def _reel_source_type(reel: PaperReel) -> str:
     return str(metadata.get("source_document_type") or metadata.get("source") or "").upper()
 
 
-def _scan_event_adjustment_date(event: ReelScanEvent) -> date:
+def _scan_event_adjustment_datetime(event: ReelScanEvent) -> datetime:
     metadata = getattr(event, "event_metadata", None) or {}
+    raw_effective_at = metadata.get("effective_at")
+    if raw_effective_at:
+        try:
+            parsed = datetime.fromisoformat(str(raw_effective_at).replace("Z", "+00:00"))
+            return _naive_datetime(parsed) or _day_end(date.today())
+        except ValueError:
+            pass
     raw_effective = metadata.get("effective_date")
     if raw_effective:
         try:
-            return date.fromisoformat(str(raw_effective)[:10])
+            return _day_end(date.fromisoformat(str(raw_effective)[:10]))
         except ValueError:
             pass
     if getattr(event, "timestamp", None):
-        return event.timestamp.date()
-    return date.today()
+        return _naive_datetime(event.timestamp) or _day_end(date.today())
+    return _day_end(date.today())
+
+
+def _scan_event_adjustment_date(event: ReelScanEvent) -> date:
+    return _scan_event_adjustment_datetime(event).date()
+
+
+def _reel_inward_datetime(reel: PaperReel) -> datetime | None:
+    inward_date = getattr(reel, "inward_date", None)
+    if not inward_date:
+        return None
+    created_at = _naive_datetime(getattr(reel, "created_at", None))
+    if created_at and created_at.date() == inward_date:
+        return created_at
+    return _day_end(inward_date)
 
 
 def _bulk_quantities(
@@ -155,13 +194,17 @@ def _bulk_quantities(
     item_id: str,
     start_date: date,
     end_date: date,
+    as_of_at: datetime | None = None,
 ) -> dict[str, float]:
+    start_at = _day_start(start_date)
+    end_at = as_of_at or _day_end(end_date)
     candidate_txns = (
         db.query(StockTransaction)
         .filter(
             StockTransaction.item_id == item_id,
             or_(
                 StockTransaction.effective_date <= end_date,
+                StockTransaction.effective_at <= end_at,
                 and_(
                     StockTransaction.effective_date.is_(None),
                     StockTransaction.created_at <= _day_end(end_date),
@@ -180,11 +223,11 @@ def _bulk_quantities(
         qty = float(txn.qty_change or 0.0)
         if txn_type == TransactionType.MOVE.value:
             continue
-        business_date = _transaction_business_date(txn)
-        if business_date < start_date:
+        business_at = _transaction_business_datetime(txn)
+        if business_at < start_at:
             opening_qty += qty
             continue
-        if business_date > end_date:
+        if business_at > end_at:
             continue
         if txn_type in {TransactionType.OPENING.value, TransactionType.ADJUSTMENT.value}:
             adjustment_qty += qty
@@ -208,7 +251,10 @@ def _reel_quantities(
     item_id: str,
     start_date: date,
     end_date: date,
+    as_of_at: datetime | None = None,
 ) -> dict[str, float]:
+    start_at = _day_start(start_date)
+    end_at = as_of_at or _day_end(end_date)
     reels = db.query(PaperReel).filter(PaperReel.paper_id == item_id).all()
     issues = (
         db.query(ReelIssue)
@@ -225,12 +271,13 @@ def _reel_quantities(
     inward_qty = 0.0
     adjustment_qty = 0.0
     for reel in reels:
-        if not reel.inward_date:
+        inward_at = _reel_inward_datetime(reel)
+        if not inward_at:
             continue
         qty = float(reel.inward_weight_kg or 0.0)
-        if reel.inward_date < start_date:
+        if inward_at < start_at:
             opening_qty += qty
-        elif start_date <= reel.inward_date <= end_date:
+        elif start_at <= inward_at <= end_at:
             if _reel_source_type(reel) in {"OPENING_LOAD", "CARRY_FORWARD", "STOCK_ADJUSTMENT"}:
                 adjustment_qty += qty
             else:
@@ -242,10 +289,10 @@ def _reel_quantities(
         consumed = _issue_consumed_qty(issue)
         if consumed <= 0:
             continue
-        effective_date = _issue_effective_date(issue)
-        if effective_date < start_date:
+        effective_at = _issue_effective_datetime(issue)
+        if effective_at < start_at:
             consumed_before_start += consumed
-        elif start_date <= effective_date <= end_date:
+        elif start_at <= effective_at <= end_at:
             outward_qty += consumed
 
     adjustment_events = (
@@ -262,10 +309,10 @@ def _reel_quantities(
             delta = 0.0
         if delta >= 0:
             continue
-        effective_date = _scan_event_adjustment_date(event)
-        if effective_date < start_date:
+        effective_at = _scan_event_adjustment_datetime(event)
+        if effective_at < start_at:
             opening_qty += delta
-        elif start_date <= effective_date <= end_date:
+        elif start_at <= effective_at <= end_at:
             adjustment_qty += delta
 
     opening_qty -= consumed_before_start
@@ -284,7 +331,10 @@ def compute_stock_statement(
     plant_scope: dict,
     start_date: date,
     end_date: date,
+    as_of_at: datetime | None = None,
 ) -> dict[str, Any]:
+    normalized_as_of = _naive_datetime(as_of_at)
+    statement_end_at = normalized_as_of or _day_end(end_date)
     item_query = _apply_item_scope(db.query(ItemMaster).filter(ItemMaster.active == "true"), plant_scope)
     items = item_query.order_by(ItemMaster.type.asc(), ItemMaster.item_code.asc()).all()
 
@@ -304,9 +354,9 @@ def compute_stock_statement(
         item_id = str(item.id)
         tracking_mode = _enum_value(item.tracking_mode)
         quantities = (
-            _reel_quantities(db, item_id, start_date, end_date)
+            _reel_quantities(db, item_id, start_date, end_date, statement_end_at)
             if tracking_mode == TrackingMode.REEL.value
-            else _bulk_quantities(db, item_id, start_date, end_date)
+            else _bulk_quantities(db, item_id, start_date, end_date, statement_end_at)
         )
         if tracking_mode == TrackingMode.REEL.value:
             unit_cost, cost_source = reel_weighted_unit_cost_for_item(db, item)
@@ -369,6 +419,7 @@ def compute_stock_statement(
     return {
         "period_start": start_date.isoformat(),
         "period_end": end_date.isoformat(),
+        "stock_as_of_at": statement_end_at.isoformat(),
         "scope": "ALL" if plant_scope.get("scope_all") else plant_scope.get("selected_plant_id"),
         "generated_at": datetime.utcnow().isoformat(),
         "rows": rows,

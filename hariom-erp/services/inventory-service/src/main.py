@@ -156,12 +156,31 @@ def ensure_runtime_schema() -> None:
     )
     connection.execute(
       text(
+        "ALTER TABLE IF EXISTS stock_transaction "
+        "ADD COLUMN IF NOT EXISTS effective_at TIMESTAMP"
+      )
+    )
+    connection.execute(
+      text(
         "CREATE INDEX IF NOT EXISTS ix_stock_transaction_effective_date "
         "ON stock_transaction (effective_date)"
       )
     )
     connection.execute(
+      text(
+        "CREATE INDEX IF NOT EXISTS ix_stock_transaction_effective_at "
+        "ON stock_transaction (effective_at)"
+      )
+    )
+    connection.execute(
       text("UPDATE stock_transaction SET stock_status = 'UNRESTRICTED' WHERE stock_status IS NULL")
+    )
+    connection.execute(
+      text(
+        "UPDATE stock_transaction "
+        "SET effective_at = COALESCE(effective_at, effective_date::timestamp + interval '23 hours 59 minutes 59 seconds', created_at) "
+        "WHERE effective_at IS NULL"
+      )
     )
 
     connection.execute(
@@ -254,6 +273,8 @@ def ensure_runtime_schema() -> None:
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS counted_by VARCHAR(200)",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS checked_by VARCHAR(200)",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS stock_as_of_at TIMESTAMP",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_taken_at TIMESTAMP",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS counted_at TIMESTAMP",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP",
       "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS batch_id UUID",
@@ -271,6 +292,7 @@ def ensure_runtime_schema() -> None:
       "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS recount_notes VARCHAR(500)",
       "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
       "ALTER TABLE IF EXISTS stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
+      "ALTER TABLE IF EXISTS stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS effective_at TIMESTAMP",
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS effective_date DATE",
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS root_cause_department VARCHAR(80)",
       "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS owner_department VARCHAR(80)",
@@ -294,6 +316,20 @@ def ensure_runtime_schema() -> None:
     )
     connection.execute(
       text(
+        "UPDATE inventory_certifications "
+        "SET stock_as_of_at = COALESCE(stock_as_of_at, period_end::timestamp + interval '23 hours 59 minutes 59 seconds') "
+        "WHERE stock_as_of_at IS NULL"
+      )
+    )
+    connection.execute(
+      text(
+        "UPDATE inventory_certifications "
+        "SET count_taken_at = COALESCE(count_taken_at, counted_at, created_at, stock_as_of_at) "
+        "WHERE count_taken_at IS NULL"
+      )
+    )
+    connection.execute(
+      text(
         "UPDATE inventory_certification_lines "
         "SET stock_status = COALESCE(stock_status, 'UNRESTRICTED'), "
         "count_state = COALESCE(count_state, 'DRAFT'), "
@@ -305,6 +341,13 @@ def ensure_runtime_schema() -> None:
     )
     connection.execute(
       text("UPDATE stock_adjustment_vouchers SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
+    )
+    connection.execute(
+      text(
+        "UPDATE stock_adjustment_vouchers "
+        "SET effective_at = COALESCE(effective_at, effective_date::timestamp + interval '23 hours 59 minutes 59 seconds', created_at) "
+        "WHERE effective_at IS NULL"
+      )
     )
     connection.execute(
       text(

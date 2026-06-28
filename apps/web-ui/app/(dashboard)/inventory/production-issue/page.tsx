@@ -1,7 +1,7 @@
 "use client"
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
-import { ArrowRight, PackageCheck, RefreshCw, Search } from "lucide-react"
+import { ArrowRight, Barcode, PackageCheck, RefreshCw, Search } from "lucide-react"
 
 import {
   useCreateTransaction,
@@ -11,6 +11,7 @@ import {
   useIssueBatchToWip,
 } from "@/hooks/use-inventory"
 import { usePlanningJobCards } from "@/hooks/use-production"
+import { inventoryApi } from "@/lib/api"
 import { jobCardRef, jobCardSearchText, jobCardSubtitle } from "@/lib/job-card-display"
 
 const STAGE_OPTIONS = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"]
@@ -20,6 +21,19 @@ function normalizeStage(value: any) {
   return STAGE_OPTIONS.includes(normalized) ? normalized : "PROCESS"
 }
 
+function parseInventoryQr(raw: string) {
+  const trimmed = raw.trim()
+  const parts = trimmed.split("|")
+  if (parts.length >= 5 && parts[0].toUpperCase() === "HARIOM") {
+    return {
+      entityType: parts[1].toUpperCase(),
+      entityId: parts[3],
+      code: parts[4],
+    }
+  }
+  return { entityType: "", entityId: "", code: trimmed }
+}
+
 export default function InventoryProductionIssuePage() {
   const { data: items = [], isLoading } = useInventoryItems()
   const { data: locations = [] } = useInventoryLocations()
@@ -27,6 +41,9 @@ export default function InventoryProductionIssuePage() {
   const issueBatchToWip = useIssueBatchToWip()
   const [jobSearch, setJobSearch] = useState("")
   const [itemSearch, setItemSearch] = useState("")
+  const [batchScan, setBatchScan] = useState("")
+  const [batchScanMessage, setBatchScanMessage] = useState("")
+  const [pendingBatchId, setPendingBatchId] = useState("")
   const deferredJobSearch = useDeferredValue(jobSearch.trim())
   const jobCardsQuery = usePlanningJobCards(
     {
@@ -105,10 +122,65 @@ export default function InventoryProductionIssuePage() {
   }, [formData.item_id])
 
   useEffect(() => {
+    if (!pendingBatchId || !itemBatches.length) return
+    const pending = pendingBatchId.toUpperCase()
+    const matched = itemBatches.find((batch: any) =>
+      String(batch.batch_id || "").toUpperCase() === pending ||
+      String(batch.batch_no || "").toUpperCase() === pending
+    )
+    if (!matched) return
+    setFormData((current) => ({ ...current, batch_id: matched.batch_id }))
+    setBatchScanMessage(`Batch ${matched.batch_no || matched.batch_id} selected.`)
+    setPendingBatchId("")
+  }, [itemBatches, pendingBatchId])
+
+  useEffect(() => {
     if (selectedJob) {
       setFormData((current) => ({ ...current, stage: normalizeStage(selectedJob.current_stage || current.stage) }))
     }
   }, [selectedJob])
+
+  async function resolveBatchScan() {
+    const parsed = parseInventoryQr(batchScan)
+    const scanId = parsed.entityId.trim()
+    const scanCode = parsed.code.trim().toUpperCase()
+    setBatchScanMessage("")
+
+    if (parsed.entityType && parsed.entityType !== "BATCH") {
+      setBatchScanMessage("Scan a batch QR label for bulk production issue.")
+      return
+    }
+
+    if (scanId) {
+      try {
+        const { data } = await inventoryApi.getBatchLabel(scanId)
+        const itemId = data?.item_id
+        const batchId = data?.entity_id || scanId
+        if (!itemId || !batchId) {
+          setBatchScanMessage("Batch QR could not be resolved.")
+          return
+        }
+        setItemSearch(data?.item_code || data?.item_name || "")
+        setPendingBatchId(batchId)
+        setFormData((current) => ({ ...current, item_id: itemId, batch_id: "" }))
+        return
+      } catch (error: any) {
+        setBatchScanMessage(error?.response?.data?.detail || error?.message || "Batch QR lookup failed.")
+        return
+      }
+    }
+
+    const matched = itemBatches.find((batch: any) =>
+      String(batch.batch_id || "").toUpperCase() === scanCode ||
+      String(batch.batch_no || "").toUpperCase() === scanCode
+    )
+    if (!matched) {
+      setBatchScanMessage(formData.item_id ? "Batch not available for the selected material." : "Select material first or scan the printed batch QR.")
+      return
+    }
+    setFormData((current) => ({ ...current, batch_id: matched.batch_id }))
+    setBatchScanMessage(`Batch ${matched.batch_no || matched.batch_id} selected.`)
+  }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -225,8 +297,26 @@ export default function InventoryProductionIssuePage() {
           </label>
 
           {isWipMode ? (
-            <label className="space-y-2 text-sm font-medium text-slate-700">
-              Batch / Lot
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-700">Batch / Lot</label>
+              <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+                <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
+                  <Barcode className="h-4 w-4 text-slate-400" />
+                  <input
+                    value={batchScan}
+                    onChange={(event) => setBatchScan(event.target.value)}
+                    placeholder="Scan batch QR or enter batch no"
+                    className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={resolveBatchScan}
+                  className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900"
+                >
+                  Select
+                </button>
+              </div>
               <select
                 value={formData.batch_id}
                 onChange={(event) => setFormData((current) => ({ ...current, batch_id: event.target.value }))}
@@ -240,7 +330,8 @@ export default function InventoryProductionIssuePage() {
                   </option>
                 ))}
               </select>
-            </label>
+              {batchScanMessage ? <p className="text-xs font-semibold text-cyan-800">{batchScanMessage}</p> : null}
+            </div>
           ) : null}
 
           <label className="space-y-2 text-sm font-medium text-slate-700">

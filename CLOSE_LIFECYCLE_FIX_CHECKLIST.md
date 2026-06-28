@@ -387,3 +387,30 @@ This pass closes the remaining production-readiness items found during the final
   - `/api/inventory/quality/customer-rejections` 200 with CAPA/cost/proof fields
   - `/api/inventory/ledger` 200 with business date field
 - ✅ Latest service tails after reload show fresh 200s for stock-control, production period-state, books-state, ageing, quality rejection, adjustments, and ledger.
+
+---
+
+## 16. Timestamped Stock Count + Scan Issue Close-Out — 2026-06-28
+
+This pass closes the operator requirement that a physical count taken earlier can be posted later, opening stock is initialized only once, and QR labels can be scanned into issue flows.
+
+### 16.1 Timestamped stock count
+- ✅ Stock transactions and stock adjustment vouchers now support `effective_at`.
+- ✅ Stock certifications now support `stock_as_of_at` and `count_taken_at`.
+- ✅ Stock statement accepts `stock_as_of_at` and cuts bulk/reel quantities at that exact timestamp.
+- ✅ Certification variance posts an adjustment voucher using the certification snapshot timestamp.
+- ✅ Stock Control UI exposes both Stock as of and Count taken timestamps.
+
+### 16.2 One-time opening stock
+- ✅ Manual opening load now blocks once any opening load exists for the plant.
+- ✅ The UI disables the bootstrap opening form after initialization and directs users to carry-forward or adjustment vouchers.
+- ✅ Carry-forward post-opening remains idempotent and separate from manual bootstrap opening.
+
+### 16.3 QR label scan-to-issue
+- ✅ Reel issue scan accepts both plain reel code and printed `HARIOM|REEL|...` QR values.
+- ✅ Production issue scan accepts printed `HARIOM|BATCH|...` QR values, resolves the batch label, selects the material, and selects the batch once availability loads.
+- ✅ Plain batch/reel code entry remains supported for keyboard/manual fallback.
+
+### 16.4 Client usage flow
+- Operator flow: first-time opening → inward QR label → incoming QC approval → scan issue to production → non-blocking job-card QC records → stock count snapshot → variance voucher → carry-forward opening.
+- Trace flow: QR label/reel or batch → genealogy/ledger → issue/job-card → QC records → FG inward/dispatch → customer rejection → rework/scrap adjustment.

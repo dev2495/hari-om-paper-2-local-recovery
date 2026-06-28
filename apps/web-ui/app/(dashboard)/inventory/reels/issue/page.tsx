@@ -17,6 +17,19 @@ function getErrorMessage(error: any): string {
   )
 }
 
+function parseInventoryQr(raw: string) {
+  const trimmed = raw.trim()
+  const parts = trimmed.split("|")
+  if (parts.length >= 5 && parts[0].toUpperCase() === "HARIOM") {
+    return {
+      entityType: parts[1].toUpperCase(),
+      entityId: parts[3],
+      code: parts[4],
+    }
+  }
+  return { entityType: "", entityId: "", code: trimmed }
+}
+
 export default function ReelIssuePage() {
   const { showToast } = useApp()
   const [scanCode, setScanCode] = useState("")
@@ -57,7 +70,17 @@ export default function ReelIssuePage() {
   }, [reelIssuesQuery.data])
 
   const resolveReelByCode = () => {
-    const matched = reels.find((row: any) => row.reel_code === scanCode.trim().toUpperCase())
+    const parsed = parseInventoryQr(scanCode)
+    if (parsed.entityType && parsed.entityType !== "REEL") {
+      showToast("Scan a reel QR label for reel issue", "error")
+      return
+    }
+    const scanId = parsed.entityId.trim().toUpperCase()
+    const scanReelCode = parsed.code.trim().toUpperCase()
+    const matched = reels.find((row: any) =>
+      String(row.id || "").toUpperCase() === scanId ||
+      String(row.reel_code || "").toUpperCase() === scanReelCode
+    )
     if (!matched) {
       showToast("Reel code not found", "error")
       return
@@ -138,8 +161,8 @@ export default function ReelIssuePage() {
             <Barcode className="h-4 w-4 text-slate-500" />
             <input
               value={scanCode}
-              onChange={(event) => setScanCode(event.target.value.toUpperCase())}
-              placeholder="Scan / enter reel code"
+              onChange={(event) => setScanCode(event.target.value)}
+              placeholder="Scan reel QR or enter reel code"
               className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
             />
           </div>

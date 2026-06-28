@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Optional
 import uuid
 
@@ -66,6 +66,30 @@ def _to_uuid(value: str, field: str = "plant_id") -> uuid.UUID:
 def _fiscal_year_label(end_date: date) -> str:
     start_year = end_date.year if end_date.month >= 4 else end_date.year - 1
     return f"FY {start_year}-{str(start_year + 1)[-2:]}"
+
+
+def _naive_datetime(value: Optional[datetime]) -> Optional[datetime]:
+    if value is None:
+        return None
+    if getattr(value, "tzinfo", None) is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _day_end(value: date) -> datetime:
+    return datetime.combine(value, time.max)
+
+
+def _effective_at_for_date(effective_date: date, provided: Optional[datetime] = None) -> datetime:
+    normalized = _naive_datetime(provided)
+    return normalized or _day_end(effective_date)
+
+
+def _stock_as_of_at(period_start: date, period_end: date, provided: Optional[datetime] = None) -> datetime:
+    normalized = _effective_at_for_date(period_end, provided)
+    if normalized.date() < period_start or normalized.date() > period_end:
+        raise HTTPException(status_code=400, detail="stock_as_of_at must be within the certification period")
+    return normalized
 
 
 def _normalize_cost_source(value: Optional[str]) -> Optional[str]:
@@ -168,6 +192,8 @@ def _serialize_certification(header: InventoryCertification, include_lines: bool
         "counted_by": header.counted_by,
         "checked_by": header.checked_by,
         "certified_by": header.certified_by,
+        "stock_as_of_at": header.stock_as_of_at.isoformat() if header.stock_as_of_at else None,
+        "count_taken_at": header.count_taken_at.isoformat() if header.count_taken_at else None,
         "counted_at": header.counted_at.isoformat() if header.counted_at else None,
         "checked_at": header.checked_at.isoformat() if header.checked_at else None,
         "certified_at": header.certified_at.isoformat() if header.certified_at else None,
@@ -256,6 +282,8 @@ class OpeningLoadPayload(BaseModel):
 class CertificationCreatePayload(BaseModel):
     period_start: date
     period_end: date
+    stock_as_of_at: Optional[datetime] = None
+    count_taken_at: Optional[datetime] = None
     fiscal_year_label: Optional[str] = Field(default=None, max_length=30)
     count_session_no: Optional[str] = Field(default=None, max_length=80)
     count_location_scope: Optional[str] = Field(default=None, max_length=200)
@@ -306,6 +334,7 @@ class CertificationUpdatePayload(BaseModel):
     notes: Optional[str] = Field(default=None, max_length=500)
     count_session_no: Optional[str] = Field(default=None, max_length=80)
     count_location_scope: Optional[str] = Field(default=None, max_length=200)
+    count_taken_at: Optional[datetime] = None
     count_state: Optional[str] = None
     counted_by: Optional[str] = Field(default=None, max_length=200)
     checked_by: Optional[str] = Field(default=None, max_length=200)
@@ -364,6 +393,7 @@ class AdjustmentLinePayload(BaseModel):
 class AdjustmentVoucherPayload(BaseModel):
     voucher_no: Optional[str] = Field(default=None, max_length=80)
     effective_date: date
+    effective_at: Optional[datetime] = None
     reason_code: str = Field(min_length=1, max_length=80)
     reason_notes: Optional[str] = Field(default=None, max_length=500)
     source_type: str = Field(default="MANUAL", max_length=60)
@@ -439,6 +469,7 @@ def _serialize_adjustment_voucher(header: StockAdjustmentVoucher, include_lines:
         "plant_id": header.plant_id,
         "voucher_no": header.voucher_no,
         "effective_date": header.effective_date.isoformat(),
+        "effective_at": header.effective_at.isoformat() if header.effective_at else None,
         "reason_code": header.reason_code,
         "reason_notes": header.reason_notes,
         "source_type": header.source_type,
@@ -482,6 +513,7 @@ def _add_reel_adjustment_event(
                 "reason_code": line.reason_code or header.reason_code,
                 "adjustment_qty_delta": round(float(qty_delta), 3),
                 "effective_date": header.effective_date.isoformat(),
+                "effective_at": header.effective_at.isoformat() if header.effective_at else None,
                 "actor": actor,
             },
         )
@@ -658,6 +690,7 @@ def _post_bulk_adjustment_line(
         },
         external_ref=f"ADJ:{header.id}:{line.id}",
         effective_date=header.effective_date,
+        effective_at=header.effective_at,
     )
     db.add(txn)
     db.flush()
@@ -722,13 +755,21 @@ def _post_adjustment_voucher(
 def stock_statement(
     start_date: date = Query(...),
     end_date: date = Query(...),
+    stock_as_of_at: Optional[datetime] = Query(default=None),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user),
 ):
     if start_date > end_date:
         raise HTTPException(status_code=400, detail="start_date cannot be after end_date")
-    return compute_stock_statement(db=db, plant_scope=plant_scope, start_date=start_date, end_date=end_date)
+    statement_as_of = _stock_as_of_at(start_date, end_date, stock_as_of_at)
+    return compute_stock_statement(
+        db=db,
+        plant_scope=plant_scope,
+        start_date=start_date,
+        end_date=end_date,
+        as_of_at=statement_as_of,
+    )
 
 
 @router.get("/adjustment-vouchers")
@@ -745,6 +786,7 @@ def list_adjustment_vouchers(
     else:
         query = query.filter(StockAdjustmentVoucher.plant_id == plant_scope["selected_plant_id"])
     rows = query.order_by(
+        StockAdjustmentVoucher.effective_at.desc().nullslast(),
         StockAdjustmentVoucher.effective_date.desc(),
         StockAdjustmentVoucher.created_at.desc(),
     ).limit(100).all()
@@ -758,6 +800,7 @@ def create_adjustment_voucher(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Store"])),
 ):
+    effective_at = _effective_at_for_date(payload.effective_date, payload.effective_at)
     voucher_no = (payload.voucher_no or "").strip().upper() or _next_adjustment_no(db, plant_id, payload.effective_date)
     existing = db.query(StockAdjustmentVoucher).filter(
         StockAdjustmentVoucher.plant_id == plant_id,
@@ -769,6 +812,7 @@ def create_adjustment_voucher(
         plant_id=plant_id,
         voucher_no=voucher_no,
         effective_date=payload.effective_date,
+        effective_at=effective_at,
         reason_code=payload.reason_code.strip().upper(),
         reason_notes=payload.reason_notes,
         source_type=payload.source_type.strip().upper() or "MANUAL",
@@ -903,7 +947,16 @@ def create_opening_load(
     ).first()
     if existing:
         raise HTTPException(status_code=400, detail="Opening load document already exists")
+    initialized = db.query(InventoryOpeningLoad.id).filter(
+        InventoryOpeningLoad.plant_id == plant_id,
+    ).first()
+    if initialized:
+        raise HTTPException(
+            status_code=400,
+            detail="Opening stock is already initialized for this plant; use stock count carry-forward or adjustment voucher.",
+        )
 
+    effective_at = _day_end(payload.effective_date)
     header = InventoryOpeningLoad(
         plant_id=plant_id,
         document_no=document_no,
@@ -976,6 +1029,8 @@ def create_opening_load(
                         "source_document_type": "OPENING_LOAD",
                         "document_no": document_no,
                         "line_no": index,
+                        "effective_date": payload.effective_date.isoformat(),
+                        "effective_at": effective_at.isoformat(),
                     },
                 )
             )
@@ -1025,6 +1080,7 @@ def create_opening_load(
                 },
                 external_ref=f"OPENING:{document_no}:{index}",
                 effective_date=payload.effective_date,
+                effective_at=effective_at,
             )
             db.add(txn)
             line_row = InventoryOpeningLoadLine(
@@ -1083,7 +1139,11 @@ def list_certifications(
     current_user: dict = Depends(get_current_user),
 ):
     query = _apply_cert_scope(db.query(InventoryCertification), plant_scope)
-    rows = query.order_by(InventoryCertification.period_end.desc(), InventoryCertification.created_at.desc()).limit(50).all()
+    rows = query.order_by(
+        InventoryCertification.stock_as_of_at.desc().nullslast(),
+        InventoryCertification.period_end.desc(),
+        InventoryCertification.created_at.desc(),
+    ).limit(50).all()
     return {"items": [_serialize_certification(row, include_lines=False) for row in rows]}
 
 
@@ -1096,6 +1156,8 @@ def create_certification(
 ):
     if payload.period_start > payload.period_end:
         raise HTTPException(status_code=400, detail="period_start cannot be after period_end")
+    stock_as_of_at = _stock_as_of_at(payload.period_start, payload.period_end, payload.stock_as_of_at)
+    count_taken_at = _naive_datetime(payload.count_taken_at) or stock_as_of_at
 
     existing = db.query(InventoryCertification).filter(
         InventoryCertification.plant_id == plant_id,
@@ -1119,6 +1181,8 @@ def create_certification(
     )
     header.count_location_scope = payload.count_location_scope or header.count_location_scope or "ALL_LOCATIONS"
     header.count_state = "DRAFT"
+    header.stock_as_of_at = stock_as_of_at
+    header.count_taken_at = count_taken_at
     header.counted_by = payload.counted_by or header.counted_by
     header.checked_by = payload.checked_by or header.checked_by
     header.attachment_refs = list(payload.attachment_refs or [])
@@ -1137,6 +1201,7 @@ def create_certification(
         plant_scope={"scope_all": False, "selected_plant_id": plant_id},
         start_date=payload.period_start,
         end_date=payload.period_end,
+        as_of_at=stock_as_of_at,
     )
     for row in statement["rows"]:
         db.add(_line_from_statement(header.id, row))
@@ -1155,6 +1220,8 @@ def create_certification(
             payload={
                 "period_start": payload.period_start.isoformat(),
                 "period_end": payload.period_end.isoformat(),
+                "stock_as_of_at": stock_as_of_at.isoformat(),
+                "count_taken_at": count_taken_at.isoformat(),
                 "fiscal_year_label": header.fiscal_year_label,
                 "count_session_no": header.count_session_no,
                 "count_location_scope": header.count_location_scope,
@@ -1204,6 +1271,8 @@ def update_certification(
         header.count_session_no = payload.count_session_no.strip().upper() or header.count_session_no
     if payload.count_location_scope is not None:
         header.count_location_scope = payload.count_location_scope
+    if payload.count_taken_at is not None:
+        header.count_taken_at = _naive_datetime(payload.count_taken_at)
     if payload.count_state is not None:
         header.count_state = _validate_count_state(payload.count_state)
     if payload.counted_by is not None:
@@ -1216,6 +1285,7 @@ def update_certification(
     line_by_id = {str(line.id): line for line in header.lines or []}
     line_by_item = {str(line.item_id): line for line in header.lines or []}
     actor = _actor(current_user)
+    count_taken_at = header.count_taken_at or datetime.utcnow()
     for patch in payload.lines:
         target = None
         if patch.line_id:
@@ -1263,7 +1333,7 @@ def update_certification(
             target.recount_notes = patch.recount_notes
         if patch.attachment_refs is not None:
             target.attachment_refs = list(patch.attachment_refs or [])
-        target.counted_at = target.counted_at or datetime.utcnow()
+        target.counted_at = count_taken_at
         if patch.notes is not None:
             target.notes = patch.notes
 
@@ -1273,7 +1343,8 @@ def update_certification(
     elif payload.lines:
         header.count_state = payload.count_state or "COUNTED"
         header.counted_by = header.counted_by or actor
-        header.counted_at = header.counted_at or datetime.utcnow()
+        header.count_taken_at = header.count_taken_at or count_taken_at
+        header.counted_at = count_taken_at
 
     db.commit()
     db.refresh(header)
@@ -1290,6 +1361,8 @@ def update_certification(
             payload={
                 "period_start": header.period_start.isoformat(),
                 "period_end": header.period_end.isoformat(),
+                "stock_as_of_at": header.stock_as_of_at.isoformat() if header.stock_as_of_at else None,
+                "count_taken_at": header.count_taken_at.isoformat() if header.count_taken_at else None,
                 "line_patches": len(payload.lines),
                 "notes_changed": payload.notes is not None,
                 "count_state": header.count_state,
@@ -1326,6 +1399,8 @@ def certify_stock(
     header.count_state = "CERTIFIED"
     header.certified_by = _actor(current_user)
     header.checked_by = header.checked_by or _actor(current_user)
+    header.count_taken_at = header.count_taken_at or header.counted_at or datetime.utcnow()
+    header.counted_at = header.counted_at or header.count_taken_at
     header.checked_at = header.checked_at or datetime.utcnow()
     header.certified_at = datetime.utcnow()
     if payload.notes is not None:
@@ -1345,6 +1420,8 @@ def certify_stock(
             payload={
                 "period_start": header.period_start.isoformat(),
                 "period_end": header.period_end.isoformat(),
+                "stock_as_of_at": header.stock_as_of_at.isoformat() if header.stock_as_of_at else None,
+                "count_taken_at": header.count_taken_at.isoformat() if header.count_taken_at else None,
                 "fiscal_year_label": header.fiscal_year_label,
                 "certified_by": _actor(current_user),
                 "count_session_no": header.count_session_no,
@@ -1396,11 +1473,13 @@ def post_certification_variance(
             "certification_id": str(certification.id),
         }
 
+    effective_at = certification.stock_as_of_at or _day_end(certification.period_end)
     voucher_no = f"VAR-{certification.period_end.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
     header = StockAdjustmentVoucher(
         plant_id=plant_id,
         voucher_no=voucher_no,
-        effective_date=certification.period_end,
+        effective_date=effective_at.date(),
+        effective_at=effective_at,
         reason_code="PHYSICAL_COUNT_VARIANCE",
         reason_notes=f"Posted from stock certification {certification.period_start} to {certification.period_end}",
         source_type="CERTIFICATION_VARIANCE",
@@ -1442,6 +1521,8 @@ def post_certification_variance(
             summary=f"Stock count variance posted for {certification.period_end}",
             payload={
                 "certification_id": str(certification.id),
+                "stock_as_of_at": effective_at.isoformat(),
+                "count_taken_at": certification.count_taken_at.isoformat() if certification.count_taken_at else None,
                 "voucher": _serialize_adjustment_voucher(header, include_lines=True),
             },
         )
@@ -1625,6 +1706,7 @@ def post_opening_from_carry_forward(
     if not (cf.lines or []):
         raise HTTPException(status_code=400, detail="Carry-forward has no lines to post")
 
+    effective_at = _day_end(cf.opening_date)
     header = InventoryOpeningLoad(
         plant_id=plant_id,
         document_no=f"OPEN-FROM-{cf.document_no}",
@@ -1701,6 +1783,7 @@ def post_opening_from_carry_forward(
                         "opening_load_doc": header.document_no,
                         "line_no": idx,
                         "effective_date": cf.opening_date.isoformat(),
+                        "effective_at": effective_at.isoformat(),
                     },
                 )
             )
@@ -1730,9 +1813,14 @@ def post_opening_from_carry_forward(
                 reference_id=cf.id,
                 plant_id=plant_id,
                 stock_status="UNRESTRICTED",
-                movement_metadata={"carry_forward_id": str(cf.id), "carry_forward_doc": cf.document_no},
+                movement_metadata={
+                    "carry_forward_id": str(cf.id),
+                    "carry_forward_doc": cf.document_no,
+                    "effective_at": effective_at.isoformat(),
+                },
                 external_ref=external_ref,
                 effective_date=cf.opening_date,
+                effective_at=effective_at,
             )
         )
         line_row.batch_id = batch.id

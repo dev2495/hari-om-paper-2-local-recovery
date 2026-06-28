@@ -196,6 +196,7 @@ class StockTransaction(Base):
     movement_metadata = Column(JSON, nullable=True)
 
     effective_date = Column(Date, nullable=True, index=True)
+    effective_at = Column(DateTime, nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     item = relationship("ItemMaster", back_populates="transactions")
@@ -489,6 +490,8 @@ class InventoryCertification(Base):
     counted_by = Column(String(200), nullable=True)
     checked_by = Column(String(200), nullable=True)
     certified_by = Column(String(200), nullable=True)
+    stock_as_of_at = Column(DateTime, nullable=True)
+    count_taken_at = Column(DateTime, nullable=True)
     counted_at = Column(DateTime, nullable=True)
     checked_at = Column(DateTime, nullable=True)
     certified_at = Column(DateTime, nullable=True)
@@ -601,6 +604,7 @@ class StockAdjustmentVoucher(Base):
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     voucher_no = Column(String(80), nullable=False)
     effective_date = Column(Date, nullable=False)
+    effective_at = Column(DateTime, nullable=True)
     reason_code = Column(String(80), nullable=False)
     reason_notes = Column(String(500), nullable=True)
     source_type = Column(String(60), nullable=False, default="MANUAL")

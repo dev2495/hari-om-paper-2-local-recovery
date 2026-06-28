@@ -163,3 +163,15 @@
 - Production reconciliation must call `/inventory/stock-control/certifications`.
 - The reconciliation client must accept stock-control's object wrapper (`items`) and plain list responses.
 - A bad/missing stock-control response should omit the certification reference, not crash period-state or books-state.
+
+### 2026-06-28: Stock counts are timestamp snapshots
+
+- Stock count certification must store both `stock_as_of_at` (book stock snapshot time) and `count_taken_at` (physical count time).
+- A count taken hours or days ago can be entered later without changing the business snapshot time.
+- Variance vouchers created from a certification must post with the certification `stock_as_of_at`, not the current server time.
+
+### 2026-06-28: Opening stock is initialized once per plant
+
+- Manual opening load is only for first go-live initialization.
+- After the first opening load exists, corrections must use dated adjustment vouchers and period continuity must use certified carry-forward.
+- Carry-forward post-opening remains idempotent, so repeating the same carry-forward post returns the existing opening load instead of double-posting.
