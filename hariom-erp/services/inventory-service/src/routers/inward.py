@@ -1,7 +1,7 @@
 from datetime import date, datetime
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..models import InventoryLocation, ItemMaster, ReferenceType, StockBatch, StockTransaction, TrackingMode, TransactionType
 from ..services import get_batch_balance, get_item_balance
+from ..services.labels import batch_label_payload
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import require_role, get_current_plant
 
@@ -83,6 +84,7 @@ class InwardResponse(BaseModel):
     item_balance: float
     batch_balance: float
     message: str
+    label: Optional[dict[str, Any]] = None
 
 
 @router.post("/", response_model=InwardResponse)
@@ -199,4 +201,5 @@ def create_inward(
         item_balance=get_item_balance(str(inward.item_id), db),
         batch_balance=get_batch_balance(str(batch.id), db),
         message=f"Inward recorded: {inward.qty} {item.uom.value} of {item.name}",
+        label=batch_label_payload(batch, item, inward_date=effective_date_value),
     )

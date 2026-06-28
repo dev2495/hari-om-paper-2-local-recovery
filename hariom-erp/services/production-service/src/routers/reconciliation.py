@@ -497,7 +497,7 @@ def _fetch_stock_certification_for_period(
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.get(
-                f"{settings.INVENTORY_SERVICE_URL}/stock-control/certifications",
+                f"{settings.INVENTORY_SERVICE_URL}/inventory/stock-control/certifications",
                 params={
                     "period_start": period_start.isoformat(),
                     "period_end": period_end.isoformat(),
@@ -506,7 +506,14 @@ def _fetch_stock_certification_for_period(
             )
         if response.status_code != 200:
             return None
-        rows = response.json() or []
+        payload = response.json() or []
+        if isinstance(payload, dict):
+            rows = payload.get("items") or payload.get("rows") or payload.get("certifications") or []
+        elif isinstance(payload, list):
+            rows = payload
+        else:
+            rows = []
+        rows = [row for row in rows if isinstance(row, dict)]
         if not rows:
             return None
         # Pick the latest whose period_end is within the month

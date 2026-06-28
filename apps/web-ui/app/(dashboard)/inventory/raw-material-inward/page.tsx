@@ -3,6 +3,7 @@
 import Link from "next/link"
 import { useMemo, useState } from "react"
 
+import { InventoryLabelPrint } from "@/components/inventory/InventoryLabelPrint"
 import { useCreateInward, useInventoryItems, useInventoryLocations } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
 
@@ -22,6 +23,7 @@ export default function RawMaterialInwardPage() {
     stock_status: "QC_HOLD",
   })
   const [submitError, setSubmitError] = useState("")
+  const [lastLabel, setLastLabel] = useState<any>(null)
 
   const rmItems = useMemo(
     () => (items || []).filter((item: any) => item.type !== "FINISHED_GOOD"),
@@ -82,7 +84,7 @@ export default function RawMaterialInwardPage() {
               return
             }
             try {
-              await createInward.mutateAsync({
+              const result = await createInward.mutateAsync({
                 item_id: inward.item_id,
                 batch_no: inward.batch_no || undefined,
                 qty: Number(inward.qty),
@@ -95,6 +97,7 @@ export default function RawMaterialInwardPage() {
                 reference_type: "PURCHASE",
                 external_ref: inward.external_ref || undefined,
               })
+              setLastLabel(result?.data?.label || null)
               setInward((current) => ({ ...current, batch_no: "", qty: "", unit_cost: "", external_ref: "", stock_status: "QC_HOLD" }))
             } catch (error: any) {
               setSubmitError(error?.response?.data?.detail || error?.message || "Inward posting failed.")
@@ -204,6 +207,7 @@ export default function RawMaterialInwardPage() {
           </p>
         ) : null}
       </section>
+      <InventoryLabelPrint label={lastLabel} title="Batch QR Label" />
     </div>
   )
 }

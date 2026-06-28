@@ -139,6 +139,7 @@ export default function QualityLifecyclePage() {
     source_job_card_id: "",
     source_spec_id: "",
   })
+  const [customerDispositionDraft, setCustomerDispositionDraft] = useState<Record<string, Record<string, string>>>({})
 
   const jobCardsQuery = usePlanningJobCards({ limit: 200 })
   const inspectionsQuery = useQualityInspections({ limit: 120 })
@@ -346,11 +347,20 @@ export default function QualityLifecyclePage() {
   }
 
   const handleCustomerDisposition = async (rejection: any, disposition: string) => {
+    const closure = customerDispositionDraft[String(rejection.id)] || {}
     try {
       await disposeCustomerRejection.mutateAsync({
         id: String(rejection.id),
         data: {
           disposition,
+          effective_date: dayjs().format("YYYY-MM-DD"),
+          root_cause_department: closure.root_cause_department || undefined,
+          owner_department: closure.owner_department || undefined,
+          corrective_action: closure.corrective_action || undefined,
+          closure_due_date: closure.closure_due_date || undefined,
+          rework_cost: closure.rework_cost ? Number(closure.rework_cost) : undefined,
+          scrap_cost: closure.scrap_cost ? Number(closure.scrap_cost) : undefined,
+          attachment_refs: closure.attachment_refs ? closure.attachment_refs.split(",").map((value) => value.trim()).filter(Boolean) : [],
           notes: `Disposition recorded from quality desk for ${rejection.reason_code || "customer rejection"}.`,
           readings: {
             reject_reason: rejection.reason_code || "CUSTOMER_REJECT",
@@ -647,18 +657,51 @@ export default function QualityLifecyclePage() {
                     <StatusBadge value={row.status} />
                   </div>
                   {!row.closed_at ? (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {["REWORK", "REHEAT", "SEGREGATE", "SCRAP", "ACCEPT", "BLOCK"].map((action) => (
-                        <button
-                          key={action}
-                          type="button"
-                          onClick={() => handleCustomerDisposition(row, action)}
-                          disabled={disposeCustomerRejection.isPending}
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-300 hover:text-cyan-700 disabled:opacity-60"
-                        >
-                          {action}
-                        </button>
-                      ))}
+                    <>
+                      <div className="mt-3 grid gap-2 md:grid-cols-3">
+                        {[
+                          ["root_cause_department", "Cause dept"],
+                          ["owner_department", "Owner dept"],
+                          ["closure_due_date", "Closure date"],
+                          ["rework_cost", "Rework cost"],
+                          ["scrap_cost", "Scrap cost"],
+                          ["attachment_refs", "Proof refs"],
+                        ].map(([key, label]) => (
+                          <input
+                            key={key}
+                            type={key === "closure_due_date" ? "date" : key.includes("cost") ? "number" : "text"}
+                            step={key.includes("cost") ? "0.01" : undefined}
+                            placeholder={label}
+                            value={customerDispositionDraft[row.id]?.[key] || ""}
+                            onChange={(event) => setCustomerDispositionDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), [key]: event.target.value } }))}
+                            className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs outline-none focus:border-cyan-700"
+                          />
+                        ))}
+                        <textarea
+                          placeholder="Corrective action / closure note"
+                          value={customerDispositionDraft[row.id]?.corrective_action || ""}
+                          onChange={(event) => setCustomerDispositionDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), corrective_action: event.target.value } }))}
+                          className="min-h-16 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs outline-none focus:border-cyan-700 md:col-span-3"
+                        />
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {["REWORK", "REHEAT", "SEGREGATE", "SCRAP", "ACCEPT", "BLOCK"].map((action) => (
+                          <button
+                            key={action}
+                            type="button"
+                            onClick={() => handleCustomerDisposition(row, action)}
+                            disabled={disposeCustomerRejection.isPending}
+                            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-300 hover:text-cyan-700 disabled:opacity-60"
+                          >
+                            {action}
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                  {row.closed_at ? (
+                    <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      {row.root_cause_department || "-"} | Owner {row.owner_department || "-"} | Cost {Number(row.cost_impact || 0).toLocaleString("en-IN")}
                     </div>
                   ) : null}
                 </article>

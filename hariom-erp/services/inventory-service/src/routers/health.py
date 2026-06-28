@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..models import InventoryLocation, PaperReel, StockBatch, STOCK_STATUS_VALUES
+from ..models import InventoryLocation, PaperReel, StockBatch, STOCK_STATUS_VALUES, StockTransaction
 from ..services import get_batch_balance
 from ..utils.auth import get_current_plant_scope, get_current_user
 
@@ -204,6 +204,43 @@ def health_aging(
         "90+": {"label": "90+", "weight_kg": 0.0, "qty": 0.0, "reels": 0, "batches": 0},
     }
     detail_rows: list[dict[str, Any]] = []
+    status_rows: dict[str, dict[str, Any]] = {}
+
+    def location_payload(location: InventoryLocation | None) -> dict[str, Any]:
+        if not location:
+            return {"location_id": None, "location_code": None, "warehouse": None, "zone": None, "bin": None}
+        return {
+            "location_id": str(location.id),
+            "location_code": location.code,
+            "warehouse": location.warehouse,
+            "zone": location.zone,
+            "bin": location.bin,
+        }
+
+    def add_status_row(status: str, qty: float, weight_kg: float, entity_type: str) -> None:
+        bucket = status_rows.setdefault(
+            status,
+            {"stock_status": status, "qty": 0.0, "weight_kg": 0.0, "reels": 0, "batches": 0},
+        )
+        bucket["qty"] += float(qty or 0.0)
+        bucket["weight_kg"] += float(weight_kg or 0.0)
+        if entity_type == "REEL":
+            bucket["reels"] += 1
+        else:
+            bucket["batches"] += 1
+
+    def latest_batch_job(batch_id: Any) -> dict[str, Any]:
+        txn = (
+            db.query(StockTransaction)
+            .filter(StockTransaction.batch_id == batch_id)
+            .order_by(StockTransaction.created_at.desc())
+            .first()
+        )
+        metadata = dict(getattr(txn, "movement_metadata", None) or {})
+        return {
+            "job_card_id": metadata.get("job_card_id") or metadata.get("job_id") or metadata.get("source_job_card_id"),
+            "job_card_no": metadata.get("job_card_no") or metadata.get("job_no"),
+        }
 
     def bucket_for(days_old: int) -> str:
         if days_old <= 30:
@@ -220,17 +257,25 @@ def health_aging(
         weight = float(reel.current_weight_kg or 0.0)
         bucket["weight_kg"] += weight
         bucket["reels"] += 1
-        if days_old > 60 and weight > 0:
-            detail_rows.append(
-                {
-                    "entity_type": "REEL",
-                    "id": str(reel.id),
-                    "code": reel.reel_code,
-                    "days_old": days_old,
-                    "stock_status": reel.stock_status,
-                    "weight_kg": round(weight, 2),
-                }
-            )
+        add_status_row(reel.stock_status, 0.0, weight, "REEL")
+        detail_rows.append(
+            {
+                "entity_type": "REEL",
+                "id": str(reel.id),
+                "code": reel.reel_code,
+                "item_id": str(reel.paper_id),
+                "item_code": getattr(reel.paper, "item_code", None),
+                "item_name": getattr(reel.paper, "name", None),
+                "days_old": days_old,
+                "age_bucket": bucket["label"],
+                "stock_status": reel.stock_status,
+                "qty": 0.0,
+                "weight_kg": round(weight, 2),
+                "job_card_id": None,
+                "job_card_no": None,
+                **location_payload(reel.inventory_location),
+            }
+        )
 
     for batch in _apply_scope(db.query(StockBatch), StockBatch, plant_scope).all():
         days_old = max(0, (today - batch.created_at.date()).days)
@@ -238,17 +283,25 @@ def health_aging(
         qty = max(0.0, float(get_batch_balance(str(batch.id), db)))
         bucket["qty"] += qty
         bucket["batches"] += 1
-        if days_old > 60 and qty > 0:
-            detail_rows.append(
-                {
-                    "entity_type": "BATCH",
-                    "id": str(batch.id),
-                    "code": batch.batch_no,
-                    "days_old": days_old,
-                    "stock_status": batch.stock_status,
-                    "qty": round(qty, 2),
-                }
-            )
+        add_status_row(batch.stock_status, qty, 0.0, "BATCH")
+        job_ref = latest_batch_job(batch.id)
+        detail_rows.append(
+            {
+                "entity_type": "BATCH",
+                "id": str(batch.id),
+                "code": batch.batch_no,
+                "item_id": str(batch.item_id),
+                "item_code": getattr(batch.item, "item_code", None),
+                "item_name": getattr(batch.item, "name", None),
+                "days_old": days_old,
+                "age_bucket": bucket["label"],
+                "stock_status": batch.stock_status,
+                "qty": round(qty, 2),
+                "weight_kg": 0.0,
+                **job_ref,
+                **location_payload(batch.inventory_location),
+            }
+        )
 
     return {
         "buckets": [
@@ -261,7 +314,16 @@ def health_aging(
             }
             for payload in buckets.values()
         ],
-        "slow_rows": sorted(detail_rows, key=lambda row: row["days_old"], reverse=True)[:50],
+        "status_rows": [
+            {
+                **row,
+                "qty": round(float(row["qty"]), 2),
+                "weight_kg": round(float(row["weight_kg"]), 2),
+            }
+            for row in sorted(status_rows.values(), key=lambda row: (row["stock_status"]))
+        ],
+        "rows": sorted(detail_rows, key=lambda row: (row["days_old"], row["stock_status"]), reverse=True)[:250],
+        "slow_rows": [row for row in sorted(detail_rows, key=lambda row: row["days_old"], reverse=True) if row["days_old"] > 60][:50],
     }
 
 

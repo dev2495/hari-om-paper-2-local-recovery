@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Optional
 import re
 import uuid
@@ -19,6 +19,8 @@ from ..models import (
     ItemType,
     PaperReel,
     ReferenceType,
+    StockAdjustmentLine,
+    StockAdjustmentVoucher,
     StockBatch,
     StockTransaction,
     TransactionType,
@@ -109,6 +111,19 @@ def _next_customer_rejection_batch_no(db: Session, item: ItemMaster, plant_id: s
         if not exists:
             return candidate
     raise HTTPException(status_code=500, detail="Unable to generate customer rejection batch number")
+
+
+def _next_customer_rejection_adjustment_no(db: Session, plant_id: str, effective_date: date) -> str:
+    prefix = f"CRS-{effective_date.strftime('%Y%m%d')}"
+    for sequence in range(1, 10000):
+        candidate = f"{prefix}-{sequence:03d}"
+        exists = db.query(StockAdjustmentVoucher.id).filter(
+            StockAdjustmentVoucher.plant_id == plant_id,
+            StockAdjustmentVoucher.voucher_no == candidate,
+        ).first()
+        if not exists:
+            return candidate
+    raise HTTPException(status_code=500, detail="Unable to generate customer rejection scrap voucher")
 
 
 def _material_type_for_item(item: ItemMaster) -> str:
@@ -290,6 +305,7 @@ class CustomerRejectionCreate(BaseModel):
     dispatch_ref: Optional[str] = Field(default=None, max_length=120)
     reason_code: str = Field(min_length=1, max_length=80)
     reason_notes: Optional[str] = Field(default=None, max_length=1000)
+    effective_date: Optional[date] = None
     source_batch_id: Optional[uuid.UUID] = None
     source_job_card_id: Optional[uuid.UUID] = None
     source_dispatch_id: Optional[uuid.UUID] = None
@@ -297,12 +313,23 @@ class CustomerRejectionCreate(BaseModel):
     batch_no: Optional[str] = Field(default=None, max_length=120)
     location_id: Optional[uuid.UUID] = None
     trace_snapshot: dict[str, Any] = Field(default_factory=dict)
+    attachment_refs: list[str] = Field(default_factory=list)
 
 
 class CustomerRejectionDisposition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     disposition: str
+    effective_date: Optional[date] = None
+    root_cause_department: Optional[str] = Field(default=None, max_length=80)
+    owner_department: Optional[str] = Field(default=None, max_length=80)
+    corrective_action: Optional[str] = Field(default=None, max_length=2000)
+    closure_due_date: Optional[date] = None
+    closure_status: Optional[str] = Field(default=None, max_length=30)
+    rework_cost: Optional[float] = Field(default=None, ge=0)
+    scrap_cost: Optional[float] = Field(default=None, ge=0)
+    cost_impact: Optional[float] = Field(default=None, ge=0)
+    attachment_refs: list[str] = Field(default_factory=list)
     notes: Optional[str] = Field(default=None, max_length=1000)
     readings: dict[str, Any] = Field(default_factory=dict)
     failures: list[dict[str, Any]] = Field(default_factory=list)
@@ -325,6 +352,7 @@ class CustomerRejectionResponse(BaseModel):
     dispatch_ref: Optional[str] = None
     reason_code: str
     reason_notes: Optional[str] = None
+    effective_date: Optional[date] = None
     source_job_card_id: Optional[uuid.UUID] = None
     source_dispatch_id: Optional[uuid.UUID] = None
     source_spec_id: Optional[uuid.UUID] = None
@@ -332,6 +360,15 @@ class CustomerRejectionResponse(BaseModel):
     disposition: Optional[str] = None
     qc_inspection_id: Optional[uuid.UUID] = None
     trace_snapshot: dict[str, Any]
+    root_cause_department: Optional[str] = None
+    owner_department: Optional[str] = None
+    corrective_action: Optional[str] = None
+    closure_due_date: Optional[date] = None
+    closure_status: str = "OPEN"
+    rework_cost: float = 0.0
+    scrap_cost: float = 0.0
+    cost_impact: float = 0.0
+    attachment_refs: list[str] = Field(default_factory=list)
     created_at: datetime
     closed_at: Optional[datetime] = None
 
@@ -378,6 +415,7 @@ def _customer_rejection_response(row: CustomerRejection) -> CustomerRejectionRes
         dispatch_ref=row.dispatch_ref,
         reason_code=row.reason_code,
         reason_notes=row.reason_notes,
+        effective_date=row.effective_date,
         source_job_card_id=row.source_job_card_id,
         source_dispatch_id=row.source_dispatch_id,
         source_spec_id=row.source_spec_id,
@@ -385,6 +423,15 @@ def _customer_rejection_response(row: CustomerRejection) -> CustomerRejectionRes
         disposition=row.disposition,
         qc_inspection_id=row.qc_inspection_id,
         trace_snapshot=dict(row.trace_snapshot or {}),
+        root_cause_department=row.root_cause_department,
+        owner_department=row.owner_department,
+        corrective_action=row.corrective_action,
+        closure_due_date=row.closure_due_date,
+        closure_status=row.closure_status or "OPEN",
+        rework_cost=float(row.rework_cost or 0.0),
+        scrap_cost=float(row.scrap_cost or 0.0),
+        cost_impact=float(row.cost_impact or 0.0),
+        attachment_refs=list(row.attachment_refs or []),
         created_at=row.created_at,
         closed_at=row.closed_at,
     )
@@ -665,6 +712,7 @@ def create_customer_rejection(
         "invoice_ref": payload.invoice_ref,
         "dispatch_ref": payload.dispatch_ref,
     }
+    effective_date_value = payload.effective_date or date.today()
     rejection = CustomerRejection(
         plant_id=plant_id,
         customer_id=payload.customer_id,
@@ -675,11 +723,13 @@ def create_customer_rejection(
         dispatch_ref=payload.dispatch_ref,
         reason_code=payload.reason_code.strip().upper(),
         reason_notes=payload.reason_notes,
+        effective_date=effective_date_value,
         source_job_card_id=payload.source_job_card_id,
         source_dispatch_id=payload.source_dispatch_id,
         source_spec_id=payload.source_spec_id,
         status="QC_HOLD",
         trace_snapshot=trace_snapshot,
+        attachment_refs=list(payload.attachment_refs or []),
         created_by=current_user.get("sub"),
     )
     db.add(rejection)
@@ -718,6 +768,7 @@ def create_customer_rejection(
             "reason_code": rejection.reason_code,
         },
         external_ref=f"CUST-REJ:{rejection.id}",
+        effective_date=effective_date_value,
     )
     db.add(transaction)
     db.commit()
@@ -755,10 +806,15 @@ def dispose_customer_rejection(
     rejection = db.query(CustomerRejection).filter(CustomerRejection.id == rejection_id, CustomerRejection.plant_id == plant_id).first()
     if not rejection:
         raise HTTPException(status_code=404, detail="Customer rejection not found")
+    if rejection.closed_at:
+        raise HTTPException(status_code=400, detail="Customer rejection is already closed")
     target_stock_status = stock_status_for_disposition(payload.disposition)
+    effective_date_value = payload.effective_date or date.today()
+    computed_scrap_cost: Optional[float] = None
     if rejection.batch_id:
         batch = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).first()
         if batch:
+            batch_qty_before_disposition = max(0.0, float(get_batch_balance(str(batch.id), db)))
             batch.stock_status = target_stock_status
             db.add(
                 StockTransaction(
@@ -777,8 +833,64 @@ def dispose_customer_rejection(
                         "notes": payload.notes,
                     },
                     external_ref=f"CUST-REJ-DISP:{rejection.id}:{payload.disposition}",
+                    effective_date=effective_date_value,
                 )
             )
+            if payload.disposition == "SCRAP" and batch_qty_before_disposition > 0:
+                item_cost = float(getattr(batch, "unit_cost", 0.0) or getattr(rejection.item, "unit_cost", 0.0) or 0.0)
+                computed_scrap_cost = payload.scrap_cost if payload.scrap_cost is not None else round(batch_qty_before_disposition * item_cost, 2)
+                voucher = StockAdjustmentVoucher(
+                    plant_id=plant_id,
+                    voucher_no=_next_customer_rejection_adjustment_no(db, plant_id, effective_date_value),
+                    effective_date=effective_date_value,
+                    reason_code="CUSTOMER_REJECTION_SCRAP",
+                    reason_notes=payload.notes or rejection.reason_notes,
+                    source_type="CUSTOMER_REJECTION",
+                    source_id=rejection.id,
+                    status="POSTED",
+                    attachment_refs=list(payload.attachment_refs or rejection.attachment_refs or []),
+                    created_by=current_user.get("sub") or "system",
+                    approved_by=current_user.get("sub"),
+                    posted_at=datetime.utcnow(),
+                )
+                db.add(voucher)
+                db.flush()
+                adjustment_line = StockAdjustmentLine(
+                    adjustment_id=voucher.id,
+                    item_id=batch.item_id,
+                    batch_id=batch.id,
+                    qty_delta=-batch_qty_before_disposition,
+                    unit_cost=item_cost if item_cost > 0 else None,
+                    location_id=batch.location_id,
+                    stock_status="SCRAP",
+                    reason_code="CUSTOMER_REJECTION_SCRAP",
+                    notes=payload.notes or "Scrapped from customer rejection disposition.",
+                )
+                db.add(adjustment_line)
+                db.flush()
+                adjustment_txn = StockTransaction(
+                    item_id=batch.item_id,
+                    batch_id=batch.id,
+                    transaction_type=TransactionType.ADJUSTMENT,
+                    qty_change=-batch_qty_before_disposition,
+                    reference_type=ReferenceType.ADJUSTMENT,
+                    reference_id=voucher.id,
+                    plant_id=plant_id,
+                    location_id=batch.location_id,
+                    stock_status="SCRAP",
+                    movement_metadata={
+                        "source_document_type": "CUSTOMER_REJECTION_SCRAP",
+                        "customer_rejection_id": str(rejection.id),
+                        "voucher_no": voucher.voucher_no,
+                        "disposition": payload.disposition,
+                        "scrap_cost": computed_scrap_cost,
+                    },
+                    external_ref=f"CUST-REJ-SCRAP:{rejection.id}",
+                    effective_date=effective_date_value,
+                )
+                db.add(adjustment_txn)
+                db.flush()
+                adjustment_line.transaction_id = adjustment_txn.id
 
     inspection = InventoryQualityInspection(
         plant_id=plant_id,
@@ -795,11 +907,27 @@ def dispose_customer_rejection(
     )
     db.add(inspection)
     db.flush()
+    rework_cost = payload.rework_cost if payload.rework_cost is not None else float(rejection.rework_cost or 0.0)
+    scrap_cost = (
+        payload.scrap_cost
+        if payload.scrap_cost is not None
+        else computed_scrap_cost
+        if computed_scrap_cost is not None
+        else float(rejection.scrap_cost or 0.0)
+    )
     rejection.status = target_stock_status
     rejection.disposition = payload.disposition
     rejection.qc_inspection_id = inspection.id
+    rejection.root_cause_department = payload.root_cause_department or rejection.root_cause_department
+    rejection.owner_department = payload.owner_department or rejection.owner_department
+    rejection.corrective_action = payload.corrective_action or rejection.corrective_action
+    rejection.closure_due_date = payload.closure_due_date or rejection.closure_due_date
+    rejection.closure_status = (payload.closure_status or "CLOSED").strip().upper()
+    rejection.rework_cost = rework_cost
+    rejection.scrap_cost = scrap_cost
+    rejection.cost_impact = payload.cost_impact if payload.cost_impact is not None else round(rework_cost + scrap_cost, 2)
+    rejection.attachment_refs = list(payload.attachment_refs or rejection.attachment_refs or [])
     rejection.closed_at = datetime.utcnow()
     db.commit()
     db.refresh(rejection)
     return _customer_rejection_response(rejection)
-

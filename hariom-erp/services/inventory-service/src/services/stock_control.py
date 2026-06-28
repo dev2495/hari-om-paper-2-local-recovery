@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from typing import Any
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..models import (
@@ -10,6 +11,7 @@ from ..models import (
     PaperReel,
     ReelIssue,
     ReelIssueStatus,
+    ReelScanEvent,
     StockBatch,
     StockTransaction,
     TrackingMode,
@@ -56,6 +58,14 @@ def _issue_consumed_qty(issue: ReelIssue) -> float:
     if consumed > 0:
         return consumed
     return max(0.0, float(issue.issued_weight_kg or 0.0) - float(issue.remaining_weight_kg or 0.0))
+
+
+def _transaction_business_date(txn: StockTransaction) -> date:
+    if getattr(txn, "effective_date", None):
+        return txn.effective_date
+    if getattr(txn, "created_at", None):
+        return txn.created_at.date()
+    return date.today()
 
 
 def _unit_cost_for_item(item: ItemMaster) -> tuple[float, str]:
@@ -127,40 +137,56 @@ def _reel_source_type(reel: PaperReel) -> str:
     return str(metadata.get("source_document_type") or metadata.get("source") or "").upper()
 
 
+def _scan_event_adjustment_date(event: ReelScanEvent) -> date:
+    metadata = getattr(event, "event_metadata", None) or {}
+    raw_effective = metadata.get("effective_date")
+    if raw_effective:
+        try:
+            return date.fromisoformat(str(raw_effective)[:10])
+        except ValueError:
+            pass
+    if getattr(event, "timestamp", None):
+        return event.timestamp.date()
+    return date.today()
+
+
 def _bulk_quantities(
     db: Session,
     item_id: str,
     start_date: date,
     end_date: date,
 ) -> dict[str, float]:
-    opening_txns = (
+    candidate_txns = (
         db.query(StockTransaction)
         .filter(
             StockTransaction.item_id == item_id,
-            StockTransaction.created_at < _day_start(start_date),
-        )
-        .all()
-    )
-    period_txns = (
-        db.query(StockTransaction)
-        .filter(
-            StockTransaction.item_id == item_id,
-            StockTransaction.created_at >= _day_start(start_date),
-            StockTransaction.created_at <= _day_end(end_date),
+            or_(
+                StockTransaction.effective_date <= end_date,
+                and_(
+                    StockTransaction.effective_date.is_(None),
+                    StockTransaction.created_at <= _day_end(end_date),
+                ),
+            ),
         )
         .all()
     )
 
-    opening_qty = sum(float(txn.qty_change or 0.0) for txn in opening_txns)
+    opening_qty = 0.0
     inward_qty = 0.0
     outward_qty = 0.0
     adjustment_qty = 0.0
-    for txn in period_txns:
+    for txn in candidate_txns:
         txn_type = _enum_value(txn.transaction_type)
         qty = float(txn.qty_change or 0.0)
         if txn_type == TransactionType.MOVE.value:
             continue
-        if txn_type == TransactionType.OPENING.value:
+        business_date = _transaction_business_date(txn)
+        if business_date < start_date:
+            opening_qty += qty
+            continue
+        if business_date > end_date:
+            continue
+        if txn_type in {TransactionType.OPENING.value, TransactionType.ADJUSTMENT.value}:
             adjustment_qty += qty
         elif qty >= 0:
             inward_qty += qty
@@ -205,7 +231,7 @@ def _reel_quantities(
         if reel.inward_date < start_date:
             opening_qty += qty
         elif start_date <= reel.inward_date <= end_date:
-            if _reel_source_type(reel) == "OPENING_LOAD":
+            if _reel_source_type(reel) in {"OPENING_LOAD", "CARRY_FORWARD", "STOCK_ADJUSTMENT"}:
                 adjustment_qty += qty
             else:
                 inward_qty += qty
@@ -221,6 +247,26 @@ def _reel_quantities(
             consumed_before_start += consumed
         elif start_date <= effective_date <= end_date:
             outward_qty += consumed
+
+    adjustment_events = (
+        db.query(ReelScanEvent)
+        .join(PaperReel, ReelScanEvent.reel_id == PaperReel.id)
+        .filter(PaperReel.paper_id == item_id)
+        .all()
+    )
+    for event in adjustment_events:
+        metadata = getattr(event, "event_metadata", None) or {}
+        try:
+            delta = float(metadata.get("adjustment_qty_delta") or 0.0)
+        except (TypeError, ValueError):
+            delta = 0.0
+        if delta >= 0:
+            continue
+        effective_date = _scan_event_adjustment_date(event)
+        if effective_date < start_date:
+            opening_qty += delta
+        elif start_date <= effective_date <= end_date:
+            adjustment_qty += delta
 
     opening_qty -= consumed_before_start
     closing_qty = opening_qty + inward_qty - outward_qty + adjustment_qty

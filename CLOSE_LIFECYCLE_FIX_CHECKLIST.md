@@ -276,4 +276,113 @@ Every page touched gets a premium-design pass with the existing Hari Om design s
 14. tsc + dev server verify
 15. Smoke walk-through
 
-Let's go.
+---
+
+## 14. Final Stock Lifecycle Close-Out — 2026-06-28
+
+This pass closes the follow-up audit gaps for stock counts, formal stock adjustments, reel-safe carry-forward, and QR label traceability.
+
+### 14.1 Effective-date stock truth
+- ✅ Bulk stock statement now uses `StockTransaction.effective_date` first, falling back to `created_at` only for legacy rows.
+- ✅ `OPENING` and `ADJUSTMENT` transaction types are included in the adjustment bucket instead of being treated as normal inward.
+- ✅ Opening-load and carry-forward ledger postings now persist the business effective date.
+
+### 14.2 Formal stock adjustment voucher
+- ✅ Added `StockAdjustmentVoucher` and `StockAdjustmentLine` models.
+- ✅ Added inventory endpoints:
+  - `GET /inventory/stock-control/adjustment-vouchers`
+  - `POST /inventory/stock-control/adjustment-vouchers`
+  - `POST /inventory/stock-control/adjustment-vouchers/{voucher_id}/post`
+  - `POST /inventory/stock-control/certifications/{certification_id}/post-variance`
+- ✅ Bulk adjustments post `StockTransaction(ADJUSTMENT)` with voucher metadata.
+- ✅ Reel adjustments preserve reel genealogy:
+  - positive variance creates an adjustment reel
+  - negative variance reduces real current reels and logs `ReelScanEvent(MOVE_SCAN)`
+- ✅ BFF routes enforce books-lock/date guard on adjustment creation.
+
+### 14.3 Physical count completion
+- ✅ Stock-control statement/certification continues to include every active item master in the plant.
+- ✅ UI now shows Count Coverage as `statement rows / active item masters`.
+- ✅ Certified physical count variance can be posted into stock through a formal adjustment voucher.
+
+### 14.4 Reel-safe carry-forward
+- ✅ Carry-forward posting no longer converts reel-tracked paper into generic bulk batches.
+- ✅ Reel-tracked carry-forward lines create opening reels with source metadata and scan events.
+- ✅ Bulk carry-forward lines still create opening batches and ledger `OPENING` transactions.
+
+### 14.5 QR label generation
+- ✅ Added plant-scoped label endpoints:
+  - `GET /inventory/labels/batches/{batch_id}`
+  - `GET /inventory/labels/reels/{reel_id}`
+- ✅ Bulk inward response now returns a printable batch label payload.
+- ✅ Reel inward response now returns a full QR label payload.
+- ✅ Added polished `InventoryLabelPrint` component and showed it after successful bulk/reel inward posting.
+
+### 14.6 UI polish
+- ✅ Stock-control page now has:
+  - Count Coverage KPI
+  - Manual stock correction voucher panel
+  - visible Post variance flow guidance
+  - recent adjustment voucher list
+- ✅ Raw material inward and reel inward pages now show printable QR label previews after posting.
+
+### 14.7 Verification evidence
+- ✅ `python3 -m py_compile` on changed inventory/BFF modules.
+- ✅ `pytest` in inventory service: 22 passed.
+- ✅ SQLAlchemy `configure_mappers()` passed.
+- ✅ Web UI `npm run lint`: no warnings/errors.
+- ✅ Web UI `npm run test`: static checks OK, unit tests 29/29 passed.
+- ✅ Web UI `npm run build`: production build passed.
+- ✅ Web UI `npx tsc --noEmit --pretty false`: passed after build.
+- ✅ Local runtime restarted with changed inventory service, BFF, and web UI.
+- ✅ Browser smoke via Playwright MCP:
+  - `/inventory/stock-control`
+  - `/inventory/raw-material-inward`
+  - `/inventory/reels/inward`
+  - result: no console/page/network issues from checked routes.
+- ✅ Read-only API smoke:
+  - stock statement 200
+  - adjustment vouchers 200
+  - reel label 200 with `HARIOM|REEL|`
+  - batch label 200 with `HARIOM|BATCH|`
+
+---
+
+## 15. Final Traceability Hardening — 2026-06-28
+
+This pass closes the remaining production-readiness items found during the final stock lifecycle review.
+
+### 15.1 Monthly and year-end count sessions
+- ✅ Physical count certification now has a formal count session number, count scope, count state, counted-by, checked-by, timestamps, and proof references.
+- ✅ Each count line now stores stock status, location, bin, count state, counted-by, checked-by, proof references, recount flag, recount quantity, and recount notes.
+- ✅ Certification cannot be completed while any line is still marked `RECOUNT_REQUIRED`.
+- ✅ Stock Control UI shows the full count session and all active item lines instead of a sampled subset.
+
+### 15.2 Status-wise ageing and floor trace
+- ✅ Ageing endpoint now returns detailed rows, status rows, and slow rows.
+- ✅ Ageing rows include item, batch/reel entity, stock status, location/bin, job-card reference, quantity/weight, days old, and age bucket.
+- ✅ Ledger date filters use `effective_date` first and fall back to legacy `created_at` dates only when required.
+
+### 15.3 Customer rejection closure
+- ✅ Customer rejection now stores effective date, root-cause department, owner department, corrective action, closure due date/status, rework/scrap/cost impact, and proof references.
+- ✅ Quality UI now captures rejection disposition details for rework, reheat, segregate, scrap, accept, and block.
+- ✅ Scrap disposition creates a posted stock adjustment voucher and negative adjustment ledger entry, so scrapped rejected FG leaves live stock.
+
+### 15.4 Reconciliation integration
+- ✅ Production reconciliation now reads `/inventory/stock-control/certifications` instead of the stale unprefixed path.
+- ✅ Production reconciliation accepts the stock-control `{"items": [...]}` wrapper and plain list responses, preventing books-state/month-state crashes.
+
+### 15.5 Final verification evidence
+- ✅ `python3 -m py_compile` on changed inventory and production routers.
+- ✅ Inventory service tests: 22 passed.
+- ✅ Production reconciliation tests: 5 passed.
+- ✅ Runtime smoke through BFF:
+  - `/api/production/period-state/2026-06` 200
+  - `/api/production/books-state` 200
+  - `/api/inventory/stock-control/certifications` 200 with count-session fields
+  - `/api/inventory/stock-control/statement` 200
+  - `/api/inventory/stock-control/adjustment-vouchers` 200 with customer-rejection scrap voucher
+  - `/api/inventory/health/aging` 200 with detailed/status/slow rows
+  - `/api/inventory/quality/customer-rejections` 200 with CAPA/cost/proof fields
+  - `/api/inventory/ledger` 200 with business date field
+- ✅ Latest service tails after reload show fresh 200s for stock-control, production period-state, books-state, ageing, quality rejection, adjustments, and ledger.

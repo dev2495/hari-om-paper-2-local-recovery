@@ -146,7 +146,20 @@ async def create_fg_inward(request: Request, token: str = Depends(get_token)):
 
 @router.post("/dispatch")
 async def create_dispatch(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/dispatch/", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("date") or body.get("effective_date") or body.get("dispatch_date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/dispatch/",
+        request,
+        token,
+        json_body=body if body else None,
+    )
     await emit_from_response(
         response,
         token=token,
@@ -266,6 +279,85 @@ async def certify_stock(certification_id: str, request: Request, token: str = De
     return response
 
 
+@router.get("/stock-control/adjustment-vouchers")
+async def list_adjustment_vouchers(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/adjustment-vouchers", request, token)
+
+
+@router.post("/stock-control/adjustment-vouchers")
+async def create_adjustment_voucher(request: Request, token: str = Depends(get_token)):
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("effective_date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/inventory/stock-control/adjustment-vouchers",
+        request,
+        token,
+        json_body=body if body else None,
+    )
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_STOCK_ADJUSTMENT",
+        title=f"Stock adjustment {payload.get('status') or 'saved'}: {payload.get('voucher_no') or payload.get('id') or 'voucher'}",
+        message="Stock difference was recorded in an auditable adjustment voucher.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"adjustment_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
+@router.post("/stock-control/adjustment-vouchers/{voucher_id}/post")
+async def post_adjustment_voucher(voucher_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/stock-control/adjustment-vouchers/{voucher_id}/post",
+        request,
+        token,
+    )
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_STOCK_ADJUSTMENT_POSTED",
+        title=f"Stock adjustment posted: {payload.get('voucher_no') or voucher_id}",
+        message="Stock adjustment posted into inventory stock truth.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"adjustment_id": voucher_id},
+    )
+    return response
+
+
+@router.post("/stock-control/certifications/{certification_id}/post-variance")
+async def post_certification_variance(certification_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/stock-control/certifications/{certification_id}/post-variance",
+        request,
+        token,
+    )
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="INVENTORY_STOCK_COUNT_VARIANCE_POSTED",
+        title=f"Stock count variance posted: {payload.get('voucher_no') or certification_id}",
+        message="Physical count difference was posted to inventory through an adjustment voucher.",
+        href="/inventory/stock-control",
+        recipient_roles=["Owner", "Admin", "Store", "Planner"],
+        payload={"certification_id": certification_id, "adjustment_id": str(payload.get("id") or "")},
+    )
+    return response
+
+
 @router.get("/stock-control/carry-forwards")
 async def list_carry_forwards(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-control/carry-forwards", request, token)
@@ -317,7 +409,20 @@ async def lot_availability(request: Request, token: str = Depends(get_token)):
 
 @router.post("/reels/inward")
 async def create_reel_inward(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/reels/inward", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("inward_date") or body.get("effective_date") or body.get("date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/reels/inward",
+        request,
+        token,
+        json_body=body if body else None,
+    )
     await emit_from_response(
         response,
         token=token,
@@ -359,6 +464,16 @@ async def create_reel_scan_event(reel_id: str, request: Request, token: str = De
 @router.get("/reels/{reel_id}/scans")
 async def list_reel_scan_events(reel_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}/scans", request, token)
+
+
+@router.get("/labels/batches/{batch_id}")
+async def get_batch_label(batch_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/labels/batches/{batch_id}", request, token)
+
+
+@router.get("/labels/reels/{reel_id}")
+async def get_reel_label(reel_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/labels/reels/{reel_id}", request, token)
 
 
 @router.post("/reel-issues")
@@ -453,7 +568,20 @@ async def list_customer_rejections(request: Request, token: str = Depends(get_to
 
 @router.post("/quality/customer-rejections")
 async def create_customer_rejection(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/customer-rejections", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("effective_date") or body.get("date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/inventory/quality/customer-rejections",
+        request,
+        token,
+        json_body=body if body else None,
+    )
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,
@@ -470,11 +598,19 @@ async def create_customer_rejection(request: Request, token: str = Depends(get_t
 
 @router.post("/quality/customer-rejections/{rejection_id}/disposition")
 async def dispose_customer_rejection(rejection_id: str, request: Request, token: str = Depends(get_token)):
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("effective_date") or body.get("date"))
     response = await proxy_to_service(
         INVENTORY_SERVICE_URL,
         f"/inventory/quality/customer-rejections/{rejection_id}/disposition",
         request,
         token,
+        json_body=body if body else None,
     )
     payload = response_body_json(response) or {}
     await emit_from_response(
@@ -635,7 +771,20 @@ async def post_opening_from_cf(cf_id: str, request: Request, token: str = Depend
 
 @router.post("/stock-moves/wip-issue")
 async def issue_batch_to_wip(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/stock-moves/wip-issue", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("effective_date") or body.get("date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/inventory/stock-moves/wip-issue",
+        request,
+        token,
+        json_body=body if body else None,
+    )
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,

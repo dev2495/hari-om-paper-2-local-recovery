@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useQuery } from "@tanstack/react-query"
 import {
@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   BookMarked,
   CalendarDays,
+  ClipboardCheck,
   FileCheck2,
   FilePlus2,
   Landmark,
@@ -19,8 +20,10 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxi
 import { ChartCard, CompactTable, FilterChip, KpiCard, PageIntro, formatCompactCurrency, formatCompactNumber } from "@/components/erp/premium-dashboard"
 import { useAuth } from "@/context/AuthContext"
 import {
+  useAdjustmentVouchers,
   useCarryForwards,
   useCertifyStockCertification,
+  useCreateAdjustmentVoucher,
   useCreateCarryForward,
   useCreateOpeningLoad,
   useCreateStockCertification,
@@ -28,6 +31,7 @@ import {
   useInventoryStockStatement,
   useOpeningLoads,
   usePostOpeningFromCarryForward,
+  usePostStockCertificationVariance,
   useStockCertifications,
   useUpdateStockCertification,
 } from "@/hooks/use-inventory"
@@ -60,6 +64,13 @@ export default function InventoryStockControlPage() {
   const [endDate, setEndDate] = useState(today())
   const [selectedCertificationId, setSelectedCertificationId] = useState<string | null>(null)
   const [physicalDraft, setPhysicalDraft] = useState<Record<string, string>>({})
+  const [sessionDraft, setSessionDraft] = useState({
+    count_location_scope: "",
+    counted_by: "",
+    checked_by: "",
+    attachment_refs: "",
+  })
+  const [lineAuditDraft, setLineAuditDraft] = useState<Record<string, Record<string, any>>>({})
   const [openingForm, setOpeningForm] = useState({
     document_no: "",
     effective_date: today(),
@@ -68,6 +79,15 @@ export default function InventoryStockControlPage() {
     batch_or_reel: "",
     unit_cost: "",
     notes: "",
+  })
+  const [adjustmentForm, setAdjustmentForm] = useState({
+    effective_date: today(),
+    item_id: "",
+    qty_delta: "",
+    reason_code: "MANUAL_CORRECTION",
+    notes: "",
+    unit_cost: "",
+    post_now: true,
   })
   const writeBlocked = !activePlant || activePlant === "ALL"
 
@@ -80,7 +100,10 @@ export default function InventoryStockControlPage() {
   const createCertification = useCreateStockCertification()
   const updateCertification = useUpdateStockCertification()
   const certifyCertification = useCertifyStockCertification()
+  const postCertificationVariance = usePostStockCertificationVariance()
   const createCarryForward = useCreateCarryForward()
+  const adjustmentVouchersQuery = useAdjustmentVouchers()
+  const createAdjustmentVoucher = useCreateAdjustmentVoucher()
   const postOpeningFromCf = usePostOpeningFromCarryForward()
   const booksStateQuery = useBooksState(activePlant || "", true)
   const currentMonthIso = monthStart().slice(0, 7)
@@ -101,8 +124,13 @@ export default function InventoryStockControlPage() {
   const openingLoads = normalizeRows(openingLoadsQuery.data)
   const certifications = normalizeRows(certificationsQuery.data)
   const carryForwards = normalizeRows(carryForwardsQuery.data)
+  const adjustmentVouchers = normalizeRows(adjustmentVouchersQuery.data)
   const selectedCertification = certificationDetailQuery.data
   const certificationLines = normalizeRows(selectedCertification?.lines)
+  const certificationVarianceQty = certificationLines.reduce(
+    (sum: number, line: any) => sum + Math.abs(Number(line.variance_qty || 0)),
+    0,
+  )
 
   const totals = statementQuery.data?.totals || {}
   const topMovementRows = statementRows
@@ -118,6 +146,23 @@ export default function InventoryStockControlPage() {
 
   const latestCertification = certifications[0]
   const draftCert = certifications.find((row: any) => String(row.status || "").toUpperCase() === "DRAFT")
+
+  useEffect(() => {
+    if (!selectedCertification?.id) return
+    setSessionDraft({
+      count_location_scope: selectedCertification.count_location_scope || "",
+      counted_by: selectedCertification.counted_by || "",
+      checked_by: selectedCertification.checked_by || "",
+      attachment_refs: Array.isArray(selectedCertification.attachment_refs) ? selectedCertification.attachment_refs.join(", ") : "",
+    })
+    setLineAuditDraft({})
+  }, [
+    selectedCertification?.id,
+    selectedCertification?.attachment_refs,
+    selectedCertification?.checked_by,
+    selectedCertification?.count_location_scope,
+    selectedCertification?.counted_by,
+  ])
   const riskRows = statementRows.filter((row: any) => row.risk_level && row.risk_level !== "OK")
   const policyMissingRows = statementRows.filter((row: any) => row.policy_missing)
 
@@ -125,6 +170,9 @@ export default function InventoryStockControlPage() {
     const item = items.find((row: any) => String(row.id) === openingForm.item_id)
     return item || null
   }, [items, openingForm.item_id])
+  const selectedAdjustmentItem = useMemo(() => {
+    return items.find((row: any) => String(row.id) === adjustmentForm.item_id) || null
+  }, [items, adjustmentForm.item_id])
 
   async function postOpeningLoad(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -151,6 +199,7 @@ export default function InventoryStockControlPage() {
     const result = await createCertification.mutateAsync({
       period_start: startDate,
       period_end: endDate,
+      count_location_scope: "ALL_LOCATIONS",
       notes: "Generated from stock-control statement.",
     })
     const id = result?.data?.id
@@ -162,12 +211,31 @@ export default function InventoryStockControlPage() {
 
   async function savePhysicalCounts() {
     if (!selectedCertification?.id) return
-    const lines = certificationLines.map((line: any) => ({
+    const lines = certificationLines.map((line: any) => {
+      const draft = lineAuditDraft[line.id] || {}
+      return {
       line_id: line.id,
       physical_qty: Number(physicalDraft[line.id] ?? line.physical_qty ?? line.closing_qty ?? 0),
+      stock_status: draft.stock_status ?? line.stock_status ?? "UNRESTRICTED",
+      bin_code: draft.bin_code ?? line.bin_code ?? undefined,
+      count_state: draft.count_state ?? line.count_state ?? "COUNTED",
+      counted_by: (draft.counted_by ?? line.counted_by ?? sessionDraft.counted_by) || undefined,
+      checked_by: (draft.checked_by ?? line.checked_by ?? sessionDraft.checked_by) || undefined,
+      recount_required: Boolean(draft.recount_required ?? line.recount_required ?? false),
+      recount_notes: draft.recount_notes ?? line.recount_notes ?? undefined,
       notes: line.notes || undefined,
-    }))
-    await updateCertification.mutateAsync({ id: selectedCertification.id, data: { lines } })
+      }
+    })
+    await updateCertification.mutateAsync({
+      id: selectedCertification.id,
+      data: {
+        count_location_scope: sessionDraft.count_location_scope || undefined,
+        counted_by: sessionDraft.counted_by || undefined,
+        checked_by: sessionDraft.checked_by || undefined,
+        attachment_refs: sessionDraft.attachment_refs.split(",").map((value) => value.trim()).filter(Boolean),
+        lines,
+      },
+    })
   }
 
   async function certifySelected() {
@@ -178,6 +246,34 @@ export default function InventoryStockControlPage() {
   async function carryForwardSelected() {
     if (!selectedCertification?.id) return
     await createCarryForward.mutateAsync({ id: selectedCertification.id, data: {} })
+  }
+
+  async function postVarianceSelected() {
+    if (!selectedCertification?.id) return
+    await postCertificationVariance.mutateAsync(selectedCertification.id)
+  }
+
+  async function postManualAdjustment(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!adjustmentForm.item_id || !adjustmentForm.qty_delta) return
+    await createAdjustmentVoucher.mutateAsync({
+      effective_date: adjustmentForm.effective_date,
+      reason_code: adjustmentForm.reason_code || "MANUAL_CORRECTION",
+      reason_notes: adjustmentForm.notes || undefined,
+      source_type: "MANUAL",
+      post_now: adjustmentForm.post_now,
+      lines: [
+        {
+          item_id: adjustmentForm.item_id,
+          qty_delta: Number(adjustmentForm.qty_delta),
+          unit_cost: adjustmentForm.unit_cost ? Number(adjustmentForm.unit_cost) : undefined,
+          stock_status: "UNRESTRICTED",
+          reason_code: adjustmentForm.reason_code || "MANUAL_CORRECTION",
+          notes: adjustmentForm.notes || undefined,
+        },
+      ],
+    })
+    setAdjustmentForm((current) => ({ ...current, item_id: "", qty_delta: "", notes: "", unit_cost: "" }))
   }
 
   return (
@@ -271,11 +367,12 @@ export default function InventoryStockControlPage() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <KpiCard label="Book Closing" value={formatCompactCurrency(Number(totals.closing_value || 0))} detail={`${formatKg(totals.kg_closing_qty)} plus ${formatNumber(totals.pcs_closing_qty)} pcs`} icon={Scale} tone="cyan" />
         <KpiCard label="Opening Value" value={formatCompactCurrency(Number(totals.opening_value || 0))} detail="Derived from transactions before the period" icon={BookMarked} tone="slate" />
         <KpiCard label="Risk Lines" value={formatCompactNumber(riskRows.length)} detail="Reorder, safety, or missing policy attention" icon={ShieldAlert} tone={riskRows.length ? "amber" : "emerald"} />
         <KpiCard label="Certificates" value={formatCompactNumber(certifications.length)} detail={draftCert ? "Draft awaiting count review" : "No open draft"} icon={FileCheck2} tone={draftCert ? "amber" : "emerald"} />
+        <KpiCard label="Count Coverage" value={`${formatCompactNumber(statementRows.length)}/${formatCompactNumber(items.length)}`} detail="Active item masters included in count sheet" icon={ClipboardCheck} tone={statementRows.length === items.length ? "emerald" : "amber"} />
         <KpiCard label="Carry Forward" value={formatCompactNumber(carryForwards.length)} detail="Formal next-period opening proof documents" icon={Landmark} tone="violet" />
       </section>
 
@@ -376,6 +473,8 @@ export default function InventoryStockControlPage() {
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <span className={`rounded-full border px-3 py-1.5 text-xs font-bold ${certStatusTone(selectedCertification.status)}`}>{selectedCertification.status}</span>
                 <FilterChip>{selectedCertification.fiscal_year_label || "FY not set"}</FilterChip>
+                <FilterChip>{selectedCertification.count_session_no || "Count session"}</FilterChip>
+                <FilterChip>{selectedCertification.count_state || "DRAFT"}</FilterChip>
                 <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-white disabled:opacity-45">
                   Save counts
                 </button>
@@ -385,9 +484,47 @@ export default function InventoryStockControlPage() {
                 <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-emerald-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-900 disabled:opacity-45">
                   Carry forward
                 </button>
+                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || certificationVarianceQty <= 0 || postCertificationVariance.isPending} onClick={postVarianceSelected} className="rounded-full border border-amber-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-amber-900 disabled:opacity-45">
+                  Post variance
+                </button>
+                {certificationVarianceQty > 0 ? (
+                  <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                    {formatNumber(certificationVarianceQty, 2)} qty variance
+                  </span>
+                ) : null}
+              </div>
+              <div className="mb-4 grid gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-4">
+                <input
+                  value={sessionDraft.count_location_scope}
+                  onChange={(event) => setSessionDraft((current) => ({ ...current, count_location_scope: event.target.value }))}
+                  placeholder="Count scope / location"
+                  disabled={selectedCertification.status !== "DRAFT"}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100"
+                />
+                <input
+                  value={sessionDraft.counted_by}
+                  onChange={(event) => setSessionDraft((current) => ({ ...current, counted_by: event.target.value }))}
+                  placeholder="Counted by"
+                  disabled={selectedCertification.status !== "DRAFT"}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100"
+                />
+                <input
+                  value={sessionDraft.checked_by}
+                  onChange={(event) => setSessionDraft((current) => ({ ...current, checked_by: event.target.value }))}
+                  placeholder="Checked by"
+                  disabled={selectedCertification.status !== "DRAFT"}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100"
+                />
+                <input
+                  value={sessionDraft.attachment_refs}
+                  onChange={(event) => setSessionDraft((current) => ({ ...current, attachment_refs: event.target.value }))}
+                  placeholder="Proof refs comma-separated"
+                  disabled={selectedCertification.status !== "DRAFT"}
+                  className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-slate-100"
+                />
               </div>
               <CompactTable
-                rows={certificationLines.slice(0, 12)}
+                rows={certificationLines}
                 columns={[
                   { key: "item_code", label: "Item", render: (row) => <div><p className="font-semibold text-slate-950">{row.item_code}</p><p className="text-xs text-slate-500">{row.tracking_mode} · {row.uom}</p></div> },
                   { key: "closing_qty", label: "Book close", render: (row) => `${formatNumber(row.closing_qty, 2)} ${row.uom}` },
@@ -405,6 +542,53 @@ export default function InventoryStockControlPage() {
                       />
                     ),
                   },
+                  {
+                    key: "count_state",
+                    label: "Count state",
+                    render: (row) => (
+                      <div className="space-y-1">
+                        <select
+                          disabled={selectedCertification.status !== "DRAFT"}
+                          value={lineAuditDraft[row.id]?.count_state ?? row.count_state ?? "COUNTED"}
+                          onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), count_state: event.target.value } }))}
+                          className="h-8 w-36 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold disabled:bg-slate-50"
+                        >
+                          {["COUNTED", "REVIEWED", "RECOUNT_REQUIRED"].map((state) => <option key={state} value={state}>{state}</option>)}
+                        </select>
+                        <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-500">
+                          <input
+                            type="checkbox"
+                            disabled={selectedCertification.status !== "DRAFT"}
+                            checked={Boolean(lineAuditDraft[row.id]?.recount_required ?? row.recount_required ?? false)}
+                            onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), recount_required: event.target.checked, count_state: event.target.checked ? "RECOUNT_REQUIRED" : "REVIEWED" } }))}
+                          />
+                          Recount
+                        </label>
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "bin_code",
+                    label: "Bin / checker",
+                    render: (row) => (
+                      <div className="space-y-1">
+                        <input
+                          disabled={selectedCertification.status !== "DRAFT"}
+                          value={lineAuditDraft[row.id]?.bin_code ?? row.bin_code ?? ""}
+                          onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), bin_code: event.target.value } }))}
+                          placeholder="Bin"
+                          className="h-8 w-28 rounded-lg border border-slate-200 px-2 text-xs disabled:bg-slate-50"
+                        />
+                        <input
+                          disabled={selectedCertification.status !== "DRAFT"}
+                          value={lineAuditDraft[row.id]?.checked_by ?? row.checked_by ?? ""}
+                          onChange={(event) => setLineAuditDraft((current) => ({ ...current, [row.id]: { ...(current[row.id] || {}), checked_by: event.target.value } }))}
+                          placeholder="Checker"
+                          className="h-8 w-28 rounded-lg border border-slate-200 px-2 text-xs disabled:bg-slate-50"
+                        />
+                      </div>
+                    ),
+                  },
                   { key: "variance_qty", label: "Variance", render: (row) => <span className={Number(row.variance_qty || 0) ? "font-semibold text-amber-700" : "text-emerald-700"}>{formatNumber(Number(physicalDraft[row.id] ?? row.physical_qty ?? row.closing_qty ?? 0) - Number(row.closing_qty || 0), 2)} {row.uom}</span> },
                   { key: "closing_value", label: "Value", render: (row) => formatCompactCurrency(Number(row.closing_value || 0)) },
                 ]}
@@ -413,12 +597,57 @@ export default function InventoryStockControlPage() {
             </>
           ) : (
             <div className="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-500">
-              Draft a certification from the current statement or select an existing certificate.
+              Draft a certification from the current statement or select an existing certificate. After certification, use Post variance to create the formal adjustment voucher.
             </div>
           )}
         </ChartCard>
 
         <div className="space-y-4">
+          <ChartCard eyebrow="Adjustment voucher" title="Manual stock correction" description="Use for approved count correction, scrap discovery, or store correction. Reel items create adjustment reels for gains and scan reductions for losses.">
+            <form onSubmit={postManualAdjustment} className="space-y-3">
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input type="date" value={adjustmentForm.effective_date} onChange={(event) => setAdjustmentForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+                <select value={adjustmentForm.reason_code} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason_code: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700">
+                  <option value="MANUAL_CORRECTION">Manual correction</option>
+                  <option value="PHYSICAL_COUNT_VARIANCE">Physical count variance</option>
+                  <option value="SCRAP_DISCOVERY">Scrap discovery</option>
+                  <option value="REWORK_RECOVERY">Rework recovery</option>
+                  <option value="CUSTOMER_REJECTION">Customer rejection</option>
+                </select>
+              </div>
+              <select required value={adjustmentForm.item_id} onChange={(event) => setAdjustmentForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700">
+                <option value="">Select item</option>
+                {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
+              </select>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <input required type="number" step="0.001" value={adjustmentForm.qty_delta} onChange={(event) => setAdjustmentForm((current) => ({ ...current, qty_delta: event.target.value }))} placeholder="+ gain / - loss" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+                <input type="number" step="0.01" value={adjustmentForm.unit_cost} onChange={(event) => setAdjustmentForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost optional" className="h-11 rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+              </div>
+              <input value={adjustmentForm.notes} onChange={(event) => setAdjustmentForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Approval note / reason" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-cyan-700" />
+              {selectedAdjustmentItem ? (
+                <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                  {selectedAdjustmentItem.tracking_mode === "REEL" ? "Reel correction will preserve reel traceability through scan events and generated adjustment reels." : "Bulk correction will post a ledger ADJUSTMENT transaction."}
+                </p>
+              ) : null}
+              <button disabled={writeBlocked || createAdjustmentVoucher.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-cyan-800 disabled:opacity-45">
+                <FilePlus2 className="h-4 w-4" />
+                {createAdjustmentVoucher.isPending ? "Posting adjustment..." : "Post adjustment voucher"}
+              </button>
+            </form>
+            <div className="mt-4 space-y-2">
+              {adjustmentVouchers.slice(0, 4).map((row: any) => (
+                <div key={row.id} className="rounded-2xl border border-slate-200 bg-white px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-semibold text-slate-950">{row.voucher_no}</p>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${String(row.status).toUpperCase() === "POSTED" ? "bg-emerald-50 text-emerald-800" : "bg-amber-50 text-amber-800"}`}>{row.status}</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">{row.effective_date} · {row.reason_code} · {formatNumber(row.total_abs_qty, 2)} qty</p>
+                </div>
+              ))}
+              {!adjustmentVouchers.length ? <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-500">No adjustment vouchers yet.</p> : null}
+            </div>
+          </ChartCard>
+
           <ChartCard eyebrow="Formal proof trail" title="Opening loads and year carry-forward" description="This is the audit trail users can show for opening/closing stock continuity.">
             <div className="space-y-3">
               {carryForwards.slice(0, 4).map((row: any) => {

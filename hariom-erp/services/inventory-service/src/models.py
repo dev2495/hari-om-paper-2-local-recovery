@@ -55,6 +55,7 @@ class TransactionType(str, enum.Enum):
     DISPATCH = "DISPATCH"
     MOVE = "MOVE"
     OPENING = "OPENING"
+    ADJUSTMENT = "ADJUSTMENT"
 
 
 class ReferenceType(str, enum.Enum):
@@ -268,6 +269,7 @@ class CustomerRejection(Base):
     dispatch_ref = Column(String(120), nullable=True)
     reason_code = Column(String(80), nullable=False)
     reason_notes = Column(Text, nullable=True)
+    effective_date = Column(Date, nullable=True, index=True)
     source_job_card_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     source_dispatch_id = Column(UUID(as_uuid=True), nullable=True)
     source_spec_id = Column(UUID(as_uuid=True), nullable=True)
@@ -275,6 +277,15 @@ class CustomerRejection(Base):
     disposition = Column(String(40), nullable=True)
     qc_inspection_id = Column(UUID(as_uuid=True), nullable=True)
     trace_snapshot = Column(JSON, nullable=False, default=dict)
+    root_cause_department = Column(String(80), nullable=True)
+    owner_department = Column(String(80), nullable=True)
+    corrective_action = Column(Text, nullable=True)
+    closure_due_date = Column(Date, nullable=True)
+    closure_status = Column(String(30), nullable=False, default="OPEN")
+    rework_cost = Column(Float, nullable=False, default=0.0)
+    scrap_cost = Column(Float, nullable=False, default=0.0)
+    cost_impact = Column(Float, nullable=False, default=0.0)
+    attachment_refs = Column(JSON, nullable=False, default=list)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     closed_at = Column(DateTime, nullable=True)
@@ -469,9 +480,17 @@ class InventoryCertification(Base):
     period_end = Column(Date, nullable=False)
     fiscal_year_label = Column(String(30), nullable=True)
     status = Column(String(30), nullable=False, default="DRAFT")
+    count_session_no = Column(String(80), nullable=True)
+    count_location_scope = Column(String(200), nullable=True)
+    count_state = Column(String(30), nullable=False, default="DRAFT")
     notes = Column(String(500), nullable=True)
+    attachment_refs = Column(JSON, nullable=False, default=list)
     created_by = Column(String(200), nullable=False)
+    counted_by = Column(String(200), nullable=True)
+    checked_by = Column(String(200), nullable=True)
     certified_by = Column(String(200), nullable=True)
+    counted_at = Column(DateTime, nullable=True)
+    checked_at = Column(DateTime, nullable=True)
     certified_at = Column(DateTime, nullable=True)
     carried_forward_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -494,6 +513,11 @@ class InventoryCertificationLine(Base):
     item_type = Column(String(40), nullable=False)
     tracking_mode = Column(String(20), nullable=False)
     uom = Column(String(20), nullable=False)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True)
+    reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True)
+    stock_status = Column(String(20), nullable=False, default="UNRESTRICTED")
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True)
+    bin_code = Column(String(120), nullable=True)
     opening_qty = Column(Float, nullable=False, default=0.0)
     inward_qty = Column(Float, nullable=False, default=0.0)
     outward_qty = Column(Float, nullable=False, default=0.0)
@@ -507,11 +531,23 @@ class InventoryCertificationLine(Base):
     reorder_level = Column(Float, nullable=False, default=0.0)
     safety_stock = Column(Float, nullable=False, default=0.0)
     lead_time_days = Column(Float, nullable=False, default=0.0)
+    count_state = Column(String(30), nullable=False, default="DRAFT")
+    counted_by = Column(String(200), nullable=True)
+    checked_by = Column(String(200), nullable=True)
+    counted_at = Column(DateTime, nullable=True)
+    checked_at = Column(DateTime, nullable=True)
+    recount_required = Column(Boolean, nullable=False, default=False)
+    recount_qty = Column(Float, nullable=True)
+    recount_notes = Column(String(500), nullable=True)
+    attachment_refs = Column(JSON, nullable=False, default=list)
     notes = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     header = relationship("InventoryCertification", back_populates="lines")
     item = relationship("ItemMaster")
+    batch = relationship("StockBatch")
+    reel = relationship("PaperReel")
+    inventory_location = relationship("InventoryLocation")
 
 
 class InventoryCarryForward(Base):
@@ -556,6 +592,72 @@ class InventoryCarryForwardLine(Base):
 
     header = relationship("InventoryCarryForward", back_populates="lines")
     item = relationship("ItemMaster")
+
+
+class StockAdjustmentVoucher(Base):
+    __tablename__ = "stock_adjustment_vouchers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    voucher_no = Column(String(80), nullable=False)
+    effective_date = Column(Date, nullable=False)
+    reason_code = Column(String(80), nullable=False)
+    reason_notes = Column(String(500), nullable=True)
+    source_type = Column(String(60), nullable=False, default="MANUAL")
+    source_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    attachment_refs = Column(JSON, nullable=False, default=list)
+    status = Column(String(30), nullable=False, default="DRAFT")
+    created_by = Column(String(200), nullable=False)
+    approved_by = Column(String(200), nullable=True)
+    posted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    lines = relationship("StockAdjustmentLine", back_populates="header", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "voucher_no", name="uq_stock_adjustment_vouchers_doc"),
+        CheckConstraint(
+            "status IN ('DRAFT','POSTED','CANCELLED')",
+            name="ck_stock_adjustment_vouchers_status",
+        ),
+    )
+
+
+class StockAdjustmentLine(Base):
+    __tablename__ = "stock_adjustment_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    adjustment_id = Column(UUID(as_uuid=True), ForeignKey("stock_adjustment_vouchers.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True, index=True)
+    reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True, index=True)
+    qty_delta = Column(Float, nullable=False)
+    unit_cost = Column(Float, nullable=True)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True)
+    stock_status = Column(String(20), nullable=False, default="UNRESTRICTED")
+    reason_code = Column(String(80), nullable=True)
+    notes = Column(String(500), nullable=True)
+    transaction_id = Column(UUID(as_uuid=True), ForeignKey("stock_transaction.id"), nullable=True)
+    created_reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True)
+    created_batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    header = relationship("StockAdjustmentVoucher", back_populates="lines")
+    item = relationship("ItemMaster")
+    batch = relationship("StockBatch", foreign_keys=[batch_id])
+    reel = relationship("PaperReel", foreign_keys=[reel_id])
+    transaction = relationship("StockTransaction", foreign_keys=[transaction_id])
+    created_reel = relationship("PaperReel", foreign_keys=[created_reel_id])
+    created_batch = relationship("StockBatch", foreign_keys=[created_batch_id])
+    inventory_location = relationship("InventoryLocation")
+
+    __table_args__ = (
+        CheckConstraint("qty_delta <> 0", name="ck_stock_adjustment_lines_qty_nonzero"),
+        CheckConstraint(
+            "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP')",
+            name="ck_stock_adjustment_lines_status",
+        ),
+    )
 
 
 class PurchaseOrder(Base):

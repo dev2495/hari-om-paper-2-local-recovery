@@ -2,6 +2,15 @@
 
 ## Decision Log
 
+### 2026-06-28: Stock counts post through adjustment vouchers
+
+- Physical count variance posts through a formal stock adjustment voucher, not a direct edit to item balance.
+- Bulk item adjustments post `StockTransaction(ADJUSTMENT)` with voucher id, line id, reason code, and effective date metadata.
+- Reel item adjustments preserve reel traceability: positive variance creates a new adjustment reel, while negative variance reduces real current reels and logs scan events.
+- Carry-forward posting preserves tracking mode. Reel-tracked carry-forward stock becomes opening reels with source metadata and scan events; bulk carry-forward stock remains opening batches plus ledger transactions.
+- QR labels are generated at stock identity creation. Bulk inward returns a batch label payload and reel inward returns a reel label payload so stores can print immediately after inward while the item remains under QC hold.
+- Stock-control UI shows count coverage as statement rows over active item masters, keeping physical count sheets complete even for zero-movement items.
+
 ### 2026-04-06: Spec sheet is master-driven by default
 
 - Most spec fields should be selected from masters, not typed manually.
@@ -136,3 +145,21 @@
 - Editing an active specification creates the next version as a new row.
 - The previous version is disabled/obsolete instead of being overwritten.
 - Old production and commercial records remain tied to the exact spec truth they were created with.
+
+### 2026-06-28: Physical stock count is a session, not only a closing number
+
+- Monthly/year-end physical stock count must keep a count session number, count scope, line count state, checker, recount flag, and proof references.
+- Count certification can stay operationally simple, but it cannot be certified while any line requires recount.
+- The Stock Control page must show every active item line for the plant so the count is complete and auditable.
+
+### 2026-06-28: Customer rejection closure must affect stock when material is scrapped
+
+- Customer rejection disposition must store root-cause department, owner department, corrective action, closure due date/status, cost impact, and proof references.
+- Rework/reheat/segregate can remain trace actions, but scrap must post a stock adjustment voucher and remove the rejected finished-good quantity from live stock.
+- Customer rejection trace must remain connectable to inward FG, batch, job card metadata, quality records, and adjustment voucher.
+
+### 2026-06-28: Reconciliation reads stock-control through the inventory API contract
+
+- Production reconciliation must call `/inventory/stock-control/certifications`.
+- The reconciliation client must accept stock-control's object wrapper (`items`) and plain list responses.
+- A bad/missing stock-control response should omit the certification reference, not crash period-state or books-state.

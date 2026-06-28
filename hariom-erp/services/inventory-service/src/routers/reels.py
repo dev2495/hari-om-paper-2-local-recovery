@@ -20,6 +20,7 @@ from ..models import (
     ReelStatus,
     TrackingMode,
 )
+from ..services.labels import reel_label_payload
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 
 router = APIRouter(prefix="/reels", tags=["reels"])
@@ -311,13 +312,7 @@ def create_reel_inward(
             db.commit()
             db.refresh(reel)
             response = ReelResponse.model_validate(reel)
-            response.qr_payload = {
-                "entity": "reel",
-                "reel_id": str(reel.id),
-                "reel_code": reel.reel_code,
-                "plant_id": str(reel.plant_id),
-                "paper_id": str(reel.paper_id),
-            }
+            response.qr_payload = reel_label_payload(reel, paper)
             return response
         except IntegrityError:
             db.rollback()

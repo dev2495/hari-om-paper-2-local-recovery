@@ -5,6 +5,7 @@ import Link from "next/link"
 import { Barcode, PlusCircle } from "lucide-react"
 import { FormEvent, useMemo, useState } from "react"
 
+import { InventoryLabelPrint } from "@/components/inventory/InventoryLabelPrint"
 import { useApp } from "@/context/AppContext"
 import { useCreateReelInward, useInventoryItems, useInventoryLocations, useReels } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
@@ -37,6 +38,7 @@ export default function ReelInwardPage() {
   const locationsQuery = useInventoryLocations()
   const reelsQuery = useReels()
   const createReelInward = useCreateReelInward()
+  const [lastLabel, setLastLabel] = useState<any>(null)
 
   const paperItems = useMemo(() => {
     const rows = Array.isArray(itemsQuery.data) ? itemsQuery.data : []
@@ -74,7 +76,7 @@ export default function ReelInwardPage() {
     }
 
     try {
-      await createReelInward.mutateAsync({
+      const result = await createReelInward.mutateAsync({
         reel_code: null,
         paper_id: form.paper_id,
         gsm: form.gsm ? Number(form.gsm) : null,
@@ -88,6 +90,7 @@ export default function ReelInwardPage() {
         inward_date: form.inward_date,
         stock_status: form.stock_status,
       })
+      setLastLabel(result?.data?.qr_payload || null)
 
       showToast("Reel inward posted", "success")
       setForm((current) => ({
@@ -116,6 +119,8 @@ export default function ReelInwardPage() {
           </Link>
         </div>
       </section>
+
+      <InventoryLabelPrint label={lastLabel} title="Reel QR Label" />
 
       <section className="glass rounded-2xl border border-white/60 p-5 shadow-xl">
         <h2 className="text-lg font-semibold text-slate-900">Inward Entry</h2>

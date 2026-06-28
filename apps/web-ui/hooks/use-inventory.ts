@@ -343,6 +343,57 @@ export function useCertifyStockCertification() {
   })
 }
 
+export function usePostStockCertificationVariance() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => inventoryApi.postStockCertificationVariance(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certifications"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-certification"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-adjustment-vouchers"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+    },
+  })
+}
+
+export function useAdjustmentVouchers() {
+  return useQuery({
+    queryKey: ["inventory-adjustment-vouchers"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getAdjustmentVouchers()
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
+export function useCreateAdjustmentVoucher() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.createAdjustmentVoucher(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-adjustment-vouchers"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+    },
+  })
+}
+
+export function usePostAdjustmentVoucher() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => inventoryApi.postAdjustmentVoucher(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-adjustment-vouchers"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+    },
+  })
+}
+
 export function useCarryForwards() {
   return useQuery({
     queryKey: ["inventory-carry-forwards"],

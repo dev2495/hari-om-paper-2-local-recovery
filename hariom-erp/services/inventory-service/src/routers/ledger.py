@@ -3,7 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import uuid
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime
 from ..database import get_db
 from ..models import ItemMaster, ReferenceType, StockTransaction, TransactionType
 from ..utils.auth import get_current_user, get_current_plant_scope
@@ -15,11 +15,19 @@ router = APIRouter(tags=["ledger"])
 def _safe_row_date(value: object) -> Optional[date]:
     if value is None:
         return None
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return value
+    if isinstance(value, datetime):
+        return value.date()
     try:
         text = str(value).replace("Z", "+00:00")
         return datetime.fromisoformat(text).date()
     except ValueError:
         return None
+
+
+def _business_date_expression():
+    return func.coalesce(StockTransaction.effective_date, func.date(StockTransaction.created_at))
 
 
 @router.get("/ledger")
@@ -79,10 +87,11 @@ def get_ledger(
             query = query.filter(StockTransaction.transaction_type == TransactionType(normalized_transaction_type))
         if external_ref:
             query = query.filter(StockTransaction.external_ref == external_ref)
+        business_date = _business_date_expression()
         if date_from:
-            query = query.filter(StockTransaction.created_at >= datetime.combine(date_from, time.min))
+            query = query.filter(business_date >= date_from)
         if date_to:
-            query = query.filter(StockTransaction.created_at <= datetime.combine(date_to, time.max))
+            query = query.filter(business_date <= date_to)
         transactions = query.order_by(StockTransaction.created_at.desc()).offset(offset).limit(limit).all()
         return {
             "type": "all",
@@ -90,7 +99,8 @@ def get_ledger(
             "ledger": [
                 {
                     "transaction_id": str(txn.id),
-                    "date": txn.created_at.isoformat(),
+                    "date": txn.effective_date.isoformat() if txn.effective_date else txn.created_at.date().isoformat(),
+                    "created_at": txn.created_at.isoformat(),
                     "type": txn.transaction_type.value,
                     "qty_change": txn.qty_change,
                     "reference": f"{txn.reference_type.value}:{str(txn.reference_id)}",
@@ -239,8 +249,7 @@ def aggregate_transactions_by_item(
     if not type_filter:
         type_filter = ["ISSUE_PRODUCTION"]
 
-    start_dt = datetime.combine(start_date, time.min)
-    end_dt = datetime.combine(end_date, time.max)
+    business_date = _business_date_expression()
 
     query = (
         db.query(
@@ -254,8 +263,8 @@ def aggregate_transactions_by_item(
         .join(ItemMaster, ItemMaster.id == StockTransaction.item_id)
         .filter(
             StockTransaction.transaction_type.in_(type_filter),
-            StockTransaction.created_at >= start_dt,
-            StockTransaction.created_at <= end_dt,
+            business_date >= start_date,
+            business_date <= end_date,
         )
     )
 

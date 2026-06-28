@@ -13,6 +13,7 @@ from .routers import (
     inward,
     issue,
     items,
+    labels,
     ledger,
     locations,
     purchase,
@@ -36,6 +37,7 @@ def ensure_runtime_schema() -> None:
         "IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transactiontype') THEN "
         "BEGIN ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'MOVE'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
         "BEGIN ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'OPENING'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE transactiontype ADD VALUE IF NOT EXISTS 'ADJUSTMENT'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
         "END IF; "
         "END $$;"
       )
@@ -245,6 +247,72 @@ def ensure_runtime_schema() -> None:
         "WHERE status = 'CLOSED'"
       )
     )
+    for ddl in (
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_session_no VARCHAR(80)",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_location_scope VARCHAR(200)",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_state VARCHAR(30) DEFAULT 'DRAFT'",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS counted_by VARCHAR(200)",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS checked_by VARCHAR(200)",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS counted_at TIMESTAMP",
+      "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS batch_id UUID",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS reel_id UUID",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS stock_status VARCHAR(20) DEFAULT 'UNRESTRICTED'",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS location_id UUID",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS bin_code VARCHAR(120)",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS count_state VARCHAR(30) DEFAULT 'DRAFT'",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS counted_by VARCHAR(200)",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS checked_by VARCHAR(200)",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS counted_at TIMESTAMP",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS checked_at TIMESTAMP",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS recount_required BOOLEAN DEFAULT FALSE",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS recount_qty DOUBLE PRECISION",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS recount_notes VARCHAR(500)",
+      "ALTER TABLE IF EXISTS inventory_certification_lines ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
+      "ALTER TABLE IF EXISTS stock_adjustment_vouchers ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS effective_date DATE",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS root_cause_department VARCHAR(80)",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS owner_department VARCHAR(80)",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS corrective_action TEXT",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS closure_due_date DATE",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS closure_status VARCHAR(30) DEFAULT 'OPEN'",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS rework_cost DOUBLE PRECISION DEFAULT 0",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS scrap_cost DOUBLE PRECISION DEFAULT 0",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS cost_impact DOUBLE PRECISION DEFAULT 0",
+      "ALTER TABLE IF EXISTS customer_rejections ADD COLUMN IF NOT EXISTS attachment_refs JSONB DEFAULT '[]'::jsonb",
+    ):
+      connection.execute(text(ddl))
+    connection.execute(
+      text(
+        "UPDATE inventory_certifications "
+        "SET count_state = COALESCE(count_state, status, 'DRAFT'), "
+        "attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)"
+      )
+    )
+    connection.execute(
+      text(
+        "UPDATE inventory_certification_lines "
+        "SET stock_status = COALESCE(stock_status, 'UNRESTRICTED'), "
+        "count_state = COALESCE(count_state, 'DRAFT'), "
+        "recount_required = COALESCE(recount_required, FALSE), "
+        "attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)"
+      )
+    )
+    connection.execute(
+      text("UPDATE stock_adjustment_vouchers SET attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)")
+    )
+    connection.execute(
+      text(
+        "UPDATE customer_rejections "
+        "SET effective_date = COALESCE(effective_date, created_at::date), "
+        "closure_status = COALESCE(closure_status, CASE WHEN closed_at IS NULL THEN 'OPEN' ELSE 'CLOSED' END), "
+        "rework_cost = COALESCE(rework_cost, 0), "
+        "scrap_cost = COALESCE(scrap_cost, 0), "
+        "cost_impact = COALESCE(cost_impact, 0), "
+        "attachment_refs = COALESCE(attachment_refs, '[]'::jsonb)"
+      )
+    )
 
 
 ensure_runtime_schema()
@@ -410,6 +478,7 @@ app.add_middleware(
 )
 
 app.include_router(items.router)
+app.include_router(labels.router)
 app.include_router(inward.router)
 app.include_router(issue.router)
 app.include_router(balance.router)
