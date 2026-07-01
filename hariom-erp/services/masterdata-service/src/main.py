@@ -464,8 +464,143 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_packaging_plastic_plant_sku ON packaging_plastic_sheet (plant_id, sku)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_packaging_fadda_plant_sku ON packaging_fadda (plant_id, sku)"))
 
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'ACTIVE'"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS location VARCHAR(120)"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS condition_notes TEXT"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS last_maintenance_at TIMESTAMP WITHOUT TIME ZONE"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS next_maintenance_due TIMESTAMP WITHOUT TIME ZONE"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS scrapped_at TIMESTAMP WITHOUT TIME ZONE"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0"))
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"))
+        connection.execute(text("UPDATE tool_master SET status = COALESCE(NULLIF(upper(status), ''), 'ACTIVE')"))
+        connection.execute(text("UPDATE tool_master SET status = 'ACTIVE' WHERE status NOT IN ('ACTIVE','MAINTENANCE','SCRAP')"))
+        connection.execute(text("UPDATE tool_master SET usage_count = COALESCE(usage_count, 0)"))
+        connection.execute(text("UPDATE tool_master SET updated_at = COALESCE(updated_at, created_at, NOW())"))
+        connection.execute(text("ALTER TABLE tool_master DROP CONSTRAINT IF EXISTS ck_tool_master_status"))
+        connection.execute(
+            text("ALTER TABLE tool_master ADD CONSTRAINT ck_tool_master_status CHECK (status IN ('ACTIVE','MAINTENANCE','SCRAP'))")
+        )
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_master_status ON tool_master (status)"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS tool_usage_log (
+                    id UUID PRIMARY KEY,
+                    tool_id UUID REFERENCES tool_master(id),
+                    category VARCHAR(50) NOT NULL,
+                    tool_name VARCHAR(150) NOT NULL,
+                    event_type VARCHAR(40) NOT NULL,
+                    source_type VARCHAR(40) NOT NULL,
+                    source_id VARCHAR(80),
+                    source_ref VARCHAR(120),
+                    production_qty DOUBLE PRECISION,
+                    actor VARCHAR(150),
+                    notes TEXT,
+                    plant_id VARCHAR(50) NOT NULL,
+                    metadata_json JSON,
+                    created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
+                )
+                """
+            )
+        )
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_tool_id ON tool_usage_log (tool_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_category ON tool_usage_log (category)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_event_type ON tool_usage_log (event_type)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_source_type ON tool_usage_log (source_type)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_source_id ON tool_usage_log (source_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_plant_id ON tool_usage_log (plant_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_usage_log_created_at ON tool_usage_log (created_at)"))
+
 
 _ensure_schema_compatibility()
+
+
+def _seed_default_notch_tools() -> None:
+    """Provide the exact client notching dropdowns as editable tool masters."""
+    plants = (
+        "PLANT-1",
+        "00000000-0000-0000-0000-0000000000a1",
+        "00000000-0000-0000-0000-0000000000b1",
+    )
+    options = (
+        ("NOTCH_TYPE", "Drop Down", "NOTCH-DROP-DOWN", "Notch"),
+        ("NOTCHING_BLADE", "Drop Down", "BLADE-DROP-DOWN", "Blade"),
+        ("NOTCHING_HOLDER", "Drop Down", "HOLDER-DROP-DOWN", "Holder"),
+        ("V_FLAT", "Drop Down", "VFLAT-DROP-DOWN", "V + Flat"),
+        ("PUNCH", "Single", "PUNCH-SINGLE", "Punch"),
+        ("PUNCH", "Double", "PUNCH-DOUBLE", "Punch"),
+        ("PUNCH", "NA", "PUNCH-NA", "Punch"),
+        ("NOTCH_WIDER", "Yes", "NOTCH-WIDER-YES", "Notch Wider"),
+        ("NOTCH_WIDER", "No", "NOTCH-WIDER-NO", "Notch Wider"),
+        ("NOTCH_PATTI", "Yes", "NOTCH-PATTI-YES", "Notch Patti"),
+        ("NOTCH_PATTI", "No", "NOTCH-PATTI-NO", "Notch Patti"),
+        ("NOTCH_DIRECTION", "Forward", "NOTCH-DIR-FORWARD", "Notch Direction"),
+        ("NOTCH_DIRECTION", "Reverse", "NOTCH-DIR-REVERSE", "Notch Direction"),
+    )
+    insert_sql = text(
+        """
+        INSERT INTO tool_master (
+            id, category, subcategory, name, code, spec_text, department, plant_id,
+            status, location, condition_notes, usage_count, active, created_at, updated_at
+        )
+        SELECT
+            (
+                substr(md5(:plant_id || ':' || :category || ':' || :name), 1, 8) || '-' ||
+                substr(md5(:plant_id || ':' || :category || ':' || :name), 9, 4) || '-' ||
+                substr(md5(:plant_id || ':' || :category || ':' || :name), 13, 4) || '-' ||
+                substr(md5(:plant_id || ':' || :category || ':' || :name), 17, 4) || '-' ||
+                substr(md5(:plant_id || ':' || :category || ':' || :name), 21, 12)
+            )::uuid,
+            :category,
+            :subcategory,
+            :name,
+            :code,
+            :spec_text,
+            'PROCESS',
+            :plant_id,
+            'ACTIVE',
+            NULL,
+            NULL,
+            0,
+            TRUE,
+            NOW(),
+            NOW()
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM tool_master
+            WHERE plant_id = :plant_id
+              AND category = :category
+              AND lower(name) = lower(:name)
+        )
+        """
+    )
+    update_sql = text(
+        """
+        UPDATE tool_master
+        SET
+            subcategory = :subcategory,
+            spec_text = COALESCE(NULLIF(spec_text, ''), :spec_text),
+            active = TRUE,
+            status = CASE WHEN status IN ('MAINTENANCE','SCRAP') THEN status ELSE 'ACTIVE' END,
+            updated_at = NOW()
+        WHERE plant_id = :plant_id
+          AND category = :category
+          AND lower(name) = lower(:name)
+        """
+    )
+    with engine.begin() as connection:
+        for plant_id in plants:
+            for category, name, code, subcategory in options:
+                values = {
+                    "plant_id": plant_id,
+                    "category": category,
+                    "name": name,
+                    "code": code,
+                    "subcategory": subcategory,
+                    "spec_text": name,
+                }
+                connection.execute(update_sql, values)
+                connection.execute(insert_sql, values)
 
 
 def _seed_default_suppliers() -> None:
@@ -582,6 +717,7 @@ def _seed_default_suppliers() -> None:
 
 
 _seed_default_suppliers()
+_seed_default_notch_tools()
 
 
 @app.get("/")

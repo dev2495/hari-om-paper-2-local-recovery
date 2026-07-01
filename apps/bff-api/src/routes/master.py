@@ -519,9 +519,34 @@ async def create_tool(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/", request, token)
 
 
+@router.get("/tools/categories")
+async def get_tool_categories(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/categories", request, token)
+
+
+@router.get("/tools/logs")
+async def get_tool_logs(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/logs", request, token)
+
+
+@router.get("/tools/report")
+async def get_tool_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/report", request, token)
+
+
+@router.post("/tools/log-usage")
+async def log_tool_usage(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/log-usage", request, token)
+
+
 @router.put("/tools/{tool_id}")
 async def update_tool(tool_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/{tool_id}", request, token)
+
+
+@router.post("/tools/{tool_id}/status")
+async def update_tool_status(tool_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/{tool_id}/status", request, token)
 
 
 @router.delete("/tools/{tool_id}")

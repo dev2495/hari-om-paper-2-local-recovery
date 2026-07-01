@@ -51,18 +51,17 @@ COMPAT_DYNAMIC_FIELDS: dict[str, dict[str, str]] = {
     "candidate_papers_json": {"label": "Candidate Papers", "field_type": "text"},
     "notch_required": {"label": "Notch Required", "field_type": "boolean"},
     "top_paper_required": {"label": "Top Paper Required", "field_type": "boolean"},
-    "notch_type": {"label": "Notch Type", "field_type": "text"},
+    "notch_type": {"label": "Notch", "field_type": "select"},
     "notch_distance_mm": {"label": "Notch Distance (mm)", "field_type": "number"},
     "notch_depth_mm": {"label": "Notch Depth (mm)", "field_type": "number"},
-    "notching_holder": {"label": "Holder", "field_type": "text"},
-    "notching_blade": {"label": "Blade", "field_type": "text"},
-    "v_flat": {"label": "V + Flat", "field_type": "text"},
-    "punch": {"label": "Punch", "field_type": "text"},
-    "notch_wider": {"label": "Notch Wider", "field_type": "boolean"},
-    "notch_patti": {"label": "Notch Patti", "field_type": "boolean"},
-    "notch_direction": {"label": "Notch Direction", "field_type": "text"},
+    "notching_holder": {"label": "Holder", "field_type": "select"},
+    "notching_blade": {"label": "Blade", "field_type": "select"},
+    "v_flat": {"label": "V + Flat", "field_type": "select"},
+    "punch": {"label": "Punch", "field_type": "select"},
+    "notch_wider": {"label": "Notch Wider", "field_type": "select"},
+    "notch_patti": {"label": "Notch Patti", "field_type": "select"},
+    "notch_direction": {"label": "Notch Direction", "field_type": "select"},
     "tube_direction": {"label": "Tube Direction", "field_type": "text"},
-    "notch_position": {"label": "Notch Position", "field_type": "text"},
     "bundle_type": {"label": "Bundle Type", "field_type": "text"},
     "bundle_code": {"label": "Bundle Code", "field_type": "text"},
     "packing_ply": {"label": "Packing Ply", "field_type": "number"},
@@ -306,6 +305,14 @@ def _ensure_dynamic_field(
         SpecDynamicField.plant_id == plant_id,
     ).first()
     if field:
+        meta = COMPAT_DYNAMIC_FIELDS.get(key, {})
+        desired_label = label or meta.get("label")
+        desired_type = field_type or meta.get("field_type")
+        if desired_label and field.label != desired_label:
+            field.label = desired_label
+        if desired_type and field.field_type != desired_type:
+            field.field_type = desired_type
+        field.active = True
         return field
 
     meta = COMPAT_DYNAMIC_FIELDS.get(key, {})
@@ -359,7 +366,6 @@ def _profile_from_dynamic_map(dynamic_map: dict[str, Optional[str]]) -> Optional
         "notch_patti",
         "notch_direction",
         "tube_direction",
-        "notch_position",
     ]
     notch_payload = {key: dynamic_map.get(key) for key in notch_keys if dynamic_map.get(key) not in (None, "")}
     if notch_payload:
@@ -448,7 +454,6 @@ def _compat_dynamic_values_from_payload(payload: SpecCreate | SpecUpdate) -> dic
             "notch_patti",
             "notch_direction",
             "tube_direction",
-            "notch_position",
         ]:
             if notch_payload.get(key) is not None:
                 compat_values[key] = notch_payload.get(key)

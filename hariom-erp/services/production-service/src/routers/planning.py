@@ -75,6 +75,16 @@ STAGE_SEQUENCE = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DIS
 PLANT_TIMEZONE = ZoneInfo("Asia/Kolkata")
 OVEN_BATCH_MIN_HOURS = 5.0
 OVEN_BATCH_MAX_HOURS = 6.0
+NOTCH_TOOL_FIELD_CATEGORY_MAP = {
+    "notch_type": ("NOTCH_TYPE", "Notch"),
+    "notching_blade": ("NOTCHING_BLADE", "Blade"),
+    "notching_holder": ("NOTCHING_HOLDER", "Holder"),
+    "v_flat": ("V_FLAT", "V + Flat"),
+    "punch": ("PUNCH", "Punch"),
+    "notch_wider": ("NOTCH_WIDER", "Notch Wider"),
+    "notch_patti": ("NOTCH_PATTI", "Notch Patti"),
+    "notch_direction": ("NOTCH_DIRECTION", "Notch Direction"),
+}
 STAGE_TO_MACHINE_DEPARTMENT = {
     "SLITTING": "SLITTING",
     "WINDER": "WINDER",
@@ -1629,6 +1639,36 @@ def _display_bool(value: Any) -> str:
     return str(raw)
 
 
+def _notch_tooling_usage_from_values(values: dict[str, Any]) -> list[dict[str, Any]]:
+    usage: list[dict[str, Any]] = []
+    for field_key, (category, label) in NOTCH_TOOL_FIELD_CATEGORY_MAP.items():
+        value = values.get(field_key)
+        if field_key in {"notch_wider", "notch_patti"}:
+            value = _display_bool(value)
+        value_text = str(value or "").strip()
+        if not value_text:
+            continue
+        usage.append(
+            {
+                "field_key": field_key,
+                "label": label,
+                "category": category,
+                "tool_name": value_text,
+            }
+        )
+    return usage
+
+
+def _notch_tooling_usage_from_snapshot(spec_snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+    existing = spec_snapshot.get("tooling_usage")
+    if isinstance(existing, list):
+        return [row for row in existing if isinstance(row, dict)]
+    profile_usage = ((spec_snapshot.get("notch_tooling") or {}).get("tooling_usage")) if isinstance(spec_snapshot.get("notch_tooling"), dict) else None
+    if isinstance(profile_usage, list):
+        return [row for row in profile_usage if isinstance(row, dict)]
+    return _notch_tooling_usage_from_values(spec_snapshot)
+
+
 def _derive_thickness(
     outer_min: Any,
     outer_max: Any,
@@ -1741,6 +1781,7 @@ def _merge_spec_snapshot(base_snapshot: dict[str, Any], spec_payload: dict[str, 
         "notch_patti": dynamic_map.get("notch_patti"),
         "notch_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
         "tube_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
+        "tooling_usage": _notch_tooling_usage_from_values(dynamic_map),
         "groove": dynamic_map.get("groove"),
         "wider_tool": dynamic_map.get("wider_tool"),
         "tochha": dynamic_map.get("tochha"),
@@ -2023,6 +2064,7 @@ def _build_document_snapshot(
             "v_flat": spec_snapshot.get("v_flat") or spec_snapshot.get("groove") or "",
             "notch_wider": spec_snapshot.get("notch_wider") or "",
             "notch_patti": spec_snapshot.get("notch_patti") or "",
+            "tooling_usage": _notch_tooling_usage_from_snapshot(spec_snapshot),
             "groove": spec_snapshot.get("groove") or "",
             "wider_tool": spec_snapshot.get("wider_tool") or "",
             "tochha": spec_snapshot.get("tochha") or "",
@@ -2216,6 +2258,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "notch_patti": dynamic_map.get("notch_patti"),
         "notch_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
         "tube_direction": dynamic_map.get("notch_direction") or dynamic_map.get("tube_direction"),
+        "tooling_usage": _notch_tooling_usage_from_values(dynamic_map),
         "notch_position": dynamic_map.get("notch_position"),
         "groove": dynamic_map.get("groove"),
         "wider_tool": dynamic_map.get("wider_tool"),
@@ -2338,6 +2381,61 @@ def _current_actor_role(current_user: dict) -> Optional[str]:
     if roles:
         return str(roles)
     return None
+
+
+def _current_actor_label(current_user: dict) -> Optional[str]:
+    return (
+        current_user.get("name")
+        or current_user.get("email")
+        or current_user.get("username")
+        or current_user.get("sub")
+    )
+
+
+def _log_tooling_usage_for_job_card(
+    *,
+    job_card: JobCard,
+    token: str,
+    plant_id: str,
+    current_user: dict,
+) -> None:
+    usage_rows = _notch_tooling_usage_from_snapshot(job_card.spec_snapshot or {})
+    if not usage_rows:
+        return
+    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
+    actor = _current_actor_label(current_user)
+    with httpx.Client(timeout=3.0) as client:
+        for row in usage_rows:
+            category = str(row.get("category") or "").strip()
+            tool_name = str(row.get("tool_name") or "").strip()
+            if not category or not tool_name:
+                continue
+            try:
+                client.post(
+                    f"{settings.MASTERDATA_SERVICE_URL}/master/tools/log-usage",
+                    headers=headers,
+                    json={
+                        "tool_id": row.get("tool_id"),
+                        "category": category,
+                        "tool_name": tool_name,
+                        "event_type": "PRODUCTION_USED",
+                        "source_type": "JOB_CARD",
+                        "source_id": str(job_card.id),
+                        "source_ref": _format_ref("JC", job_card.id),
+                        "production_qty": float(job_card.planned_qty or 0.0),
+                        "actor": actor,
+                        "notes": "Tool assigned to production job card",
+                        "metadata_json": {
+                            "field_key": row.get("field_key"),
+                            "field_label": row.get("label"),
+                            "spec_id": str(job_card.spec_id),
+                            "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
+                            "release_lot_id": str(job_card.release_lot_id) if job_card.release_lot_id else None,
+                        },
+                    },
+                )
+            except (httpx.HTTPError, ValueError):
+                continue
 
 
 def _default_plan_date_from_snapshot(spec_snapshot: dict[str, Any]) -> date:
@@ -2896,6 +2994,15 @@ def _create_or_sync_job_card_for_line(
             },
         )
         _reset_winder_to_release_queue(existing)
+        try:
+            _log_tooling_usage_for_job_card(
+                job_card=existing,
+                token=token,
+                plant_id=plant_id,
+                current_user=current_user,
+            )
+        except Exception:
+            pass
         return existing, queue_created
 
     job_card = JobCard(
@@ -2947,6 +3054,15 @@ def _create_or_sync_job_card_for_line(
         },
     )
     _reset_winder_to_release_queue(job_card)
+    try:
+        _log_tooling_usage_for_job_card(
+            job_card=job_card,
+            token=token,
+            plant_id=plant_id,
+            current_user=current_user,
+        )
+    except Exception:
+        pass
     return job_card, queue_created
 
 

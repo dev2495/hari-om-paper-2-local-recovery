@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -323,13 +323,44 @@ class ToolMaster(Base):
     spec_text = Column(String(500), nullable=True)
     department = Column(String(20), nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    status = Column(String(20), nullable=False, default="ACTIVE", index=True)
+    location = Column(String(120), nullable=True)
+    condition_notes = Column(Text, nullable=True)
+    last_maintenance_at = Column(DateTime, nullable=True)
+    next_maintenance_due = Column(DateTime, nullable=True)
+    scrapped_at = Column(DateTime, nullable=True)
+    usage_count = Column(Integer, nullable=False, default=0)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    usage_logs = relationship("ToolUsageLog", back_populates="tool")
 
     __table_args__ = (
         UniqueConstraint("plant_id", "category", "name", name="uq_tool_plant_category_name"),
         UniqueConstraint("plant_id", "code", name="uq_tool_plant_code"),
     )
+
+
+class ToolUsageLog(Base):
+    __tablename__ = "tool_usage_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tool_id = Column(UUID(as_uuid=True), ForeignKey("tool_master.id"), nullable=True, index=True)
+    category = Column(String(50), nullable=False, index=True)
+    tool_name = Column(String(150), nullable=False)
+    event_type = Column(String(40), nullable=False, index=True)
+    source_type = Column(String(40), nullable=False, index=True)
+    source_id = Column(String(80), nullable=True, index=True)
+    source_ref = Column(String(120), nullable=True)
+    production_qty = Column(Float, nullable=True)
+    actor = Column(String(150), nullable=True)
+    notes = Column(Text, nullable=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    metadata_json = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    tool = relationship("ToolMaster", back_populates="usage_logs")
 
 
 # ──────────────────────────────────────────────────────────────────────────

@@ -276,8 +276,13 @@ export const masterApi = {
   deletePackagingFadda: (id: string) => api.delete(`/api/master/packaging/fadda/${id}`),
 
   getTools: (params?: any) => api.get("/api/master/tools", { params }),
+  getToolCategories: () => api.get("/api/master/tools/categories"),
+  getToolLogs: (params?: any) => api.get("/api/master/tools/logs", { params }),
+  getToolReport: (params?: any) => api.get("/api/master/tools/report", { params }),
   createTool: (data: any) => api.post("/api/master/tools", data),
   updateTool: (id: string, data: any) => api.put(`/api/master/tools/${id}`, data),
+  updateToolStatus: (id: string, data: any) => api.post(`/api/master/tools/${id}/status`, data),
+  logToolUsage: (data: any) => api.post("/api/master/tools/log-usage", data),
   deleteTool: (id: string) => api.delete(`/api/master/tools/${id}`),
 }
 

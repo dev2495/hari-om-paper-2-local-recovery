@@ -55,6 +55,13 @@ const REPORTS: Array<{
     accent: "ops",
   },
   {
+    href: "/reports/tooling",
+    title: "Tooling Ledger",
+    description: "Notch tool master status, maintenance/scrap view, spec selections, and production job-card usage trail.",
+    audience: "operations",
+    accent: "ops",
+  },
+  {
     href: "/reports/plants",
     title: "Cross-plant Comparator",
     description: "Side-by-side benchmark of plants on throughput, yield, OTIF, ledger variance.",
@@ -170,7 +177,7 @@ function ReportsLandingPage() {
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-hub-page">
       <ReportHero
         eyebrow="Reports"
-        title="Twelve finished reports — picked by who you are."
+        title="Finished reports — picked by who you are."
         description="Each report opens on a screenshot-grade page with the same filter spine, the same comparison model, and the same drill paths. Pair this with /analytics for the live KPI snapshot view."
         accent="cyan"
         chips={[

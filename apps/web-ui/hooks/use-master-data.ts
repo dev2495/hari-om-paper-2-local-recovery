@@ -621,12 +621,44 @@ export function useTools(params?: any) {
     })
 }
 
+export function useToolCategories() {
+    return useQuery({
+        queryKey: ["tool-categories"],
+        queryFn: async () => {
+            const { data } = await masterApi.getToolCategories()
+            return data
+        },
+    })
+}
+
+export function useToolLogs(params?: any) {
+    return useQuery({
+        queryKey: ["tool-logs", params || {}],
+        queryFn: async () => {
+            const { data } = await masterApi.getToolLogs(params)
+            return data
+        },
+    })
+}
+
+export function useToolReport(params?: any) {
+    return useQuery({
+        queryKey: ["tool-report", params || {}],
+        queryFn: async () => {
+            const { data } = await masterApi.getToolReport(params)
+            return data
+        },
+    })
+}
+
 export function useCreateTool() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (data: any) => masterApi.createTool(data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tools"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-report"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-logs"] })
         },
     })
 }
@@ -637,6 +669,32 @@ export function useUpdateTool() {
         mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateTool(id, data),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tools"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-report"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-logs"] })
+        },
+    })
+}
+
+export function useUpdateToolStatus() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateToolStatus(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tools"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-report"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-logs"] })
+        },
+    })
+}
+
+export function useLogToolUsage() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.logToolUsage(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tools"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-report"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-logs"] })
         },
     })
 }
@@ -647,6 +705,8 @@ export function useDeleteTool() {
         mutationFn: (id: string) => masterApi.deleteTool(id),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ["tools"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-report"] })
+            queryClient.invalidateQueries({ queryKey: ["tool-logs"] })
         },
     })
 }

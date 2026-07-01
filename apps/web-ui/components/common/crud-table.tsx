@@ -60,7 +60,7 @@ function describeDataset(title: string) {
         case "fadda masters":
             return "Fadda SKUs used in the final packing handoff. Batch pricing is captured during inward."
         case "tools":
-            return "Tooling catalog for notch, punch, die, and process setup references."
+            return "Tooling catalog for notch sheet dropdowns, maintenance status, scrap state, and usage trace."
         case "plants":
             return "Plant master records used for scope control, scheduling, and reporting."
         case "machines":

@@ -679,9 +679,31 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
 }
 
 export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
-  const { register, handleSubmit } = useForm({ defaultValues: initialData })
+  const toDateTimeLocal = (value?: string) => {
+    if (!value) return ""
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return ""
+    return date.toISOString().slice(0, 16)
+  }
+  const { register, handleSubmit } = useForm({
+    defaultValues: {
+      status: "ACTIVE",
+      department: "PROCESS",
+      ...initialData,
+      next_maintenance_due: toDateTimeLocal(initialData?.next_maintenance_due),
+    },
+  })
+  const submit = handleSubmit((data) => {
+    const payload = { ...data }
+    for (const key of ["code", "subcategory", "spec_text", "location", "condition_notes", "next_maintenance_due"]) {
+      if (payload[key] === "") {
+        payload[key] = undefined
+      }
+    }
+    onSubmit(payload)
+  })
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+    <form onSubmit={submit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Category</label>
@@ -689,17 +711,14 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
             {...register("category", { required: true })}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
-            <option value="NOTCH_TYPE">Notch Type</option>
-            <option value="NOTCHING_HOLDER">Notching Holder</option>
-            <option value="NOTCHING_BLADE">Notching Blade</option>
+            <option value="NOTCH_TYPE">Notch</option>
+            <option value="NOTCHING_BLADE">Blade</option>
+            <option value="NOTCHING_HOLDER">Holder</option>
             <option value="V_FLAT">V + Flat</option>
-            <option value="GROOVE">Groove</option>
             <option value="PUNCH">Punch</option>
-            <option value="TOCHHA">Tochha</option>
-            <option value="WIDER_TOOL">Wider Tool</option>
-            <option value="DIE">Die</option>
-            <option value="BOX">Box</option>
-            <option value="GURU">Guru</option>
+            <option value="NOTCH_WIDER">Notch Wider</option>
+            <option value="NOTCH_PATTI">Notch Patti</option>
+            <option value="NOTCH_DIRECTION">Notch Direction</option>
           </select>
         </div>
         <div className="space-y-2">
@@ -714,6 +733,23 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
             <option value="PACKING">Packing</option>
             <option value="COMMON">Common</option>
           </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Status</label>
+          <select
+            {...register("status")}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="ACTIVE">Active</option>
+            <option value="MAINTENANCE">Maintenance</option>
+            <option value="SCRAP">Scrap</option>
+          </select>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium">Location</label>
+          <Input {...register("location")} placeholder="Tool rack / machine / store" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
@@ -733,6 +769,18 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
       <div className="space-y-2">
         <label className="text-sm font-medium">Spec Text</label>
         <Input {...register("spec_text")} />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Next Maintenance Due</label>
+        <Input type="datetime-local" {...register("next_maintenance_due")} />
+      </div>
+      <div className="space-y-2">
+        <label className="text-sm font-medium">Condition Notes</label>
+        <textarea
+          {...register("condition_notes")}
+          className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          placeholder="Maintenance, calibration, scrap, or location note"
+        />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>

@@ -28,6 +28,7 @@ import {
   usePackagingPlasticSheets,
   usePapers,
   useParchments,
+  useLogToolUsage,
   useTools,
   useTubeSizes,
 } from "@/hooks/use-master-data"
@@ -56,6 +57,7 @@ import {
   DEFAULT_PROCESS_GUIDANCE,
   DEFAULT_SPEC_FIELD_DEFINITIONS,
   DEFAULT_TOLERANCE_BANDS,
+  NOTCH_TOOL_FIELD_CATEGORY_MAP,
   deriveRanges,
   DynamicFieldValue,
   encodePlyPositions,
@@ -214,13 +216,13 @@ function defaultFormState(): FormState {
       winder_tool_required: "false",
       plastic_required: "false",
       bopp_required: "false",
-      notch_direction: "FORWARD",
-      tube_direction: "FORWARD",
-      notch_type: "NONE",
-      v_flat: "NA",
+      notch_direction: "Forward",
+      tube_direction: "Forward",
+      notch_type: "",
+      v_flat: "",
       punch: "NA",
-      notch_wider: "false",
-      notch_patti: "false",
+      notch_wider: "No",
+      notch_patti: "No",
     },
     processGuidance: DEFAULT_PROCESS_GUIDANCE,
     selectedGuidanceIndex: 1,
@@ -305,7 +307,8 @@ function SummaryMetric({
 }
 
 function boolFromString(value: string | undefined) {
-  return String(value || "false").toLowerCase() === "true"
+  const normalized = String(value || "false").trim().toLowerCase()
+  return ["true", "yes", "y", "1"].includes(normalized)
 }
 
 function yesNoValue(value: string | undefined) {
@@ -554,6 +557,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const ensureCatalog = useEnsureSpecSheetCatalog()
   const createSpecSheet = useCreateSpecSheet()
   const updateSpecSheet = useUpdateSpecSheet()
+  const logToolUsage = useLogToolUsage()
   const approveSpec = useApproveSpec()
   const obsoleteSpec = useObsoleteSpec()
   const cloneSpec = useCloneSpecSheet()
@@ -586,7 +590,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const map = new Map<string, string[]>()
     for (const row of (tools || []) as any[]) {
       const category = String(row?.category || "").trim().toUpperCase()
+      const status = String(row?.status || "ACTIVE").trim().toUpperCase()
       const name = String(row?.name || row?.spec_text || "").trim()
+      if (row?.active === false || status !== "ACTIVE") continue
       if (!category || !name) continue
       const current = map.get(category) || []
       if (!current.includes(name)) {
@@ -597,13 +603,46 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     return map
   }, [tools])
 
-  const toolFieldCategoryMap: Record<string, string[]> = {
-    notch_type: ["NOTCH_TYPE"],
-    notching_holder: ["NOTCHING_HOLDER"],
-    notching_blade: ["NOTCHING_BLADE"],
-    v_flat: ["V_FLAT"],
-    punch: ["PUNCH"],
-  }
+  const toolLookupByCategoryName = useMemo(() => {
+    const map = new Map<string, any>()
+    for (const row of (tools || []) as any[]) {
+      const category = String(row?.category || "").trim().toUpperCase()
+      const name = String(row?.name || row?.spec_text || "").trim()
+      if (!category || !name) continue
+      map.set(`${category}::${name.toLowerCase()}`, row)
+    }
+    return map
+  }, [tools])
+
+  const selectedNotchToolEntries = useMemo(() => {
+    const entries: Array<{
+      field_key: string
+      label: string
+      category: string
+      tool_name: string
+      tool_id?: string
+      status?: string
+    }> = []
+    for (const [fieldKey, categories] of Object.entries(NOTCH_TOOL_FIELD_CATEGORY_MAP)) {
+      const selectedValue = String(form.dynamicValues[fieldKey] || "").trim()
+      if (!selectedValue) continue
+      const definition = DEFAULT_SPEC_FIELD_DEFINITIONS.find((field) => field.field_key === fieldKey)
+      for (const category of categories) {
+        const normalizedCategory = String(category).trim().toUpperCase()
+        const tool = toolLookupByCategoryName.get(`${normalizedCategory}::${selectedValue.toLowerCase()}`)
+        entries.push({
+          field_key: fieldKey,
+          label: definition?.label || fieldKey,
+          category: normalizedCategory,
+          tool_name: selectedValue,
+          tool_id: tool?.id ? String(tool.id) : undefined,
+          status: tool?.status,
+        })
+      }
+    }
+    return entries
+  }, [form.dynamicValues, toolLookupByCategoryName])
+
   const externalSelectOptionsByField = useMemo<Record<string, string[]>>(
     () => ({
       box_code: ((packagingBoxes || []) as any[])
@@ -1612,6 +1651,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         notch_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
         tube_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
         diagram: form.notchDiagram,
+        tooling_usage: selectedNotchToolEntries,
       },
       process_guidance: {
         winder_target: form.winderTarget,
@@ -1744,6 +1784,24 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           recipeData,
           recipeLayers,
         })
+        await Promise.allSettled(
+          selectedNotchToolEntries.map((entry) =>
+            logToolUsage.mutateAsync({
+              tool_id: entry.tool_id,
+              category: entry.category,
+              tool_name: entry.tool_name,
+              event_type: "SPEC_SELECTED",
+              source_type: "SPEC_SHEET",
+              source_id: result?.spec?.id,
+              source_ref: result?.spec?.spec_reference,
+              metadata_json: {
+                field_key: entry.field_key,
+                field_label: entry.label,
+                customer_name: selectedCustomer?.name || specDocument?.spec?.customer_name_snapshot || specDocument?.spec?.customer_name || "",
+              },
+            }),
+          ),
+        )
         showToast("Specification draft created.", "success")
         router.push(`/specifications/${result.spec.id}/edit`)
         return
@@ -1756,6 +1814,24 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         recipeLayers,
         trialData,
       })
+      await Promise.allSettled(
+        selectedNotchToolEntries.map((entry) =>
+          logToolUsage.mutateAsync({
+            tool_id: entry.tool_id,
+            category: entry.category,
+            tool_name: entry.tool_name,
+            event_type: "SPEC_SELECTED",
+            source_type: "SPEC_SHEET",
+            source_id: result?.spec?.id || specId,
+            source_ref: result?.spec?.spec_reference || specDocument?.spec?.spec_reference,
+            metadata_json: {
+              field_key: entry.field_key,
+              field_label: entry.label,
+              customer_name: selectedCustomer?.name || specDocument?.spec?.customer_name_snapshot || specDocument?.spec?.customer_name || "",
+            },
+          }),
+        ),
+      )
       showToast(
         result.recipe
           ? `Specification v${result.spec.version || "next"} saved as a new active version with a new recipe.`
@@ -1819,9 +1895,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     type: "text" | "number" = "text",
     placeholder?: string,
   ) => {
-    const definition = fieldCatalogMap.get(key) || DEFAULT_SPEC_FIELD_DEFINITIONS.find((field) => field.field_key === key)
+    const defaultDefinition = DEFAULT_SPEC_FIELD_DEFINITIONS.find((field) => field.field_key === key)
+    const definition = NOTCH_TOOL_FIELD_CATEGORY_MAP[key] ? defaultDefinition || fieldCatalogMap.get(key) : fieldCatalogMap.get(key) || defaultDefinition
     const staticOptions: string[] = Array.isArray(definition?.options) ? (definition.options as string[]) : []
-    const toolCategories = toolFieldCategoryMap[key] || []
+    const toolCategories = NOTCH_TOOL_FIELD_CATEGORY_MAP[key] || []
     const dynamicToolOptions = toolCategories.flatMap((category) => toolOptionsByCategory.get(category) || [])
     const externalOptions = externalSelectOptionsByField[key] || []
     const options = Array.from(new Set([...staticOptions, ...dynamicToolOptions, ...externalOptions]))
@@ -1850,7 +1927,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       )
     }
 
-    if (definition?.field_type === "select" && options.length > 0) {
+    if (definition?.field_type === "select" && (options.length > 0 || toolCategories.length > 0)) {
       return (
         <div className="space-y-1">
           <FieldLabel>{label}</FieldLabel>
@@ -2629,16 +2706,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
             <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
             <div className="grid gap-3 md:grid-cols-3">
-              {renderScalarField("notch_type", "Notch Type")}
-              {renderScalarField("notch_direction", "Notch Direction")}
-              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Distance mm")}
-              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Depth mm")}
               {renderScalarField("notching_blade", "Blade")}
               {renderScalarField("notching_holder", "Holder")}
               {renderScalarField("v_flat", "V + Flat")}
               {renderScalarField("punch", "Punch")}
               {renderScalarField("notch_wider", "Notch Wider")}
               {renderScalarField("notch_patti", "Notch Patti")}
+              {renderScalarField("notch_direction", "Notch Direction")}
+              {renderScalarField("notch_type", "Notch")}
+              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Distance mm")}
+              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Depth mm")}
             </div>
           </div>
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">

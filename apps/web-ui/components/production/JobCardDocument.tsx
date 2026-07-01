@@ -57,6 +57,13 @@ function formatNumber(value: any, digits = 2) {
 
 const printValue = formatNumber
 
+function formatYesNo(value: any) {
+  const normalized = String(value ?? "").trim().toLowerCase()
+  if (["true", "1", "yes", "y"].includes(normalized)) return "Yes"
+  if (["false", "0", "no", "n"].includes(normalized)) return "No"
+  return value ? String(value) : ""
+}
+
 function statusChipClass(status: string) {
   switch ((status || "").toUpperCase()) {
     case "COMPLETED":
@@ -510,6 +517,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   const recipeSummary = documentSnapshot?.recipe_summary || {}
   const recipeRows = Array.isArray(recipeSummary?.rows) ? recipeSummary.rows : []
   const adhesiveComponents = Array.isArray(recipeSummary?.adhesive_components) ? recipeSummary.adhesive_components : []
+  const toolingUsage = Array.isArray(documentSnapshot?.setup_tooling?.tooling_usage)
+    ? documentSnapshot.setup_tooling.tooling_usage
+    : Array.isArray(card?.spec_snapshot?.tooling_usage)
+      ? card.spec_snapshot.tooling_usage
+      : []
   const specReference =
     documentSnapshot?.header?.spec_reference ||
     documentSnapshot?.setup_tooling?.spec_reference ||
@@ -2781,10 +2793,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <LabeledValue label="Punch" value={documentSnapshot?.setup_tooling?.punch || ""} />
             <LabeledValue label="Blade" value={documentSnapshot?.setup_tooling?.blade || ""} />
             <LabeledValue label="V + Flat" value={documentSnapshot?.setup_tooling?.v_flat || ""} />
-            <LabeledValue label="Notch Wider" value={documentSnapshot?.setup_tooling?.notch_wider === true || documentSnapshot?.setup_tooling?.notch_wider === "true" ? "Yes" : documentSnapshot?.setup_tooling?.notch_wider === false || documentSnapshot?.setup_tooling?.notch_wider === "false" ? "No" : ""} />
-            <LabeledValue label="Notch Patti" value={documentSnapshot?.setup_tooling?.notch_patti === true || documentSnapshot?.setup_tooling?.notch_patti === "true" ? "Yes" : documentSnapshot?.setup_tooling?.notch_patti === false || documentSnapshot?.setup_tooling?.notch_patti === "false" ? "No" : ""} />
+            <LabeledValue label="Notch Wider" value={formatYesNo(documentSnapshot?.setup_tooling?.notch_wider)} />
+            <LabeledValue label="Notch Patti" value={formatYesNo(documentSnapshot?.setup_tooling?.notch_patti)} />
             <LabeledValue label="Qty / Box" value={documentSnapshot?.setup_tooling?.qty_per_box || ""} />
             <LabeledValue label="Box" value={documentSnapshot?.setup_tooling?.box || ""} />
+            <LabeledValue
+              label="Tool Trail"
+              value={toolingUsage.map((row: any) => `${row.label || row.category}: ${row.tool_name}`).filter(Boolean).join(" | ")}
+              className="md:col-span-3"
+            />
             <LabeledValue label="Special Instructions" value={documentSnapshot?.setup_tooling?.special_instructions || ""} className="md:col-span-3" />
             <LabeledValue label="Packing Instructions" value={documentSnapshot?.setup_tooling?.packing_instructions || ""} className="md:col-span-3" />
           </div>
