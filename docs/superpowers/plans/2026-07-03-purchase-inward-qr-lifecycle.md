@@ -35,6 +35,6 @@ Date: 2026-07-03
 - [x] Purchase UI can create, approve, print, and receive POs with the sample business fields.
 - [x] Frontend and backend tests cover the new lifecycle contracts.
 - [x] Local verification passes.
-- [ ] Git commit is created.
-- [ ] Railway deployment succeeds and live smoke checks pass.
-- [ ] Final client-ready non-technical report is written only after all items above are done.
+- [x] Git commit is created.
+- [x] Railway deployment succeeds and live smoke checks pass.
+- [x] Final client-ready non-technical report is written only after all items above are done.
