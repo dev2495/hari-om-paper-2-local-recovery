@@ -15,19 +15,25 @@ export type DynamicFieldValue = {
   field_type?: string
 }
 
+export const TOOL_CATEGORY_LABELS: Record<string, string> = {
+  NOTCH: "Notch",
+  BLADE: "Blade",
+  HOLDER: "Holder",
+  V_FLAT: "V + Flat",
+  PUNCH: "Punch",
+}
+
 export const NOTCH_TOOL_FIELD_CATEGORY_MAP: Record<string, string[]> = {
-  notch_type: ["NOTCH_TYPE"],
-  notching_blade: ["NOTCHING_BLADE"],
-  notching_holder: ["NOTCHING_HOLDER"],
+  notch_type: ["NOTCH"],
+  notching_blade: ["BLADE"],
+  notching_holder: ["HOLDER"],
   v_flat: ["V_FLAT"],
   punch: ["PUNCH"],
-  notch_wider: ["NOTCH_WIDER"],
-  notch_patti: ["NOTCH_PATTI"],
-  notch_direction: ["NOTCH_DIRECTION"],
 }
 
 export const NOTCH_TOOL_FIELD_KEYS = Object.keys(NOTCH_TOOL_FIELD_CATEGORY_MAP)
 export const NOTCH_DIAGRAM_FIELD_KEYS = ["notch_distance_mm", "notch_depth_mm"] as const
+export const NOTCH_DIRECTION_OPTIONS = ["Clockwise", "Anticlockwise"] as const
 
 export type ProfileRangeValue = {
   avg?: number | null
@@ -68,8 +74,6 @@ export type SpecProfile = {
     blade?: string | null
     v_flat?: string | null
     punch?: string | null
-    notch_wider?: boolean | null
-    notch_patti?: boolean | null
     notch_direction?: string | null
     tube_direction?: string | null
     diagram?: Record<string, any>
@@ -314,16 +318,14 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "fill_instructions_version", label: "Fill Instructions Version", field_type: "text" },
   { field_key: "notch_required", label: "Notch", field_type: "boolean" },
   { field_key: "top_paper_required", label: "Top Paper", field_type: "boolean" },
-  { field_key: "notch_type", label: "Notch", field_type: "select" },
-  { field_key: "notching_blade", label: "Blade", field_type: "select" },
-  { field_key: "notching_holder", label: "Holder", field_type: "select" },
-  { field_key: "v_flat", label: "V + Flat", field_type: "select" },
+  { field_key: "notch_type", label: "Notch Tool", field_type: "select" },
+  { field_key: "notching_blade", label: "Blade Tool", field_type: "select" },
+  { field_key: "notching_holder", label: "Holder Tool", field_type: "select" },
+  { field_key: "v_flat", label: "V + Flat Tool", field_type: "select" },
   { field_key: "punch", label: "Punch", field_type: "select" },
-  { field_key: "notch_wider", label: "Notch Wider", field_type: "select" },
-  { field_key: "notch_patti", label: "Notch Patti", field_type: "select" },
-  { field_key: "notch_direction", label: "Notch Direction", field_type: "select" },
+  { field_key: "notch_direction", label: "Direction", field_type: "select", options: [...NOTCH_DIRECTION_OPTIONS] },
   { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "number" },
-  { field_key: "notch_depth_mm", label: "Notch Depth", field_type: "number" },
+  { field_key: "notch_depth_mm", label: "Notch Deep", field_type: "number" },
   { field_key: "winder_tool_required", label: "Winder Tool", field_type: "boolean" },
   { field_key: "bundle_type", label: "Bundle Type", field_type: "text" },
   { field_key: "bundle_code", label: "Bundle Code", field_type: "text" },
@@ -663,7 +665,7 @@ export function suggestRecipeRowsFromPapers(
     }
   }
 
-  if (candidates.length <= 9) {
+  if (candidates.length <= 6) {
     function walkPlyDistributions(
       combo: typeof candidates,
       totalPlyCount: number,

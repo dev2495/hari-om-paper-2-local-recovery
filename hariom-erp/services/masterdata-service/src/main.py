@@ -515,92 +515,57 @@ def _ensure_schema_compatibility() -> None:
 _ensure_schema_compatibility()
 
 
-def _seed_default_notch_tools() -> None:
-    """Provide the exact client notching dropdowns as editable tool masters."""
-    plants = (
-        "PLANT-1",
-        "00000000-0000-0000-0000-0000000000a1",
-        "00000000-0000-0000-0000-0000000000b1",
+def _retire_legacy_notch_tool_placeholders() -> None:
+    """Stop old seeded and field-level placeholder tools from appearing in dropdowns."""
+    legacy_codes = (
+        "NOTCH-DROP-DOWN",
+        "BLADE-DROP-DOWN",
+        "HOLDER-DROP-DOWN",
+        "VFLAT-DROP-DOWN",
+        "PUNCH-SINGLE",
+        "PUNCH-DOUBLE",
+        "PUNCH-NA",
+        "NOTCH-WIDER-YES",
+        "NOTCH-WIDER-NO",
+        "NOTCH-PATTI-YES",
+        "NOTCH-PATTI-NO",
+        "NOTCH-DIR-FORWARD",
+        "NOTCH-DIR-REVERSE",
     )
-    options = (
-        ("NOTCH_TYPE", "Drop Down", "NOTCH-DROP-DOWN", "Notch"),
-        ("NOTCHING_BLADE", "Drop Down", "BLADE-DROP-DOWN", "Blade"),
-        ("NOTCHING_HOLDER", "Drop Down", "HOLDER-DROP-DOWN", "Holder"),
-        ("V_FLAT", "Drop Down", "VFLAT-DROP-DOWN", "V + Flat"),
-        ("PUNCH", "Single", "PUNCH-SINGLE", "Punch"),
-        ("PUNCH", "Double", "PUNCH-DOUBLE", "Punch"),
-        ("PUNCH", "NA", "PUNCH-NA", "Punch"),
-        ("NOTCH_WIDER", "Yes", "NOTCH-WIDER-YES", "Notch Wider"),
-        ("NOTCH_WIDER", "No", "NOTCH-WIDER-NO", "Notch Wider"),
-        ("NOTCH_PATTI", "Yes", "NOTCH-PATTI-YES", "Notch Patti"),
-        ("NOTCH_PATTI", "No", "NOTCH-PATTI-NO", "Notch Patti"),
-        ("NOTCH_DIRECTION", "Forward", "NOTCH-DIR-FORWARD", "Notch Direction"),
-        ("NOTCH_DIRECTION", "Reverse", "NOTCH-DIR-REVERSE", "Notch Direction"),
-    )
-    insert_sql = text(
-        """
-        INSERT INTO tool_master (
-            id, category, subcategory, name, code, spec_text, department, plant_id,
-            status, location, condition_notes, usage_count, active, created_at, updated_at
-        )
-        SELECT
-            (
-                substr(md5(:plant_id || ':' || :category || ':' || :name), 1, 8) || '-' ||
-                substr(md5(:plant_id || ':' || :category || ':' || :name), 9, 4) || '-' ||
-                substr(md5(:plant_id || ':' || :category || ':' || :name), 13, 4) || '-' ||
-                substr(md5(:plant_id || ':' || :category || ':' || :name), 17, 4) || '-' ||
-                substr(md5(:plant_id || ':' || :category || ':' || :name), 21, 12)
-            )::uuid,
-            :category,
-            :subcategory,
-            :name,
-            :code,
-            :spec_text,
-            'PROCESS',
-            :plant_id,
-            'ACTIVE',
-            NULL,
-            NULL,
-            0,
-            TRUE,
-            NOW(),
-            NOW()
-        WHERE NOT EXISTS (
-            SELECT 1
-            FROM tool_master
-            WHERE plant_id = :plant_id
-              AND category = :category
-              AND lower(name) = lower(:name)
-        )
-        """
-    )
-    update_sql = text(
+    retire_sql = text(
         """
         UPDATE tool_master
         SET
-            subcategory = :subcategory,
-            spec_text = COALESCE(NULLIF(spec_text, ''), :spec_text),
-            active = TRUE,
-            status = CASE WHEN status IN ('MAINTENANCE','SCRAP') THEN status ELSE 'ACTIVE' END,
+            active = FALSE,
+            status = 'SCRAP',
+            condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired legacy seeded placeholder; recreate manually under the new field category if still required.'),
             updated_at = NOW()
-        WHERE plant_id = :plant_id
-          AND category = :category
-          AND lower(name) = lower(:name)
+        WHERE code = :legacy_code
+        """
+    )
+    retire_category_sql = text(
+        """
+        UPDATE tool_master
+        SET
+            active = FALSE,
+            status = 'SCRAP',
+            condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired non-current notching tool category. Valid categories are Notch, Blade, Holder, V + Flat, and Punch.'),
+            updated_at = NOW()
+        WHERE category IN (
+            'NOTCH_TYPE','NOTCH_THICKNESS','NOTCH_DESIGN','NOTCH_CODE','NOTCH_DEGREE',
+            'BLADE_TYPE','BLADE_THICKNESS','BLADE_CODE','BLADE_HEIGHT','BLADE_LENGTH',
+            'NOTCHING_BLADE','NOTCHING_HOLDER',
+            'HOLDER_THICKNESS','HOLDER_CODE','HOLDER_HEIGHT','HOLDER_LENGTH',
+            'V_FLAT_CODE','V_FLAT_LENGTH','V_FLAT_THICKNESS',
+            'DIRECTION','NOTCH_DIRECTION','NOTCH_DISTANCE','NOTCH_DEEP',
+            'NOTCH_WIDER','NOTCH_PATTI','GROOVE','GURU','WIDER_TOOL','TOCHHA','DIE'
+          )
         """
     )
     with engine.begin() as connection:
-        for plant_id in plants:
-            for category, name, code, subcategory in options:
-                values = {
-                    "plant_id": plant_id,
-                    "category": category,
-                    "name": name,
-                    "code": code,
-                    "subcategory": subcategory,
-                    "spec_text": name,
-                }
-                connection.execute(update_sql, values)
-                connection.execute(insert_sql, values)
+        for legacy_code in legacy_codes:
+            connection.execute(retire_sql, {"legacy_code": legacy_code})
+        connection.execute(retire_category_sql)
 
 
 def _seed_default_suppliers() -> None:
@@ -717,7 +682,7 @@ def _seed_default_suppliers() -> None:
 
 
 _seed_default_suppliers()
-_seed_default_notch_tools()
+_retire_legacy_notch_tool_placeholders()
 
 
 @app.get("/")

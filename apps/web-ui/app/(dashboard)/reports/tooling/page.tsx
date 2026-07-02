@@ -5,17 +5,9 @@ import { AlertTriangle, ClipboardList } from "lucide-react"
 
 import { KpiRail, Panel, ReportHero, formatNumber } from "@/components/reports/primitives"
 import { useToolReport } from "@/hooks/use-master-data"
+import { TOOL_CATEGORY_LABELS } from "@/lib/spec-sheet"
 
-const CATEGORY_LABELS: Record<string, string> = {
-  NOTCH_TYPE: "Notch",
-  NOTCHING_BLADE: "Blade",
-  NOTCHING_HOLDER: "Holder",
-  V_FLAT: "V + Flat",
-  PUNCH: "Punch",
-  NOTCH_WIDER: "Notch Wider",
-  NOTCH_PATTI: "Notch Patti",
-  NOTCH_DIRECTION: "Notch Direction",
-}
+const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
 
 function formatDate(value: any) {
   if (!value) return "-"

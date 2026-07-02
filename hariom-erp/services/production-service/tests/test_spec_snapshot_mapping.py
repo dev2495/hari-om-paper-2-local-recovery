@@ -42,20 +42,15 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             "dynamic_fields": _dynamic_field_rows(
                 {
                     "tube_direction": "Opposite of the Notch",
-                    "notch_type": "RHS - FORWARD",
-                    "notch_position": "RHS",
+                    "notch_type": "Bottom RHS - 7mm Step 55deg",
                     "notch_distance_mm": "10.5",
                     "notch_depth_mm": "3.7",
-                    "notching_holder": "BAR 01 POY (135-310 [4.5 without])",
-                    "notching_blade": "BAR 01 POY (140-130-40 [1.1]) Plain",
-                    "groove": "140mm [70mm flat and v shape]",
-                    "punch": "Double Punch 5x10mm[center dist. 30mm]",
+                    "notching_holder": "Holder BAR 01 POY",
+                    "notching_blade": "Plain Blade 1.1mm BAR 01 POY 140/130/20",
+                    "v_flat": "V+Flat 70+30 x 4.0",
+                    "punch": "Double",
                     "wider_tool": "NOT REQUIRED",
                     "tochha": "RHS - STEP NOTCH 7mm 50 degree",
-                    "tochha_type": "Lower",
-                    "height_gauge_go": "115.20",
-                    "height_gauge_no_go": "126.70",
-                    "die": "115.20x127.0 / 115.40x126.70",
                     "bundle_type": "Standard Bundle",
                     "bundle_code": "BDL-01",
                     "packing_ply": "3",
@@ -76,8 +71,12 @@ class SpecSnapshotMappingTests(unittest.TestCase):
 
         snapshot = _build_spec_snapshot(spec, priority="HIGH")
         self.assertEqual(snapshot["tube_direction"], "Opposite of the Notch")
-        self.assertEqual(snapshot["notching_holder"], "BAR 01 POY (135-310 [4.5 without])")
-        self.assertEqual(snapshot["wider_tool"], "NOT REQUIRED")
+        self.assertEqual(snapshot["notching_blade"], "Plain Blade 1.1mm BAR 01 POY 140/130/20")
+        self.assertEqual(snapshot["notching_holder"], "Holder BAR 01 POY")
+        self.assertEqual(snapshot["v_flat"], "V+Flat 70+30 x 4.0")
+        self.assertEqual(snapshot["punch"], "Double")
+        self.assertNotIn("wider_tool", snapshot)
+        self.assertNotIn("tochha", snapshot)
         self.assertEqual(snapshot["bundle_type"], "Standard Bundle")
         self.assertEqual(snapshot["qty_per_box"], "12")
         self.assertEqual(snapshot["packing_pcs"], "48")
@@ -116,20 +115,15 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             "bamboo_max_length": 1560,
             "cut_loss_mm": 40,
             "tube_direction": "Opposite of the Notch",
-            "notch_type": "TOP - Forword Notch",
-            "notch_position": "TOP",
+            "notch_type": "Top RHS - 6mm Plain 50deg",
             "notch_distance_mm": "10.5",
             "notch_depth_mm": "3.5",
-            "notching_holder": "BAR 04 FDY (140-320 [3.2mm without])",
-            "notching_blade": "BAR 01 FDY (140-150-30 [0.9]) Plain",
-            "groove": "166mm [83mm flat and v shape]",
-            "punch": "Double Punch 5X10mm[center dist. 30mm]",
+            "notching_blade": "Full Serration Blade 0.9mm 150/100/100",
+            "notching_holder": "Holder BAR 04 FDY",
+            "v_flat": "V+Flat 90+80 x 3.5",
+            "punch": "Double",
             "wider_tool": "140 / 4.6mm",
             "tochha": "Round Z notch 7mm 55 degree",
-            "tochha_type": "Upper",
-            "height_gauge_go": "126.10",
-            "height_gauge_no_go": "137.70",
-            "die": "126.10 X 137.70",
             "bundle_type": "Standard Bundle",
             "bundle_code": "BDL-02",
             "packing_ply": "3",
@@ -157,8 +151,12 @@ class SpecSnapshotMappingTests(unittest.TestCase):
 
         setup = document["setup_tooling"]
         self.assertEqual(setup["tube_direction"], "Opposite of the Notch")
-        self.assertEqual(setup["notching_holder"], "BAR 04 FDY (140-320 [3.2mm without])")
-        self.assertEqual(setup["wider_tool"], "140 / 4.6mm")
+        self.assertEqual(setup["notching_holder"], "Holder BAR 04 FDY")
+        self.assertEqual(setup["blade"], "Full Serration Blade 0.9mm 150/100/100")
+        self.assertEqual(setup["v_flat"], "V+Flat 90+80 x 3.5")
+        self.assertEqual(setup["punch"], "Double")
+        self.assertNotIn("wider_tool", setup)
+        self.assertNotIn("tochha", setup)
         self.assertEqual(setup["bundle_code"], "BDL-02")
         self.assertEqual(setup["box_code"], "G-120")
         self.assertEqual(setup["plastic_required"], "Yes")
@@ -166,13 +164,14 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(setup["special_instructions"], "QC sampling each batch")
 
     def test_merge_spec_snapshot_preserves_new_fields(self):
-        base = {"notch_type": None, "wider_tool": None}
+        base = {"notch_type": None, "v_flat": None}
         merged = _merge_spec_snapshot(
             base,
             {
                 "dynamic_fields": _dynamic_field_rows(
                     {
                         "notch_type": "RHS - FORWARD",
+                        "v_flat": "V+Flat 90+80 x 3.5",
                         "wider_tool": "NOT REQUIRED",
                         "plastic_required": "true",
                         "box_code": "R-150",
@@ -182,7 +181,8 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             },
         )
         self.assertEqual(merged["notch_type"], "RHS - FORWARD")
-        self.assertEqual(merged["wider_tool"], "NOT REQUIRED")
+        self.assertEqual(merged["v_flat"], "V+Flat 90+80 x 3.5")
+        self.assertNotIn("wider_tool", merged)
         self.assertEqual(merged["plastic_required"], "Yes")
         self.assertEqual(merged["box"], "R-150")
         self.assertEqual(merged["box_code"], "R-150")

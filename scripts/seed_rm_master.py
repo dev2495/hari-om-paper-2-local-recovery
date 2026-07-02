@@ -31,27 +31,19 @@ ADHESIVES = [
 PARCHMENT_VENDORS = ["Amma", "Sagar", "China"]
 
 TOOLS = [
-    {"category": "NOTCHING_HOLDER", "name": "BAR 01 POY (135-310 [4.5 without])", "department": "PROCESS"},
-    {"category": "NOTCHING_HOLDER", "name": "BAR H1 (135-310 [5.0 without])", "department": "PROCESS"},
-    {"category": "NOTCHING_HOLDER", "name": "BAR 04 FDY (140-320 [3.2mm without])", "department": "PROCESS"},
-    {"category": "NOTCHING_BLADE", "name": "BAR 01 POY (140-130-40 [1.1]) Plain", "department": "PROCESS"},
-    {"category": "NOTCHING_BLADE", "name": "BAR H1 (140-130-40 [1.3]) Plain", "department": "PROCESS"},
-    {"category": "NOTCHING_BLADE", "name": "BAR 01 FDY (140-150-30 [0.9]) Plain", "department": "PROCESS"},
-    {"category": "GROOVE", "name": "140mm [70mm flat and v shape]", "department": "PROCESS"},
-    {"category": "GROOVE", "name": "166mm [83mm flat and v shape]", "department": "PROCESS"},
-    {"category": "GURU", "name": "166mm [83mm flat and v shape]", "department": "PROCESS"},
+    {"category": "NOTCH", "name": "Bottom RHS - 7mm Step 55deg", "department": "PROCESS"},
+    {"category": "NOTCH", "name": "Top RHS - 6mm Plain 50deg", "department": "PROCESS"},
+    {"category": "BLADE", "name": "Plain Blade 1.1mm BAR 01 POY 140/130/20", "department": "PROCESS"},
+    {"category": "BLADE", "name": "Full Serration Blade 0.9mm 150/100/100", "department": "PROCESS"},
+    {"category": "HOLDER", "name": "Holder BAR 01 POY", "department": "PROCESS"},
+    {"category": "HOLDER", "name": "Holder BAR 04 FDY", "department": "PROCESS"},
+    {"category": "V_FLAT", "name": "V+Flat 70+30 x 4.0", "department": "PROCESS"},
+    {"category": "V_FLAT", "name": "V+Flat 90+80 x 3.5", "department": "PROCESS"},
+    {"category": "PUNCH", "name": "Single", "department": "PROCESS"},
+    {"category": "PUNCH", "name": "Double", "department": "PROCESS"},
+    {"category": "PUNCH", "name": "N/A", "department": "PROCESS"},
     {"category": "PUNCH", "name": "Double Punch 5x10mm[center dist. 30mm]", "department": "PROCESS"},
     {"category": "PUNCH", "name": "Double Punch 5X10mm[center dist. 30mm]", "department": "PROCESS"},
-    {"category": "WIDER_TOOL", "name": "NOT REQUIRED", "department": "WINDER"},
-    {"category": "WIDER_TOOL", "name": "140 / 4.6mm", "department": "WINDER"},
-    {"category": "TOCHHA", "name": "RHS - STEP NOTCH 7mm 50 degree", "department": "PROCESS"},
-    {"category": "TOCHHA", "name": "RHS - STEP NOTCH 8mm 50 degree", "department": "PROCESS"},
-    {"category": "TOCHHA", "name": "Round Z notch 7mm 55 degree", "department": "PROCESS"},
-    {"category": "DIE", "name": "115.20x127.0 / 115.40x126.70", "department": "PROCESS"},
-    {"category": "DIE", "name": "115.10 X 126.9", "department": "PROCESS"},
-    {"category": "DIE", "name": "126.10 X 137.70", "department": "PROCESS"},
-    {"category": "BOX", "name": "R-150 (3 Ply) Size-680X370X460", "department": "PACKING"},
-    {"category": "BOX", "name": "G-120 (3 Ply)Size-560X420X490", "department": "PACKING"},
 ]
 
 

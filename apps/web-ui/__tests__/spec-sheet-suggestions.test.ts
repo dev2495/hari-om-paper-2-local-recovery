@@ -1,6 +1,5 @@
 import { strict as assert } from "node:assert"
 
-import { computePreview } from "../lib/spec-math"
 import { formatRecipeRowsTitle, pickVisibleRecipeSuggestions, suggestRecipeRowsFromPapers, type GroupedRecipeRow, type RecipeSuggestion } from "../lib/spec-sheet"
 
 const passed: string[] = []
@@ -21,86 +20,6 @@ type CandidatePaper = {
   gsm: number
   thickness_mm: number
   bulk_factor: number
-}
-
-function combinations<T>(items: T[], size: number, start = 0, picked: T[] = [], out: T[][] = []) {
-  if (picked.length === size) {
-    out.push([...picked])
-    return out
-  }
-  for (let index = start; index <= items.length - (size - picked.length); index += 1) {
-    picked.push(items[index])
-    combinations(items, size, index + 1, picked, out)
-    picked.pop()
-  }
-  return out
-}
-
-function positiveCompositions(total: number, parts: number, prefix: number[] = [], out: number[][] = []) {
-  if (parts === 1) {
-    out.push([...prefix, total])
-    return out
-  }
-  for (let current = 1; current <= total - (parts - 1); current += 1) {
-    prefix.push(current)
-    positiveCompositions(total - current, parts - 1, prefix, out)
-    prefix.pop()
-  }
-  return out
-}
-
-function exactBestSuggestion(
-  papers: CandidatePaper[],
-  targetWetWeightG: number,
-  tubeLengthMm: number,
-  tubeIdMm: number,
-  dryingPercent: number,
-  parchmentPercent: number,
-) {
-  const targetDryWeightG = targetWetWeightG * (1 - dryingPercent / 100)
-  let best: { title: string; totalPlyCount: number; deltaDryG: number } | null = null
-
-  for (let size = 3; size <= Math.min(5, papers.length); size += 1) {
-    for (const combo of combinations(papers, size)) {
-      for (let totalPlyCount = 4; totalPlyCount <= 18; totalPlyCount += 1) {
-        for (const counts of positiveCompositions(totalPlyCount, size)) {
-          const rows = combo.map((paper, index) => ({
-            code: paper.code,
-            paper_id: paper.id,
-            gsm: paper.gsm,
-            bulk: paper.bulk_factor,
-            ply_count: counts[index],
-          }))
-          const preview = computePreview({
-            mandrel_od_mm: tubeIdMm,
-            tube_length_mm: tubeLengthMm,
-            papers: rows,
-            target_dry_g: targetDryWeightG,
-            adhesive_percent: 15,
-            parchment_percent: parchmentPercent,
-            moisture_loss_percent: dryingPercent,
-            parchment_allowed: true,
-          })
-          const candidate = {
-            title: combo.map((paper, index) => (counts[index] === 1 ? paper.code : `${paper.code} x ${counts[index]}`)).join(" + "),
-            totalPlyCount,
-            deltaDryG: Number(preview.validation.delta_g.toFixed(4)),
-          }
-          if (
-            !best ||
-            Math.abs(candidate.deltaDryG) < Math.abs(best.deltaDryG) - 1e-9 ||
-            (Math.abs(Math.abs(candidate.deltaDryG) - Math.abs(best.deltaDryG)) <= 1e-9 &&
-              candidate.totalPlyCount < best.totalPlyCount)
-          ) {
-            best = candidate
-          }
-        }
-      }
-    }
-  }
-
-  assert.ok(best, "expected an exact best suggestion")
-  return best
 }
 
 test("formatRecipeRowsTitle reflects the current recipe rows", () => {
@@ -167,11 +86,11 @@ test("suggestRecipeRowsFromPapers finds the global closest dry delta across 4-18
     )
   }
 
-  const expected = exactBestSuggestion(papers, 274.73, 150, 110.65, 9, 1.5)
   const actual = suggestions[0]
 
-  assert.equal(actual.totalPlyCount, expected.totalPlyCount)
-  assert.ok(Math.abs(Number(actual.deltaDryG || 0)) <= Math.abs(expected.deltaDryG) + 0.01)
+  assert.equal(actual.title, "221 x 2 + 301 + 350 + 351 + 353 x 8")
+  assert.equal(actual.totalPlyCount, 13)
+  assert.ok(Math.abs(Number(actual.deltaDryG || 0)) <= 0.01)
 })
 
 test("pickVisibleRecipeSuggestions diversifies the visible cards by ply count first", () => {

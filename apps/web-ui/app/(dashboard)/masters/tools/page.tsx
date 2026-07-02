@@ -24,19 +24,10 @@ import {
   useUpdateTool,
   useUpdateToolStatus,
 } from "@/hooks/use-master-data"
+import { TOOL_CATEGORY_LABELS } from "@/lib/spec-sheet"
 
-const CATEGORY_LABELS: Record<string, string> = {
-  NOTCH_TYPE: "Notch",
-  NOTCHING_BLADE: "Blade",
-  NOTCHING_HOLDER: "Holder",
-  V_FLAT: "V + Flat",
-  PUNCH: "Punch",
-  NOTCH_WIDER: "Notch Wider",
-  NOTCH_PATTI: "Notch Patti",
-  NOTCH_DIRECTION: "Notch Direction",
-}
-
-const CATEGORY_ORDER = Object.keys(CATEGORY_LABELS)
+const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
+const CATEGORY_ORDER = Object.keys(TOOL_CATEGORY_LABELS)
 
 function statusClass(status: string) {
   if (status === "SCRAP") return "border-rose-200 bg-rose-50 text-rose-800"

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
+import { TOOL_CATEGORY_LABELS } from "@/lib/spec-sheet"
 
 import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
@@ -679,13 +680,20 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
 }
 
 export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
+  const toolDetailHints: Record<string, string> = {
+    NOTCH: "Use name/spec text for type, thickness, design, code, and degree.",
+    BLADE: "Use name/spec text for type, thickness, code, height, and length.",
+    HOLDER: "Use name/spec text for thickness, code, height, and length.",
+    V_FLAT: "Use name/spec text for code, length, and thickness.",
+    PUNCH: "Use name/spec text for punch option such as Single, Double, or N/A.",
+  }
   const toDateTimeLocal = (value?: string) => {
     if (!value) return ""
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) return ""
     return date.toISOString().slice(0, 16)
   }
-  const { register, handleSubmit } = useForm({
+  const { register, handleSubmit, watch } = useForm({
     defaultValues: {
       status: "ACTIVE",
       department: "PROCESS",
@@ -702,6 +710,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
     }
     onSubmit(payload)
   })
+  const selectedCategory = watch("category") || initialData?.category || "NOTCH"
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -711,14 +720,11 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
             {...register("category", { required: true })}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
-            <option value="NOTCH_TYPE">Notch</option>
-            <option value="NOTCHING_BLADE">Blade</option>
-            <option value="NOTCHING_HOLDER">Holder</option>
-            <option value="V_FLAT">V + Flat</option>
-            <option value="PUNCH">Punch</option>
-            <option value="NOTCH_WIDER">Notch Wider</option>
-            <option value="NOTCH_PATTI">Notch Patti</option>
-            <option value="NOTCH_DIRECTION">Notch Direction</option>
+            {Object.entries(TOOL_CATEGORY_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
           </select>
         </div>
         <div className="space-y-2">
@@ -767,8 +773,9 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
         <Input {...register("subcategory")} />
       </div>
       <div className="space-y-2">
-        <label className="text-sm font-medium">Spec Text</label>
-        <Input {...register("spec_text")} />
+        <label className="text-sm font-medium">Tool Details</label>
+        <Input {...register("spec_text")} placeholder={toolDetailHints[selectedCategory] || "Tool dimensions / setup details"} />
+        <p className="text-xs text-slate-500">{toolDetailHints[selectedCategory] || "Add the physical tool details here."}</p>
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">Next Maintenance Due</label>

@@ -23,14 +23,11 @@ router = APIRouter(prefix="/master/tools", tags=["tools"])
 TOOL_STATUSES = {"ACTIVE", "MAINTENANCE", "SCRAP"}
 TOOL_USAGE_EVENTS = {"SPEC_SELECTED", "PRODUCTION_USED", "MAINTENANCE", "SCRAP", "STATUS_CHANGE"}
 NOTCH_TOOL_CATEGORIES = {
-    "NOTCH_TYPE": "Notch",
-    "NOTCHING_BLADE": "Blade",
-    "NOTCHING_HOLDER": "Holder",
+    "NOTCH": "Notch",
+    "BLADE": "Blade",
+    "HOLDER": "Holder",
     "V_FLAT": "V + Flat",
     "PUNCH": "Punch",
-    "NOTCH_WIDER": "Notch Wider",
-    "NOTCH_PATTI": "Notch Patti",
-    "NOTCH_DIRECTION": "Notch Direction",
 }
 
 

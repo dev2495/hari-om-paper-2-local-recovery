@@ -19,7 +19,7 @@ const workspaceGroups = [
       { href: "/masters/vendors", title: "Vendors", description: "Actual vendor dropdown used by inward flows, with GST, PAN, address, and contacts." },
       { href: "/masters/contact-directory", title: "Contact Directory", description: "Combined customer and vendor contact lookup from master contact rows." },
       { href: "/masters/packaging", title: "Packaging", description: "Boxes, plastic sheets, fadda, and counts used by packing handoff." },
-      { href: "/masters/tools", title: "Tools", description: "Notch, punch, die, winder, and packing tooling linked into the spec sheet and job cards." },
+      { href: "/masters/tools", title: "Tools", description: "Maintain Notch, Blade, Holder, V + Flat, and Punch masters used by spec sheets and job cards." },
     ],
   },
   {

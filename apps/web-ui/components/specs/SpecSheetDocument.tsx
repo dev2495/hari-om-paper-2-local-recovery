@@ -216,13 +216,13 @@ function defaultFormState(): FormState {
       winder_tool_required: "false",
       plastic_required: "false",
       bopp_required: "false",
-      notch_direction: "Forward",
-      tube_direction: "Forward",
+      notch_direction: "",
+      tube_direction: "",
       notch_type: "",
+      notching_blade: "",
+      notching_holder: "",
       v_flat: "",
-      punch: "NA",
-      notch_wider: "No",
-      notch_patti: "No",
+      punch: "",
     },
     processGuidance: DEFAULT_PROCESS_GUIDANCE,
     selectedGuidanceIndex: 1,
@@ -1240,7 +1240,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         ...defaultState.dynamicValues,
         ...dynamicMap,
         notch_direction: dynamicMap.notch_direction || dynamicMap.tube_direction || defaultState.dynamicValues.notch_direction,
-        groove: dynamicMap.groove || dynamicMap.guru || "",
         box_code: dynamicMap.box_code || dynamicMap.box || "",
         box: dynamicMap.box || dynamicMap.box_code || "",
       },
@@ -1575,7 +1574,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       .reduce((sum, component) => sum + Number(component.ratio_percent || 0), 0)
     const dynamicValues = {
       ...form.dynamicValues,
-      guru: form.dynamicValues.groove || form.dynamicValues.guru || "",
       box_code: form.dynamicValues.box_code || form.dynamicValues.box || "",
       box: form.dynamicValues.box_code || form.dynamicValues.box || "",
       allowed_parchment_groups_json: stringifyJsonField(selectedParchmentGroups),
@@ -1646,8 +1644,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         holder: form.dynamicValues.notching_holder || null,
         v_flat: form.dynamicValues.v_flat || null,
         punch: form.dynamicValues.punch || null,
-        notch_wider: boolFromString(form.dynamicValues.notch_wider),
-        notch_patti: boolFromString(form.dynamicValues.notch_patti),
         notch_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
         tube_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
         diagram: form.notchDiagram,
@@ -2705,17 +2701,15 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
             <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
             <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3 md:grid-cols-4">
+              {renderScalarField("notch_type", "Notch")}
               {renderScalarField("notching_blade", "Blade")}
               {renderScalarField("notching_holder", "Holder")}
               {renderScalarField("v_flat", "V + Flat")}
               {renderScalarField("punch", "Punch")}
-              {renderScalarField("notch_wider", "Notch Wider")}
-              {renderScalarField("notch_patti", "Notch Patti")}
-              {renderScalarField("notch_direction", "Notch Direction")}
-              {renderScalarField("notch_type", "Notch")}
-              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Distance mm")}
-              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Depth mm")}
+              {renderScalarField("notch_direction", "Direction")}
+              {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Distance")}
+              {renderScalarField("notch_depth_mm", "Notch Deep", "number", "Deep")}
             </div>
           </div>
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">

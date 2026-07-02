@@ -2785,16 +2785,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </div>
           <div className="grid gap-2 p-3 md:grid-cols-3">
             <LabeledValue label="Mandrel" value={mandrelLabel} />
-            <LabeledValue label="Notch Type" value={documentSnapshot?.setup_tooling?.notch_type || ""} />
-            <LabeledValue label="Notch Distance" value={documentSnapshot?.setup_tooling?.notch_distance || ""} />
-            <LabeledValue label="Notch Depth" value={documentSnapshot?.setup_tooling?.notch_depth || ""} />
-            <LabeledValue label="Notch Direction" value={documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || ""} />
-            <LabeledValue label="Holder" value={documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || ""} />
-            <LabeledValue label="Punch" value={documentSnapshot?.setup_tooling?.punch || ""} />
+            <LabeledValue label="Notch" value={documentSnapshot?.setup_tooling?.notch_type || ""} />
             <LabeledValue label="Blade" value={documentSnapshot?.setup_tooling?.blade || ""} />
+            <LabeledValue label="Holder" value={documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || ""} />
             <LabeledValue label="V + Flat" value={documentSnapshot?.setup_tooling?.v_flat || ""} />
-            <LabeledValue label="Notch Wider" value={formatYesNo(documentSnapshot?.setup_tooling?.notch_wider)} />
-            <LabeledValue label="Notch Patti" value={formatYesNo(documentSnapshot?.setup_tooling?.notch_patti)} />
+            <LabeledValue label="Punch" value={documentSnapshot?.setup_tooling?.punch || ""} />
+            <LabeledValue label="Direction" value={documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || ""} />
+            <LabeledValue label="Notch Distance" value={documentSnapshot?.setup_tooling?.notch_distance || ""} />
+            <LabeledValue label="Notch Deep" value={documentSnapshot?.setup_tooling?.notch_depth || ""} />
             <LabeledValue label="Qty / Box" value={documentSnapshot?.setup_tooling?.qty_per_box || ""} />
             <LabeledValue label="Box" value={documentSnapshot?.setup_tooling?.box || ""} />
             <LabeledValue
