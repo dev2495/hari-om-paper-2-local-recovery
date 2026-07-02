@@ -2,6 +2,11 @@ import { strict as assert } from "node:assert"
 
 import {
   DEFAULT_SPEC_FIELD_DEFINITIONS,
+  adhesiveRatioTotal,
+  applyPaperMasterToRecipeRow,
+  isAdhesiveRatioBalanced,
+  isMasterOptionActive,
+  isTubeWithinMandrelBand,
   NOTCH_DIAGRAM_FIELD_KEYS,
   NOTCH_DIRECTION_OPTIONS,
   NOTCH_TOOL_FIELD_CATEGORY_MAP,
@@ -127,6 +132,73 @@ test("notching spec fields avoid old unused process fields", () => {
 test("only non-tool notch metadata remains outside tool master", () => {
   assert.equal(fieldsByKey.get("notch_required")?.field_type, "boolean")
   assert.equal(fieldsByKey.get("top_paper_required")?.field_type, "boolean")
+})
+
+test("discontinued and inactive master records are hidden from spec dropdowns", () => {
+  assert.equal(isMasterOptionActive({ id: "active", status: "ACTIVE", active: true }), true)
+  assert.equal(isMasterOptionActive({ id: "inactive", status: "INACTIVE" }), false)
+  assert.equal(isMasterOptionActive({ id: "discontinued", discontinued: true }), false)
+  assert.equal(isMasterOptionActive({ id: "scrap", status: "SCRAPPED" }), false)
+  assert.equal(isMasterOptionActive({ id: "maintenance", status: "MAINTENANCE" }), false)
+  assert.equal(isMasterOptionActive({ id: "deleted", deleted_at: "2026-07-02T00:00:00Z" }), false)
+})
+
+test("tube size dropdown is limited to mandrel id plus or minus one mm", () => {
+  const mandrel = { outer_diameter_mm: 125.55 }
+  assert.equal(isTubeWithinMandrelBand({ inner_diameter_mm: 124.56 }, mandrel), true)
+  assert.equal(isTubeWithinMandrelBand({ inner_diameter_mm: 126.55 }, mandrel), true)
+  assert.equal(isTubeWithinMandrelBand({ inner_diameter_mm: 123.99 }, mandrel), false)
+  assert.equal(isTubeWithinMandrelBand({ inner_diameter_mm: 127.01 }, mandrel), false)
+})
+
+test("adhesive ratios must total exactly one hundred before save or approval", () => {
+  const valid = [
+    { name: "TL-4", base_percent: 15, ratio_percent: 30 },
+    { name: "Vinsol", base_percent: 15, ratio_percent: 70 },
+  ]
+  const invalid = [...valid, { name: "Adhesive 3", base_percent: 15, ratio_percent: 10 }]
+  assert.equal(adhesiveRatioTotal(valid), 100)
+  assert.equal(isAdhesiveRatioBalanced(valid), true)
+  assert.equal(adhesiveRatioTotal(invalid), 110)
+  assert.equal(isAdhesiveRatioBalanced(invalid), false)
+})
+
+test("paper master facts are copied as locked recipe values", () => {
+  const row = applyPaperMasterToRecipeRow(
+    {
+      id: "r1",
+      paper_id: "",
+      code: "",
+      variety: "",
+      category: "",
+      gsm: 0,
+      bfPerPly: 0,
+      thicknessPerPly: 0,
+      bulkFactor: 0,
+      plyBond: 0,
+      plyCount: 1,
+      adhesiveLabel: "TL-4",
+      positionsText: "",
+    },
+    {
+      id: "paper-1",
+      code: "KRAFT-230-18BF",
+      variety: "KRAFT",
+      category: "Paper",
+      gsm: 230,
+      bf: 18,
+      bulk_factor: 1.3,
+      ply_bond: 4.5,
+    },
+  )
+
+  assert.equal(row.paper_id, "paper-1")
+  assert.equal(row.code, "KRAFT-230-18BF")
+  assert.equal(row.gsm, 230)
+  assert.equal(row.bfPerPly, 18)
+  assert.equal(row.thicknessPerPly, 0.299)
+  assert.equal(row.bulkFactor, 1.3)
+  assert.equal(row.plyBond, 4.5)
 })
 
 if (failed.length) {

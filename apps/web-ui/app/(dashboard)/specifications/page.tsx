@@ -43,13 +43,14 @@ export default function SpecificationsIndexPage() {
   const { user } = useAuth()
   const [searchValue, setSearchValue] = useState("")
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all")
+  const [versionView, setVersionView] = useState<"active" | "disabled">("active")
   const deferredSearchValue = useDeferredValue(searchValue.trim().toLowerCase())
   const canManageSpecs = Boolean(user?.roles?.some((role) => role === "Owner" || role === "Admin") || user?.role === "Owner" || user?.role === "Admin")
 
   const { data: specs = [], isLoading } = useQuery({
-    queryKey: ["specs"],
+    queryKey: ["specs", "all-versions"],
     queryFn: async () => {
-      const { data } = await specApi.getSpecs()
+      const { data } = await specApi.getSpecs({ active_only: false })
       return Array.isArray(data) ? data : data?.items || []
     },
   })
@@ -73,6 +74,9 @@ export default function SpecificationsIndexPage() {
 
   const filteredSpecs = useMemo(() => {
     return specs.filter((spec: any) => {
+      const disabledVersion = spec.active === false || String(spec.status || "").toLowerCase() === "obsolete"
+      if (versionView === "active" && disabledVersion) return false
+      if (versionView === "disabled" && !disabledVersion) return false
       const normalizedStatus = String(spec.status || "").toLowerCase()
       if (statusFilter !== "all" && normalizedStatus !== statusFilter) return false
       if (!deferredSearchValue) return true
@@ -99,20 +103,34 @@ export default function SpecificationsIndexPage() {
 
       return haystack.includes(deferredSearchValue)
     })
-  }, [customerMap, deferredSearchValue, mandrelMap, specs, statusFilter, tubeSizeMap])
+  }, [customerMap, deferredSearchValue, mandrelMap, specs, statusFilter, tubeSizeMap, versionView])
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: specs.length }
+    const scopedSpecs = specs.filter((spec: any) => {
+      const disabledVersion = spec.active === false || String(spec.status || "").toLowerCase() === "obsolete"
+      return versionView === "disabled" ? disabledVersion : !disabledVersion
+    })
+    const counts: Record<string, number> = { all: scopedSpecs.length }
     for (const status of STATUS_FILTERS.slice(1)) {
-      counts[status] = specs.filter((spec: any) => String(spec.status || "").toLowerCase() === status).length
+      counts[status] = scopedSpecs.filter((spec: any) => String(spec.status || "").toLowerCase() === status).length
     }
     return counts
-  }, [specs])
+  }, [specs, versionView])
+
+  const activeSpecCount = useMemo(
+    () => specs.filter((spec: any) => spec.active !== false && String(spec.status || "").toLowerCase() !== "obsolete").length,
+    [specs],
+  )
+  const disabledSpecCount = useMemo(
+    () => specs.filter((spec: any) => spec.active === false || String(spec.status || "").toLowerCase() === "obsolete").length,
+    [specs],
+  )
 
   // Recipe-cascade health: spec is APPROVED but no recipe is approved yet.
   // Job-card creation will fail silently otherwise. Surface as a banner.
   const recipeCascadeIssues = useMemo(() => {
     return specs.filter((spec: any) => {
+      if (spec.active === false) return false
       if (String(spec.status || "").toLowerCase() !== "approved") return false
       const recipes = Array.isArray(spec.recipes) ? spec.recipes : []
       if (recipes.length === 0) return true
@@ -206,6 +224,29 @@ export default function SpecificationsIndexPage() {
       </section>
 
       <section className="rounded-[32px] border border-slate-200 bg-white/80 px-5 py-5 shadow-premium">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {[
+            { key: "active", label: "Active Sheets", count: activeSpecCount },
+            { key: "disabled", label: "Disabled Versions", count: disabledSpecCount },
+          ].map((view) => (
+            <button
+              key={view.key}
+              type="button"
+              onClick={() => {
+                setVersionView(view.key as "active" | "disabled")
+                setStatusFilter("all")
+              }}
+              className={cn(
+                "rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition",
+                versionView === view.key
+                  ? "border-slate-900 bg-slate-950 text-white"
+                  : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900",
+              )}
+            >
+              {view.label} {view.count}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative max-w-xl flex-1">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -289,6 +330,11 @@ export default function SpecificationsIndexPage() {
                       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusTone(spec.status)}`}>
                         {spec.status}
                       </span>
+                      {spec.active === false ? (
+                        <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                          disabled version
+                        </span>
+                      ) : null}
                     </div>
                     <h2 className="mt-3 text-2xl font-semibold text-slate-950">{resolveSpecTitle(spec)}</h2>
                     <p className="mt-2 max-w-3xl text-sm text-slate-600">
@@ -333,7 +379,7 @@ export default function SpecificationsIndexPage() {
                         <ArrowRight className="h-4 w-4" />
                       </Button>
                     </Link>
-                    {canManageSpecs ? (
+                    {canManageSpecs && spec.active !== false && String(spec.status || "").toLowerCase() !== "obsolete" ? (
                       <Link href={`/specifications/${spec.id}/edit`}>
                         <Button variant="outline">Edit</Button>
                       </Link>

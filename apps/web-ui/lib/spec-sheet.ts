@@ -225,6 +225,90 @@ export type AdhesiveComponent = {
   ratio_percent: number
 }
 
+export function isMasterOptionActive(row: any) {
+  if (!row) return false
+  const status = String(row.status ?? row.lifecycle_status ?? row.state ?? "ACTIVE").trim().toUpperCase()
+  const blockedStatuses = new Set([
+    "ARCHIVED",
+    "DELETED",
+    "DISCONTINUED",
+    "INACTIVE",
+    "MAINTENANCE",
+    "OBSOLETE",
+    "RETIRED",
+    "SCRAP",
+    "SCRAPPED",
+  ])
+
+  return !(
+    row.active === false ||
+    row.is_active === false ||
+    row.enabled === false ||
+    row.discontinued === true ||
+    row.is_discontinued === true ||
+    Boolean(row.deleted_at) ||
+    Boolean(row.archived_at) ||
+    blockedStatuses.has(status)
+  )
+}
+
+function numericField(row: any, keys: string[]) {
+  for (const key of keys) {
+    const value = Number(row?.[key])
+    if (Number.isFinite(value) && value > 0) return value
+  }
+  return 0
+}
+
+export function tubeInnerDiameterMm(tube: any) {
+  return numericField(tube, ["inner_diameter_mm", "id_mm", "inside_diameter_mm", "inner_diameter"])
+}
+
+export function mandrelOuterDiameterMm(mandrel: any) {
+  return numericField(mandrel, ["outer_diameter_mm", "od_mm", "diameter_mm", "size_mm"])
+}
+
+export function isTubeWithinMandrelBand(tube: any, mandrel: any, toleranceMm = 1) {
+  if (!mandrel) return true
+  const tubeId = tubeInnerDiameterMm(tube)
+  const mandrelSize = mandrelOuterDiameterMm(mandrel)
+  if (!tubeId || !mandrelSize) return false
+  return Math.abs(tubeId - mandrelSize) <= toleranceMm
+}
+
+export function adhesiveRatioTotal(components: AdhesiveComponent[]) {
+  return (components || []).reduce((sum, component) => sum + Number(component?.ratio_percent || 0), 0)
+}
+
+export function isAdhesiveRatioBalanced(components: AdhesiveComponent[], tolerance = 0.01) {
+  return Math.abs(adhesiveRatioTotal(components) - 100) <= tolerance
+}
+
+export function applyPaperMasterToRecipeRow(row: GroupedRecipeRow, paper: any): GroupedRecipeRow {
+  if (!paper) return row
+  const labels = buildGroupedRowLabel(paper)
+  const gsm = Number(paper?.gsm || 0)
+  const bulkFactor = Number(paper?.bulk_factor ?? paper?.bulk ?? row.bulkFactor ?? 0)
+  const masterThickness = Number(
+    paper?.thickness_mm ??
+      paper?.thickness ??
+      (bulkFactor > 0 && gsm > 0 ? roundValue((gsm * bulkFactor) / 1000, 4) : 0),
+  )
+
+  return {
+    ...row,
+    paper_id: String(paper?.id || row.paper_id || ""),
+    code: labels.code,
+    variety: labels.variety,
+    category: labels.category,
+    gsm,
+    bfPerPly: Number(paper?.bf ?? paper?.strength_value ?? paper?.bf_per_ply ?? 0),
+    thicknessPerPly: masterThickness || Number(row.thicknessPerPly || 0),
+    bulkFactor,
+    plyBond: Number(paper?.ply_bond ?? paper?.plybond ?? paper?.ply_bond_value ?? 0),
+  }
+}
+
 export type RecipeSuggestion = {
   id: string
   title: string

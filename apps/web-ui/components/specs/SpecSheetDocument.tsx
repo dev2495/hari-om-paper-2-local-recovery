@@ -49,6 +49,8 @@ import {
 import {
   AdhesiveComponent,
   AverageValues,
+  adhesiveRatioTotal,
+  applyPaperMasterToRecipeRow,
   buildAdhesiveComponentsPayload,
   buildDynamicFieldsPayload,
   buildGroupedRowLabel,
@@ -63,6 +65,9 @@ import {
   encodePlyPositions,
   formatRecipeRowsTitle,
   GroupedRecipeRow,
+  isAdhesiveRatioBalanced,
+  isMasterOptionActive,
+  isTubeWithinMandrelBand,
   midpoint,
   parseAdhesiveComponents,
   parseDynamicFields,
@@ -277,6 +282,95 @@ function MasterLinkRow({ links }: { links: Array<{ href: string; label: string }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{children}</label>
+}
+
+type SmartSelectOption = {
+  value: string
+  label: string
+  meta?: string
+  search?: string
+}
+
+function SmartSelect({
+  value,
+  options,
+  placeholder,
+  disabled,
+  onChange,
+  testId,
+  emptyLabel = "No active options found.",
+}: {
+  value: string
+  options: SmartSelectOption[]
+  placeholder: string
+  disabled?: boolean
+  onChange: (value: string) => void
+  testId?: string
+  emptyLabel?: string
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState("")
+  const selected = useMemo(() => options.find((option) => option.value === value), [options, value])
+  const filteredOptions = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return options
+    return options.filter((option) =>
+      [option.label, option.meta, option.search].filter(Boolean).join(" ").toLowerCase().includes(needle),
+    )
+  }, [options, query])
+
+  return (
+    <div className="relative">
+      <button
+        data-testid={testId}
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((current) => !current)}
+        className="flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-left text-sm text-slate-900 shadow-sm transition hover:border-slate-400 disabled:bg-slate-100 disabled:text-slate-500"
+      >
+        <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
+        <span className="shrink-0 text-xs font-semibold text-slate-400">v</span>
+      </button>
+      {open && !disabled ? (
+        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[min(460px,92vw)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+          <div className="border-b border-slate-100 p-2">
+            <input
+              autoFocus
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setOpen(false)
+              }}
+              placeholder={`Search ${placeholder.toLowerCase()}`}
+              className="h-10 w-full rounded-xl border border-[#cfd9e6] bg-slate-50 px-3 text-sm outline-none focus:border-cyan-400 focus:bg-white"
+            />
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1">
+            {filteredOptions.length === 0 ? (
+              <div className="px-3 py-4 text-sm text-slate-500">{emptyLabel}</div>
+            ) : (
+              filteredOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value)
+                    setQuery("")
+                    setOpen(false)
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-800 hover:bg-cyan-50 hover:text-cyan-900"
+                >
+                  <span className="block font-semibold">{option.label}</span>
+                  {option.meta ? <span className="block text-xs text-slate-500">{option.meta}</span> : null}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
 }
 
 function SummaryMetric({
@@ -562,6 +656,20 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const obsoleteSpec = useObsoleteSpec()
   const cloneSpec = useCloneSpecSheet()
 
+  const activeCustomers = useMemo(() => ((customers || []) as any[]).filter(isMasterOptionActive), [customers])
+  const activeTubeSizes = useMemo(() => ((tubeSizes || []) as any[]).filter(isMasterOptionActive), [tubeSizes])
+  const activeMandrels = useMemo(() => ((mandrels || []) as any[]).filter(isMasterOptionActive), [mandrels])
+  const activePapers = useMemo(() => ((papers || []) as any[]).filter(isMasterOptionActive), [papers])
+  const activeAdhesives = useMemo(() => ((adhesives || []) as any[]).filter(isMasterOptionActive), [adhesives])
+  const activeParchments = useMemo(() => ((parchments || []) as any[]).filter(isMasterOptionActive), [parchments])
+  const activePackagingBoxes = useMemo(() => ((packagingBoxes || []) as any[]).filter(isMasterOptionActive), [packagingBoxes])
+  const activePackagingPlasticSheets = useMemo(
+    () => ((packagingPlasticSheets || []) as any[]).filter(isMasterOptionActive),
+    [packagingPlasticSheets],
+  )
+  const activePackagingFadda = useMemo(() => ((packagingFadda || []) as any[]).filter(isMasterOptionActive), [packagingFadda])
+  const activeTools = useMemo(() => ((tools || []) as any[]).filter(isMasterOptionActive), [tools])
+
   const customerMap = useMemo<Map<string, any>>(
     () => new Map<string, any>(((customers || []) as any[]).map((item) => [String(item.id), item])),
     [customers],
@@ -579,8 +687,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     [papers],
   )
   const packagingBoxMap = useMemo<Map<string, any>>(
-    () => new Map<string, any>(((packagingBoxes || []) as any[]).map((item) => [String(item.code || ""), item])),
-    [packagingBoxes],
+    () => new Map<string, any>(activePackagingBoxes.map((item) => [String(item.code || ""), item])),
+    [activePackagingBoxes],
   )
   const fieldCatalogMap = useMemo<Map<string, any>>(
     () => new Map<string, any>(((specFields || []) as any[]).map((item) => [String(item.key), item])),
@@ -588,7 +696,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   )
   const toolOptionsByCategory = useMemo(() => {
     const map = new Map<string, string[]>()
-    for (const row of (tools || []) as any[]) {
+    for (const row of activeTools) {
       const category = String(row?.category || "").trim().toUpperCase()
       const status = String(row?.status || "ACTIVE").trim().toUpperCase()
       const name = String(row?.name || row?.spec_text || "").trim()
@@ -601,18 +709,18 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       }
     }
     return map
-  }, [tools])
+  }, [activeTools])
 
   const toolLookupByCategoryName = useMemo(() => {
     const map = new Map<string, any>()
-    for (const row of (tools || []) as any[]) {
+    for (const row of activeTools) {
       const category = String(row?.category || "").trim().toUpperCase()
       const name = String(row?.name || row?.spec_text || "").trim()
       if (!category || !name) continue
       map.set(`${category}::${name.toLowerCase()}`, row)
     }
     return map
-  }, [tools])
+  }, [activeTools])
 
   const selectedNotchToolEntries = useMemo(() => {
     const entries: Array<{
@@ -645,32 +753,72 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const externalSelectOptionsByField = useMemo<Record<string, string[]>>(
     () => ({
-      box_code: ((packagingBoxes || []) as any[])
+      box_code: activePackagingBoxes
         .map((row) => String(row?.code || "").trim())
         .filter(Boolean),
-      plastic_sku: ((packagingPlasticSheets || []) as any[])
+      plastic_sku: activePackagingPlasticSheets
         .map((row) => String(row?.sku || "").trim())
         .filter(Boolean),
-      fadda_sku: ((packagingFadda || []) as any[])
+      fadda_sku: activePackagingFadda
         .map((row) => String(row?.sku || "").trim())
         .filter(Boolean),
     }),
-    [packagingBoxes, packagingFadda, packagingPlasticSheets],
+    [activePackagingBoxes, activePackagingFadda, activePackagingPlasticSheets],
   )
 
   const selectedCustomer = customerMap.get(form.customerId)
   const selectedTube = tubeSizeMap.get(form.tubeSizeId)
   const selectedMandrel = mandrelMap.get(form.mandrelId)
+  const filteredTubeSizes = useMemo(
+    () => activeTubeSizes.filter((tube) => isTubeWithinMandrelBand(tube, selectedMandrel)),
+    [activeTubeSizes, selectedMandrel],
+  )
+  const customerOptions = useMemo<SmartSelectOption[]>(
+    () =>
+      activeCustomers.map((customer) => ({
+        value: String(customer.id),
+        label: String(customer.name || customer.customer_code || "Unnamed customer"),
+        meta: customer.customer_code ? `Code ${customer.customer_code}` : undefined,
+      })),
+    [activeCustomers],
+  )
+  const mandrelOptions = useMemo<SmartSelectOption[]>(
+    () =>
+      activeMandrels.map((mandrel) => ({
+        value: String(mandrel.id),
+        label: `${mandrel.mandrel_code || mandrel.name || "Mandrel"} | OD ${Number(mandrel.outer_diameter_mm || 0)}`,
+        meta: mandrel.length_mm ? `Length ${mandrel.length_mm} mm` : undefined,
+        search: `${mandrel.mandrel_code || ""} ${mandrel.name || ""} ${mandrel.outer_diameter_mm || ""}`,
+      })),
+    [activeMandrels],
+  )
+  const tubeSizeOptions = useMemo<SmartSelectOption[]>(
+    () =>
+      filteredTubeSizes.map((tube) => ({
+        value: String(tube.id),
+        label: `${Number(tube.inner_diameter_mm || 0)} x ${Number(tube.outer_diameter_mm || 0)} x ${Number(tube.length_mm || 0)}`,
+        meta: tube.internal_code || tube.name || undefined,
+        search: `${tube.inner_diameter_mm || ""} ${tube.outer_diameter_mm || ""} ${tube.length_mm || ""} ${tube.internal_code || ""}`,
+      })),
+    [filteredTubeSizes],
+  )
+  const parchmentAllowedOptions = useMemo<SmartSelectOption[]>(
+    () => [
+      { value: "true", label: "Yes" },
+      { value: "false", label: "No" },
+    ],
+    [],
+  )
   const parchmentFamilies = useMemo(
     () =>
       Array.from(
         new Set(
-          ((parchments || []) as any[])
+          activeParchments
             .map((row) => String(row?.vendor_family || row?.vendor_name || "").trim().toUpperCase())
             .filter(Boolean),
         ),
       ),
-    [parchments],
+    [activeParchments],
   )
   const selectedParchmentGroups = useMemo(
     () => parseJsonField<string[]>(form.dynamicValues.allowed_parchment_groups_json, []),
@@ -974,7 +1122,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const paperCandidatesForSuggestions = useMemo(
     () =>
-      ((papers || []) as any[])
+      activePapers
         .filter((paper) => Number(paper?.gsm || 0) > 0)
         .map((paper) => ({
           ...paper,
@@ -986,7 +1134,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           bulk_factor: Number(paper?.bulk_factor || 0),
           ply_bond: Number(paper?.ply_bond || 0),
         })),
-    [papers],
+    [activePapers],
   )
   const suggestionInputsReady =
     Boolean(form.mandrelId) &&
@@ -1125,6 +1273,15 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   ])
 
   useEffect(() => {
+    if (!isEditable || !form.tubeSizeId || !selectedMandrel || !selectedTube) return
+    if (isTubeWithinMandrelBand(selectedTube, selectedMandrel)) return
+    setForm((current) => ({
+      ...current,
+      tubeSizeId: "",
+    }))
+  }, [form.tubeSizeId, isEditable, selectedMandrel, selectedTube])
+
+  useEffect(() => {
     if (!isCreate || !selectedTube) return
 
     setForm((current) => {
@@ -1132,7 +1289,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         return current
       }
 
-      const closestMandrel = ((mandrels || []) as any[])
+      const closestMandrel = activeMandrels
         .map((mandrel) => ({
           ...mandrel,
           diff: Math.abs(Number(mandrel?.outer_diameter_mm || 0) - Number(selectedTube.inner_diameter_mm || 0)),
@@ -1159,7 +1316,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         },
       }
     })
-  }, [isCreate, mandrels, selectedTube])
+  }, [activeMandrels, isCreate, selectedTube])
 
   useEffect(() => {
     if (!isCreate || !selectedCustomer) return
@@ -1278,13 +1435,28 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }))
   const footerComplete = footerValidation.every((field) => field.filled)
 
-  const canSubmit = isEditable && form.customerId && form.tubeSizeId && form.mandrelId
+  const hasRecipeSelection = form.recipeRows.some((row) => String(row.paper_id || "").trim().length > 0 && Number(row.plyCount || 0) > 0)
+  const adhesiveRatioTotalValue = adhesiveRatioTotal(form.adhesiveComponents)
+  const adhesiveRatioBalanced = isAdhesiveRatioBalanced(form.adhesiveComponents)
+  const selectedTubeMatchesMandrel =
+    !selectedTube || !selectedMandrel || isTubeWithinMandrelBand(selectedTube, selectedMandrel)
+  const canSubmit = Boolean(
+    isEditable &&
+      form.customerId &&
+      form.tubeSizeId &&
+      form.mandrelId &&
+      selectedTubeMatchesMandrel &&
+      hasRecipeSelection &&
+      adhesiveRatioBalanced,
+  )
   const canApprove =
     !isCreate &&
     canManageSpec &&
     hasConcreteWritePlant &&
     specDocument?.spec?.status === "draft" &&
     Boolean(specDocument?.latestRecipe?.id) &&
+    adhesiveRatioBalanced &&
+    selectedTubeMatchesMandrel &&
     Boolean(effectiveBalance.withinBand) &&
     footerComplete &&
     (!latestApprovedTrial?.approved ||
@@ -1324,7 +1496,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     { label: "Bamboo Wet", value: `${bridgeMetrics.bambooRequiredWetG.toFixed(2)} g` },
     { label: "Tubes / Bamboo", value: `${Number(previewSummary.tubes_per_bamboo || 0)}` },
   ]
-  const hasRecipeSelection = form.recipeRows.some((row) => String(row.paper_id || "").trim().length > 0 && Number(row.plyCount || 0) > 0)
   const livePaperTotal = Number(previewSummary.paper_total_g || 0)
   const liveDryTube = Number(previewSummary.predicted_dry_tube_g || 0)
   const liveWetTube = Number(previewSummary.predicted_wet_tube_g || 0)
@@ -1367,10 +1538,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     avg: manufacturingRows.find((row) => row.label === "AVG")?.id || 0,
     max: manufacturingRows.find((row) => row.label === "MAX")?.id || 0,
   }
-  const adhesiveRatioTotal = form.adhesiveComponents.reduce(
-    (sum, component) => sum + Number(component?.ratio_percent || 0),
-    0,
-  )
   const selectedBambooLengthMm = Number(previewSummary.selected_bamboo_length_mm || 0)
   const usableBambooLengthMm = Number(previewSummary.usable_length_mm || recipePreview.usableLength || 0)
   const tubesPerBamboo = Number(previewSummary.tubes_per_bamboo || 0)
@@ -1477,15 +1644,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         const next = { ...row, ...patch }
         if (patch.paper_id) {
           const paper = paperMap.get(patch.paper_id)
-          const labels = buildGroupedRowLabel(paper)
-          next.code = labels.code
-          next.variety = labels.variety
-          next.category = labels.category
-          next.bfPerPly = Number(paper?.bf ?? paper?.strength_value ?? next.bfPerPly ?? 0)
-          next.thicknessPerPly = Number(
-            paper?.thickness_mm ?? next.thicknessPerPly ?? roundValue(Number(paper?.gsm || 0) / 700, 4),
-          )
-          next.plyBond = Number(paper?.ply_bond ?? next.plyBond ?? 0)
+          return applyPaperMasterToRecipeRow(next, paper)
         }
         return next
       }),
@@ -1763,6 +1922,22 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       showToast(editBlockReason, "error")
       return
     }
+    if (!form.customerId || !form.tubeSizeId || !form.mandrelId) {
+      showToast("Customer, mandrel, and matching tube size are required before saving.", "error")
+      return
+    }
+    if (!selectedTubeMatchesMandrel) {
+      showToast("Tube size must be within +/- 1 mm of the selected mandrel ID.", "error")
+      return
+    }
+    if (!adhesiveRatioBalanced) {
+      showToast(`Adhesive ratios must total 100% before saving. Current total is ${adhesiveRatioTotalValue.toFixed(0)}%.`, "error")
+      return
+    }
+    if (!hasRecipeSelection) {
+      showToast("Add at least one active paper recipe row before saving.", "error")
+      return
+    }
     if (!canSubmit) {
       showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
       return
@@ -1927,19 +2102,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       return (
         <div className="space-y-1">
           <FieldLabel>{label}</FieldLabel>
-          <select
+          <SmartSelect
             value={optionValue(form.dynamicValues[key])}
-            onChange={(event) => updateDynamicValue(key, event.target.value)}
             disabled={!isEditable}
-            className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
-          >
-            <option value="">Select</option>
-            {options.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
+            placeholder={`Select ${label.toLowerCase()}`}
+            emptyLabel="No active master option is available for this field."
+            options={options.map((option) => ({ value: option, label: option }))}
+            onChange={(nextValue) => updateDynamicValue(key, nextValue)}
+          />
         </div>
       )
     }
@@ -1948,15 +2118,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       return (
         <div className="space-y-1">
           <FieldLabel>{label}</FieldLabel>
-          <select
+          <SmartSelect
             value={yesNoValue(form.dynamicValues[key])}
-            onChange={(event) => updateDynamicValue(key, event.target.value === "Yes" ? "true" : "false")}
             disabled={!isEditable}
-            className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
-          >
-            <option value="No">No</option>
-            <option value="Yes">Yes</option>
-          </select>
+            placeholder="Select"
+            options={[
+              { value: "No", label: "No" },
+              { value: "Yes", label: "Yes" },
+            ]}
+            onChange={(nextValue) => updateDynamicValue(key, nextValue === "Yes" ? "true" : "false")}
+          />
         </div>
       )
     }
@@ -1985,6 +2156,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }
 
   const currentStatus = specDocument?.spec?.status || (isCreate ? "draft" : "")
+  const draftSaved = !isCreate && Boolean(specDocument?.spec?.id)
+  const reviewChecksPass = Boolean(
+    draftSaved &&
+      adhesiveRatioBalanced &&
+      selectedTubeMatchesMandrel &&
+      hasRecipeSelection &&
+      effectiveBalance.withinBand &&
+      footerComplete &&
+      !csGateFailed,
+  )
+  const approvalComplete = String(currentStatus || "").toLowerCase() === "approved"
   return (
     <SpecSheetWorkspace printMode={isPrint}>
       <SpecSheetPrint enabled={isPrint} />
@@ -2012,6 +2194,24 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
                   Wet divisor {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}
                 </span>
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <a href="#sheet-header" className="rounded-full border border-[#d6dfeb] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 hover:bg-white">
+                  Design
+                </a>
+                <a href="#recipe-mix" className="rounded-full border border-[#d6dfeb] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 hover:bg-white">
+                  Specifications
+                </a>
+                {!isCreate ? (
+                  <a href="#review-approve" className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-800 hover:bg-emerald-100">
+                    Review & Approve
+                  </a>
+                ) : null}
+                {specId ? (
+                  <Link href={`/specifications/${specId}/print`} className="rounded-full border border-[#d6dfeb] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 hover:bg-white">
+                    Print
+                  </Link>
+                ) : null}
               </div>
               {editBlockReason ? (
                 <div className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
@@ -2075,6 +2275,15 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   Print View
                 </Link>
               ) : null}
+              {isPrint ? (
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                >
+                  Print / Save PDF
+                </button>
+              ) : null}
             </div>
           </div>
         </section>
@@ -2101,18 +2310,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   <div className="space-y-1 xl:col-span-2">
                     <FieldLabel>Client / Party Name</FieldLabel>
                     {isEditable ? (
-                      <select
+                      <SmartSelect
                         value={form.customerId}
-                        onChange={(event) => setForm((current) => ({ ...current, customerId: event.target.value }))}
-                        className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
-                      >
-                        <option value="">Select customer</option>
-                        {(customers || []).map((customer: any) => (
-                          <option key={customer.id} value={customer.id}>
-                            {customer.name}
-                          </option>
-                        ))}
-                      </select>
+                        options={customerOptions}
+                        placeholder="Select customer"
+                        emptyLabel="No active customer is available."
+                        onChange={(nextValue) => setForm((current) => ({ ...current, customerId: nextValue }))}
+                      />
                     ) : (
                       <div className="rounded-2xl border border-[#cfd9e6] bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
                         {selectedCustomer?.name || specDocument?.spec?.customer_name || "-"}
@@ -2121,46 +2325,53 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Mandrel</FieldLabel>
-                    <select
-                      data-testid="spec-sheet-mandrel"
+                    <SmartSelect
+                      testId="spec-sheet-mandrel"
                       value={form.mandrelId}
-                      onChange={(event) => setForm((current) => ({ ...current, mandrelId: event.target.value }))}
-                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
-                    >
-                      <option value="">Select mandrel</option>
-                      {(mandrels || []).map((mandrel: any) => (
-                        <option key={mandrel.id} value={mandrel.id}>
-                          {mandrel.mandrel_code} | OD {mandrel.outer_diameter_mm}
-                        </option>
-                      ))}
-                    </select>
+                      options={mandrelOptions}
+                      placeholder="Select mandrel"
+                      disabled={!isEditable}
+                      emptyLabel="No active mandrel is available."
+                      onChange={(nextValue) =>
+                        setForm((current) => {
+                          const nextMandrel = mandrelMap.get(nextValue)
+                          const currentTube = tubeSizeMap.get(current.tubeSizeId)
+                          const keepTube = currentTube ? isTubeWithinMandrelBand(currentTube, nextMandrel) : false
+                          return {
+                            ...current,
+                            mandrelId: nextValue,
+                            tubeSizeId: keepTube ? current.tubeSizeId : "",
+                          }
+                        })
+                      }
+                    />
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Parchment Allowed</FieldLabel>
-                    <select
+                    <SmartSelect
                       value={form.parchmentAllowed ? "true" : "false"}
-                      onChange={(event) => setForm((current) => ({ ...current, parchmentAllowed: event.target.value === "true" }))}
-                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
-                    >
-                      <option value="true">Yes</option>
-                      <option value="false">No</option>
-                    </select>
+                      options={parchmentAllowedOptions}
+                      placeholder="Select"
+                      disabled={!isEditable}
+                      onChange={(nextValue) => setForm((current) => ({ ...current, parchmentAllowed: nextValue === "true" }))}
+                    />
                   </div>
                   <div className="space-y-1 xl:col-span-2">
                     <FieldLabel>Tube Size</FieldLabel>
-                    <select
-                      data-testid="spec-sheet-tube-size"
+                    <SmartSelect
+                      testId="spec-sheet-tube-size"
                       value={form.tubeSizeId}
-                      onChange={(event) => setForm((current) => ({ ...current, tubeSizeId: event.target.value }))}
-                      className="h-11 w-full rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
-                    >
-                      <option value="">Select tube size</option>
-                      {(tubeSizes || []).map((tube: any) => (
-                        <option key={tube.id} value={tube.id}>
-                          {tube.inner_diameter_mm} × {tube.outer_diameter_mm} × {tube.length_mm}
-                        </option>
-                      ))}
-                    </select>
+                      options={tubeSizeOptions}
+                      placeholder={form.mandrelId ? "Select matching tube size" : "Select tube size"}
+                      disabled={!isEditable || !form.mandrelId}
+                      emptyLabel="No active tube size is within +/- 1 mm of this mandrel."
+                      onChange={(nextValue) => setForm((current) => ({ ...current, tubeSizeId: nextValue }))}
+                    />
+                    <p className="text-xs text-slate-500">
+                      {form.mandrelId
+                        ? "Only tube IDs within +/- 1 mm of the selected mandrel are shown."
+                        : "Pick mandrel first to narrow tube sizes."}
+                    </p>
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Target Dry Weight</FieldLabel>
@@ -2304,12 +2515,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-                        Math.abs(adhesiveRatioTotal - 100) < 0.01
+                        adhesiveRatioBalanced
                           ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
                           : "border border-amber-200 bg-amber-50 text-amber-700"
                       }`}
                     >
-                      Ratio {adhesiveRatioTotal.toFixed(0)}%
+                      Ratio {adhesiveRatioTotalValue.toFixed(0)}%
                     </span>
                   </div>
                   <div className="mt-4 space-y-3">
@@ -2320,33 +2531,30 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                           key={`${component.name}-${index}`}
                           className="grid gap-3 rounded-[20px] border border-[#e4ebf3] bg-[#f8fafc] p-3 md:grid-cols-[1.4fr_0.65fr_0.8fr_auto]"
                         >
-                          <select
+                          <SmartSelect
                             value={component.name}
-                            onChange={(event) => updateAdhesiveComponent(index, { name: event.target.value })}
-                            className="h-11 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
-                          >
-                            <option value="">Select adhesive</option>
-                            {Array.from(
+                            placeholder="Select adhesive"
+                            disabled={!isEditable}
+                            emptyLabel="No active adhesive master is available."
+                            options={Array.from(
                               new Set(
                                 [
                                   ...form.adhesiveComponents.map((row) => row.name).filter(Boolean),
-                                  ...((adhesives || []) as any[]).map((adhesive) =>
+                                  ...activeAdhesives.map((adhesive) =>
                                     adhesive.internal_code ? `${adhesive.name} (${adhesive.internal_code})` : adhesive.name,
                                   ),
                                 ].filter(Boolean),
                               ),
-                            ).map((option) => (
-                              <option key={option} value={option}>
-                                {option}
-                              </option>
-                            ))}
-                          </select>
+                            ).map((option) => ({ value: String(option), label: String(option) }))}
+                            onChange={(nextValue) => updateAdhesiveComponent(index, { name: nextValue })}
+                          />
                           <input
                             type="number"
                             step="0.1"
                             value={optionValue(component.ratio_percent)}
+                            disabled={!isEditable}
                             onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
-                            className="h-11 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm"
+                            className="h-11 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm disabled:bg-slate-100"
                           />
                           <div className="flex h-11 items-center rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm font-semibold text-slate-950">
                             {Number(previewComponent?.weight_g || 0).toFixed(2)} g
@@ -2386,6 +2594,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           </ClientReqCard>
 
           <RecipeMixCard>
+            <div id="recipe-mix" className="scroll-mt-24" />
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Recipe mix</p>
@@ -2456,30 +2665,23 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             <td className="min-w-64 border-r border-[#edf2f7] px-3 py-3">
                               <PaperPicker
                                 value={row.paper_id}
-                                papers={(papers || []) as any[]}
+                                papers={activePapers}
                                 disabled={!isEditable}
                                 onChange={(paperId) => updateRecipeRow(row.id, { paper_id: paperId })}
                               />
                             </td>
-                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">{previewRow?.gsm || 0}</td>
-                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <NumericInput
-                                step="0.01"
-                                value={optionValue(row.bfPerPly)}
-                                disabled={!isEditable}
-                                onChange={(event) => updateRecipeRow(row.id, { bfPerPly: Number(event.target.value || 0) })}
-                                className="w-20 px-2 text-xs"
-                              />
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-slate-800">
+                              {Number(previewRow?.gsm || row.gsm || 0).toFixed(0)}
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <NumericInput
-                                step="0.0001"
-                                unit="mm"
-                                value={optionValue(row.thicknessPerPly)}
-                                disabled={!isEditable}
-                                onChange={(event) => updateRecipeRow(row.id, { thicknessPerPly: Number(event.target.value || 0) })}
-                                className="w-24 px-2 text-xs"
-                              />
+                              <div className="font-semibold text-slate-800">{Number(row.bfPerPly || 0).toFixed(2)}</div>
+                              <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Locked</div>
+                            </td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
+                              <div className="font-semibold text-slate-800">{Number(row.thicknessPerPly || 0).toFixed(4)} mm</div>
+                              <div className="text-[10px] text-slate-400">
+                                Bulk {Number(row.bulkFactor || 0).toFixed(2)} - Ply bond {Number(row.plyBond || 0).toFixed(2)}
+                              </div>
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-slate-950">
                               {Number(previewRow?.weightG || 0).toFixed(2)}
@@ -2805,6 +3007,60 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         </div>
       </PackingCard>
 
+      {!isCreate ? (
+        <section
+          id="review-approve"
+          data-print-hidden="true"
+          className="scroll-mt-24 rounded-[30px] border border-emerald-200 bg-[linear-gradient(180deg,#f7fdf9_0%,#effaf3_100%)] p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]"
+        >
+          <SectionLabel title="Review & Approve" subtitle="Saved drafts must pass review before they can become the live approved spec." />
+          <div className="grid gap-3 lg:grid-cols-3">
+            <div className={`rounded-[24px] border p-4 ${draftSaved ? "border-emerald-200 bg-white text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step 1</p>
+              <h3 className="mt-2 text-lg font-semibold text-slate-950">Draft saved</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                {draftSaved ? `Spec v${specDocument?.spec?.version || 1} is stored as a draft/revision record.` : "Save the sheet first to create a draft record."}
+              </p>
+            </div>
+            <div className={`rounded-[24px] border p-4 ${reviewChecksPass ? "border-emerald-200 bg-white text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step 2</p>
+              <h3 className="mt-2 text-lg font-semibold text-slate-950">Review checks</h3>
+              <div className="mt-3 space-y-1 text-sm">
+                <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}>Adhesive ratio: {adhesiveRatioTotalValue.toFixed(0)}%</p>
+                <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}>Mandrel/tube band: {selectedTubeMatchesMandrel ? "pass" : "must be +/- 1 mm"}</p>
+                <p className={hasRecipeSelection ? "text-emerald-700" : "text-rose-700"}>Recipe: {hasRecipeSelection ? "paper selected" : "missing paper"}</p>
+                <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}>Footer: {footerComplete ? "complete" : "incomplete"}</p>
+                <p className={effectiveBalance.withinBand ? "text-emerald-700" : "text-rose-700"}>Weight: {effectiveBalance.withinBand ? "within band" : "outside band"}</p>
+              </div>
+            </div>
+            <div className={`rounded-[24px] border p-4 ${approvalComplete ? "border-emerald-200 bg-white text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step 3</p>
+              <h3 className="mt-2 text-lg font-semibold text-slate-950">Approval</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                {approvalComplete
+                  ? "This version is approved and active for downstream planning and job cards."
+                  : "Admin/Owner approval promotes the saved draft after review checks pass."}
+              </p>
+              {currentStatus === "draft" ? (
+                <button
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={!canApprove || approveSpec.isPending}
+                  className="mt-4 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60"
+                >
+                  Approve Draft
+                </button>
+              ) : null}
+              {specDocument?.spec?.active === false || currentStatus === "obsolete" ? (
+                <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                  This version is disabled/read-only. Edit creates a new active version instead of overwriting history.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <ValidationFooter forceOpen={isPrint}>
         <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
         <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
@@ -2893,6 +3149,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             </p>
             <p className={csGateFailed ? "text-rose-700" : "text-emerald-700"}>
               CS: {csGateFailed ? "latest approved trial is below required CS" : "pass"}
+            </p>
+            <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}>
+              Adhesive: {adhesiveRatioBalanced ? "100% split" : `${adhesiveRatioTotalValue.toFixed(0)}% split`}
+            </p>
+            <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}>
+              Mandrel/tube: {selectedTubeMatchesMandrel ? "pass" : "outside +/- 1 mm"}
             </p>
             <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}>
               Footer: {footerComplete ? "complete" : "incomplete"}
