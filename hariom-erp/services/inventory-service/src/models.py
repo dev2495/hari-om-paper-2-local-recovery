@@ -162,6 +162,7 @@ class StockBatch(Base):
     supplier_name_snapshot = Column(String(200), nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     spec_id = Column(UUID(as_uuid=True), nullable=True)
+    inward_metadata = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     item = relationship("ItemMaster", back_populates="batches")
@@ -352,6 +353,7 @@ class PaperReel(Base):
     location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=True)
     parent_reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True)
     genealogy_metadata = Column(JSON, nullable=True)
+    inward_metadata = Column(JSON, nullable=True)
     inward_date = Column(Date, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -675,6 +677,7 @@ class PurchaseOrder(Base):
     expected_date = Column(Date, nullable=True)
     status = Column(String(30), nullable=False, default="DRAFT")
     notes = Column(String(500), nullable=True)
+    metadata_json = Column(JSON, nullable=True)
     created_by = Column(String(200), nullable=False)
     approved_by = Column(String(200), nullable=True)
     approved_at = Column(DateTime, nullable=True)
@@ -704,6 +707,7 @@ class PurchaseOrderLine(Base):
     incoming_qc_required = Column(Boolean, nullable=False, default=True)
     line_status = Column(String(20), nullable=False, default="OPEN")
     notes = Column(String(500), nullable=True)
+    metadata_json = Column(JSON, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     order = relationship("PurchaseOrder", back_populates="lines")

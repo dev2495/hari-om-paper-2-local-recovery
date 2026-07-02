@@ -105,6 +105,12 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("UPDATE stock_batch SET stock_status = 'UNRESTRICTED' WHERE stock_status IS NULL")
     )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS stock_batch "
+        "ADD COLUMN IF NOT EXISTS inward_metadata JSONB"
+      )
+    )
 
     connection.execute(
       text("ALTER TABLE IF EXISTS item_master ADD COLUMN IF NOT EXISTS unit_cost DOUBLE PRECISION")
@@ -210,6 +216,12 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text(
         "ALTER TABLE IF EXISTS paper_reels "
+        "ADD COLUMN IF NOT EXISTS inward_metadata JSONB"
+      )
+    )
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS paper_reels "
         "ADD COLUMN IF NOT EXISTS unit_cost DOUBLE PRECISION"
       )
     )
@@ -267,6 +279,8 @@ def ensure_runtime_schema() -> None:
       )
     )
     for ddl in (
+      "ALTER TABLE IF EXISTS purchase_orders ADD COLUMN IF NOT EXISTS metadata_json JSONB",
+      "ALTER TABLE IF EXISTS purchase_order_lines ADD COLUMN IF NOT EXISTS metadata_json JSONB",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_session_no VARCHAR(80)",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_location_scope VARCHAR(200)",
       "ALTER TABLE IF EXISTS inventory_certifications ADD COLUMN IF NOT EXISTS count_state VARCHAR(30) DEFAULT 'DRAFT'",

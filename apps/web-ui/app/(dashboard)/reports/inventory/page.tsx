@@ -19,6 +19,7 @@ import {
 } from "@/components/reports/primitives"
 import { useAuth } from "@/context/AuthContext"
 import { useInventoryValuation, useItemVelocity, useOwnerPack } from "@/hooks/use-analytics"
+import { useInwardStockAsOn } from "@/hooks/use-inventory"
 import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function InventoryReportsWrapper() {
@@ -36,6 +37,7 @@ function InventoryIntelligencePage() {
   const { data: valuation } = useInventoryValuation(activePlant || undefined)
   const { data: velocity, isLoading: velLoading } = useItemVelocity({ horizonDays: 30, plant: activePlant || undefined })
   const { data: pack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
+  const inwardStockQuery = useInwardStockAsOn({ material: "ALL", limit: 20 })
 
   const p: any = pack || {}
   const inventory = p.inventory || {}
@@ -80,6 +82,11 @@ function InventoryIntelligencePage() {
   const watch = Number(velSummary.watch || 0)
   const healthy = Number(velSummary.healthy || 0)
   const rmVelocityRows = velRows.filter((row) => String(row.type || "").toUpperCase() !== "FG")
+  const inwardStockRows = Array.isArray((inwardStockQuery.data as any)?.items)
+    ? (inwardStockQuery.data as any).items
+    : Array.isArray((inwardStockQuery.data as any)?.rows)
+      ? (inwardStockQuery.data as any).rows
+      : []
   const rmDaysFromVelocity = rmVelocityRows.length
     ? rmVelocityRows.reduce((sum, row) => sum + Number(row.days_on_hand || 0), 0) / rmVelocityRows.length
     : null
@@ -150,6 +157,42 @@ function InventoryIntelligencePage() {
           )}
         </Panel>
       </div>
+
+      <Panel eyebrow="Client stock-as-on" title="Amigo labels, source documents, locations, and QC status" description="Reel and batch rows use the same fields captured during inward. Use this for quick trace from Amigo no to bill/PO/location.">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[920px] text-sm">
+            <thead>
+              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                {["Type", "Date", "Amigo no", "Party/Mill", "Item/Variety", "Qty", "PO", "Bill", "Rate", "Location", "QC"].map((head) => (
+                  <th key={head} className="py-2 pr-3">{head}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {inwardStockRows.map((row: any) => (
+                <tr key={`${row.entity_type}-${row.entity_id}`} className="border-b border-slate-100">
+                  <td className="py-2 pr-3">{row.entity_type || "-"}</td>
+                  <td className="py-2 pr-3">{row.date || "-"}</td>
+                  <td className="py-2 pr-3 font-semibold text-slate-950">{row.amigo_no || "-"}</td>
+                  <td className="py-2 pr-3">{row.mill || row.party_name || "-"}</td>
+                  <td className="py-2 pr-3">{row.variety || row.item_name || "-"}</td>
+                  <td className="py-2 pr-3">{formatNumber(row.reel_weight || row.tank_weight || row.current_qty, 2)}</td>
+                  <td className="py-2 pr-3">{row.po || "-"}</td>
+                  <td className="py-2 pr-3">{row.bill || "-"}</td>
+                  <td className="py-2 pr-3">{formatNumber(row.rate, 2)}</td>
+                  <td className="py-2 pr-3">{row.location || "-"}</td>
+                  <td className="py-2 pr-3">{row.stock_status || "-"}</td>
+                </tr>
+              ))}
+              {!inwardStockRows.length ? (
+                <tr>
+                  <td colSpan={11} className="py-6 text-center text-slate-500">No inward stock rows available yet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </Panel>
 
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel eyebrow="Top movers" title="Highest-velocity items (30d)" description="Burn rate × days-on-hand drives reorder pressure.">

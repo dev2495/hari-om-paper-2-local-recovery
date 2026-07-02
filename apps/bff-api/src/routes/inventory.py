@@ -94,6 +94,11 @@ async def create_inward(request: Request, token: str = Depends(get_token)):
     return response
 
 
+@router.get("/inward/stock-as-on")
+async def get_inward_stock_as_on(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inward/stock-as-on", request, token)
+
+
 @router.post("/issue")
 async def create_issue(request: Request, token: str = Depends(get_token)):
     plant_id = request.headers.get("X-Plant-ID", "")

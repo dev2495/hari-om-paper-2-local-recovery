@@ -477,6 +477,7 @@ export const inventoryApi = {
   getValuationReels: () => api.get("/api/inventory/valuation/reels"),
   createTransaction: (data: any) => api.post("/api/inventory/issue", data),
   createInward: (data: any) => api.post("/api/inventory/inward", data),
+  getInwardStockAsOn: (params?: any) => api.get("/api/inventory/inward/stock-as-on", { params }),
   createIssue: (data: any) => api.post("/api/inventory/issue", data),
   issueBatchToWip: (data: any) => api.post("/api/inventory/stock-moves/wip-issue", data),
   createFgInward: (data: any) => api.post("/api/inventory/fg-inward", data),

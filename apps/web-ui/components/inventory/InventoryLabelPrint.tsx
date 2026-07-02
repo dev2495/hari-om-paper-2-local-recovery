@@ -9,6 +9,8 @@ type InventoryLabel = {
   code?: string
   batch_no?: string
   reel_code?: string
+  amigo_no?: string
+  human_label?: string
   qr_value?: string
   item_code?: string
   item_name?: string
@@ -20,6 +22,13 @@ type InventoryLabel = {
   stock_status?: string | null
   gsm?: number | string | null
   bf?: number | string | null
+  ply_bond?: number | string | null
+  po_no?: string | null
+  bill_no?: string | null
+  bill_date?: string | null
+  rate?: number | string | null
+  location_code?: string | null
+  metadata?: Record<string, any> | null
 }
 
 type Props = {
@@ -35,7 +44,7 @@ function formatQty(value: unknown, uom?: string | null) {
 
 export function InventoryLabelPrint({ label, title = "Inventory Label Preview" }: Props) {
   if (!label) return null
-  const code = label.code || label.reel_code || label.batch_no || label.entity_id || ""
+  const code = label.human_label || label.amigo_no || label.code || label.reel_code || label.batch_no || label.entity_id || ""
   if (!code) return null
   const qrValue = label.qr_value || code
   const entityType = String(label.entity_type || (label.reel_code ? "REEL" : "BATCH")).toUpperCase()
@@ -87,6 +96,30 @@ export function InventoryLabelPrint({ label, title = "Inventory Label Preview" }
               <div className="flex justify-between gap-3">
                 <dt className="font-medium">GSM / BF</dt>
                 <dd>{label.gsm || "-"} / {label.bf || "-"}</dd>
+              </div>
+            ) : null}
+            {label.ply_bond ? (
+              <div className="flex justify-between gap-3">
+                <dt className="font-medium">Plybond</dt>
+                <dd>{label.ply_bond}</dd>
+              </div>
+            ) : null}
+            {label.po_no || label.bill_no ? (
+              <div className="flex justify-between gap-3">
+                <dt className="font-medium">PO / Bill</dt>
+                <dd className="text-right">{label.po_no || "-"} / {label.bill_no || "-"}</dd>
+              </div>
+            ) : null}
+            {label.location_code ? (
+              <div className="flex justify-between gap-3">
+                <dt className="font-medium">Location</dt>
+                <dd>{label.location_code}</dd>
+              </div>
+            ) : null}
+            {label.rate ? (
+              <div className="flex justify-between gap-3">
+                <dt className="font-medium">Rate</dt>
+                <dd>{label.rate}</dd>
               </div>
             ) : null}
           </dl>

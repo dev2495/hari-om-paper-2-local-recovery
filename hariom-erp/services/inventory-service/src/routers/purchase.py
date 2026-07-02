@@ -91,16 +91,34 @@ class PurchaseOrderLineCreate(BaseModel):
     unit_cost: float = Field(ge=0)
     incoming_qc_required: bool = True
     notes: Optional[str] = Field(default=None, max_length=500)
+    description: Optional[str] = Field(default=None, max_length=500)
+    width_mm: Optional[float] = Field(default=None, ge=0)
+    gsm: Optional[float] = Field(default=None, ge=0)
+    plybond: Optional[float] = Field(default=None, ge=0)
+    bulk: Optional[float] = Field(default=None, ge=0)
+    cobb: Optional[str] = Field(default=None, max_length=120)
+    metadata_json: Optional[dict[str, Any]] = None
 
 
 class PurchaseOrderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     po_no: Optional[str] = Field(default=None, max_length=80)
+    po_date: Optional[date] = None
     supplier_id: uuid.UUID
     supplier_name: str = Field(min_length=1, max_length=200)
+    supplier_contact: Optional[str] = Field(default=None, max_length=200)
+    supplier_address: Optional[str] = Field(default=None, max_length=500)
+    supplier_gst_no: Optional[str] = Field(default=None, max_length=40)
     expected_date: Optional[date] = None
     notes: Optional[str] = Field(default=None, max_length=500)
+    freight_terms: Optional[str] = Field(default=None, max_length=300)
+    tax_terms: Optional[str] = Field(default=None, max_length=300)
+    payment_terms: Optional[str] = Field(default=None, max_length=300)
+    delivery_terms: Optional[str] = Field(default=None, max_length=300)
+    test_report_terms: Optional[str] = Field(default=None, max_length=500)
+    special_instruction: Optional[str] = Field(default=None, max_length=500)
+    metadata_json: Optional[dict[str, Any]] = None
     lines: list[PurchaseOrderLineCreate] = Field(min_length=1)
 
     @field_validator("supplier_name")
@@ -115,11 +133,22 @@ class PurchaseOrderCreate(BaseModel):
 class PurchaseOrderResponse(BaseModel):
     id: uuid.UUID
     po_no: str
+    po_date: Optional[str] = None
     supplier_id: uuid.UUID
     supplier_name: str
+    supplier_contact: Optional[str] = None
+    supplier_address: Optional[str] = None
+    supplier_gst_no: Optional[str] = None
     expected_date: Optional[date]
     status: str
     notes: Optional[str]
+    freight_terms: Optional[str] = None
+    tax_terms: Optional[str] = None
+    payment_terms: Optional[str] = None
+    delivery_terms: Optional[str] = None
+    test_report_terms: Optional[str] = None
+    special_instruction: Optional[str] = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
     lines: list[dict[str, Any]]
 
 
@@ -156,14 +185,26 @@ class ReceiptQcPayload(BaseModel):
 
 
 def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
+    metadata = order.metadata_json or {}
     return {
         "id": order.id,
         "po_no": order.po_no,
+        "po_date": metadata.get("po_date"),
         "supplier_id": order.supplier_id,
         "supplier_name": order.supplier_name_snapshot,
+        "supplier_contact": metadata.get("supplier_contact"),
+        "supplier_address": metadata.get("supplier_address"),
+        "supplier_gst_no": metadata.get("supplier_gst_no"),
         "expected_date": order.expected_date,
         "status": order.status,
         "notes": order.notes,
+        "freight_terms": metadata.get("freight_terms"),
+        "tax_terms": metadata.get("tax_terms"),
+        "payment_terms": metadata.get("payment_terms"),
+        "delivery_terms": metadata.get("delivery_terms"),
+        "test_report_terms": metadata.get("test_report_terms"),
+        "special_instruction": metadata.get("special_instruction"),
+        "metadata_json": metadata,
         "lines": [
             {
                 "id": str(line.id),
@@ -176,6 +217,14 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "incoming_qc_required": bool(line.incoming_qc_required),
                 "line_status": line.line_status,
                 "notes": line.notes,
+                "description": (line.metadata_json or {}).get("description"),
+                "width_mm": (line.metadata_json or {}).get("width_mm"),
+                "gsm": (line.metadata_json or {}).get("gsm"),
+                "plybond": (line.metadata_json or {}).get("plybond"),
+                "bulk": (line.metadata_json or {}).get("bulk"),
+                "cobb": (line.metadata_json or {}).get("cobb"),
+                "amount": round(float(line.qty_ordered or 0.0) * float(line.unit_cost or 0.0), 2),
+                "metadata_json": line.metadata_json or {},
             }
             for line in (order.lines or [])
         ],
@@ -216,6 +265,19 @@ def create_purchase_order(
         supplier_name_snapshot=payload.supplier_name,
         expected_date=payload.expected_date,
         notes=payload.notes,
+        metadata_json={
+            **dict(payload.metadata_json or {}),
+            "po_date": (payload.po_date or date.today()).isoformat(),
+            "supplier_contact": payload.supplier_contact,
+            "supplier_address": payload.supplier_address,
+            "supplier_gst_no": payload.supplier_gst_no,
+            "freight_terms": payload.freight_terms,
+            "tax_terms": payload.tax_terms,
+            "payment_terms": payload.payment_terms,
+            "delivery_terms": payload.delivery_terms,
+            "test_report_terms": payload.test_report_terms,
+            "special_instruction": payload.special_instruction,
+        },
         created_by=_actor(current_user),
     )
     db.add(order)
@@ -234,6 +296,15 @@ def create_purchase_order(
                 incoming_qc_required=line.incoming_qc_required,
                 line_status="OPEN",
                 notes=line.notes,
+                metadata_json={
+                    **dict(line.metadata_json or {}),
+                    "description": line.description,
+                    "width_mm": line.width_mm,
+                    "gsm": line.gsm,
+                    "plybond": line.plybond,
+                    "bulk": line.bulk,
+                    "cobb": line.cobb,
+                },
             )
         )
     db.commit()
@@ -383,6 +454,7 @@ def post_grn(
                     "supplier_name": order.supplier_name_snapshot,
                     "incoming_qc_required": bool(po_line.incoming_qc_required),
                     "qc_status": "PENDING" if po_line.incoming_qc_required else "PASS",
+                    "po_line_metadata": po_line.metadata_json or {},
                 },
                 external_ref=f"GRN:{grn_no}:{idx}",
             )

@@ -64,6 +64,7 @@ def _parse_uuid_list(value: Optional[str], field_name: str) -> list[uuid.UUID]:
 
 class ReelInwardCreate(BaseModel):
     reel_code: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    amigo_no: Optional[str] = Field(default=None, min_length=1, max_length=100)
     paper_id: uuid.UUID
     gsm: Optional[float] = Field(default=None, ge=0)
     bf: Optional[float] = Field(default=None, ge=0)
@@ -75,13 +76,32 @@ class ReelInwardCreate(BaseModel):
     cost_source: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
     stock_status: str = "QC_HOLD"
+    mill: Optional[str] = Field(default=None, max_length=200)
+    plybond: Optional[float] = Field(default=None, ge=0)
+    variety: Optional[str] = Field(default=None, max_length=160)
+    source_reel_no: Optional[str] = Field(default=None, max_length=120)
+    slitting_status: Optional[str] = Field(default=None, max_length=40)
+    po_no: Optional[str] = Field(default=None, max_length=80)
+    bill_no: Optional[str] = Field(default=None, max_length=120)
+    bill_date: Optional[date] = None
+    rate: Optional[float] = Field(default=None, ge=0)
+    paper_master_snapshot: Optional[dict[str, Any]] = None
+    inward_metadata: Optional[dict[str, Any]] = None
 
-    @field_validator("reel_code")
+    @field_validator("reel_code", "amigo_no")
     @classmethod
     def normalize_reel_code(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = value.strip().upper()
+        return cleaned or None
+
+    @field_validator("mill", "variety", "source_reel_no", "slitting_status", "po_no", "bill_no")
+    @classmethod
+    def normalize_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        cleaned = value.strip()
         return cleaned or None
 
     @field_validator("supplier_name")
@@ -130,6 +150,7 @@ class ReelResponse(BaseModel):
     location_id: Optional[uuid.UUID] = None
     parent_reel_id: Optional[uuid.UUID] = None
     genealogy_metadata: Optional[dict[str, Any]] = None
+    inward_metadata: Optional[dict[str, Any]] = None
     inward_date: date
     created_at: datetime
     qr_payload: Optional[dict[str, Any]] = None
@@ -265,16 +286,55 @@ def create_reel_inward(
     if paper.tracking_mode != TrackingMode.REEL:
         raise HTTPException(status_code=400, detail="paper_id must reference a REEL-tracked RAW_PAPER item")
 
-    generated = payload.reel_code is None
+    master_snapshot = dict(payload.paper_master_snapshot or {})
+
+    def _snapshot_number(*keys: str) -> Optional[float]:
+        for key in keys:
+            value = master_snapshot.get(key)
+            if value in (None, ""):
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    locked_gsm = _snapshot_number("gsm") if master_snapshot else payload.gsm
+    locked_bf = _snapshot_number("bf", "strength_value", "bf_per_ply") if master_snapshot else payload.bf
+    locked_plybond = _snapshot_number("ply_bond", "plybond") if master_snapshot else payload.plybond
+    locked_bulk = _snapshot_number("bulk_factor", "bulk") if master_snapshot else None
+    locked_variety = str(master_snapshot.get("variety") or master_snapshot.get("category") or payload.variety or "").strip() or None
+
+    generated = payload.reel_code is None and payload.amigo_no is None
     attempts = 5 if generated else 1
     for _ in range(attempts):
-        code = payload.reel_code or _generate_reel_code()
+        code = payload.amigo_no or payload.reel_code or _generate_reel_code()
+        metadata = {
+            **dict(payload.inward_metadata or {}),
+            "amigo_no": code,
+            "mill": payload.mill,
+            "plybond": locked_plybond,
+            "bulk_factor": locked_bulk,
+            "variety": locked_variety,
+            "source_reel_no": payload.source_reel_no,
+            "slitting_status": (payload.slitting_status or "REGULAR").upper() if payload.slitting_status else None,
+            "po_no": payload.po_no,
+            "bill_no": payload.bill_no,
+            "bill_date": payload.bill_date.isoformat() if payload.bill_date else None,
+            "rate": payload.rate if payload.rate is not None else payload.unit_cost,
+            "supplier_id": str(payload.supplier_id),
+            "supplier_name": payload.supplier_name,
+            "location_id": str(location.id) if location else None,
+            "location_code": location.code if location else None,
+            "paper_master_snapshot": master_snapshot,
+            "paper_quality_source": "MASTER_SNAPSHOT" if master_snapshot else "LEGACY_ITEM_INPUT",
+        }
         reel = PaperReel(
             plant_id=plant_uuid,
             reel_code=code,
             paper_id=payload.paper_id,
-            gsm=payload.gsm,
-            bf=payload.bf,
+            gsm=locked_gsm,
+            bf=locked_bf,
             supplier_id=payload.supplier_id,
             supplier_name=payload.supplier_name,
             supplier_name_snapshot=payload.supplier_name,
@@ -285,6 +345,7 @@ def create_reel_inward(
             status=ReelStatus.IN_STOCK,
             stock_status=stock_status,
             location_id=location.id if location else None,
+            inward_metadata=metadata,
             inward_date=payload.inward_date,
         )
         db.add(reel)
@@ -306,6 +367,7 @@ def create_reel_inward(
                     "generated_code": generated,
                     "location_id": str(reel.location_id) if reel.location_id else None,
                     "stock_status": reel.stock_status,
+                    "inward_metadata": metadata,
                 },
             )
             db.add(event)
@@ -427,6 +489,14 @@ def slit_reel(
                 "source": "slit",
                 "parent_reel_id": str(parent.id),
                 "parent_reel_code": parent.reel_code,
+                "slit_weight_kg": child.weight_kg,
+            },
+            inward_metadata={
+                **(parent.inward_metadata or {}),
+                "amigo_no": child_code,
+                "parent_reel_id": str(parent.id),
+                "parent_reel_code": parent.reel_code,
+                "source_document_type": "SLIT",
                 "slit_weight_kg": child.weight_kg,
             },
             inward_date=parent.inward_date,

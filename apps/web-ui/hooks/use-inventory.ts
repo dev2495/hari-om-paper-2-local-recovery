@@ -97,6 +97,16 @@ export function useCreateInward() {
   })
 }
 
+export function useInwardStockAsOn(params?: any) {
+  return useQuery({
+    queryKey: ["inventory-inward-stock-as-on", params || {}],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInwardStockAsOn(params)
+      return data || { items: [], rows: [], totals: {} }
+    },
+  })
+}
+
 export function useCreateItem() {
   const queryClient = useQueryClient()
   return useMutation({

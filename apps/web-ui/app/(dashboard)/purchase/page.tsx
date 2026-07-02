@@ -95,12 +95,29 @@ export default function PurchaseFlowPage() {
   })
 
   const [poForm, setPoForm] = useState({
+    po_no: "",
+    po_date: today(),
     vendor_id: "",
+    supplier_contact: "",
+    supplier_address: "",
+    supplier_gst_no: "",
     item_id: "",
     qty: "",
     unit_cost: "",
+    width_mm: "",
+    gsm: "",
+    plybond: "",
+    bulk: "",
+    cobb: "",
+    description: "",
     needed_date: today(),
     notes: "",
+    freight_terms: "Freight included in landed rate.",
+    tax_terms: "GST extra as applicable.",
+    payment_terms: "60 days from invoice date.",
+    delivery_terms: "Delivery as per agreed schedule.",
+    test_report_terms: "Attach test report with delivery challan copy for PB/GSM/RCT/COBB.",
+    special_instruction: "FOR AMIGO INDUSTRIES UNIT-2",
   })
   const [grnForm, setGrnForm] = useState({
     purchase_order_id: "",
@@ -163,20 +180,37 @@ export default function PurchaseFlowPage() {
     }
     try {
       await createOrder.mutateAsync({
+        po_no: poForm.po_no || undefined,
+        po_date: poForm.po_date,
         supplier_id: poForm.vendor_id,
         supplier_name: selectedRequestVendor.name,
+        supplier_contact: poForm.supplier_contact || undefined,
+        supplier_address: poForm.supplier_address || undefined,
+        supplier_gst_no: poForm.supplier_gst_no || undefined,
         expected_date: poForm.needed_date,
         notes: poForm.notes || undefined,
+        freight_terms: poForm.freight_terms || undefined,
+        tax_terms: poForm.tax_terms || undefined,
+        payment_terms: poForm.payment_terms || undefined,
+        delivery_terms: poForm.delivery_terms || undefined,
+        test_report_terms: poForm.test_report_terms || undefined,
+        special_instruction: poForm.special_instruction || undefined,
         lines: [
           {
             item_id: poForm.item_id,
             qty_ordered: Number(poForm.qty),
             unit_cost: Number(poForm.unit_cost),
             incoming_qc_required: true,
+            description: poForm.description || selectedRequestItem.name,
+            width_mm: poForm.width_mm ? Number(poForm.width_mm) : undefined,
+            gsm: poForm.gsm ? Number(poForm.gsm) : undefined,
+            plybond: poForm.plybond ? Number(poForm.plybond) : undefined,
+            bulk: poForm.bulk ? Number(poForm.bulk) : undefined,
+            cobb: poForm.cobb || undefined,
           },
         ],
       })
-      setPoForm((current) => ({ ...current, qty: "", unit_cost: "", notes: "" }))
+      setPoForm((current) => ({ ...current, po_no: "", qty: "", unit_cost: "", width_mm: "", gsm: "", plybond: "", bulk: "", cobb: "", description: "", notes: "" }))
       setMessage({ tone: "success", text: "Purchase order created. Approve it before posting GRN." })
     } catch (error: any) {
       setMessage({ tone: "error", text: errorMessage(error) })
@@ -262,6 +296,14 @@ export default function PurchaseFlowPage() {
         >
           <form onSubmit={submitPurchaseOrder} className="grid gap-3 md:grid-cols-2">
             <label className="space-y-1">
+              <FieldLabel>PO no optional</FieldLabel>
+              <input value={poForm.po_no} onChange={(event) => setPoForm((current) => ({ ...current, po_no: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>PO date</FieldLabel>
+              <input required type="date" value={poForm.po_date} onChange={(event) => setPoForm((current) => ({ ...current, po_date: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
               <FieldLabel>Vendor</FieldLabel>
               <select required value={poForm.vendor_id} onChange={(event) => setPoForm((current) => ({ ...current, vendor_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
                 <option value="">Select vendor</option>
@@ -273,11 +315,27 @@ export default function PurchaseFlowPage() {
               <input required type="date" value={poForm.needed_date} onChange={(event) => setPoForm((current) => ({ ...current, needed_date: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
             <label className="space-y-1">
+              <FieldLabel>Contact person</FieldLabel>
+              <input value={poForm.supplier_contact} onChange={(event) => setPoForm((current) => ({ ...current, supplier_contact: event.target.value }))} placeholder="Mr. Sundeepji" className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>GST no</FieldLabel>
+              <input value={poForm.supplier_gst_no} onChange={(event) => setPoForm((current) => ({ ...current, supplier_gst_no: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1 md:col-span-2">
+              <FieldLabel>Vendor address</FieldLabel>
+              <textarea value={poForm.supplier_address} onChange={(event) => setPoForm((current) => ({ ...current, supplier_address: event.target.value }))} rows={2} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+            </label>
+            <label className="space-y-1">
               <FieldLabel>Material</FieldLabel>
               <select required value={poForm.item_id} onChange={(event) => setPoForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
                 <option value="">Select material</option>
                 {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
               </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Description</FieldLabel>
+              <input value={poForm.description} onChange={(event) => setPoForm((current) => ({ ...current, description: event.target.value }))} placeholder={selectedRequestItem?.name || "KRAFT BOARD"} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
             <label className="space-y-1">
               <FieldLabel>Qty</FieldLabel>
@@ -287,6 +345,46 @@ export default function PurchaseFlowPage() {
               <FieldLabel>Unit cost</FieldLabel>
               <input required type="number" min="0.01" step="0.01" value={poForm.unit_cost} onChange={(event) => setPoForm((current) => ({ ...current, unit_cost: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
+            <div className="grid gap-3 md:col-span-2 md:grid-cols-5">
+              <label className="space-y-1">
+                <FieldLabel>Width mm</FieldLabel>
+                <input type="number" min="0" step="0.01" value={poForm.width_mm} onChange={(event) => setPoForm((current) => ({ ...current, width_mm: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>GSM</FieldLabel>
+                <input type="number" min="0" step="0.01" value={poForm.gsm} onChange={(event) => setPoForm((current) => ({ ...current, gsm: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>PB</FieldLabel>
+                <input type="number" min="0" step="0.01" value={poForm.plybond} onChange={(event) => setPoForm((current) => ({ ...current, plybond: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>Bulk</FieldLabel>
+                <input type="number" min="0" step="0.001" value={poForm.bulk} onChange={(event) => setPoForm((current) => ({ ...current, bulk: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>COBB</FieldLabel>
+                <input value={poForm.cobb} onChange={(event) => setPoForm((current) => ({ ...current, cobb: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+            </div>
+            <div className="grid gap-3 md:col-span-2 md:grid-cols-2">
+              <label className="space-y-1">
+                <FieldLabel>Freight terms</FieldLabel>
+                <input value={poForm.freight_terms} onChange={(event) => setPoForm((current) => ({ ...current, freight_terms: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>Payment terms</FieldLabel>
+                <input value={poForm.payment_terms} onChange={(event) => setPoForm((current) => ({ ...current, payment_terms: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>Test report terms</FieldLabel>
+                <input value={poForm.test_report_terms} onChange={(event) => setPoForm((current) => ({ ...current, test_report_terms: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+              <label className="space-y-1">
+                <FieldLabel>Special instruction</FieldLabel>
+                <input value={poForm.special_instruction} onChange={(event) => setPoForm((current) => ({ ...current, special_instruction: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+              </label>
+            </div>
             <label className="space-y-1 md:col-span-2">
               <FieldLabel>Notes</FieldLabel>
               <textarea value={poForm.notes} onChange={(event) => setPoForm((current) => ({ ...current, notes: event.target.value }))} rows={3} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
@@ -295,6 +393,60 @@ export default function PurchaseFlowPage() {
               {createOrder.isPending ? "Creating PO..." : "Create purchase order"}
             </button>
           </form>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 print:bg-white">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-500">Printable PO Preview</p>
+                <h3 className="mt-1 text-base font-semibold text-slate-950">Amigo Industries Unit-2 Purchase Order</h3>
+              </div>
+              <button type="button" onClick={() => window.print()} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-800">
+                Print PO
+              </button>
+            </div>
+            <div className="grid gap-3 text-sm md:grid-cols-2">
+              <div className="rounded-xl bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">PO</p>
+                <p className="mt-1 font-semibold text-slate-950">{poForm.po_no || "System generated"} · {poForm.po_date}</p>
+                <p className="mt-1 text-slate-600">Expected {poForm.needed_date || "-"}</p>
+              </div>
+              <div className="rounded-xl bg-white p-3">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Vendor</p>
+                <p className="mt-1 font-semibold text-slate-950">{selectedRequestVendor?.name || "Select vendor"}</p>
+                <p className="mt-1 text-slate-600">{poForm.supplier_contact || "-"} · GST {poForm.supplier_gst_no || "-"}</p>
+              </div>
+            </div>
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full min-w-[680px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                    {["Item", "Description", "Width", "GSM", "PB", "Bulk", "COBB", "Qty", "Rate", "Amount"].map((head) => <th key={head} className="py-2 pr-3">{head}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-100">
+                    <td className="py-2 pr-3">{selectedRequestItem?.item_code || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.description || selectedRequestItem?.name || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.width_mm || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.gsm || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.plybond || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.bulk || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.cobb || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.qty || "-"}</td>
+                    <td className="py-2 pr-3">{poForm.unit_cost || "-"}</td>
+                    <td className="py-2 pr-3 font-semibold text-slate-950">{formatCurrency(Number(poForm.qty || 0) * Number(poForm.unit_cost || 0))}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-600 md:grid-cols-2">
+              <p><strong>Freight:</strong> {poForm.freight_terms || "-"}</p>
+              <p><strong>Tax:</strong> {poForm.tax_terms || "-"}</p>
+              <p><strong>Payment:</strong> {poForm.payment_terms || "-"}</p>
+              <p><strong>Delivery:</strong> {poForm.delivery_terms || "-"}</p>
+              <p className="md:col-span-2"><strong>Test report:</strong> {poForm.test_report_terms || "-"}</p>
+              <p className="md:col-span-2"><strong>Instruction:</strong> {poForm.special_instruction || "-"}</p>
+            </div>
+          </div>
         </Panel>
 
         <Panel
