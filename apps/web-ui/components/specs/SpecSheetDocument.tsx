@@ -2059,7 +2059,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     placeholder?: string,
   ) => {
     const defaultDefinition = DEFAULT_SPEC_FIELD_DEFINITIONS.find((field) => field.field_key === key)
-    const definition = NOTCH_TOOL_FIELD_CATEGORY_MAP[key] ? defaultDefinition || fieldCatalogMap.get(key) : fieldCatalogMap.get(key) || defaultDefinition
+    const shouldPreferDefaultDefinition =
+      Boolean(NOTCH_TOOL_FIELD_CATEGORY_MAP[key]) ||
+      (defaultDefinition?.field_type === "select" && Array.isArray(defaultDefinition.options) && defaultDefinition.options.length > 0)
+    const definition = shouldPreferDefaultDefinition ? defaultDefinition || fieldCatalogMap.get(key) : fieldCatalogMap.get(key) || defaultDefinition
     const catalogOptions = fieldCatalogMap.get(key)?.options
     const defaultOptions = defaultDefinition?.options
     const staticOptions: string[] = [
