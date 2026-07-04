@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo } from "react"
 import { useForm } from "react-hook-form"
-import { TOOL_CATEGORY_LABELS } from "@/lib/spec-sheet"
+import {
+  TOOL_CATEGORY_LABELS,
+  TOOL_MASTER_POINT_FIELDS,
+  formatToolMasterPoints,
+  parseToolMasterSpecText,
+  serializeToolMasterPoints,
+} from "@/lib/spec-sheet"
 
 import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
@@ -13,6 +19,59 @@ interface MasterFormProps {
   initialData?: any
   onSubmit: (data: any) => void
   onCancel: () => void
+}
+
+function cleanText(value: any) {
+  const text = String(value ?? "").trim()
+  return text || undefined
+}
+
+function normalizeToolCategory(value: any) {
+  const normalized = String(value || "NOTCH")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+  return TOOL_CATEGORY_LABELS[normalized] ? normalized : "NOTCH"
+}
+
+function initialToolPoints(initialData: any, category: string) {
+  const points: Record<string, string> = {
+    ...parseToolMasterSpecText(initialData?.spec_text),
+  }
+  if (!points.code && initialData?.code) points.code = String(initialData.code)
+  if (!points.type && initialData?.subcategory && ["NOTCH", "BLADE"].includes(category)) {
+    points.type = String(initialData.subcategory)
+  }
+  if (!points.punch && initialData?.subcategory && category === "PUNCH") {
+    points.punch = String(initialData.subcategory)
+  }
+  return points
+}
+
+function toolSubcategory(category: string, points: Record<string, any>) {
+  if (category === "PUNCH") return cleanText(points.punch)
+  if (category === "NOTCH" || category === "BLADE") return cleanText(points.type)
+  if (category === "V_FLAT") return cleanText(points.length)
+  return cleanText(points.thickness)
+}
+
+function toDateTimeLocal(value?: string) {
+  if (!value) return ""
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ""
+  return date.toISOString().slice(0, 16)
+}
+
+function buildToolDefaults(source: any = {}) {
+  const category = normalizeToolCategory(source?.category)
+  return {
+    status: "ACTIVE",
+    department: "PROCESS",
+    ...source,
+    category,
+    points: initialToolPoints(source, category),
+    next_maintenance_due: toDateTimeLocal(source?.next_maintenance_due),
+  }
 }
 
 export function PaperForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
@@ -680,29 +739,33 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
 }
 
 export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
-  const toolDetailHints: Record<string, string> = {
-    NOTCH: "Use name/spec text for type, thickness, design, code, and degree.",
-    BLADE: "Use name/spec text for type, thickness, code, height, and length.",
-    HOLDER: "Use name/spec text for thickness, code, height, and length.",
-    V_FLAT: "Use name/spec text for code, length, and thickness.",
-    PUNCH: "Use name/spec text for punch option such as Single, Double, or N/A.",
-  }
-  const toDateTimeLocal = (value?: string) => {
-    if (!value) return ""
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) return ""
-    return date.toISOString().slice(0, 16)
-  }
-  const { register, handleSubmit, watch } = useForm({
-    defaultValues: {
-      status: "ACTIVE",
-      department: "PROCESS",
-      ...initialData,
-      next_maintenance_due: toDateTimeLocal(initialData?.next_maintenance_due),
-    },
+  const { register, handleSubmit, watch, reset } = useForm({
+    defaultValues: buildToolDefaults(initialData),
   })
+
+  useEffect(() => {
+    reset(buildToolDefaults(initialData))
+  }, [initialData, reset])
+
   const submit = handleSubmit((data) => {
-    const payload = { ...data }
+    const category = normalizeToolCategory(data.category)
+    const pointFields = TOOL_MASTER_POINT_FIELDS[category] || []
+    const rawPoints = data.points || {}
+    const points = Object.fromEntries(
+      pointFields
+        .map((field) => [field.key, cleanText(rawPoints[field.key])])
+        .filter(([, value]) => Boolean(value)),
+    )
+    const generatedName = formatToolMasterPoints(category, points)
+    const payload = {
+      ...data,
+      category,
+      name: cleanText(data.name) || generatedName || TOOL_CATEGORY_LABELS[category],
+      code: cleanText(data.code) || cleanText(points.code),
+      subcategory: toolSubcategory(category, points),
+      spec_text: serializeToolMasterPoints(category, points),
+    }
+    delete payload.points
     for (const key of ["code", "subcategory", "spec_text", "location", "condition_notes", "next_maintenance_due"]) {
       if (payload[key] === "") {
         payload[key] = undefined
@@ -710,7 +773,11 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
     }
     onSubmit(payload)
   })
-  const selectedCategory = watch("category") || initialData?.category || "NOTCH"
+  const selectedCategory = normalizeToolCategory(watch("category") || initialData?.category)
+  const pointFields = TOOL_MASTER_POINT_FIELDS[selectedCategory] || []
+  const watchedPoints = (watch("points") || {}) as Record<string, any>
+  const previewName = formatToolMasterPoints(selectedCategory, watchedPoints)
+
   return (
     <form onSubmit={submit} className="space-y-4">
       <div className="grid grid-cols-2 gap-4">
@@ -760,22 +827,50 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Name</label>
-          <Input {...register("name", { required: true })} />
+          <label className="text-sm font-medium">Display Name</label>
+          <Input {...register("name")} placeholder={previewName || "Auto from tool points"} />
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium">Code</label>
-          <Input {...register("code")} />
+          <Input {...register("code")} placeholder="Auto from Code point if blank" />
         </div>
       </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Subcategory</label>
-        <Input {...register("subcategory")} />
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Tool Details</label>
-        <Input {...register("spec_text")} placeholder={toolDetailHints[selectedCategory] || "Tool dimensions / setup details"} />
-        <p className="text-xs text-slate-500">{toolDetailHints[selectedCategory] || "Add the physical tool details here."}</p>
+
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {TOOL_CATEGORY_LABELS[selectedCategory]} points
+            </p>
+            <p className="mt-1 text-xs text-slate-500">These fields create the spec-sheet dropdown value.</p>
+          </div>
+          {previewName ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">{previewName}</span> : null}
+        </div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {pointFields.map((field) => (
+            <div key={`${selectedCategory}-${field.key}`} className="space-y-1.5">
+              <label className="text-sm font-medium">{field.label}</label>
+              {field.input === "select" ? (
+                <select
+                  {...register(`points.${field.key}`, { required: field.required })}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                >
+                  <option value="">Select {field.label.toLowerCase()}</option>
+                  {(field.options || []).map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <Input
+                  {...register(`points.${field.key}`, { required: field.required })}
+                  placeholder={field.placeholder || field.label}
+                />
+              )}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="space-y-2">
         <label className="text-sm font-medium">Next Maintenance Due</label>

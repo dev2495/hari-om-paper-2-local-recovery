@@ -49,17 +49,14 @@ COMPAT_DYNAMIC_FIELDS: dict[str, dict[str, str]] = {
     "adhesive_components_json": {"label": "Adhesive Components", "field_type": "text"},
     "recipe_sheet_json": {"label": "Recipe Sheet", "field_type": "text"},
     "candidate_papers_json": {"label": "Candidate Papers", "field_type": "text"},
-    "notch_required": {"label": "Notch Required", "field_type": "boolean"},
-    "top_paper_required": {"label": "Top Paper Required", "field_type": "boolean"},
     "notch_type": {"label": "Notch Tool", "field_type": "select"},
-    "notch_distance_mm": {"label": "Notch Distance", "field_type": "number"},
-    "notch_depth_mm": {"label": "Notch Deep", "field_type": "number"},
+    "notch_distance_mm": {"label": "Notch Distance", "field_type": "select"},
+    "notch_depth_mm": {"label": "Notch Deep", "field_type": "select"},
     "notching_holder": {"label": "Holder Tool", "field_type": "select"},
     "notching_blade": {"label": "Blade Tool", "field_type": "select"},
     "v_flat": {"label": "V + Flat Tool", "field_type": "select"},
     "punch": {"label": "Punch", "field_type": "select"},
     "notch_direction": {"label": "Direction", "field_type": "select"},
-    "tube_direction": {"label": "Tube Direction", "field_type": "text"},
     "bundle_type": {"label": "Bundle Type", "field_type": "text"},
     "bundle_code": {"label": "Bundle Code", "field_type": "text"},
     "packing_ply": {"label": "Packing Ply", "field_type": "number"},
@@ -351,8 +348,6 @@ def _profile_from_dynamic_map(dynamic_map: dict[str, Optional[str]]) -> Optional
             profile["recipe"] = recipe_profile
 
     notch_keys = [
-        "notch_required",
-        "top_paper_required",
         "notch_type",
         "notch_distance_mm",
         "notch_depth_mm",
@@ -361,9 +356,10 @@ def _profile_from_dynamic_map(dynamic_map: dict[str, Optional[str]]) -> Optional
         "v_flat",
         "punch",
         "notch_direction",
-        "tube_direction",
     ]
     notch_payload = {key: dynamic_map.get(key) for key in notch_keys if dynamic_map.get(key) not in (None, "")}
+    if not notch_payload.get("notch_direction") and dynamic_map.get("tube_direction"):
+        notch_payload["notch_direction"] = dynamic_map.get("tube_direction")
     if notch_payload:
         notch_profile = dict(profile.get("notch_tooling") or {})
         notch_profile["diagram"] = {**dict(notch_profile.get("diagram") or {}), **notch_payload}
@@ -435,10 +431,14 @@ def _compat_dynamic_values_from_payload(payload: SpecCreate | SpecUpdate) -> dic
         if recipe_profile.get("adhesive_components") is not None:
             compat_values["adhesive_components_json"] = recipe_profile.get("adhesive_components")
 
-        notch_payload = dict(((profile.get("notch_tooling") or {}).get("diagram")) or {})
+        notch_section = dict(profile.get("notch_tooling") or {})
+        notch_payload = {
+            key: value
+            for key, value in notch_section.items()
+            if key not in {"diagram", "tooling_usage"} and value is not None
+        }
+        notch_payload.update(dict((notch_section.get("diagram") or {})))
         for key in [
-            "notch_required",
-            "top_paper_required",
             "notch_type",
             "notch_distance_mm",
             "notch_depth_mm",
@@ -447,7 +447,6 @@ def _compat_dynamic_values_from_payload(payload: SpecCreate | SpecUpdate) -> dic
             "v_flat",
             "punch",
             "notch_direction",
-            "tube_direction",
         ]:
             if notch_payload.get(key) is not None:
                 compat_values[key] = notch_payload.get(key)

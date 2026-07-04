@@ -8,10 +8,14 @@ import {
   isMasterOptionActive,
   isTubeWithinMandrelBand,
   NOTCH_DIAGRAM_FIELD_KEYS,
+  NOTCH_DEPTH_OPTIONS,
   NOTCH_DIRECTION_OPTIONS,
+  NOTCH_DISTANCE_OPTIONS,
   NOTCH_TOOL_FIELD_CATEGORY_MAP,
   NOTCH_TOOL_FIELD_KEYS,
+  SPEC_NOTCH_FIELD_KEYS,
   TOOL_CATEGORY_LABELS,
+  TOOL_MASTER_POINT_FIELDS,
 } from "../lib/spec-sheet"
 
 const passed: string[] = []
@@ -29,7 +33,7 @@ function test(name: string, fn: () => void) {
 const fieldsByKey = new Map(DEFAULT_SPEC_FIELD_DEFINITIONS.map((field) => [field.field_key, field]))
 
 test("notching spec fields match client dropdown list", () => {
-  for (const key of [
+  assert.deepEqual([...SPEC_NOTCH_FIELD_KEYS], [
     "notch_type",
     "notching_blade",
     "notching_holder",
@@ -38,7 +42,8 @@ test("notching spec fields match client dropdown list", () => {
     "notch_direction",
     "notch_distance_mm",
     "notch_depth_mm",
-  ]) {
+  ])
+  for (const key of SPEC_NOTCH_FIELD_KEYS) {
     assert.ok(fieldsByKey.has(key), `${key} must be available to the spec sheet`)
   }
 })
@@ -66,10 +71,22 @@ test("tool categories and non-tool notch inputs match the client correction", ()
   assert.deepEqual(Object.keys(TOOL_CATEGORY_LABELS), ["NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"])
   assert.deepEqual([...NOTCH_DIAGRAM_FIELD_KEYS], ["notch_distance_mm", "notch_depth_mm"])
   assert.deepEqual([...NOTCH_DIRECTION_OPTIONS], ["Clockwise", "Anticlockwise"])
+  assert.deepEqual([...NOTCH_DISTANCE_OPTIONS], ["10.0", "10.50", "11.00"])
+  assert.deepEqual([...NOTCH_DEPTH_OPTIONS], ["3.5 mm", "4.0 mm", "4.5 mm"])
   assert.equal(fieldsByKey.get("notch_direction")?.field_type, "select")
   assert.deepEqual(fieldsByKey.get("notch_direction")?.options, ["Clockwise", "Anticlockwise"])
-  assert.equal(fieldsByKey.get("notch_distance_mm")?.field_type, "number")
-  assert.equal(fieldsByKey.get("notch_depth_mm")?.field_type, "number")
+  assert.equal(fieldsByKey.get("notch_distance_mm")?.field_type, "select")
+  assert.deepEqual(fieldsByKey.get("notch_distance_mm")?.options, ["10.0", "10.50", "11.00"])
+  assert.equal(fieldsByKey.get("notch_depth_mm")?.field_type, "select")
+  assert.deepEqual(fieldsByKey.get("notch_depth_mm")?.options, ["3.5 mm", "4.0 mm", "4.5 mm"])
+})
+
+test("tool master captures the client point fields under each of the five categories", () => {
+  assert.deepEqual(TOOL_MASTER_POINT_FIELDS.NOTCH.map((field) => field.key), ["type", "thickness", "design", "code", "degree"])
+  assert.deepEqual(TOOL_MASTER_POINT_FIELDS.BLADE.map((field) => field.key), ["type", "thickness", "code", "height", "length"])
+  assert.deepEqual(TOOL_MASTER_POINT_FIELDS.HOLDER.map((field) => field.key), ["thickness", "code", "height", "length"])
+  assert.deepEqual(TOOL_MASTER_POINT_FIELDS.V_FLAT.map((field) => field.key), ["code", "length", "thickness"])
+  assert.deepEqual(TOOL_MASTER_POINT_FIELDS.PUNCH.map((field) => field.key), ["punch"])
 })
 
 test("sample master tools map to only their matching spec dropdown", () => {
@@ -129,9 +146,10 @@ test("notching spec fields avoid old unused process fields", () => {
   }
 })
 
-test("only non-tool notch metadata remains outside tool master", () => {
-  assert.equal(fieldsByKey.get("notch_required")?.field_type, "boolean")
-  assert.equal(fieldsByKey.get("top_paper_required")?.field_type, "boolean")
+test("no old notch metadata fields remain in the default spec contract", () => {
+  for (const key of ["notch_required", "top_paper_required", "tube_direction", "blade", "holder"]) {
+    assert.equal(fieldsByKey.has(key), false, `${key} should not be part of the default notching spec field set`)
+  }
 })
 
 test("discontinued and inactive master records are hidden from spec dropdowns", () => {

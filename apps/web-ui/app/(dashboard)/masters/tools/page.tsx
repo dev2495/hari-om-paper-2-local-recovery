@@ -24,7 +24,7 @@ import {
   useUpdateTool,
   useUpdateToolStatus,
 } from "@/hooks/use-master-data"
-import { TOOL_CATEGORY_LABELS } from "@/lib/spec-sheet"
+import { TOOL_CATEGORY_LABELS, formatToolMasterSpecText } from "@/lib/spec-sheet"
 
 const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
 const CATEGORY_ORDER = Object.keys(TOOL_CATEGORY_LABELS)
@@ -40,6 +40,11 @@ function formatDate(value: any) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "-"
   return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
+}
+
+function toolDetailText(row: any) {
+  const formatted = formatToolMasterSpecText(row?.category, row?.spec_text)
+  return [row?.code, formatted].map((value) => String(value || "").trim()).filter(Boolean).join(" · ") || "-"
 }
 
 export default function ToolsPage() {
@@ -225,7 +230,7 @@ export default function ToolsPage() {
                     <div key={row.id} className="grid grid-cols-[1.1fr_1fr_0.8fr_0.9fr_0.9fr_1.3fr] gap-3 px-4 py-4 text-sm">
                   <div>
                     <p className="font-semibold text-slate-950">{row.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{row.code || row.spec_text || "-"}</p>
+                    <p className="mt-1 text-xs text-slate-500">{toolDetailText(row)}</p>
                   </div>
                   <div className="font-medium text-slate-700">{CATEGORY_LABELS[row.category] || row.category}</div>
                   <div>

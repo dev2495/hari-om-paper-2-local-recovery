@@ -34,6 +34,142 @@ export const NOTCH_TOOL_FIELD_CATEGORY_MAP: Record<string, string[]> = {
 export const NOTCH_TOOL_FIELD_KEYS = Object.keys(NOTCH_TOOL_FIELD_CATEGORY_MAP)
 export const NOTCH_DIAGRAM_FIELD_KEYS = ["notch_distance_mm", "notch_depth_mm"] as const
 export const NOTCH_DIRECTION_OPTIONS = ["Clockwise", "Anticlockwise"] as const
+export const NOTCH_DISTANCE_OPTIONS = ["10.0", "10.50", "11.00"] as const
+export const NOTCH_DEPTH_OPTIONS = ["3.5 mm", "4.0 mm", "4.5 mm"] as const
+export const SPEC_NOTCH_FIELD_KEYS = [
+  "notch_type",
+  "notching_blade",
+  "notching_holder",
+  "v_flat",
+  "punch",
+  "notch_direction",
+  "notch_distance_mm",
+  "notch_depth_mm",
+] as const
+
+export type ToolMasterPointField = {
+  key: string
+  label: string
+  input: "text" | "select"
+  options?: readonly string[]
+  placeholder?: string
+  required?: boolean
+}
+
+export const TOOL_MASTER_POINT_FIELDS: Record<string, ToolMasterPointField[]> = {
+  NOTCH: [
+    { key: "type", label: "Type", input: "select", options: ["Bottom LHS", "Bottom RHS", "Top RHS"], required: true },
+    { key: "thickness", label: "Thickness", input: "text", placeholder: "6 mm", required: true },
+    { key: "design", label: "Design", input: "select", options: ["Plain", "Step"], required: true },
+    { key: "code", label: "Code", input: "text", placeholder: "Optional tool code" },
+    { key: "degree", label: "Degree", input: "select", options: ["50", "55", "60"], required: true },
+  ],
+  BLADE: [
+    { key: "type", label: "Type", input: "select", options: ["Plain", "Half Serration", "Full Serration"], required: true },
+    { key: "thickness", label: "Thickness", input: "text", placeholder: "0.9 mm", required: true },
+    { key: "code", label: "Code", input: "text", placeholder: "Optional blade code" },
+    { key: "height", label: "Height", input: "text", placeholder: "Height" },
+    { key: "length", label: "Length", input: "text", placeholder: "140/130/20", required: true },
+  ],
+  HOLDER: [
+    { key: "thickness", label: "Thickness", input: "text", placeholder: "Thickness", required: true },
+    { key: "code", label: "Code", input: "text", placeholder: "Optional holder code" },
+    { key: "height", label: "Height", input: "text", placeholder: "Height" },
+    { key: "length", label: "Length", input: "text", placeholder: "Length", required: true },
+  ],
+  V_FLAT: [
+    { key: "code", label: "Code", input: "text", placeholder: "Optional V + Flat code" },
+    { key: "length", label: "Length", input: "text", placeholder: "70+30", required: true },
+    { key: "thickness", label: "Thickness", input: "text", placeholder: "4.0", required: true },
+  ],
+  PUNCH: [
+    { key: "punch", label: "Punch", input: "select", options: ["Single", "Double", "N/A"], required: true },
+  ],
+}
+
+export function sanitizeToolMasterPoints(category: string, points: Record<string, any> = {}) {
+  const fields = TOOL_MASTER_POINT_FIELDS[String(category || "").trim().toUpperCase()] || []
+  const cleaned: Record<string, string> = {}
+  for (const field of fields) {
+    const value = String(points[field.key] ?? "").trim()
+    if (value) cleaned[field.key] = value
+  }
+  return cleaned
+}
+
+export function parseToolMasterSpecText(value: any) {
+  if (!value || typeof value !== "string") return {}
+  try {
+    const parsed = JSON.parse(value)
+    if (parsed && typeof parsed === "object" && parsed.points && typeof parsed.points === "object") {
+      return Object.fromEntries(
+        Object.entries(parsed.points as Record<string, any>)
+          .map(([key, pointValue]) => [key, String(pointValue ?? "").trim()])
+          .filter(([, pointValue]) => Boolean(pointValue)),
+      )
+    }
+  } catch {
+    return {}
+  }
+  return {}
+}
+
+export function serializeToolMasterPoints(category: string, points: Record<string, any>) {
+  const cleaned = sanitizeToolMasterPoints(category, points)
+  if (!Object.keys(cleaned).length) return undefined
+  return JSON.stringify({ version: 1, points: cleaned })
+}
+
+export function formatToolMasterPoints(category: string, points: Record<string, any> = {}) {
+  const normalizedCategory = String(category || "").trim().toUpperCase()
+  const cleaned = sanitizeToolMasterPoints(normalizedCategory, points)
+  if (!Object.keys(cleaned).length) return ""
+  if (normalizedCategory === "NOTCH") {
+    return [
+      cleaned.type,
+      cleaned.thickness,
+      cleaned.design,
+      cleaned.code,
+      cleaned.degree ? `${cleaned.degree} deg` : "",
+    ]
+      .filter(Boolean)
+      .join(" - ")
+  }
+  if (normalizedCategory === "BLADE") {
+    return [
+      cleaned.type ? `${cleaned.type} Blade` : "",
+      cleaned.thickness,
+      cleaned.code,
+      cleaned.height ? `H ${cleaned.height}` : "",
+      cleaned.length ? `L ${cleaned.length}` : "",
+    ]
+      .filter(Boolean)
+      .join(" - ")
+  }
+  if (normalizedCategory === "HOLDER") {
+    return [
+      "Holder",
+      cleaned.thickness,
+      cleaned.code,
+      cleaned.height ? `H ${cleaned.height}` : "",
+      cleaned.length ? `L ${cleaned.length}` : "",
+    ]
+      .filter(Boolean)
+      .join(" - ")
+  }
+  if (normalizedCategory === "V_FLAT") {
+    return ["V + Flat", cleaned.code, cleaned.length, cleaned.thickness ? `${cleaned.thickness} thick` : ""]
+      .filter(Boolean)
+      .join(" - ")
+  }
+  if (normalizedCategory === "PUNCH") return cleaned.punch || ""
+  return Object.values(cleaned).filter(Boolean).join(" - ")
+}
+
+export function formatToolMasterSpecText(category: string, specText?: string | null) {
+  const points = parseToolMasterSpecText(specText)
+  return formatToolMasterPoints(category, points) || String(specText || "").trim()
+}
 
 export type ProfileRangeValue = {
   avg?: number | null
@@ -63,19 +199,14 @@ export type SpecProfile = {
     recipe_rows?: GroupedRecipeRow[]
   }
   notch_tooling: {
-    notch_required?: boolean | null
-    top_paper_required?: boolean | null
     notch_type?: string | null
     notch_distance_mm?: number | null
     notch_depth_mm?: number | null
     notching_holder?: string | null
     notching_blade?: string | null
-    holder?: string | null
-    blade?: string | null
     v_flat?: string | null
     punch?: string | null
     notch_direction?: string | null
-    tube_direction?: string | null
     diagram?: Record<string, any>
     tooling_usage?: Array<Record<string, any>>
   }
@@ -400,16 +531,14 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "adhesive_components_json", label: "Adhesive Components JSON", field_type: "text" },
   { field_key: "drying_percent_override", label: "Drying Override %", field_type: "number" },
   { field_key: "fill_instructions_version", label: "Fill Instructions Version", field_type: "text" },
-  { field_key: "notch_required", label: "Notch", field_type: "boolean" },
-  { field_key: "top_paper_required", label: "Top Paper", field_type: "boolean" },
   { field_key: "notch_type", label: "Notch Tool", field_type: "select" },
   { field_key: "notching_blade", label: "Blade Tool", field_type: "select" },
   { field_key: "notching_holder", label: "Holder Tool", field_type: "select" },
   { field_key: "v_flat", label: "V + Flat Tool", field_type: "select" },
   { field_key: "punch", label: "Punch", field_type: "select" },
   { field_key: "notch_direction", label: "Direction", field_type: "select", options: [...NOTCH_DIRECTION_OPTIONS] },
-  { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "number" },
-  { field_key: "notch_depth_mm", label: "Notch Deep", field_type: "number" },
+  { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "select", options: [...NOTCH_DISTANCE_OPTIONS] },
+  { field_key: "notch_depth_mm", label: "Notch Deep", field_type: "select", options: [...NOTCH_DEPTH_OPTIONS] },
   { field_key: "winder_tool_required", label: "Winder Tool", field_type: "boolean" },
   { field_key: "bundle_type", label: "Bundle Type", field_type: "text" },
   { field_key: "bundle_code", label: "Bundle Code", field_type: "text" },

@@ -42,7 +42,13 @@ def _normalize_category(value: Optional[str]) -> str:
     text = _normalize_text(value)
     if not text:
         raise HTTPException(status_code=400, detail="Tool category is required")
-    return text.upper().replace(" ", "_")
+    normalized = text.upper().replace(" ", "_")
+    if normalized not in NOTCH_TOOL_CATEGORIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Tool category must be one of {list(NOTCH_TOOL_CATEGORIES.keys())}",
+        )
+    return normalized
 
 
 def _normalize_status(value: Optional[str]) -> str:

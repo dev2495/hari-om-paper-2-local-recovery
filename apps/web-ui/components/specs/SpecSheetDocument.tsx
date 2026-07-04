@@ -216,13 +216,10 @@ function defaultFormState(): FormState {
       glue_base_percent: "15",
       drying_percent_override: "",
       fill_instructions_version: CANONICAL_VARIANT_KEY,
-      notch_required: "false",
-      top_paper_required: "false",
       winder_tool_required: "false",
       plastic_required: "false",
       bopp_required: "false",
       notch_direction: "",
-      tube_direction: "",
       notch_type: "",
       notching_blade: "",
       notching_holder: "",
@@ -1190,9 +1187,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       notchDistanceMm: distance,
       notchDepthMm: depth,
       notchType: String(form.dynamicValues.notch_type || ""),
-      tubeDirection: String(form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || ""),
+      tubeDirection: String(form.dynamicValues.notch_direction || ""),
     }
-  }, [form.dynamicValues.notch_direction, form.dynamicValues.notch_type, form.dynamicValues.tube_direction, form.notchDiagram.title, notchDepthMm, notchDistanceMm, tubeLengthMm])
+  }, [form.dynamicValues.notch_direction, form.dynamicValues.notch_type, form.notchDiagram.title, notchDepthMm, notchDistanceMm, tubeLengthMm])
 
   const previewSummary = useMemo(() => (previewQuery.data?.summary || {}) as Record<string, any>, [previewQuery.data?.summary])
 
@@ -1792,19 +1789,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         recipe_rows: form.recipeRows,
       },
       notch_tooling: {
-        notch_required: boolFromString(form.dynamicValues.notch_required),
-        top_paper_required: boolFromString(form.dynamicValues.top_paper_required),
         notch_type: form.dynamicValues.notch_type || null,
         notch_distance_mm: parseMmValue(form.dynamicValues.notch_distance_mm),
         notch_depth_mm: parseMmValue(form.dynamicValues.notch_depth_mm),
         notching_holder: form.dynamicValues.notching_holder || null,
         notching_blade: form.dynamicValues.notching_blade || null,
-        blade: form.dynamicValues.notching_blade || null,
-        holder: form.dynamicValues.notching_holder || null,
         v_flat: form.dynamicValues.v_flat || null,
         punch: form.dynamicValues.punch || null,
-        notch_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
-        tube_direction: form.dynamicValues.notch_direction || form.dynamicValues.tube_direction || null,
+        notch_direction: form.dynamicValues.notch_direction || null,
         diagram: form.notchDiagram,
         tooling_usage: selectedNotchToolEntries,
       },
@@ -2068,7 +2060,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   ) => {
     const defaultDefinition = DEFAULT_SPEC_FIELD_DEFINITIONS.find((field) => field.field_key === key)
     const definition = NOTCH_TOOL_FIELD_CATEGORY_MAP[key] ? defaultDefinition || fieldCatalogMap.get(key) : fieldCatalogMap.get(key) || defaultDefinition
-    const staticOptions: string[] = Array.isArray(definition?.options) ? (definition.options as string[]) : []
+    const catalogOptions = fieldCatalogMap.get(key)?.options
+    const defaultOptions = defaultDefinition?.options
+    const staticOptions: string[] = [
+      ...(Array.isArray(defaultOptions) ? (defaultOptions as string[]) : []),
+      ...(Array.isArray(catalogOptions) ? (catalogOptions as string[]) : []),
+    ]
     const toolCategories = NOTCH_TOOL_FIELD_CATEGORY_MAP[key] || []
     const dynamicToolOptions = toolCategories.flatMap((category) => toolOptionsByCategory.get(category) || [])
     const externalOptions = externalSelectOptionsByField[key] || []
