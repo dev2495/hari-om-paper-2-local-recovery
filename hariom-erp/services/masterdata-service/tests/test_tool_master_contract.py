@@ -1,0 +1,128 @@
+import json
+import unittest
+import uuid
+
+from fastapi import HTTPException
+
+from src import models
+from src.routers import tool as tool_router
+
+
+class _ToolQuery:
+    def __init__(self, db):
+        self._db = db
+
+    def filter(self, *_criteria):
+        return self
+
+    def first(self):
+        return self._db.target
+
+
+class _ToolSession:
+    """Small unit-test double for the repository calls used by tooling endpoints."""
+
+    def __init__(self):
+        self.tools = []
+        self.logs = []
+        self.target = None
+        self.commits = 0
+
+    def add(self, record):
+        if isinstance(record, models.ToolMaster):
+            if record.id is None:
+                record.id = uuid.uuid4()
+            if record.active is None:
+                record.active = True
+            if record.usage_count is None:
+                record.usage_count = 0
+            self.tools.append(record)
+            return
+        self.logs.append(record)
+
+    def flush(self):
+        pass
+
+    def commit(self):
+        self.commits += 1
+
+    def refresh(self, _record):
+        pass
+
+    def query(self, _model):
+        return _ToolQuery(self)
+
+
+class ToolMasterContractTests(unittest.TestCase):
+    def setUp(self):
+        self.db = _ToolSession()
+        self.actor = {"name": "Tooling QA"}
+        self.plant_id = "PLANT_TOOL_QA"
+
+    def test_categories_are_fixed_and_unknown_categories_are_rejected(self):
+        self.assertEqual(
+            [row["value"] for row in tool_router.get_tool_categories()],
+            ["NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"],
+        )
+        with self.assertRaises(HTTPException) as caught:
+            tool_router._normalize_category("DIE")
+        self.assertEqual(caught.exception.status_code, 400)
+
+    def test_multiple_tools_can_be_created_and_edited_under_every_fixed_category(self):
+        categories = ["NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"]
+        created = []
+
+        for category in categories:
+            for sequence in (1, 2):
+                points = {"qa_sequence": str(sequence), "category": category}
+                payload = tool_router.ToolCreate(
+                    category=category,
+                    name=f"{category} QA Tool {sequence}",
+                    code=f"QA-{category}-{sequence}",
+                    spec_text=json.dumps({"version": 1, "points": points}),
+                    department="PROCESS",
+                    status="ACTIVE",
+                    location="Tool QA rack",
+                )
+                created.append(
+                    tool_router.create_tool(
+                        payload,
+                        db=self.db,
+                        plant_id=self.plant_id,
+                        current_user=self.actor,
+                    )
+                )
+
+        self.assertEqual(len(self.db.tools), 10)
+        self.assertEqual([record.category for record in self.db.tools].count("NOTCH"), 2)
+        self.assertEqual([record.category for record in self.db.tools].count("BLADE"), 2)
+        self.assertEqual([record.category for record in self.db.tools].count("HOLDER"), 2)
+        self.assertEqual([record.category for record in self.db.tools].count("V_FLAT"), 2)
+        self.assertEqual([record.category for record in self.db.tools].count("PUNCH"), 2)
+        self.assertEqual(len(self.db.logs), 10)
+
+        for record in created:
+            self.db.target = record
+            edited = tool_router.update_tool(
+                record.id,
+                tool_router.ToolUpdate(
+                    name=f"{record.name} revised",
+                    location="Tool QA bench",
+                    condition_notes="QA edit verified",
+                    spec_text=record.spec_text,
+                ),
+                db=self.db,
+                plant_id=self.plant_id,
+                current_user=self.actor,
+            )
+            self.assertTrue(edited.name.endswith("revised"))
+            self.assertEqual(edited.location, "Tool QA bench")
+            self.assertEqual(edited.condition_notes, "QA edit verified")
+            self.assertEqual(edited.category, record.category)
+            self.assertEqual(edited.spec_text, record.spec_text)
+
+        self.assertEqual(self.db.commits, 20)
+
+
+if __name__ == "__main__":
+    unittest.main()
