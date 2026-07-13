@@ -72,6 +72,6 @@ These are plant onboarding actions, not software defects. They require the clien
 
 - [x] Release commit `8740c55` created.
 - [x] Release commit pushed to the Git remote `main` branch.
-- [x] Follow-up analytics scheduler regression fix tested and ready to commit/push.
+- [x] Follow-up analytics scheduler regression fix committed as `304bd24`.
 - [x] Linked Railway service confirmed online at `https://hariom-erp-production.up.railway.app`.
 - [ ] New Railway deployment accepted and verified. The upload was refused because the Railway trial has expired; select a Railway plan, then redeploy commit `8740c55`.
