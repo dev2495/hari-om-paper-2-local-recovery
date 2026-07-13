@@ -20,6 +20,37 @@ env PYTHONPATH=hariom-erp/services/masterdata-service "$PYTEST" hariom-erp/servi
 echo "== Physical tooling lifecycle contract =="
 env PYTHONPATH=hariom-erp/services/inventory-service "$PYTEST" hariom-erp/services/inventory-service/tests/test_tool_asset_lifecycle.py
 
+echo "== Runtime control scripts =="
+bash -n hariom-erp/scripts/direct/start.sh hariom-erp/scripts/direct/stop.sh hariom-erp/scripts/direct/status.sh start_all.sh stop_all.sh status_all.sh scripts/start_verified_runtime.sh
+RUNTIME_CONTROL_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hariom-stop-contract.XXXXXX")"
+RUNTIME_CONTROL_TEST_PID=""
+cleanup_runtime_control_test() {
+  if [[ -n "$RUNTIME_CONTROL_TEST_PID" ]] && kill -0 "$RUNTIME_CONTROL_TEST_PID" >/dev/null 2>&1; then
+    kill "$RUNTIME_CONTROL_TEST_PID" >/dev/null 2>&1 || true
+    kill -9 "$RUNTIME_CONTROL_TEST_PID" >/dev/null 2>&1 || true
+  fi
+  rm -rf "$RUNTIME_CONTROL_TEST_DIR"
+}
+trap cleanup_runtime_control_test EXIT
+mkdir -p "$RUNTIME_CONTROL_TEST_DIR/pids"
+sleep 30 &
+RUNTIME_CONTROL_TEST_PID=$!
+printf '%s\n' "$RUNTIME_CONTROL_TEST_PID" > "$RUNTIME_CONTROL_TEST_DIR/pids/web-ui.pid"
+ERP_RUNTIME_DIR="$RUNTIME_CONTROL_TEST_DIR" bash hariom-erp/scripts/direct/stop.sh >/dev/null
+wait "$RUNTIME_CONTROL_TEST_PID" 2>/dev/null || true
+if kill -0 "$RUNTIME_CONTROL_TEST_PID" >/dev/null 2>&1; then
+  echo "Runtime shutdown did not stop the selected runtime process" >&2
+  exit 1
+fi
+if [[ -e "$RUNTIME_CONTROL_TEST_DIR/pids/web-ui.pid" ]]; then
+  echo "Runtime shutdown did not clear the selected runtime PID marker" >&2
+  exit 1
+fi
+RUNTIME_CONTROL_TEST_PID=""
+trap - EXIT
+rm -rf "$RUNTIME_CONTROL_TEST_DIR"
+echo "Runtime shutdown override passed."
+
 echo "== Production scheduler/runtime requirements =="
 grep -qx 'apscheduler==3.10.4' hariom-erp/scripts/direct/requirements.all.txt
 grep -q 'name="analytics-worker"' deploy/tinypod/start_erp.py
