@@ -39,6 +39,10 @@ assert status["mode"] in {"inprocess_only", "redis_with_inprocess_fallback", "sh
 assert "redis" in status
 PY
 
+echo "== Analytics scheduler regression tests =="
+env PYTHONPATH=hariom-erp/services/analytics-service "$ROOT_DIR/hariom-erp/venv-runtime/bin/pytest" \
+  hariom-erp/services/analytics-service/tests/test_scheduler.py
+
 echo "== Spec math parity =="
 env PYTHONPATH=hariom-erp/services/spec-service/src "$PYTEST" hariom-erp/services/spec-service/tests/test_spec_math.py
 

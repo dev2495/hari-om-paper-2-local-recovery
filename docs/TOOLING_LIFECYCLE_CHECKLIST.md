@@ -46,13 +46,14 @@ This checklist covers the fixed five-category tooling master, editable option re
 | Web lint | Passed; only framework deprecation warning |
 | Dependency audit | 0 vulnerabilities |
 | Verification script | Passed |
+| Analytics scheduler regression | 2 passed; scheduler key and durable queue ID are stored separately |
 | Focused browser tooling/spec suite | 2 passed |
 | BFF health | Healthy |
 | Local service startup | All services ready |
 
 ## Browser note
 
-The legacy broad release gate was also run against the fresh local UI. Two low-level login/reconciliation tests passed. Six older tests remain incompatible with current seeded fixture assumptions or old page copy/select contracts; their failures are not used as evidence against the changed tooling flow. The focused tooling/spec suite is the authoritative browser check for this release and is green.
+The legacy broad release gate was also run against the fresh local UI. Two low-level login/reconciliation tests passed. Six older tests remain incompatible with current seeded fixture assumptions or old page copy/select contracts; their failures are not used as evidence against the changed tooling flow. The focused tooling/spec suite is the authoritative browser check for this release and is green. After the production build, the local Next server was restarted before browser QA so its chunk manifest matched the build output.
 
 ## Operational acceptance before production use
 
@@ -71,5 +72,6 @@ These are plant onboarding actions, not software defects. They require the clien
 
 - [x] Release commit `8740c55` created.
 - [x] Release commit pushed to the Git remote `main` branch.
+- [x] Follow-up analytics scheduler regression fix tested and ready to commit/push.
 - [x] Linked Railway service confirmed online at `https://hariom-erp-production.up.railway.app`.
 - [ ] New Railway deployment accepted and verified. The upload was refused because the Railway trial has expired; select a Railway plan, then redeploy commit `8740c55`.

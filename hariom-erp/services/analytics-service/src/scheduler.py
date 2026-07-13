@@ -70,7 +70,7 @@ def _run_owner_pack() -> None:
             job_id,
             last_finished_at=datetime.utcnow().isoformat(),
             status="QUEUED" if created else "DUPLICATE",
-            job_id=job.id,
+            queue_job_id=job.id,
             last_error=None,
         )
     except Exception as exc:
@@ -100,7 +100,7 @@ def _run_exceptions_check() -> None:
             job_id,
             last_finished_at=datetime.utcnow().isoformat(),
             status="QUEUED" if created else "DUPLICATE",
-            job_id=job.id,
+            queue_job_id=job.id,
             last_error=None,
         )
     except Exception as exc:

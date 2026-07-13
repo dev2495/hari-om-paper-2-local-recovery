@@ -92,6 +92,7 @@ Physical receipt + Location Master + QR asset
 - Production web build passed.
 - Web lint passed with only the framework's `next lint` deprecation warning.
 - `npm audit` reported 0 vulnerabilities.
+- Analytics scheduler regression test passed: the scheduler status key and durable queue job ID no longer collide.
 - Repository verification script passed.
 - Fresh local BFF health returned `healthy`.
 - Fresh local service startup reported all ERP services ready.
@@ -130,3 +131,4 @@ These actions are data onboarding and operating acceptance; they cannot be compl
 - Public service: `https://hariom-erp-production.up.railway.app`.
 - Existing Railway deployment remains online as deployment `4644fe4f-7913-49f1-ba3c-0d024ac5badb`.
 - New upload was refused by Railway because the account trial has expired. The code is committed and pushed; after a Railway plan is selected, redeploy commit `8740c55` and rerun the authenticated production smoke test.
+- A follow-up scheduler regression fix is verified locally and must be included in the next Railway deployment before production smoke verification.
