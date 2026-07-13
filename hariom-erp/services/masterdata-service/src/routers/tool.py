@@ -47,6 +47,24 @@ DEFAULT_TOOL_OPTIONS = {
     ("PUNCH", "punch"): ["Single", "Double", "N/A"],
 }
 
+# The master form is intentionally category-specific. Keeping this contract
+# server-side prevents stale clients or direct API callers from introducing
+# fields that can never be mapped into the specification sheet.
+TOOL_POINT_FIELDS = {
+    "NOTCH": {"type", "thickness", "design", "degree"},
+    "BLADE": {"type", "thickness", "height", "length"},
+    "HOLDER": {"thickness", "height", "length"},
+    "V_FLAT": {"length", "thickness"},
+    "PUNCH": {"punch"},
+}
+TOOL_REQUIRED_POINT_FIELDS = {
+    "NOTCH": {"type", "thickness", "design", "degree"},
+    "BLADE": {"type", "thickness", "length"},
+    "HOLDER": {"thickness", "length"},
+    "V_FLAT": {"length", "thickness"},
+    "PUNCH": {"punch"},
+}
+
 
 def _normalize_text(value: Optional[str]) -> Optional[str]:
     if value is None:
@@ -80,6 +98,32 @@ def _normalize_event(value: Optional[str]) -> str:
     if event not in TOOL_USAGE_EVENTS:
         raise HTTPException(status_code=400, detail=f"Tool event must be one of {sorted(TOOL_USAGE_EVENTS)}")
     return event
+
+
+def _normalize_tool_attributes(category: str, values: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    normalized_category = _normalize_category(category)
+    if values is None:
+        values = {}
+    if not isinstance(values, dict):
+        raise HTTPException(status_code=400, detail="Tool attributes must be an object")
+    normalized: Dict[str, str] = {}
+    for raw_key, raw_value in values.items():
+        key = str(raw_key).strip().lower()
+        if key not in TOOL_POINT_FIELDS[normalized_category]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported {normalized_category} tool attribute: {key}",
+            )
+        value = _normalize_text(str(raw_value) if raw_value is not None else None)
+        if value:
+            normalized[key] = value
+    missing = sorted(TOOL_REQUIRED_POINT_FIELDS[normalized_category] - normalized.keys())
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing required {normalized_category} tool attributes: {', '.join(missing)}",
+        )
+    return normalized
 
 
 def _plant_values(plant_id: str) -> list[str]:
@@ -571,7 +615,7 @@ def create_tool(
     data["category"] = _normalize_category(data.get("category"))
     data["status"] = _normalize_status(data.get("status"))
     data["name"] = _normalize_text(data.get("name")) or ""
-    data["attribute_values"] = data.get("attribute_values") or {}
+    data["attribute_values"] = _normalize_tool_attributes(data["category"], data.get("attribute_values"))
     data["department"] = (_normalize_text(data.get("department")) or "COMMON").upper()
     if not data["name"]:
         raise HTTPException(status_code=400, detail="Tool name is required")
@@ -614,6 +658,8 @@ def update_tool(
     old_status = model.status
     if "category" in incoming and incoming["category"] is not None:
         incoming["category"] = _normalize_category(incoming["category"])
+        if incoming["category"] != model.category:
+            raise HTTPException(status_code=409, detail="Tool category is fixed after creation")
     if "status" in incoming and incoming["status"] is not None:
         incoming["status"] = _normalize_status(incoming["status"])
     if "department" in incoming and incoming["department"] is not None:
@@ -621,7 +667,10 @@ def update_tool(
     if "name" in incoming and incoming["name"] is not None:
         incoming["name"] = _normalize_text(incoming["name"]) or model.name
     if "attribute_values" in incoming:
-        incoming["attribute_values"] = incoming["attribute_values"] or {}
+        incoming["attribute_values"] = _normalize_tool_attributes(
+            incoming.get("category") or model.category,
+            incoming["attribute_values"],
+        )
     for key, value in incoming.items():
         setattr(model, key, value)
     model.updated_at = datetime.utcnow()

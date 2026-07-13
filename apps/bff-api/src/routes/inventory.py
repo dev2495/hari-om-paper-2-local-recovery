@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 import os
 import httpx
@@ -6,10 +6,24 @@ import httpx
 from src.middleware.auth import get_token
 from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
-from src.services.workspace import emit_from_response, emit_notification_event, response_body_json
+from src.services.workspace import MASTER_SERVICE_URL, emit_from_response, emit_notification_event, response_body_json, service_get
 
 router = APIRouter()
 INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:18005")
+
+
+def _authoritative_tool_inward_body(body: dict, master: dict) -> dict:
+    if str(master.get("status") or "").upper() != "ACTIVE" or master.get("active") is False:
+        raise HTTPException(status_code=409, detail="Only active tooling masters can be inwarded")
+    # The master is authoritative for category, display name, and attributes.
+    # Do not allow a stale or altered browser payload to create a different
+    # physical definition than the one selected by the store operator.
+    authoritative = dict(body)
+    authoritative["tool_definition_id"] = master["id"]
+    authoritative["category"] = master["category"]
+    authoritative["definition_name"] = master["name"]
+    authoritative["attribute_snapshot"] = master.get("attribute_values") or {}
+    return authoritative
 
 
 @router.get("/items")
@@ -412,7 +426,34 @@ async def create_location(request: Request, token: str = Depends(get_token)):
 # grinding, maintenance, scrap, and the asset report.
 @router.post("/tools/receipts")
 async def receive_tool_assets(request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/tools/receipts", request, token)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Tool inward payload must be valid JSON") from exc
+    if not isinstance(body, dict) or not body.get("tool_definition_id"):
+        raise HTTPException(status_code=422, detail="Select an active tooling master before inwarding a physical tool")
+    try:
+        master = await service_get(
+            MASTER_SERVICE_URL,
+            f"/master/tools/{body['tool_definition_id']}",
+            token,
+            request,
+        )
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        if status_code in {401, 403, 404}:
+            raise HTTPException(status_code=409, detail="The selected tooling master is not active in this plant") from exc
+        raise HTTPException(status_code=502, detail="Tool master service could not validate the inward") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Tool master service is unavailable; inward was not posted") from exc
+    body = _authoritative_tool_inward_body(body, master)
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/inventory/tools/receipts",
+        request,
+        token,
+        json_body=body,
+    )
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,

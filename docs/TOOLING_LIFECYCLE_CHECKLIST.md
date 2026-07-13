@@ -10,13 +10,17 @@ This checklist covers the fixed five-category tooling master, editable option re
 - [x] Legacy non-canonical tool categories retired from active use while history is preserved.
 - [x] User-created tool definitions under each fixed category.
 - [x] Category-specific tool points in the master.
+- [x] Tool master excludes legacy code, maintenance-date, and free-text location fields.
+- [x] Tool category is fixed after creation; only its approved points can be edited.
 - [x] Editable dropdown registry for approved tool/process values.
 - [x] Active/discontinued handling for master records.
 - [x] Discontinued items excluded from active specification-sheet selections.
 - [x] Physical tool receipt with quantity expansion into individual assets.
 - [x] Asset number and QR value generated for every physical unit.
 - [x] Location Master selection at inward.
+- [x] Selected active tool master is authoritative for physical inward category, name, and attributes.
 - [x] Search by QR value or asset number.
+- [x] Move action uses Location Master only.
 - [x] Available, issued, maintenance, grinding-out, and scrap statuses.
 - [x] Issue to job card and production stage.
 - [x] Return from production.
@@ -38,12 +42,13 @@ This checklist covers the fixed five-category tooling master, editable option re
 | Check | Result |
 | --- | --- |
 | Python service compilation | Passed |
-| Master tooling contract tests | 3 passed |
-| Physical tool lifecycle tests | 2 passed |
+| Master tooling contract tests | 5 passed |
+| BFF inward authority contract | 4 passed |
+| Physical tool lifecycle tests | 31 passed |
 | Web unit/static tests | Passed: 21 spec math, 2 reconciliation, 11 quality |
 | TypeScript check | Passed |
 | Web build | Passed |
-| Web lint | Passed; only framework deprecation warning |
+| Web lint | Passed; no warnings or errors |
 | Dependency audit | 0 vulnerabilities |
 | Verification script | Passed |
 | Analytics scheduler regression | 2 passed; scheduler key and durable queue ID are stored separately |
@@ -70,8 +75,7 @@ These are plant onboarding actions, not software defects. They require the clien
 
 ## Release status
 
-- [x] Release commit `8740c55` created.
-- [x] Release commit pushed to the Git remote `main` branch.
+- [x] Tooling changes committed and pushed to the Git remote `main` branch.
 - [x] Follow-up analytics scheduler regression fix committed as `304bd24`.
 - [x] Linked Railway service confirmed online at `https://hariom-erp-production.up.railway.app`.
-- [ ] New Railway deployment accepted and verified. The upload was refused because the Railway trial has expired; select a Railway plan, then redeploy commit `8740c55`.
+- [ ] New Railway deployment accepted and verified. The upload was refused because the Railway trial has expired; select a Railway plan, then redeploy the latest pushed commit.

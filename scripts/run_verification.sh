@@ -17,6 +17,9 @@ env PYTHONPATH=apps/bff-api "$PYTEST" apps/bff-api/tests/test_route_contracts.py
 echo "== Tooling master contract =="
 env PYTHONPATH=hariom-erp/services/masterdata-service "$PYTEST" hariom-erp/services/masterdata-service/tests/test_tool_master_contract.py
 
+echo "== Physical tooling lifecycle contract =="
+env PYTHONPATH=hariom-erp/services/inventory-service "$PYTEST" hariom-erp/services/inventory-service/tests/test_tool_asset_lifecycle.py
+
 echo "== Production scheduler/runtime requirements =="
 grep -qx 'apscheduler==3.10.4' hariom-erp/scripts/direct/requirements.all.txt
 grep -q 'name="analytics-worker"' deploy/tinypod/start_erp.py

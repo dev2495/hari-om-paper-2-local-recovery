@@ -742,7 +742,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
   }, [initialData, reset])
 
   const submit = handleSubmit((data) => {
-    const category = normalizeToolCategory(data.category)
+    const category = normalizeToolCategory(data.category || initialData?.category)
     const pointFields = TOOL_MASTER_POINT_FIELDS[category] || []
     const rawPoints = data.points || {}
     const points = Object.fromEntries(
@@ -759,6 +759,12 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
       spec_text: serializeToolMasterPoints(category, points),
     }
     delete payload.points
+    // These fields belonged to the retired pre-physical-tool master shape.
+    // Physical identity, location, maintenance, and scrap now live in the
+    // inventory tool-asset ledger.
+    for (const key of ["code", "location", "condition_notes", "last_maintenance_at", "next_maintenance_due", "scrapped_at"]) {
+      delete payload[key]
+    }
     for (const key of ["subcategory"]) {
       if (payload[key] === "") {
         payload[key] = undefined
@@ -789,6 +795,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
           <label className="text-sm font-medium">Category</label>
           <select
             {...register("category", { required: true })}
+            disabled={Boolean(initialData?.id)}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
             {Object.entries(TOOL_CATEGORY_LABELS).map(([value, label]) => (

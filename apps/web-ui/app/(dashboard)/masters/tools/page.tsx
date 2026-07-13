@@ -1,8 +1,8 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { Activity, AlertTriangle, ClipboardList, Plus, Recycle, Search, PackagePlus } from "lucide-react"
+import { Activity, AlertTriangle, ClipboardList, MapPin, Plus, Recycle, ScanLine, Search, PackagePlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -34,6 +34,7 @@ import {
   useGrindingReturnToolAsset,
   useInventoryLocations,
   useIssueToolAsset,
+  useMoveToolAsset,
   useMaintainToolAsset,
   useReceiveToolAssets,
   useReturnToolAsset,
@@ -82,7 +83,11 @@ export default function ToolsPage() {
   const [optionDraft, setOptionDraft] = useState<any>({ category: "NOTCH", field_key: "type", value: "" })
   const [assetSearch, setAssetSearch] = useState("")
   const [actionDialog, setActionDialog] = useState<any>(null)
-  const [actionForm, setActionForm] = useState<any>({ job_card_id: "", stage_type: "PROCESS", value: "" })
+  const [actionForm, setActionForm] = useState<any>({ job_card_id: "", stage_type: "PROCESS", location_id: "", value: "" })
+  const [isScanOpen, setIsScanOpen] = useState(false)
+  const [scanError, setScanError] = useState("")
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const scanStreamRef = useRef<MediaStream | null>(null)
   const writeBlocked = activePlant === "ALL"
 
   const { data = [], isLoading } = useTools({ include_unavailable: true, include_inactive: true })
@@ -99,6 +104,7 @@ export default function ToolsPage() {
   const createOptionMutation = useCreateToolOption()
   const updateOptionMutation = useUpdateToolOption()
   const issueMutation = useIssueToolAsset()
+  const moveMutation = useMoveToolAsset()
   const returnMutation = useReturnToolAsset()
   const grindingOutMutation = useGrindingOutToolAsset()
   const grindingReturnMutation = useGrindingReturnToolAsset()
@@ -215,9 +221,71 @@ export default function ToolsPage() {
       const stageType = String(actionForm.stage_type || "").trim()
       if (!jobCardId || !stageType) return
       await action(issueMutation, actionDialog.asset, { job_card_id: jobCardId, stage_type: stageType })
+    } else if (actionDialog.kind === "move") {
+      const locationId = String(actionForm.location_id || "").trim()
+      if (!locationId) return
+      await action(moveMutation, actionDialog.asset, { location_id: locationId, notes: "Moved from tooling ledger" })
     }
     setActionDialog(null)
   }
+
+  useEffect(() => {
+    if (!isScanOpen) return
+    let cancelled = false
+    const video = videoRef.current
+    const startScan = async () => {
+      setScanError("")
+      const BarcodeDetectorCtor = (window as any).BarcodeDetector
+      if (!BarcodeDetectorCtor) {
+        setScanError("Camera QR scanning is not available in this browser. Type or paste the QR value in the search box.")
+        return
+      }
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setScanError("Camera access is not available. Type or paste the QR value in the search box.")
+        return
+      }
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false })
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
+        scanStreamRef.current = stream
+        if (!video) {
+          stream.getTracks().forEach((track) => track.stop())
+          return
+        }
+        video.srcObject = stream
+        await video.play()
+        const detector = new BarcodeDetectorCtor({ formats: ["qr_code"] })
+        const poll = async () => {
+          if (cancelled) return
+          try {
+            const detected = await detector.detect(video)
+            const value = String(detected?.[0]?.rawValue || "").trim()
+            if (value) {
+              setAssetSearch(value)
+              setIsScanOpen(false)
+              return
+            }
+          } catch {
+            // Keep polling; camera frames can be undecodable while moving.
+          }
+          window.requestAnimationFrame(poll)
+        }
+        window.requestAnimationFrame(poll)
+      } catch (error: any) {
+        setScanError(error?.message || "Camera permission was not granted. Type or paste the QR value in the search box.")
+      }
+    }
+    startScan()
+    return () => {
+      cancelled = true
+      scanStreamRef.current?.getTracks().forEach((track) => track.stop())
+      scanStreamRef.current = null
+      if (video) video.srcObject = null
+    }
+  }, [isScanOpen])
 
   return (
     <div className="space-y-6 px-6 pb-10 pt-2">
@@ -424,17 +492,20 @@ export default function ToolsPage() {
             <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Inwarded tools and lifecycle</h2>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <label className="relative">
+            <label className="relative flex-1 sm:flex-none">
               <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-              <Input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Scan or search QR / asset no." className="h-9 w-64 pl-9" />
+              <Input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search QR / asset no." className="h-9 w-64 pl-9" />
             </label>
+            <Button type="button" variant="outline" size="sm" onClick={() => setIsScanOpen(true)} title="Scan a physical tool QR code">
+              <ScanLine className="mr-1.5 h-4 w-4" /> Scan QR
+            </Button>
             <Link href="/reports/tooling" className="text-sm font-semibold text-cyan-800 hover:underline">Open tooling report</Link>
           </div>
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
             <thead><tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
-            <tbody>{(assets as any[]).slice(0, 100).map((asset) => <tr key={asset.id} className="border-b border-slate-100"><td className="py-3 pr-3"><p className="font-semibold text-slate-950">{asset.asset_no}</p><p className="text-xs text-slate-500">{asset.qr_value}</p></td><td className="py-3 pr-3">{asset.definition_name}<p className="text-xs text-slate-500">{CATEGORY_LABELS[asset.category] || asset.category}</p></td><td className="py-3 pr-3"><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${assetStatusClass(asset.status)}`}>{asset.status}</span></td><td className="py-3 pr-3 text-slate-700">{asset.location_label || "-"}</td><td className="py-3 pr-3 font-semibold">V{asset.grind_version || 0}</td><td className="py-3 pr-3">{Number(asset.produced_qty || 0).toLocaleString("en-IN")}</td><td className="py-3"><div className="flex flex-wrap gap-1.5">{asset.status === "AVAILABLE" ? <><Button size="sm" variant="outline" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", value: "" }); setActionDialog({ kind: "issue", asset }) }}>Issue</Button><Button size="sm" variant="outline" onClick={() => action(maintainMutation, asset)}>Maintain</Button>{asset.category === "BLADE" ? <Button size="sm" variant="outline" onClick={() => action(grindingOutMutation, asset)}>Grinding out</Button> : null}<Button size="sm" variant="outline" onClick={() => action(scrapMutation, asset)}>Scrap</Button></> : null}{asset.status === "ISSUED" ? <Button size="sm" variant="outline" onClick={() => action(returnMutation, asset)}>Return</Button> : null}{asset.status === "MAINTENANCE" ? <Button size="sm" variant="outline" onClick={() => action(maintenanceCompleteMutation, asset)}>Complete maintenance</Button> : null}{asset.status === "GRINDING_OUT" ? <Button size="sm" variant="outline" onClick={() => action(grindingReturnMutation, asset)}>Grinding return</Button> : null}</div></td></tr>)}</tbody>
+            <tbody>{(assets as any[]).slice(0, 100).map((asset) => <tr key={asset.id} className="border-b border-slate-100"><td className="py-3 pr-3"><p className="font-semibold text-slate-950">{asset.asset_no}</p><p className="text-xs text-slate-500">{asset.qr_value}</p></td><td className="py-3 pr-3">{asset.definition_name}<p className="text-xs text-slate-500">{CATEGORY_LABELS[asset.category] || asset.category}</p></td><td className="py-3 pr-3"><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${assetStatusClass(asset.status)}`}>{asset.status}</span></td><td className="py-3 pr-3 text-slate-700">{asset.location_label || "-"}</td><td className="py-3 pr-3 font-semibold">V{asset.grind_version || 0}</td><td className="py-3 pr-3">{Number(asset.produced_qty || 0).toLocaleString("en-IN")}</td><td className="py-3"><div className="flex flex-wrap gap-1.5">{asset.status !== "SCRAP" ? <Button size="sm" variant="ghost" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: asset.location_id || "", value: "" }); setActionDialog({ kind: "move", asset }) }}><MapPin className="mr-1 h-3.5 w-3.5" />Move</Button> : null}{asset.status === "AVAILABLE" ? <><Button size="sm" variant="outline" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: "", value: "" }); setActionDialog({ kind: "issue", asset }) }}>Issue</Button><Button size="sm" variant="outline" onClick={() => action(maintainMutation, asset)}>Maintain</Button>{asset.category === "BLADE" ? <Button size="sm" variant="outline" onClick={() => action(grindingOutMutation, asset)}>Grinding out</Button> : null}<Button size="sm" variant="outline" onClick={() => action(scrapMutation, asset)}>Scrap</Button></> : null}{asset.status === "ISSUED" ? <Button size="sm" variant="outline" onClick={() => action(returnMutation, asset)}>Return</Button> : null}{asset.status === "MAINTENANCE" ? <Button size="sm" variant="outline" onClick={() => action(maintenanceCompleteMutation, asset)}>Complete maintenance</Button> : null}{asset.status === "GRINDING_OUT" ? <Button size="sm" variant="outline" onClick={() => action(grindingReturnMutation, asset)}>Grinding return</Button> : null}</div></td></tr>)}</tbody>
           </table>
         </div>
       </section>
@@ -455,20 +526,37 @@ export default function ToolsPage() {
       <Dialog open={Boolean(actionDialog)} onOpenChange={(open) => !open && setActionDialog(null)}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{actionDialog?.kind === "edit-option" ? "Edit dropdown value" : "Issue physical tool"}</DialogTitle>
-            <DialogDescription>{actionDialog?.kind === "edit-option" ? "This changes the master option for future tool definitions and spec sheets." : `Assign ${actionDialog?.asset?.asset_no || "the scanned asset"} to a job card before production starts.`}</DialogDescription>
+            <DialogTitle>{actionDialog?.kind === "edit-option" ? "Edit dropdown value" : actionDialog?.kind === "move" ? "Move physical tool" : "Issue physical tool"}</DialogTitle>
+            <DialogDescription>{actionDialog?.kind === "edit-option" ? "This changes the master option for future tool definitions and spec sheets." : actionDialog?.kind === "move" ? `Move ${actionDialog?.asset?.asset_no || "the physical asset"} to a Location Master position.` : `Assign ${actionDialog?.asset?.asset_no || "the scanned asset"} to a job card before production starts.`}</DialogDescription>
           </DialogHeader>
           <form onSubmit={submitActionDialog} className="space-y-4">
             {actionDialog?.kind === "edit-option" ? (
               <label className="space-y-1 text-sm font-medium">Value<Input autoFocus value={actionForm.value} onChange={(event) => setActionForm({ ...actionForm, value: event.target.value })} /></label>
+            ) : actionDialog?.kind === "move" ? (
+              <label className="space-y-1 text-sm font-medium">Location Master position<select required value={actionForm.location_id} onChange={(event) => setActionForm({ ...actionForm, location_id: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="">Select location</option>{(locations as any[]).map((location) => <option key={location.id} value={location.id}>{[location.code, location.warehouse, location.zone, location.bin].filter(Boolean).join(" · ")}</option>)}</select></label>
             ) : (
               <>
                 <label className="space-y-1 text-sm font-medium">Job card number<Input autoFocus required value={actionForm.job_card_id} onChange={(event) => setActionForm({ ...actionForm, job_card_id: event.target.value })} placeholder="JC-2026-0001" /></label>
                 <label className="space-y-1 text-sm font-medium">Stage<select required value={actionForm.stage_type} onChange={(event) => setActionForm({ ...actionForm, stage_type: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="SLITTING">Slitting</option><option value="WINDER">Winder</option><option value="OVEN">Oven</option><option value="PROCESS">Process</option><option value="PACKING">Packing</option><option value="QC">QC</option></select></label>
               </>
             )}
-            <DialogFooter><Button type="button" variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button><Button type="submit" disabled={updateOptionMutation.isPending || issueMutation.isPending}>Save</Button></DialogFooter>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button><Button type="submit" disabled={updateOptionMutation.isPending || issueMutation.isPending || moveMutation.isPending}>Save</Button></DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isScanOpen} onOpenChange={setIsScanOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Scan physical tool QR</DialogTitle>
+            <DialogDescription>Point the camera at the label. The matching asset will be loaded into the ledger search.</DialogDescription>
+          </DialogHeader>
+          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+            <video ref={videoRef} muted playsInline className="aspect-square w-full object-cover" />
+          </div>
+          {scanError ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{scanError}</p> : null}
+          <p className="text-xs leading-5 text-slate-500">You can also close this window and paste the QR value into the search field. QR values are searchable even when the printed label is scanned from a different device.</p>
+          <DialogFooter><Button type="button" variant="outline" onClick={() => setIsScanOpen(false)}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

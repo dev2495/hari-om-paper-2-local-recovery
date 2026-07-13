@@ -19,6 +19,8 @@ The five categories are fixed and cannot be changed by users:
 
 Users can add and edit tool records and the allowed dropdown values under these categories. A category itself is never created as a new master.
 
+Tool master records contain the tool definition only. Code fields, maintenance dates, and free-text locations are not part of the tool master. Physical identity and location belong to the inwarded asset ledger, and every location is selected from Location Master.
+
 ## 1. Set up the tooling master
 
 Open **Masters > Tools**.
@@ -81,6 +83,8 @@ When saved, the system creates one physical asset record per quantity. Each reco
 - Grinding version, beginning at `V0`
 - Usage count and produced quantity
 
+The selected active master is authoritative at inward. If a browser form contains a stale category, name, or attribute value, the inward keeps the current master definition and attribute snapshot.
+
 Print or label the QR value on the physical tool or its storage label. Scanning or searching the asset number opens the same physical record in the ledger.
 
 ### Example: inward two blades
@@ -114,6 +118,8 @@ The ledger shows the current status and only the actions that are valid for that
 5. Save.
 
 The asset becomes **Issued** and the job card stores the exact physical asset ID. A discontinued tool definition or scrapped physical asset cannot be issued.
+
+The **Move** action uses the same Location Master list. A location is never typed into the physical asset record.
 
 ### Return from production
 

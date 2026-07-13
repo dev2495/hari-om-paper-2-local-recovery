@@ -319,16 +319,10 @@ class ToolMaster(Base):
     category = Column(String(50), nullable=False, index=True)
     subcategory = Column(String(100), nullable=True)
     name = Column(String(150), nullable=False)
-    code = Column(String(50), nullable=True)
     spec_text = Column(String(500), nullable=True)
     department = Column(String(20), nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     status = Column(String(20), nullable=False, default="ACTIVE", index=True)
-    location = Column(String(120), nullable=True)
-    condition_notes = Column(Text, nullable=True)
-    last_maintenance_at = Column(DateTime, nullable=True)
-    next_maintenance_due = Column(DateTime, nullable=True)
-    scrapped_at = Column(DateTime, nullable=True)
     usage_count = Column(Integer, nullable=False, default=0)
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -341,7 +335,6 @@ class ToolMaster(Base):
 
     __table_args__ = (
         UniqueConstraint("plant_id", "category", "name", name="uq_tool_plant_category_name"),
-        UniqueConstraint("plant_id", "code", name="uq_tool_plant_code"),
     )
 
 

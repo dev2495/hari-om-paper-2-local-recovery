@@ -39,8 +39,24 @@ test("tooling master and physical ledger expose the production workflow", async 
     await expect(page.locator("option").filter({ hasText: label }).first()).toHaveCount(1)
   }
   await expect(page.getByText(/Editable dropdown registry/i)).toBeVisible()
-  await expect(page.getByPlaceholder(/Scan or search QR \/ asset no/i)).toBeVisible()
+  await expect(page.getByPlaceholder(/Search QR \/ asset no/i)).toBeVisible()
+  await expect(page.getByRole("button", { name: /Scan QR/i })).toBeVisible()
   await expect(page.getByText(/QR asset ledger/i)).toBeVisible()
+
+  await page.getByRole("button", { name: /Add Tool/i }).click()
+  const dialog = page.getByRole("dialog")
+  await expect(dialog.getByText(/Add Tooling Master/i)).toBeVisible()
+  await expect(dialog.getByText(/^Code$/i)).toHaveCount(0)
+  await expect(dialog.getByText(/maintenance due/i)).toHaveCount(0)
+  await expect(dialog.getByText(/^Location$/i)).toHaveCount(0)
+  const category = dialog.locator("select").first()
+  await category.selectOption("BLADE")
+  for (const label of ["Type", "Thickness", "Height", "Length"]) {
+    await expect(dialog.getByText(new RegExp(`^${label}$`, "i"))).toBeVisible()
+  }
+  await category.selectOption("PUNCH")
+  await expect(dialog.locator("label").filter({ hasText: /^Punch$/i })).toBeVisible()
+  await dialog.getByRole("button", { name: /Cancel/i }).click()
 
   await page.screenshot({ path: path.join(workspaceRoot, "reports", "tooling-master-browser.png"), fullPage: true })
 })

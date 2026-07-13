@@ -468,11 +468,6 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_packaging_fadda_plant_sku ON packaging_fadda (plant_id, sku)"))
 
         connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'ACTIVE'"))
-        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS location VARCHAR(120)"))
-        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS condition_notes TEXT"))
-        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS last_maintenance_at TIMESTAMP WITHOUT TIME ZONE"))
-        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS next_maintenance_due TIMESTAMP WITHOUT TIME ZONE"))
-        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS scrapped_at TIMESTAMP WITHOUT TIME ZONE"))
         connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0"))
         connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"))
         connection.execute(text("ALTER TABLE tool_master DROP CONSTRAINT IF EXISTS ck_tool_master_status"))

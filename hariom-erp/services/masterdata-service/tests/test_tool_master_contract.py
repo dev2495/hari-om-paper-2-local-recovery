@@ -74,13 +74,19 @@ class ToolMasterContractTests(unittest.TestCase):
 
         for category in categories:
             for sequence in (1, 2):
-                points = {"thickness": f"{sequence} mm", "qa_sequence": str(sequence), "category": category}
+                points = {"thickness": f"{sequence} mm"}
                 if category in {"NOTCH", "BLADE"}:
                     points["type"] = "Plain"
                 if category == "NOTCH":
                     points.update({"design": "Plain", "degree": "50"})
+                if category == "BLADE":
+                    points["length"] = "140/130/20"
+                if category == "HOLDER":
+                    points["length"] = "140/130/20"
+                if category == "V_FLAT":
+                    points["length"] = "70+30"
                 if category == "PUNCH":
-                    points = {"punch": "Single", "qa_sequence": str(sequence), "category": category}
+                    points = {"punch": "Single"}
                 payload = tool_router.ToolCreate(
                     category=category,
                     name=f"{category} QA Tool {sequence}",
@@ -108,11 +114,14 @@ class ToolMasterContractTests(unittest.TestCase):
 
         for record in created:
             self.db.target = record
+            edited_points = dict(record.attribute_values or {})
+            edited_key = next(iter(edited_points))
+            edited_points[edited_key] = f"{edited_points[edited_key]} revised"
             edited = tool_router.update_tool(
                 record.id,
                 tool_router.ToolUpdate(
                     name=f"{record.name} revised",
-                    attribute_values={**(record.attribute_values or {}), "qa_edit": "verified"},
+                    attribute_values=edited_points,
                     spec_text=record.spec_text,
                 ),
                 db=self.db,
@@ -120,7 +129,7 @@ class ToolMasterContractTests(unittest.TestCase):
                 current_user=self.actor,
             )
             self.assertTrue(edited.name.endswith("revised"))
-            self.assertEqual(edited.attribute_values.get("qa_edit"), "verified")
+            self.assertEqual(edited.attribute_values.get(edited_key), edited_points[edited_key])
             self.assertEqual(edited.category, record.category)
             self.assertEqual(edited.spec_text, record.spec_text)
 
@@ -130,6 +139,42 @@ class ToolMasterContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException):
             tool_router._validate_option_key("NOTCH", "location")
         self.assertEqual(tool_router._validate_option_key("PUNCH", "punch"), ("PUNCH", "punch"))
+
+    def test_tool_attributes_are_scoped_to_category_and_required_fields(self):
+        with self.assertRaises(HTTPException) as unknown:
+            tool_router._normalize_tool_attributes("PUNCH", {"punch": "Single", "code": "P-1"})
+        self.assertEqual(unknown.exception.status_code, 400)
+
+        with self.assertRaises(HTTPException) as missing:
+            tool_router._normalize_tool_attributes("BLADE", {"type": "Plain", "thickness": "1.1 mm"})
+        self.assertEqual(missing.exception.status_code, 400)
+
+        self.assertEqual(
+            tool_router._normalize_tool_attributes(
+                "HOLDER",
+                {"thickness": "6 mm", "height": "20 mm", "length": "140 mm"},
+            ),
+            {"thickness": "6 mm", "height": "20 mm", "length": "140 mm"},
+        )
+
+    def test_tool_category_cannot_be_changed_after_creation(self):
+        payload = tool_router.ToolCreate(
+            category="PUNCH",
+            name="Punch QA",
+            attribute_values={"punch": "Single"},
+            department="PROCESS",
+        )
+        record = tool_router.create_tool(payload, db=self.db, plant_id=self.plant_id, current_user=self.actor)
+        self.db.target = record
+        with self.assertRaises(HTTPException) as caught:
+            tool_router.update_tool(
+                record.id,
+                tool_router.ToolUpdate(category="BLADE"),
+                db=self.db,
+                plant_id=self.plant_id,
+                current_user=self.actor,
+            )
+        self.assertEqual(caught.exception.status_code, 409)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,8 @@ The specification sheet now consumes active tool masters and the option registry
 - Five fixed categories only: NOTCH, BLADE, HOLDER, V_FLAT, PUNCH.
 - Legacy categories are retained for history but automatically retired from active tooling use.
 - Category-specific attribute snapshots.
+- No top-level tool code, maintenance date, or free-text location in the active master form/API.
+- Category is fixed after creation; multiple definitions can be created under each fixed category.
 - Editable registry for the values used by master forms and notch process fields.
 - Status controls preserve discontinued records for history while removing them from active dropdowns.
 
@@ -22,8 +24,10 @@ The specification sheet now consumes active tool masters and the option registry
 - One asset per received quantity.
 - Generated asset number and QR value.
 - Location Master linkage.
+- Master-authoritative inward validation; stale browser category/name/attributes cannot override the selected active definition.
 - Lifecycle event history.
-- Searchable physical ledger.
+- Searchable physical ledger by QR value, asset number, definition, or job card.
+- Location movement through Location Master only.
 
 ### Production lifecycle
 
@@ -85,12 +89,13 @@ Physical receipt + Location Master + QR asset
 ## Verification results
 
 - Service compilation completed successfully.
-- Masterdata tooling contract: 3 tests passed.
-- Inventory physical lifecycle: 2 tests passed.
+- Masterdata tooling contract: 5 tests passed.
+- BFF inward-authority contract: 4 tests passed.
+- Inventory physical lifecycle: 31 tests passed.
 - Web unit/static suite: 21 spec math, 2 reconciliation, and 11 quality tests passed.
 - TypeScript check passed.
 - Production web build passed.
-- Web lint passed with only the framework's `next lint` deprecation warning.
+- Web lint passed with no warnings or errors; Next.js still reports its framework deprecation notice for `next lint`.
 - `npm audit` reported 0 vulnerabilities.
 - Analytics scheduler regression test passed: the scheduler status key and durable queue job ID no longer collide.
 - Repository verification script passed.
@@ -125,11 +130,11 @@ These actions are data onboarding and operating acceptance; they cannot be compl
 
 ## Release and deployment status
 
-- Release commit: `8740c55`.
+- Tooling changes are committed and pushed to the `main` branch.
 - Follow-up scheduler fix commit: `304bd24`.
 - Git remote: `main` branch contains the release commit.
 - Linked Railway project: `hariom-paper-client-test`, production service `hariom-erp`.
 - Public service: `https://hariom-erp-production.up.railway.app`.
 - Existing Railway deployment remains online as deployment `4644fe4f-7913-49f1-ba3c-0d024ac5badb`.
-- New upload was refused by Railway because the account trial has expired. The code is committed and pushed; after a Railway plan is selected, redeploy commit `8740c55` and rerun the authenticated production smoke test.
+- New upload was refused by Railway because the account trial has expired. The code is committed and pushed; after a Railway plan is selected, redeploy the latest pushed commit and rerun the authenticated production smoke test.
 - The follow-up scheduler regression fix is verified locally and must be included in the next Railway deployment before production smoke verification.

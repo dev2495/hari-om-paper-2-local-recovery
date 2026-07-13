@@ -1,5 +1,8 @@
 from collections import defaultdict
 
+import pytest
+
+from src.routes.inventory import _authoritative_tool_inward_body
 from src.routes.production import router as production_router
 from src.routes.spec import router as spec_router
 
@@ -28,3 +31,39 @@ def test_spec_bff_routes_do_not_register_duplicate_method_paths():
 
 def test_production_bff_routes_do_not_register_duplicate_method_paths():
     assert _duplicates(production_router) == {}
+
+
+def test_tool_inward_uses_active_master_definition_as_authority():
+    incoming = {
+        "tool_definition_id": "stale-id",
+        "category": "DIE",
+        "definition_name": "Browser supplied name",
+        "attribute_snapshot": {"code": "legacy"},
+        "quantity": 2,
+    }
+    master = {
+        "id": "master-id",
+        "category": "BLADE",
+        "name": "Plain Blade - 0.9 mm - L 140/130/20",
+        "attribute_values": {"type": "Plain", "thickness": "0.9 mm", "length": "140/130/20"},
+        "status": "ACTIVE",
+        "active": True,
+    }
+
+    body = _authoritative_tool_inward_body(incoming, master)
+
+    assert body["tool_definition_id"] == "master-id"
+    assert body["category"] == "BLADE"
+    assert body["definition_name"] == master["name"]
+    assert body["attribute_snapshot"] == master["attribute_values"]
+    assert body["quantity"] == 2
+    assert incoming["category"] == "DIE"
+
+
+def test_tool_inward_rejects_discontinued_master():
+    with pytest.raises(Exception) as caught:
+        _authoritative_tool_inward_body(
+            {"tool_definition_id": "master-id"},
+            {"id": "master-id", "status": "DISCONTINUED", "active": True},
+        )
+    assert caught.value.status_code == 409

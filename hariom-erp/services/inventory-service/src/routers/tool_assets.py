@@ -14,6 +14,7 @@ from ..utils.auth import get_current_plant, get_current_plant_scope, require_rol
 router = APIRouter(prefix="/inventory/tools", tags=["physical-tooling"])
 
 VALID_STATUSES = {"AVAILABLE", "ISSUED", "MAINTENANCE", "GRINDING_OUT", "SCRAP"}
+CANONICAL_TOOL_CATEGORIES = {"NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"}
 
 
 def _plant_values(plant_id: str) -> list[str]:
@@ -28,6 +29,13 @@ def _plant_values(plant_id: str) -> list[str]:
 
 def _actor(user: dict) -> str:
     return str(user.get("name") or user.get("email") or user.get("actor_identity") or user.get("sub") or "system")
+
+
+def _normalize_tool_category(value: str) -> str:
+    category = str(value or "").strip().upper().replace(" ", "_")
+    if category not in CANONICAL_TOOL_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Physical tool category must match one of the five tooling masters")
+    return category
 
 
 def _location(db: Session, location_id: uuid.UUID, plant_id: str) -> InventoryLocation:
@@ -99,7 +107,7 @@ class ToolReceiptCreate(BaseModel):
     tool_definition_id: uuid.UUID
     category: str
     definition_name: str
-    attribute_snapshot: dict[str, Any] = {}
+    attribute_snapshot: dict[str, Any] = Field(default_factory=dict)
     quantity: int = Field(gt=0, le=500)
 
 
@@ -160,6 +168,10 @@ def receive_tools(
     current_user: dict = Depends(require_role(["Admin", "Owner", "Store"])),
 ):
     _location(db, payload.location_id, plant_id)
+    category = _normalize_tool_category(payload.category)
+    definition_name = str(payload.definition_name or "").strip()
+    if not definition_name:
+        raise HTTPException(status_code=400, detail="Physical tool definition is required")
     receipt_no = (payload.receipt_no or "").strip().upper() or f"TGRN-{payload.receipt_date:%Y%m%d}-{uuid.uuid4().hex[:6].upper()}"
     if db.query(ToolReceipt).filter(ToolReceipt.plant_id.in_(_plant_values(plant_id)), ToolReceipt.receipt_no == receipt_no).first():
         raise HTTPException(status_code=409, detail="Tool receipt number already exists")
@@ -183,8 +195,8 @@ def receive_tools(
             asset_no=asset_no,
             qr_value=f"hariom://tool/{asset_no}",
             tool_definition_id=payload.tool_definition_id,
-            category=payload.category.strip().upper(),
-            definition_name=payload.definition_name.strip(),
+            category=category,
+            definition_name=definition_name,
             attribute_snapshot=payload.attribute_snapshot or {},
             status="AVAILABLE",
             location_id=payload.location_id,
@@ -224,7 +236,12 @@ def list_tool_assets(
         query = query.filter(ToolAsset.status == normalized)
     if search:
         value = f"%{search.strip()}%"
-        query = query.filter((ToolAsset.asset_no.ilike(value)) | (ToolAsset.definition_name.ilike(value)) | (ToolAsset.current_job_card_id.ilike(value)))
+        query = query.filter(
+            (ToolAsset.asset_no.ilike(value))
+            | (ToolAsset.qr_value.ilike(value))
+            | (ToolAsset.definition_name.ilike(value))
+            | (ToolAsset.current_job_card_id.ilike(value))
+        )
     return [_asset_payload(row) for row in query.order_by(ToolAsset.created_at.desc()).limit(limit).all()]
 
 
