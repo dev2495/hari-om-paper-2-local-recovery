@@ -9,7 +9,6 @@ import {
   SpecRecord,
   TrialRecord,
   roundValue,
-  suggestRecipeRowsFromPapers,
 } from "@/lib/spec-sheet"
 import { computePreview } from "@/lib/spec-math"
 
@@ -756,98 +755,6 @@ export function useSpecSheetPreview(
       Number(tubeOdMm || 0) > 0 &&
       Number(tubeIdMm || 0) > 0 &&
       Number(targetDryWeightG || 0) > 0,
-    placeholderData: (previousData) => previousData,
-  })
-}
-
-export function useSpecSheetSuggestions(
-  params: {
-    recipeId?: string
-    tubeLengthMm?: number
-    tubeOdMm?: number
-    tubeIdMm?: number
-    targetWetWeightG?: number
-    dryingPercent?: number
-    parchmentPercent?: number
-    paperCandidates?: any[]
-  },
-) {
-  const {
-    recipeId,
-    tubeLengthMm,
-    tubeOdMm,
-    tubeIdMm,
-    targetWetWeightG,
-    dryingPercent,
-    parchmentPercent,
-    paperCandidates,
-  } = params || {}
-
-  return useQuery({
-    queryKey: [
-      "spec-sheet-suggestions",
-      recipeId || "",
-      Number(tubeLengthMm || 0),
-      Number(tubeOdMm || 0),
-      Number(tubeIdMm || 0),
-      Number(targetWetWeightG || 0),
-      Number(dryingPercent || 0),
-      Number(parchmentPercent || 0),
-      JSON.stringify(
-        (paperCandidates || []).map((paper: any) => ({
-          id: paper?.id || "",
-          gsm: Number(paper?.gsm || 0),
-          bf: Number(paper?.bf || paper?.ply_bond || 0),
-          thickness_mm: Number(paper?.thickness_mm || 0),
-        })),
-      ),
-    ],
-    queryFn: async () => {
-      const data = {
-        suggestions: suggestRecipeRowsFromPapers(
-          paperCandidates || [],
-          Number(targetWetWeightG || 0),
-          Number(tubeLengthMm || 0),
-          Number(tubeIdMm || 0),
-          Number(tubeOdMm || 0),
-          {
-            dryingPercent: Number(dryingPercent || DEFAULT_DRYING_PERCENT),
-            parchmentPercent: Number(parchmentPercent || DEFAULT_PARCHMENT_PERCENT),
-          },
-        ),
-      }
-      const suggestions = Array.isArray(data?.suggestions) ? data.suggestions : []
-      const normalized = suggestions.map((row: any, index: number) => {
-        const predictedPaperWeightG = Number(
-          row?.predicted_paper_weight_g ?? row?.predictedPaperWeightG ?? 0,
-        )
-        const deltaDryG = Number(row?.delta_dry_g ?? row?.deltaDryG ?? row?.delta_g ?? row?.deltaG ?? 0)
-        const deltaWetG = Number(row?.delta_wet_g ?? row?.deltaWetG ?? 0)
-        return {
-          id: String(row?.id || `suggestion-${index + 1}`),
-          title: String(row?.title || `Suggestion ${index + 1}`),
-          rows: Array.isArray(row?.rows) ? row.rows : [],
-          preferredRule: row?.preferred_rule ?? row?.preferredRule ?? undefined,
-          predictedPaperWeightG,
-          deltaG: Number.isFinite(deltaDryG) ? deltaDryG : 0,
-          predictedDryTubeG: Number(row?.predicted_dry_tube_g ?? row?.predictedDryTubeG ?? 0),
-          predictedWetTubeG: Number(row?.predicted_wet_tube_g ?? row?.predictedWetTubeG ?? 0),
-          deltaDryG: Number.isFinite(deltaDryG) ? deltaDryG : 0,
-          deltaWetG: Number.isFinite(deltaWetG) ? deltaWetG : 0,
-          totalPlyCount: Number(row?.total_ply_count ?? row?.totalPlyCount ?? 0),
-          recipeThicknessMm: Number(row?.recipe_thickness_mm ?? row?.recipeThicknessMm ?? 0),
-          effectiveDiameterMm: Number(row?.effective_diameter_mm ?? row?.effectiveDiameterMm ?? 0),
-        }
-      })
-      return { ...(data || {}), suggestions: normalized }
-    },
-    enabled:
-      Number(targetWetWeightG || 0) > 0 &&
-      Number(tubeLengthMm || 0) > 0 &&
-      Number(tubeOdMm || 0) > 0 &&
-      Number(tubeIdMm || 0) > 0 &&
-      Array.isArray(paperCandidates) &&
-      (paperCandidates || []).length >= 3,
     placeholderData: (previousData) => previousData,
   })
 }

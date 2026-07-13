@@ -74,15 +74,20 @@ class ToolMasterContractTests(unittest.TestCase):
 
         for category in categories:
             for sequence in (1, 2):
-                points = {"qa_sequence": str(sequence), "category": category}
+                points = {"thickness": f"{sequence} mm", "qa_sequence": str(sequence), "category": category}
+                if category in {"NOTCH", "BLADE"}:
+                    points["type"] = "Plain"
+                if category == "NOTCH":
+                    points.update({"design": "Plain", "degree": "50"})
+                if category == "PUNCH":
+                    points = {"punch": "Single", "qa_sequence": str(sequence), "category": category}
                 payload = tool_router.ToolCreate(
                     category=category,
                     name=f"{category} QA Tool {sequence}",
-                    code=f"QA-{category}-{sequence}",
                     spec_text=json.dumps({"version": 1, "points": points}),
+                    attribute_values=points,
                     department="PROCESS",
                     status="ACTIVE",
-                    location="Tool QA rack",
                 )
                 created.append(
                     tool_router.create_tool(
@@ -107,8 +112,7 @@ class ToolMasterContractTests(unittest.TestCase):
                 record.id,
                 tool_router.ToolUpdate(
                     name=f"{record.name} revised",
-                    location="Tool QA bench",
-                    condition_notes="QA edit verified",
+                    attribute_values={**(record.attribute_values or {}), "qa_edit": "verified"},
                     spec_text=record.spec_text,
                 ),
                 db=self.db,
@@ -116,12 +120,16 @@ class ToolMasterContractTests(unittest.TestCase):
                 current_user=self.actor,
             )
             self.assertTrue(edited.name.endswith("revised"))
-            self.assertEqual(edited.location, "Tool QA bench")
-            self.assertEqual(edited.condition_notes, "QA edit verified")
+            self.assertEqual(edited.attribute_values.get("qa_edit"), "verified")
             self.assertEqual(edited.category, record.category)
             self.assertEqual(edited.spec_text, record.spec_text)
 
         self.assertEqual(self.db.commits, 20)
+
+    def test_only_editable_attribute_fields_are_allowed(self):
+        with self.assertRaises(HTTPException):
+            tool_router._validate_option_key("NOTCH", "location")
+        self.assertEqual(tool_router._validate_option_key("PUNCH", "punch"), ("PUNCH", "punch"))
 
 
 if __name__ == "__main__":

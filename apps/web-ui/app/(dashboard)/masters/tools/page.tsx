@@ -1,14 +1,15 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { FormEvent, useMemo, useState } from "react"
 import Link from "next/link"
-import { Activity, AlertTriangle, ClipboardList, Plus, Recycle, Search, Wrench } from "lucide-react"
+import { Activity, AlertTriangle, ClipboardList, Plus, Recycle, Search, PackagePlus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -20,18 +21,41 @@ import {
   useCreateTool,
   useDeleteTool,
   useToolLogs,
+  useToolOptions,
+  useCreateToolOption,
+  useUpdateToolOption,
   useTools,
   useUpdateTool,
   useUpdateToolStatus,
 } from "@/hooks/use-master-data"
+import {
+  useCompleteToolMaintenance,
+  useGrindingOutToolAsset,
+  useGrindingReturnToolAsset,
+  useInventoryLocations,
+  useIssueToolAsset,
+  useMaintainToolAsset,
+  useReceiveToolAssets,
+  useReturnToolAsset,
+  useScrapToolAsset,
+  useToolAssets,
+  useToolAssetReport,
+} from "@/hooks/use-inventory"
 import { TOOL_CATEGORY_LABELS, formatToolMasterSpecText } from "@/lib/spec-sheet"
 
 const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
 const CATEGORY_ORDER = Object.keys(TOOL_CATEGORY_LABELS)
 
 function statusClass(status: string) {
-  if (status === "SCRAP") return "border-rose-200 bg-rose-50 text-rose-800"
+  if (status === "DISCONTINUED") return "border-slate-300 bg-slate-100 text-slate-700"
+  return "border-emerald-200 bg-emerald-50 text-emerald-800"
+}
+
+function assetStatusClass(status: string) {
+  if (status === "ISSUED") return "border-cyan-200 bg-cyan-50 text-cyan-800"
   if (status === "MAINTENANCE") return "border-amber-200 bg-amber-50 text-amber-800"
+  if (status === "GRINDING_OUT") return "border-orange-200 bg-orange-50 text-orange-800"
+  if (status === "SCRAP") return "border-rose-200 bg-rose-50 text-rose-800"
   return "border-emerald-200 bg-emerald-50 text-emerald-800"
 }
 
@@ -44,7 +68,7 @@ function formatDate(value: any) {
 
 function toolDetailText(row: any) {
   const formatted = formatToolMasterSpecText(row?.category, row?.spec_text)
-  return [row?.code, formatted].map((value) => String(value || "").trim()).filter(Boolean).join(" · ") || "-"
+  return [formatted].map((value) => String(value || "").trim()).filter(Boolean).join(" · ") || "-"
 }
 
 export default function ToolsPage() {
@@ -53,22 +77,47 @@ export default function ToolsPage() {
   const [category, setCategory] = useState("ALL")
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [editTool, setEditTool] = useState<any>(null)
+  const [isReceiveOpen, setIsReceiveOpen] = useState(false)
+  const [receiveForm, setReceiveForm] = useState<any>({ receipt_date: new Date().toISOString().slice(0, 10), quantity: 1, location_id: "" })
+  const [optionDraft, setOptionDraft] = useState<any>({ category: "NOTCH", field_key: "type", value: "" })
+  const [assetSearch, setAssetSearch] = useState("")
+  const [actionDialog, setActionDialog] = useState<any>(null)
+  const [actionForm, setActionForm] = useState<any>({ job_card_id: "", stage_type: "PROCESS", value: "" })
   const writeBlocked = activePlant === "ALL"
 
   const { data = [], isLoading } = useTools({ include_unavailable: true, include_inactive: true })
   const { data: logs = [] } = useToolLogs({ limit: 30 })
+  const { data: options = [] } = useToolOptions({ include_inactive: true })
+  const { data: locations = [] } = useInventoryLocations()
+  const { data: assets = [] } = useToolAssets({ search: assetSearch.trim() || undefined })
+  const { data: assetReport = { summary: {} } } = useToolAssetReport()
   const createMutation = useCreateTool()
   const updateMutation = useUpdateTool()
   const deleteMutation = useDeleteTool()
   const statusMutation = useUpdateToolStatus()
+  const receiveMutation = useReceiveToolAssets()
+  const createOptionMutation = useCreateToolOption()
+  const updateOptionMutation = useUpdateToolOption()
+  const issueMutation = useIssueToolAsset()
+  const returnMutation = useReturnToolAsset()
+  const grindingOutMutation = useGrindingOutToolAsset()
+  const grindingReturnMutation = useGrindingReturnToolAsset()
+  const maintainMutation = useMaintainToolAsset()
+  const maintenanceCompleteMutation = useCompleteToolMaintenance()
+  const scrapMutation = useScrapToolAsset()
+
+  const canonicalData = useMemo(
+    () => (data as any[]).filter((row) => CATEGORY_ORDER.includes(String(row?.category || "").toUpperCase())),
+    [data],
+  )
 
   const rows = useMemo(() => {
     const searchText = search.trim().toLowerCase()
-    return (data as any[])
+    return canonicalData
       .filter((row) => (category === "ALL" ? true : row.category === category))
       .filter((row) => {
         if (!searchText) return true
-        return [row.category, row.name, row.code, row.department, row.location, row.status]
+        return [row.category, row.name, row.department, row.status, JSON.stringify(row.attribute_values || {})]
           .map((value) => String(value || "").toLowerCase())
           .some((value) => value.includes(searchText))
       })
@@ -77,19 +126,18 @@ export default function ToolsPage() {
         if (categorySort !== 0) return categorySort
         return String(left.name || "").localeCompare(String(right.name || ""))
       })
-  }, [category, data, search])
+  }, [canonicalData, category, search])
 
   const counts = useMemo(() => {
-    const base = { total: 0, active: 0, maintenance: 0, scrap: 0 }
-    for (const row of data as any[]) {
+    const base = { total: 0, active: 0, discontinued: 0 }
+    for (const row of canonicalData) {
       base.total += 1
       const status = String(row.status || "ACTIVE").toUpperCase()
-      if (status === "MAINTENANCE") base.maintenance += 1
-      else if (status === "SCRAP") base.scrap += 1
+      if (status === "DISCONTINUED") base.discontinued += 1
       else base.active += 1
     }
     return base
-  }, [data])
+  }, [canonicalData])
 
   const handleAdd = async (payload: any) => {
     await createMutation.mutateAsync(payload)
@@ -102,19 +150,73 @@ export default function ToolsPage() {
     setEditTool(null)
   }
 
-  const setStatus = async (row: any, status: "ACTIVE" | "MAINTENANCE" | "SCRAP") => {
+  const setStatus = async (row: any, status: "ACTIVE" | "DISCONTINUED") => {
     await statusMutation.mutateAsync({
       id: row.id,
       data: {
         status,
-        notes:
-          status === "MAINTENANCE"
-            ? "Moved to maintenance from Tools master"
-            : status === "SCRAP"
-              ? "Scrapped from Tools master"
-              : "Returned to active use from Tools master",
+        notes: status === "DISCONTINUED" ? "Discontinued from tooling definitions" : "Returned to active dropdown use",
       },
     })
+  }
+
+  const openReceive = (row: any) => {
+    setReceiveForm({
+      receipt_date: new Date().toISOString().slice(0, 10),
+      quantity: 1,
+      location_id: "",
+      tool_definition_id: row.id,
+      definition_name: row.name,
+      category: row.category,
+      attribute_snapshot: row.attribute_values || {},
+    })
+    setIsReceiveOpen(true)
+  }
+
+  const receive = async (event: FormEvent) => {
+    event.preventDefault()
+    await receiveMutation.mutateAsync({ ...receiveForm, quantity: Number(receiveForm.quantity) })
+    setIsReceiveOpen(false)
+  }
+
+  const optionFields: Record<string, string[]> = {
+    NOTCH: ["type", "design", "degree", "notch_direction", "notch_distance_mm", "notch_depth_mm"],
+    BLADE: ["type"],
+    HOLDER: [],
+    V_FLAT: [],
+    PUNCH: ["punch"],
+  }
+
+  const addOption = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!optionDraft.value.trim()) return
+    await createOptionMutation.mutateAsync({ ...optionDraft, value: optionDraft.value.trim() })
+    setOptionDraft({ ...optionDraft, value: "" })
+  }
+
+  const editOption = (row: any) => {
+    setActionForm({ job_card_id: "", stage_type: "PROCESS", value: row.value })
+    setActionDialog({ kind: "edit-option", option: row })
+  }
+
+  const action = async (mutation: any, asset: any, data?: any) => {
+    await mutation.mutateAsync({ id: asset.id, data: data || {} })
+  }
+
+  const submitActionDialog = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!actionDialog) return
+    if (actionDialog.kind === "edit-option") {
+      const value = String(actionForm.value || "").trim()
+      if (!value) return
+      await updateOptionMutation.mutateAsync({ id: actionDialog.option.id, data: { value } })
+    } else if (actionDialog.kind === "issue") {
+      const jobCardId = String(actionForm.job_card_id || "").trim()
+      const stageType = String(actionForm.stage_type || "").trim()
+      if (!jobCardId || !stageType) return
+      await action(issueMutation, actionDialog.asset, { job_card_id: jobCardId, stage_type: stageType })
+    }
+    setActionDialog(null)
   }
 
   return (
@@ -125,7 +227,7 @@ export default function ToolsPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master Data Workspace</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Tooling Master</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              Notch sheet dropdowns are controlled here. Active tools appear in the spec sheet; maintenance and scrap records stay in history and reports.
+              Five fixed tooling categories define the spec-sheet dropdowns. Physical units are inwarded and controlled below with QR, location, issue, return, grinding, and production usage.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <Link href="/specifications" className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
@@ -140,8 +242,7 @@ export default function ToolsPage() {
             {[
               { label: "Total", value: counts.total, icon: ClipboardList, tone: "border-slate-200 bg-white" },
               { label: "Active", value: counts.active, icon: Activity, tone: "border-emerald-200 bg-emerald-50" },
-              { label: "Maintenance", value: counts.maintenance, icon: Wrench, tone: "border-amber-200 bg-amber-50" },
-              { label: "Scrap", value: counts.scrap, icon: Recycle, tone: "border-rose-200 bg-rose-50" },
+              { label: "Discontinued", value: counts.discontinued, icon: Recycle, tone: "border-slate-200 bg-slate-100" },
             ].map((metric) => {
               const Icon = metric.icon
               return (
@@ -167,7 +268,7 @@ export default function ToolsPage() {
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 className="pl-9"
-                placeholder="Search tools, code, location, status"
+                placeholder="Search tools, attributes, status"
               />
             </label>
             <select
@@ -175,7 +276,7 @@ export default function ToolsPage() {
               onChange={(event) => setCategory(event.target.value)}
               className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"
             >
-              <option value="ALL">All notch categories</option>
+              <option value="ALL">All categories</option>
               {CATEGORY_ORDER.map((key) => (
                 <option key={key} value={key}>
                   {CATEGORY_LABELS[key]}
@@ -210,12 +311,11 @@ export default function ToolsPage() {
       <section className="overflow-hidden rounded-[1.7rem] border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
-            <div className="grid grid-cols-[1.1fr_1fr_0.8fr_0.9fr_0.9fr_1.3fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
               <div>Tool</div>
               <div>Category</div>
               <div>Status</div>
               <div>Usage</div>
-              <div>Location</div>
               <div>Actions</div>
             </div>
             <div className="divide-y divide-slate-100">
@@ -227,7 +327,7 @@ export default function ToolsPage() {
                 rows.map((row) => {
                   const status = String(row.status || "ACTIVE").toUpperCase()
                   return (
-                    <div key={row.id} className="grid grid-cols-[1.1fr_1fr_0.8fr_0.9fr_0.9fr_1.3fr] gap-3 px-4 py-4 text-sm">
+                    <div key={row.id} className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 px-4 py-4 text-sm">
                   <div>
                     <p className="font-semibold text-slate-950">{row.name}</p>
                     <p className="mt-1 text-xs text-slate-500">{toolDetailText(row)}</p>
@@ -240,19 +340,15 @@ export default function ToolsPage() {
                     <p className="font-semibold text-slate-900">{Number(row.usage_count || 0).toLocaleString("en-IN")}</p>
                     <p className="text-xs text-slate-500">spec/job logs</p>
                   </div>
-                  <div className="text-slate-700">{row.location || "-"}</div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => setEditTool(row)} disabled={writeBlocked}>
                       Edit
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setStatus(row, "MAINTENANCE")} disabled={writeBlocked || status === "MAINTENANCE"}>
-                      Maintain
+                    <Button variant="outline" size="sm" onClick={() => openReceive(row)} disabled={writeBlocked || status !== "ACTIVE"}>
+                      <PackagePlus className="mr-1 h-3.5 w-3.5" /> Inward
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setStatus(row, "ACTIVE")} disabled={writeBlocked || status === "ACTIVE"}>
-                      Active
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={() => setStatus(row, "SCRAP")} disabled={writeBlocked || status === "SCRAP"}>
-                      Scrap
+                    <Button variant="outline" size="sm" onClick={() => setStatus(row, status === "ACTIVE" ? "DISCONTINUED" : "ACTIVE")} disabled={writeBlocked}>
+                      {status === "ACTIVE" ? "Discontinue" : "Reactivate"}
                     </Button>
                     <Button variant="ghost" size="sm" onClick={() => deleteMutation.mutate(row.id)} disabled={writeBlocked || row.active === false}>
                       Disable
@@ -266,6 +362,115 @@ export default function ToolsPage() {
           </div>
         </div>
       </section>
+
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
+        <div className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Editable dropdown registry</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Tool attributes</h2>
+              <p className="mt-1 text-sm text-slate-500">Only these option values feed the five tooling definitions and the notch process fields.</p>
+            </div>
+            <form onSubmit={addOption} className="flex flex-wrap gap-2">
+              <select
+                value={optionDraft.category}
+                onChange={(event) => {
+                  const nextCategory = event.target.value
+                  setOptionDraft({ category: nextCategory, field_key: optionFields[nextCategory]?.[0] || "", value: "" })
+                }}
+                className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+              >
+                {CATEGORY_ORDER.map((key) => <option key={key} value={key}>{CATEGORY_LABELS[key]}</option>)}
+              </select>
+              <select value={optionDraft.field_key} onChange={(event) => setOptionDraft({ ...optionDraft, field_key: event.target.value })} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm">
+                {(optionFields[optionDraft.category] || []).map((key) => <option key={key} value={key}>{key}</option>)}
+              </select>
+              <Input value={optionDraft.value} onChange={(event) => setOptionDraft({ ...optionDraft, value: event.target.value })} placeholder="New option" className="h-9 w-32" />
+              <Button type="submit" size="sm" disabled={writeBlocked || !optionDraft.field_key || !optionDraft.value.trim()}><Plus className="mr-1 h-3.5 w-3.5" /> Add</Button>
+            </form>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {(options as any[]).map((option) => (
+              <div key={option.id} className={`flex items-center justify-between gap-3 rounded-xl border px-3 py-2 ${option.active === false ? "border-slate-200 bg-slate-50 text-slate-400" : "border-slate-200 bg-slate-50"}`}>
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">{CATEGORY_LABELS[option.category] || option.category} · {option.field_key}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900">{option.value}</p>
+                </div>
+                <Button type="button" size="sm" variant="outline" onClick={() => editOption(option)} disabled={writeBlocked}>Edit</Button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[1.7rem] border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Physical tool control</p>
+          <h2 className="mt-1 text-lg font-semibold">QR asset ledger</h2>
+          <div className="mt-5 grid grid-cols-2 gap-3">
+            {[
+              ["Total", assetReport.summary?.total_assets || 0],
+              ["Available", assetReport.summary?.available || 0],
+              ["Issued", assetReport.summary?.issued || 0],
+              ["Grinding", assetReport.summary?.grinding_out || 0],
+            ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-3"><p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>)}
+          </div>
+          <p className="mt-5 text-sm leading-6 text-slate-300">Inward a physical unit against a definition, assign its Location Master position, and use the QR asset number for issue, return, grinding, and trace reports.</p>
+        </div>
+      </section>
+
+      <section className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Physical register</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Inwarded tools and lifecycle</h2>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="relative">
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Scan or search QR / asset no." className="h-9 w-64 pl-9" />
+            </label>
+            <Link href="/reports/tooling" className="text-sm font-semibold text-cyan-800 hover:underline">Open tooling report</Link>
+          </div>
+        </div>
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full min-w-[920px] text-sm">
+            <thead><tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
+            <tbody>{(assets as any[]).slice(0, 100).map((asset) => <tr key={asset.id} className="border-b border-slate-100"><td className="py-3 pr-3"><p className="font-semibold text-slate-950">{asset.asset_no}</p><p className="text-xs text-slate-500">{asset.qr_value}</p></td><td className="py-3 pr-3">{asset.definition_name}<p className="text-xs text-slate-500">{CATEGORY_LABELS[asset.category] || asset.category}</p></td><td className="py-3 pr-3"><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${assetStatusClass(asset.status)}`}>{asset.status}</span></td><td className="py-3 pr-3 text-slate-700">{asset.location_label || "-"}</td><td className="py-3 pr-3 font-semibold">V{asset.grind_version || 0}</td><td className="py-3 pr-3">{Number(asset.produced_qty || 0).toLocaleString("en-IN")}</td><td className="py-3"><div className="flex flex-wrap gap-1.5">{asset.status === "AVAILABLE" ? <><Button size="sm" variant="outline" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", value: "" }); setActionDialog({ kind: "issue", asset }) }}>Issue</Button><Button size="sm" variant="outline" onClick={() => action(maintainMutation, asset)}>Maintain</Button>{asset.category === "BLADE" ? <Button size="sm" variant="outline" onClick={() => action(grindingOutMutation, asset)}>Grinding out</Button> : null}<Button size="sm" variant="outline" onClick={() => action(scrapMutation, asset)}>Scrap</Button></> : null}{asset.status === "ISSUED" ? <Button size="sm" variant="outline" onClick={() => action(returnMutation, asset)}>Return</Button> : null}{asset.status === "MAINTENANCE" ? <Button size="sm" variant="outline" onClick={() => action(maintenanceCompleteMutation, asset)}>Complete maintenance</Button> : null}{asset.status === "GRINDING_OUT" ? <Button size="sm" variant="outline" onClick={() => action(grindingReturnMutation, asset)}>Grinding return</Button> : null}</div></td></tr>)}</tbody>
+          </table>
+        </div>
+      </section>
+
+      <Dialog open={isReceiveOpen} onOpenChange={setIsReceiveOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>Inward physical tool</DialogTitle><DialogDescription>This creates a GRN-style receipt and one QR asset per quantity at the selected Location Master position.</DialogDescription></DialogHeader>
+          <form onSubmit={receive} className="space-y-4">
+            <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-3 py-3 text-sm"><p className="font-semibold text-cyan-950">{receiveForm.definition_name}</p><p className="mt-1 text-xs text-cyan-800">{CATEGORY_LABELS[receiveForm.category] || receiveForm.category}</p></div>
+            <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm font-medium">Receipt date<input type="date" required value={receiveForm.receipt_date} onChange={(event) => setReceiveForm({ ...receiveForm, receipt_date: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label><label className="space-y-1 text-sm font-medium">Quantity<input type="number" min="1" max="500" required value={receiveForm.quantity} onChange={(event) => setReceiveForm({ ...receiveForm, quantity: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label></div>
+            <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm font-medium">Supplier<input value={receiveForm.supplier_name || ""} onChange={(event) => setReceiveForm({ ...receiveForm, supplier_name: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label><label className="space-y-1 text-sm font-medium">Receipt / GRN no<input value={receiveForm.receipt_no || ""} onChange={(event) => setReceiveForm({ ...receiveForm, receipt_no: event.target.value })} placeholder="Auto-generated if blank" className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label></div>
+            <label className="space-y-1 text-sm font-medium">Location Master position<select required value={receiveForm.location_id} onChange={(event) => setReceiveForm({ ...receiveForm, location_id: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3"><option value="">Select location</option>{(locations as any[]).map((location) => <option key={location.id} value={location.id}>{[location.code, location.warehouse, location.zone, location.bin].filter(Boolean).join(" · ")}</option>)}</select></label>
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setIsReceiveOpen(false)}>Cancel</Button><Button type="submit" disabled={receiveMutation.isPending || writeBlocked}><PackagePlus className="mr-2 h-4 w-4" />Post inward</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(actionDialog)} onOpenChange={(open) => !open && setActionDialog(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{actionDialog?.kind === "edit-option" ? "Edit dropdown value" : "Issue physical tool"}</DialogTitle>
+            <DialogDescription>{actionDialog?.kind === "edit-option" ? "This changes the master option for future tool definitions and spec sheets." : `Assign ${actionDialog?.asset?.asset_no || "the scanned asset"} to a job card before production starts.`}</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={submitActionDialog} className="space-y-4">
+            {actionDialog?.kind === "edit-option" ? (
+              <label className="space-y-1 text-sm font-medium">Value<Input autoFocus value={actionForm.value} onChange={(event) => setActionForm({ ...actionForm, value: event.target.value })} /></label>
+            ) : (
+              <>
+                <label className="space-y-1 text-sm font-medium">Job card number<Input autoFocus required value={actionForm.job_card_id} onChange={(event) => setActionForm({ ...actionForm, job_card_id: event.target.value })} placeholder="JC-2026-0001" /></label>
+                <label className="space-y-1 text-sm font-medium">Stage<select required value={actionForm.stage_type} onChange={(event) => setActionForm({ ...actionForm, stage_type: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="SLITTING">Slitting</option><option value="WINDER">Winder</option><option value="OVEN">Oven</option><option value="PROCESS">Process</option><option value="PACKING">Packing</option><option value="QC">QC</option></select></label>
+              </>
+            )}
+            <DialogFooter><Button type="button" variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button><Button type="submit" disabled={updateOptionMutation.isPending || issueMutation.isPending}>Save</Button></DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       <section className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">

@@ -52,38 +52,22 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await login(page)
   await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
-  await expect
-    .poll(async () => await page.getByTestId("spec-sheet-tube-size").locator("option").count())
-    .toBeGreaterThan(1)
-  await expect
-    .poll(async () => await page.getByTestId("spec-sheet-mandrel").locator("option").count())
-    .toBeGreaterThan(1)
-
-  const customerSelect = page.locator("main select").first()
-  const firstCustomerValue = await customerSelect.locator("option").nth(1).getAttribute("value")
-  if (firstCustomerValue) {
-    await customerSelect.selectOption(firstCustomerValue)
-  }
 
   const mandrelSelect = page.getByTestId("spec-sheet-mandrel")
+  await expect
+    .poll(async () => ((await mandrelSelect.textContent()) || "").trim())
+    .not.toBe("Select mandrel")
+
   await expect(mandrelSelect).toBeVisible()
-  const mandrelValue = await mandrelSelect.evaluate((select) => {
-    const options = Array.from(select.options)
-    return (options.find((option) => /110\.65/i.test(option.textContent || "")) || options[1])?.value || ""
-  })
-  if (mandrelValue) {
-    await mandrelSelect.selectOption(mandrelValue)
-  }
+  await mandrelSelect.click()
+  await expect(page.getByRole("button", { name: /OD 110\.65/i }).last()).toBeVisible()
+  await page.getByRole("button", { name: /OD 110\.65/i }).last().click()
 
   const tubeSizeSelect = page.getByTestId("spec-sheet-tube-size")
   await expect(tubeSizeSelect).toBeVisible()
-  const tubeSizeValue = await tubeSizeSelect.evaluate((select) => {
-    const options = Array.from(select.options)
-    return (options.find((option) => /110\s*[×x]\s*122\s*[×x]\s*149\.9/i.test(option.textContent || "")) || options[1])?.value || ""
-  })
-  if (tubeSizeValue) {
-    await tubeSizeSelect.selectOption(tubeSizeValue)
-  }
+  await tubeSizeSelect.click()
+  await expect(page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last()).toBeVisible()
+  await page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last().click()
 
   const liveBuilder = page.getByTestId("spec-sheet-live-builder")
   await expect(liveBuilder).toContainText(/Paper total/i)
@@ -93,21 +77,10 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await expect(previewRail).toContainText(/One bamboo yield/i)
   await expect(previewRail).toContainText(/10 pcs/i)
 
-  const activeSuggestion = page.locator('[data-testid^="spec-sheet-suggestion-"]').first()
-  await expect(activeSuggestion).toBeVisible({ timeout: 15000 })
-  const activeSuggestionText = (await activeSuggestion.textContent()) || ""
-  const suggestionDry = activeSuggestionText.match(/Dry\s+([0-9.]+)\s*g/i)?.[1]
-  const suggestionWet = activeSuggestionText.match(/Wet\s+([0-9.]+)\s*g/i)?.[1]
-  if (suggestionDry && suggestionWet) {
-    await expect
-      .poll(async () => ((await previewRail.textContent()) || "").replace(/\s+/g, " "))
-      .toContain("Required paper")
-  }
-
-  await activeSuggestion.getByRole("button", { name: /Apply mix/i }).click()
+  await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]')).toHaveCount(0)
   await expect
     .poll(async () => ((await liveBuilder.textContent()) || "").replace(/\s+/g, " "))
-    .toMatch(/Paper total\s*[1-9]\d*(\.\d+)?\s*g/i)
+    .toMatch(/Paper total/i)
 
   const manufacturingTable = page.locator("div").filter({ has: page.getByText("Manufacturing specification") }).first()
   await expect(manufacturingTable).toContainText("Bamboo LT")
@@ -129,6 +102,6 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await targetWeightInput.fill("300")
   expect(Date.now() - startedAt).toBeLessThan(2500)
   await expect(targetWeightInput).toHaveValue("300")
-  await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]').first()).toBeVisible({ timeout: 15000 })
+  await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]')).toHaveCount(0)
   await expect(liveBuilder).toContainText(/Target wet/i)
 })

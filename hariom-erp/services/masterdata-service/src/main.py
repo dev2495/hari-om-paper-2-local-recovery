@@ -1,3 +1,5 @@
+import uuid
+
 from fastapi import FastAPI
 from sqlalchemy import text
 
@@ -45,6 +47,7 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS primary_contact_phone VARCHAR(50)"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS primary_contact_email VARCHAR(200)"))
         # Master redesign columns (additive; legacy clients see them as NULL).
+        connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS attribute_values JSONB DEFAULT '{}'::jsonb"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS category VARCHAR(80)"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS credit_limit DOUBLE PRECISION"))
         connection.execute(text("ALTER TABLE customer ADD COLUMN IF NOT EXISTS payment_terms VARCHAR(120)"))
@@ -472,13 +475,14 @@ def _ensure_schema_compatibility() -> None:
         connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS scrapped_at TIMESTAMP WITHOUT TIME ZONE"))
         connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0"))
         connection.execute(text("ALTER TABLE tool_master ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()"))
+        connection.execute(text("ALTER TABLE tool_master DROP CONSTRAINT IF EXISTS ck_tool_master_status"))
         connection.execute(text("UPDATE tool_master SET status = COALESCE(NULLIF(upper(status), ''), 'ACTIVE')"))
-        connection.execute(text("UPDATE tool_master SET status = 'ACTIVE' WHERE status NOT IN ('ACTIVE','MAINTENANCE','SCRAP')"))
+        connection.execute(text("UPDATE tool_master SET status = 'DISCONTINUED' WHERE status IN ('MAINTENANCE','SCRAP')"))
+        connection.execute(text("UPDATE tool_master SET status = 'ACTIVE' WHERE status NOT IN ('ACTIVE','DISCONTINUED')"))
         connection.execute(text("UPDATE tool_master SET usage_count = COALESCE(usage_count, 0)"))
         connection.execute(text("UPDATE tool_master SET updated_at = COALESCE(updated_at, created_at, NOW())"))
-        connection.execute(text("ALTER TABLE tool_master DROP CONSTRAINT IF EXISTS ck_tool_master_status"))
         connection.execute(
-            text("ALTER TABLE tool_master ADD CONSTRAINT ck_tool_master_status CHECK (status IN ('ACTIVE','MAINTENANCE','SCRAP'))")
+            text("ALTER TABLE tool_master ADD CONSTRAINT ck_tool_master_status CHECK (status IN ('ACTIVE','DISCONTINUED'))")
         )
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_tool_master_status ON tool_master (status)"))
         connection.execute(
@@ -516,7 +520,7 @@ _ensure_schema_compatibility()
 
 
 def _retire_legacy_notch_tool_placeholders() -> None:
-    """Stop old seeded and field-level placeholder tools from appearing in dropdowns."""
+    """Keep legacy tool rows for history while retiring them from current tooling use."""
     legacy_codes = (
         "NOTCH-DROP-DOWN",
         "BLADE-DROP-DOWN",
@@ -537,7 +541,7 @@ def _retire_legacy_notch_tool_placeholders() -> None:
         UPDATE tool_master
         SET
             active = FALSE,
-            status = 'SCRAP',
+            status = 'DISCONTINUED',
             condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired legacy seeded placeholder; recreate manually under the new field category if still required.'),
             updated_at = NOW()
         WHERE code = :legacy_code
@@ -548,7 +552,7 @@ def _retire_legacy_notch_tool_placeholders() -> None:
         UPDATE tool_master
         SET
             active = FALSE,
-            status = 'SCRAP',
+            status = 'DISCONTINUED',
             condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired non-current notching tool category. Valid categories are Notch, Blade, Holder, V + Flat, and Punch.'),
             updated_at = NOW()
         WHERE category IN (
@@ -562,10 +566,22 @@ def _retire_legacy_notch_tool_placeholders() -> None:
           )
         """
     )
+    retire_unknown_category_sql = text(
+        """
+        UPDATE tool_master
+        SET
+            active = FALSE,
+            status = 'DISCONTINUED',
+            condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired legacy tool category. Current tooling categories are Notch, Blade, Holder, V + Flat, and Punch.'),
+            updated_at = NOW()
+        WHERE UPPER(COALESCE(category, '')) NOT IN ('NOTCH', 'BLADE', 'HOLDER', 'V_FLAT', 'PUNCH')
+        """
+    )
     with engine.begin() as connection:
         for legacy_code in legacy_codes:
             connection.execute(retire_sql, {"legacy_code": legacy_code})
         connection.execute(retire_category_sql)
+        connection.execute(retire_unknown_category_sql)
 
 
 def _seed_default_suppliers() -> None:
@@ -683,6 +699,35 @@ def _seed_default_suppliers() -> None:
 
 _seed_default_suppliers()
 _retire_legacy_notch_tool_placeholders()
+
+
+def _seed_tool_attribute_options() -> None:
+    """Install client-provided defaults once; admins can edit them thereafter."""
+    rows = []
+    for (category, field_key), values in tool.DEFAULT_TOOL_OPTIONS.items():
+        for sort_order, value in enumerate(values):
+            rows.append({
+                "id": str(uuid.uuid4()),
+                "category": category,
+                "field_key": field_key,
+                "value": value,
+                "sort_order": sort_order,
+            })
+    with engine.begin() as connection:
+        for plant_id in ("PLANT_A", "PLANT-1"):
+            for row in rows:
+                connection.execute(
+                    text(
+                        "INSERT INTO tool_attribute_option "
+                        "(id, category, field_key, value, plant_id, active, sort_order, created_at, updated_at) "
+                        "VALUES (:id, :category, :field_key, :value, :plant_id, TRUE, :sort_order, NOW(), NOW()) "
+                        "ON CONFLICT (plant_id, category, field_key, value) DO NOTHING"
+                    ),
+                    {**row, "id": str(uuid.uuid4()), "plant_id": plant_id},
+                )
+
+
+_seed_tool_attribute_options()
 
 
 @app.get("/")

@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     String,
     Enum as SQLEnum,
     Text,
@@ -120,6 +121,108 @@ class InventoryLocation(Base):
     __table_args__ = (
         UniqueConstraint("plant_id", "code", name="uq_inventory_locations_plant_code"),
     )
+
+
+class ToolReceipt(Base):
+    """GRN-style inward header for physical tooling units."""
+
+    __tablename__ = "tool_receipts"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    receipt_no = Column(String(80), nullable=False)
+    receipt_date = Column(Date, nullable=False)
+    supplier_name = Column(String(200), nullable=True)
+    po_reference = Column(String(120), nullable=True)
+    invoice_reference = Column(String(120), nullable=True)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=False)
+    notes = Column(Text, nullable=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    created_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    location = relationship("InventoryLocation")
+    assets = relationship("ToolAsset", back_populates="receipt")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "receipt_no", name="uq_tool_receipt_plant_no"),
+    )
+
+
+class ToolAsset(Base):
+    """A physical tool unit created by inward/opening, identified by QR."""
+
+    __tablename__ = "tool_assets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    asset_no = Column(String(80), nullable=False)
+    qr_value = Column(String(160), nullable=False)
+    tool_definition_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    category = Column(String(50), nullable=False, index=True)
+    definition_name = Column(String(200), nullable=False)
+    attribute_snapshot = Column(JSON, nullable=False, default=dict)
+    status = Column(String(30), nullable=False, default="AVAILABLE", index=True)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("inventory_locations.id"), nullable=False)
+    receipt_id = Column(UUID(as_uuid=True), ForeignKey("tool_receipts.id"), nullable=True, index=True)
+    grind_version = Column(Integer, nullable=False, default=0)
+    usage_count = Column(Integer, nullable=False, default=0)
+    produced_qty = Column(Float, nullable=False, default=0.0)
+    scrap_qty = Column(Float, nullable=False, default=0.0)
+    current_job_card_id = Column(String(80), nullable=True, index=True)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
+    received_at = Column(DateTime, default=datetime.utcnow)
+    retired_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    location = relationship("InventoryLocation")
+    receipt = relationship("ToolReceipt", back_populates="assets")
+    events = relationship("ToolAssetEvent", back_populates="asset", cascade="all, delete-orphan")
+    assignments = relationship("ToolAssetAssignment", back_populates="asset", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "asset_no", name="uq_tool_asset_plant_no"),
+        UniqueConstraint("plant_id", "qr_value", name="uq_tool_asset_plant_qr"),
+    )
+
+
+class ToolAssetEvent(Base):
+    __tablename__ = "tool_asset_events"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("tool_assets.id"), nullable=False, index=True)
+    event_type = Column(String(40), nullable=False, index=True)
+    from_status = Column(String(30), nullable=True)
+    to_status = Column(String(30), nullable=True)
+    source_type = Column(String(40), nullable=False, default="TOOLING")
+    source_id = Column(String(100), nullable=True, index=True)
+    job_card_id = Column(String(80), nullable=True, index=True)
+    stage_type = Column(String(40), nullable=True)
+    good_qty = Column(Float, nullable=True)
+    scrap_qty = Column(Float, nullable=True)
+    grind_version = Column(Integer, nullable=True)
+    metadata_json = Column(JSON, nullable=True)
+    actor = Column(String(200), nullable=True)
+    event_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    asset = relationship("ToolAsset", back_populates="events")
+
+
+class ToolAssetAssignment(Base):
+    __tablename__ = "tool_asset_assignments"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    asset_id = Column(UUID(as_uuid=True), ForeignKey("tool_assets.id"), nullable=False, index=True)
+    job_card_id = Column(String(80), nullable=False, index=True)
+    stage_type = Column(String(40), nullable=False)
+    issued_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    returned_at = Column(DateTime, nullable=True)
+    status = Column(String(20), nullable=False, default="OPEN")
+    good_qty = Column(Float, nullable=False, default=0.0)
+    scrap_qty = Column(Float, nullable=False, default=0.0)
+    usage_key = Column(String(160), nullable=True, unique=True)
+    notes = Column(Text, nullable=True)
+
+    asset = relationship("ToolAsset", back_populates="assignments")
 
 
 class ItemMaster(Base):

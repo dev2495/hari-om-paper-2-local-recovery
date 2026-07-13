@@ -1,5 +1,3 @@
-import { computePreview, requiredPaperG } from "./spec-math"
-
 export type ScalarDynamicField = {
   field_key: string
   label: string
@@ -58,32 +56,28 @@ export type ToolMasterPointField = {
 
 export const TOOL_MASTER_POINT_FIELDS: Record<string, ToolMasterPointField[]> = {
   NOTCH: [
-    { key: "type", label: "Type", input: "select", options: ["Bottom LHS", "Bottom RHS", "Top RHS"], required: true },
+    { key: "type", label: "Type", input: "select", required: true },
     { key: "thickness", label: "Thickness", input: "text", placeholder: "6 mm", required: true },
-    { key: "design", label: "Design", input: "select", options: ["Plain", "Step"], required: true },
-    { key: "code", label: "Code", input: "text", placeholder: "Optional tool code" },
-    { key: "degree", label: "Degree", input: "select", options: ["50", "55", "60"], required: true },
+    { key: "design", label: "Design", input: "select", required: true },
+    { key: "degree", label: "Degree", input: "select", required: true },
   ],
   BLADE: [
-    { key: "type", label: "Type", input: "select", options: ["Plain", "Half Serration", "Full Serration"], required: true },
+    { key: "type", label: "Type", input: "select", required: true },
     { key: "thickness", label: "Thickness", input: "text", placeholder: "0.9 mm", required: true },
-    { key: "code", label: "Code", input: "text", placeholder: "Optional blade code" },
     { key: "height", label: "Height", input: "text", placeholder: "Height" },
     { key: "length", label: "Length", input: "text", placeholder: "140/130/20", required: true },
   ],
   HOLDER: [
     { key: "thickness", label: "Thickness", input: "text", placeholder: "Thickness", required: true },
-    { key: "code", label: "Code", input: "text", placeholder: "Optional holder code" },
     { key: "height", label: "Height", input: "text", placeholder: "Height" },
     { key: "length", label: "Length", input: "text", placeholder: "Length", required: true },
   ],
   V_FLAT: [
-    { key: "code", label: "Code", input: "text", placeholder: "Optional V + Flat code" },
     { key: "length", label: "Length", input: "text", placeholder: "70+30", required: true },
     { key: "thickness", label: "Thickness", input: "text", placeholder: "4.0", required: true },
   ],
   PUNCH: [
-    { key: "punch", label: "Punch", input: "select", options: ["Single", "Double", "N/A"], required: true },
+    { key: "punch", label: "Punch", input: "select", required: true },
   ],
 }
 
@@ -129,7 +123,6 @@ export function formatToolMasterPoints(category: string, points: Record<string, 
       cleaned.type,
       cleaned.thickness,
       cleaned.design,
-      cleaned.code,
       cleaned.degree ? `${cleaned.degree} deg` : "",
     ]
       .filter(Boolean)
@@ -139,7 +132,6 @@ export function formatToolMasterPoints(category: string, points: Record<string, 
     return [
       cleaned.type ? `${cleaned.type} Blade` : "",
       cleaned.thickness,
-      cleaned.code,
       cleaned.height ? `H ${cleaned.height}` : "",
       cleaned.length ? `L ${cleaned.length}` : "",
     ]
@@ -150,7 +142,6 @@ export function formatToolMasterPoints(category: string, points: Record<string, 
     return [
       "Holder",
       cleaned.thickness,
-      cleaned.code,
       cleaned.height ? `H ${cleaned.height}` : "",
       cleaned.length ? `L ${cleaned.length}` : "",
     ]
@@ -158,7 +149,7 @@ export function formatToolMasterPoints(category: string, points: Record<string, 
       .join(" - ")
   }
   if (normalizedCategory === "V_FLAT") {
-    return ["V + Flat", cleaned.code, cleaned.length, cleaned.thickness ? `${cleaned.thickness} thick` : ""]
+    return ["V + Flat", cleaned.length, cleaned.thickness ? `${cleaned.thickness} thick` : ""]
       .filter(Boolean)
       .join(" - ")
   }
@@ -440,22 +431,6 @@ export function applyPaperMasterToRecipeRow(row: GroupedRecipeRow, paper: any): 
   }
 }
 
-export type RecipeSuggestion = {
-  id: string
-  title: string
-  rows: GroupedRecipeRow[]
-  predictedPaperWeightG: number
-  deltaG: number
-  predictedDryTubeG?: number
-  predictedWetTubeG?: number
-  deltaDryG?: number
-  deltaWetG?: number
-  totalPlyCount?: number
-  preferredRule?: string
-  recipeThicknessMm?: number
-  effectiveDiameterMm?: number
-}
-
 export function formatRecipeRowsTitle(
   rows: GroupedRecipeRow[],
   options?: { includeCounts?: boolean },
@@ -477,32 +452,6 @@ export function formatRecipeRowsTitle(
       return `${code} x ${plyCount}`
     })
     .join(" + ")
-}
-
-export function pickVisibleRecipeSuggestions(suggestions: RecipeSuggestion[], limit = 6) {
-  const ranked = [...(suggestions || [])]
-  if (ranked.length <= limit) return ranked
-
-  const picked: RecipeSuggestion[] = []
-  const usedIds = new Set<string>()
-  const usedPlyCounts = new Set<number>()
-
-  for (const suggestion of ranked) {
-    const plyCount = Number(suggestion.totalPlyCount || 0)
-    if (usedPlyCounts.has(plyCount)) continue
-    picked.push(suggestion)
-    usedIds.add(suggestion.id)
-    usedPlyCounts.add(plyCount)
-    if (picked.length >= limit) return picked
-  }
-
-  for (const suggestion of ranked) {
-    if (usedIds.has(suggestion.id)) continue
-    picked.push(suggestion)
-    if (picked.length >= limit) break
-  }
-
-  return picked
 }
 
 export type ProcessGuidanceRow = {
@@ -536,9 +485,9 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "notching_holder", label: "Holder Tool", field_type: "select" },
   { field_key: "v_flat", label: "V + Flat Tool", field_type: "select" },
   { field_key: "punch", label: "Punch", field_type: "select" },
-  { field_key: "notch_direction", label: "Direction", field_type: "select", options: [...NOTCH_DIRECTION_OPTIONS] },
-  { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "select", options: [...NOTCH_DISTANCE_OPTIONS] },
-  { field_key: "notch_depth_mm", label: "Notch Deep", field_type: "select", options: [...NOTCH_DEPTH_OPTIONS] },
+  { field_key: "notch_direction", label: "Direction", field_type: "select" },
+  { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "select" },
+  { field_key: "notch_depth_mm", label: "Notch Deep", field_type: "select" },
   { field_key: "winder_tool_required", label: "Winder Tool", field_type: "boolean" },
   { field_key: "bundle_type", label: "Bundle Type", field_type: "text" },
   { field_key: "bundle_code", label: "Bundle Code", field_type: "text" },
@@ -677,90 +626,6 @@ export function buildGroupedRowLabel(paper: any) {
   }
 }
 
-function paperWeightPerPlyG(paper: any, tubeLengthMm: number, idMm: number, odMm: number) {
-  const gsm = Number(paper?.gsm || 0)
-  if (gsm <= 0 || tubeLengthMm <= 0) return 0
-  const effectiveDiameterMm = Math.max((Number(idMm || 0) + Number(odMm || 0)) / 2, 1)
-  return (3.14 * effectiveDiameterMm * tubeLengthMm * gsm) / 1_000_000
-}
-
-function paperThicknessMm(paper: any) {
-  const explicit = Number(paper?.thickness_mm || 0)
-  if (explicit > 0) return explicit
-  const gsm = Number(paper?.gsm || 0)
-  const bulk = Number(paper?.bulk_factor || 1.4)
-  return gsm > 0 ? (gsm * bulk) / 1000 : 0
-}
-
-function comboRecipeThicknessMm(rows: GroupedRecipeRow[]) {
-  return rows.reduce((sum, row) => sum + Number(row.thicknessPerPly || 0) * Number(row.plyCount || 0), 0)
-}
-
-function comboEffectiveDiameterMm(idMm: number, rows: GroupedRecipeRow[], fallbackOdMm: number) {
-  const recipeThickness = comboRecipeThicknessMm(rows)
-  if (recipeThickness > 0) return Math.max(Number(idMm || 0) + recipeThickness, 1)
-  return Math.max((Number(idMm || 0) + Number(fallbackOdMm || 0)) / 2, 1)
-}
-
-function evaluateRecipeSuggestion(
-  rows: GroupedRecipeRow[],
-  tubeLengthMm: number,
-  idMm: number,
-  odMm: number,
-  targetWetWeightG: number,
-  options?: { wetDivisor?: number; parchmentPercent?: number },
-) {
-  const wetDivisor = Math.max(Number(options?.wetDivisor ?? DEFAULT_WET_DIVISOR), 0.01)
-  const targetDryWeightG = targetWetWeightG * wetDivisor
-  const preview = computePreview({
-    mandrel_od_mm: Number(idMm || 0),
-    tube_length_mm: Number(tubeLengthMm || 0),
-    target_dry_g: targetDryWeightG,
-    parchment_percent: Number(options?.parchmentPercent ?? 1.5),
-    moisture_loss_percent: Math.max(0, (1 - wetDivisor) * 100),
-    papers: rows.map((row) => {
-      const gsm = Number((row as any).gsm || 0)
-      const explicitBulk = Number((row as any).bulkFactor || 0)
-      const derivedBulk = gsm > 0 && Number(row.thicknessPerPly || 0) > 0 ? (Number(row.thicknessPerPly) * 1000) / gsm : 1.4
-      return {
-        paper_id: String(row.paper_id || row.code || ""),
-        code: row.code,
-        gsm,
-        bulk: explicitBulk > 0 ? explicitBulk : derivedBulk,
-        ply_count: Math.max(1, Math.floor(Number(row.plyCount || 0))),
-      }
-    }),
-  })
-  return {
-    recipeThicknessMm: roundValue(preview.wall_mm, 4),
-    effectiveDiameterMm: roundValue(preview.od_mm, 4),
-    predictedPaperWeightG: roundValue(preview.tube.paper_g, 2),
-    predictedDryTubeG: roundValue(preview.tube.dry_g, 2),
-    predictedWetTubeG: roundValue(preview.tube.wet_g, 2),
-    deltaDryG: roundValue(preview.validation.delta_g, 2),
-    deltaWetG: roundValue(preview.tube.wet_g - targetWetWeightG, 2),
-  }
-}
-
-function rowFromPaper(paper: any, plyCount: number, seed: string): GroupedRecipeRow {
-  const label = buildGroupedRowLabel(paper)
-  return {
-    id: `sg-${seed}`,
-    paper_id: String(paper?.id || ""),
-    code: label.code,
-    variety: label.variety,
-    category: label.category,
-    gsm: Number(paper?.gsm || 0),
-    bfPerPly: Number(paper?.bf ?? 0),
-    thicknessPerPly: Number(paper?.thickness_mm || 0),
-    bulkFactor: Number(paper?.bulk_factor || 0),
-    plyBond: Number(paper?.ply_bond || 0),
-    plyCount: Math.max(1, Math.floor(plyCount || 1)),
-    adhesiveLabel: "TL-4",
-    positionsText: "",
-  }
-}
-
 export function parseAdhesiveComponents(value: string | undefined, fallbackBasePercent = 15): AdhesiveComponent[] {
   const parsed = parseJsonField<unknown>(value, [])
   if (Array.isArray(parsed)) {
@@ -798,247 +663,4 @@ export function buildAdhesiveComponentsPayload(
   if (tl4 > 0) legacy.push({ name: "TL4(Vinsol) / 20100", base_percent: basePercent, ratio_percent: tl4 })
   if (vinsol > 0) legacy.push({ name: "Alcosol / 30100", base_percent: basePercent, ratio_percent: vinsol })
   return legacy
-}
-
-export function suggestRecipeRowsFromPapers(
-  papers: any[],
-  targetWetWeightG: number,
-  tubeLengthMm: number,
-  idMm: number,
-  odMm: number,
-  options?: { dryingPercent?: number; parchmentPercent?: number },
-): RecipeSuggestion[] {
-  const uniquePapers = new Map<string, any>()
-  for (const paper of papers || []) {
-    const code = String(paper?.code || "").trim().toUpperCase()
-    const key = code || String(paper?.id || "").trim()
-    if (!key || uniquePapers.has(key)) continue
-    uniquePapers.set(key, paper)
-  }
-
-  const activePapers = Array.from(uniquePapers.values()).filter((paper) => Number(paper?.gsm || 0) > 0)
-  if (!activePapers.length || targetWetWeightG <= 0 || tubeLengthMm <= 0) return []
-
-  const wetDivisor = Math.max(1 - Number(options?.dryingPercent ?? 9.0) / 100, 0.01)
-  const candidates = activePapers
-    .map((paper) => {
-      const roughEffectiveDiameterMm = Math.max((Number(idMm || 0) + Number(odMm || 0)) / 2, Number(idMm || 0) + paperThicknessMm(paper), 1)
-      return {
-        paper,
-        roughPerPly: paperWeightPerPlyG({ gsm: Number(paper?.gsm || 0) }, tubeLengthMm, roughEffectiveDiameterMm, roughEffectiveDiameterMm),
-      }
-    })
-    .filter((item) => item.roughPerPly > 0)
-    .sort((a, b) => Number(a.paper?.gsm || 0) - Number(b.paper?.gsm || 0) || Number(a.paper?.bf || 0) - Number(b.paper?.bf || 0))
-
-  const suggestions = new Map<string, RecipeSuggestion>()
-
-  function registerSuggestion(id: string, title: string, rows: GroupedRecipeRow[]) {
-    const distinctPaperCount = rows.filter((row) => row.paper_id).length
-    const totalPlyCount = rows.reduce((sum, row) => sum + Number(row.plyCount || 0), 0)
-    if (distinctPaperCount < 3 || distinctPaperCount > 5 || totalPlyCount < 4 || totalPlyCount > 18) {
-      return
-    }
-    const evaluation = evaluateRecipeSuggestion(rows, tubeLengthMm, idMm, odMm, targetWetWeightG, {
-      wetDivisor,
-      parchmentPercent: Number(options?.parchmentPercent ?? 1.5),
-    })
-    const suggestion: RecipeSuggestion = {
-      id,
-      title,
-      rows,
-      predictedPaperWeightG: evaluation.predictedPaperWeightG,
-      predictedDryTubeG: evaluation.predictedDryTubeG,
-      predictedWetTubeG: evaluation.predictedWetTubeG,
-      deltaDryG: evaluation.deltaDryG,
-      deltaWetG: evaluation.deltaWetG,
-      deltaG: evaluation.deltaDryG,
-      totalPlyCount,
-      recipeThicknessMm: evaluation.recipeThicknessMm,
-      effectiveDiameterMm: evaluation.effectiveDiameterMm,
-    }
-    const signature = rows
-      .slice()
-      .sort((left, right) => `${left.code}:${left.plyCount}`.localeCompare(`${right.code}:${right.plyCount}`))
-      .map((row) => `${row.code}:${row.plyCount}`)
-      .join("|")
-    const existing = suggestions.get(signature)
-    if (!existing) {
-      suggestions.set(signature, suggestion)
-      return
-    }
-    const existingScore = [Math.abs(existing.deltaDryG || 0), existing.totalPlyCount || 999, Math.abs(existing.deltaWetG || 0)]
-    const nextScore = [Math.abs(suggestion.deltaDryG || 0), suggestion.totalPlyCount || 999, Math.abs(suggestion.deltaWetG || 0)]
-    for (let index = 0; index < nextScore.length; index += 1) {
-      if (nextScore[index] < existingScore[index]) {
-        suggestions.set(signature, suggestion)
-        return
-      }
-      if (nextScore[index] > existingScore[index]) return
-    }
-  }
-
-  if (candidates.length <= 6) {
-    function walkPlyDistributions(
-      combo: typeof candidates,
-      totalPlyCount: number,
-      cursor: number,
-      remainingPlies: number,
-      counts: number[],
-    ) {
-      const remainingSlots = combo.length - cursor
-      if (remainingSlots <= 0) return
-
-      if (remainingSlots === 1) {
-        counts[cursor] = remainingPlies
-        const rows = combo.map((item, index) =>
-          rowFromPaper(item.paper, counts[index], `${item.paper.id}-${totalPlyCount}-${counts.join("-")}-${index}`),
-        )
-        registerSuggestion(
-          `combo-${combo.map((item) => item.paper.id).join("-")}-${counts.join("-")}`,
-          formatRecipeRowsTitle(rows),
-          rows,
-        )
-        return
-      }
-
-      const minForCurrent = 1
-      const maxForCurrent = remainingPlies - (remainingSlots - 1)
-      for (let current = minForCurrent; current <= maxForCurrent; current += 1) {
-        counts[cursor] = current
-        walkPlyDistributions(combo, totalPlyCount, cursor + 1, remainingPlies - current, counts)
-      }
-    }
-
-    function walkCombos(start: number, size: number, picked: typeof candidates) {
-      if (picked.length === size) {
-        for (let totalPlyCount = Math.max(4, size); totalPlyCount <= 18; totalPlyCount += 1) {
-          walkPlyDistributions(picked, totalPlyCount, 0, totalPlyCount, Array.from({ length: picked.length }, () => 1))
-        }
-        return
-      }
-
-      for (let index = start; index <= candidates.length - (size - picked.length); index += 1) {
-        walkCombos(index + 1, size, [...picked, candidates[index]])
-      }
-    }
-
-    const maxDistinctPapers = Math.min(5, candidates.length)
-    for (let size = 3; size <= maxDistinctPapers; size += 1) {
-      walkCombos(0, size, [])
-    }
-  } else {
-    type SearchRow = {
-      paper: any
-      count: number
-      roughPerPly: number
-    }
-    type SearchState = {
-      rows: SearchRow[]
-      totalPlyCount: number
-      roughPaperWeightG: number
-    }
-
-    const targetDryWeightG = targetWetWeightG * wetDivisor
-    const targetPaperWeightG = requiredPaperG(targetDryWeightG, {
-      adhesive_percent: 15,
-      parchment_percent: Number(options?.parchmentPercent ?? 1.5),
-      moisture_loss_percent: Number(options?.dryingPercent ?? 9.0),
-      parchment_allowed: true,
-    })
-    const beamLimit = 96
-    const maxPlies = 18
-    const maxDistinctPapers = 5
-    const createBuckets = () =>
-      Array.from({ length: maxDistinctPapers + 1 }, () =>
-        Array.from({ length: maxPlies + 1 }, () => [] as SearchState[]),
-      )
-
-    let buckets = createBuckets()
-    buckets[0][0] = [{ rows: [], totalPlyCount: 0, roughPaperWeightG: 0 }]
-
-    const score = (state: SearchState) => [
-      Math.abs(state.roughPaperWeightG - targetPaperWeightG),
-      state.totalPlyCount,
-      state.rows.length,
-    ]
-    const trimBucket = (states: SearchState[]) => {
-      if (states.length <= beamLimit) return states
-      return states
-        .sort((left, right) => {
-          const leftScore = score(left)
-          const rightScore = score(right)
-          for (let index = 0; index < leftScore.length; index += 1) {
-            if (leftScore[index] !== rightScore[index]) return leftScore[index] - rightScore[index]
-          }
-          return 0
-        })
-        .slice(0, beamLimit)
-    }
-
-    for (const candidate of candidates) {
-      const next = buckets.map((byPly) => byPly.map((states) => states.slice()))
-      for (let selectedCount = 0; selectedCount < maxDistinctPapers; selectedCount += 1) {
-        for (let plyCount = 0; plyCount < maxPlies; plyCount += 1) {
-          const states = buckets[selectedCount][plyCount]
-          if (!states.length) continue
-          const maxCountForPaper = maxPlies - plyCount
-          for (const state of states) {
-            for (let count = 1; count <= maxCountForPaper; count += 1) {
-              next[selectedCount + 1][plyCount + count].push({
-                rows: [...state.rows, { paper: candidate.paper, count, roughPerPly: candidate.roughPerPly }],
-                totalPlyCount: plyCount + count,
-                roughPaperWeightG: state.roughPaperWeightG + candidate.roughPerPly * count,
-              })
-            }
-          }
-        }
-      }
-
-      for (let selectedCount = 0; selectedCount <= maxDistinctPapers; selectedCount += 1) {
-        for (let plyCount = 0; plyCount <= maxPlies; plyCount += 1) {
-          next[selectedCount][plyCount] = trimBucket(next[selectedCount][plyCount])
-        }
-      }
-      buckets = next
-    }
-
-    const finalStates: SearchState[] = []
-    for (let selectedCount = 3; selectedCount <= maxDistinctPapers; selectedCount += 1) {
-      for (let plyCount = Math.max(4, selectedCount); plyCount <= maxPlies; plyCount += 1) {
-        finalStates.push(...buckets[selectedCount][plyCount])
-      }
-    }
-
-    finalStates
-      .sort((left, right) => {
-        const leftScore = score(left)
-        const rightScore = score(right)
-        for (let index = 0; index < leftScore.length; index += 1) {
-          if (leftScore[index] !== rightScore[index]) return leftScore[index] - rightScore[index]
-        }
-        return 0
-      })
-      .slice(0, 900)
-      .forEach((state, stateIndex) => {
-        const rows = state.rows.map((row, rowIndex) =>
-          rowFromPaper(row.paper, row.count, `${row.paper.id}-${state.totalPlyCount}-${stateIndex}-${rowIndex}`),
-        )
-        registerSuggestion(
-          `beam-${state.rows.map((row) => row.paper.id).join("-")}-${state.rows.map((row) => row.count).join("-")}`,
-          formatRecipeRowsTitle(rows),
-          rows,
-        )
-      })
-  }
-
-  const ranked = Array.from(suggestions.values())
-    .sort((a, b) => {
-      if (Math.abs(a.deltaDryG || 0) !== Math.abs(b.deltaDryG || 0)) return Math.abs(a.deltaDryG || 0) - Math.abs(b.deltaDryG || 0)
-      if ((a.totalPlyCount || 999) !== (b.totalPlyCount || 999)) return (a.totalPlyCount || 999) - (b.totalPlyCount || 999)
-      if (Math.abs(a.deltaWetG || 0) !== Math.abs(b.deltaWetG || 0)) return Math.abs(a.deltaWetG || 0) - Math.abs(b.deltaWetG || 0)
-      return a.title.localeCompare(b.title)
-    })
-
-  return pickVisibleRecipeSuggestions(ranked, 6)
 }

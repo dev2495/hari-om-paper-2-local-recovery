@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { BadgeCheck, Factory, Gauge, Power, Wrench } from "lucide-react"
+import { useToolOptions } from "@/hooks/use-master-data"
 
 interface MasterFormProps {
   initialData?: any
@@ -36,9 +37,9 @@ function normalizeToolCategory(value: any) {
 
 function initialToolPoints(initialData: any, category: string) {
   const points: Record<string, string> = {
+    ...(initialData?.attribute_values || {}),
     ...parseToolMasterSpecText(initialData?.spec_text),
   }
-  if (!points.code && initialData?.code) points.code = String(initialData.code)
   if (!points.type && initialData?.subcategory && ["NOTCH", "BLADE"].includes(category)) {
     points.type = String(initialData.subcategory)
   }
@@ -55,13 +56,6 @@ function toolSubcategory(category: string, points: Record<string, any>) {
   return cleanText(points.thickness)
 }
 
-function toDateTimeLocal(value?: string) {
-  if (!value) return ""
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return ""
-  return date.toISOString().slice(0, 16)
-}
-
 function buildToolDefaults(source: any = {}) {
   const category = normalizeToolCategory(source?.category)
   return {
@@ -70,7 +64,6 @@ function buildToolDefaults(source: any = {}) {
     ...source,
     category,
     points: initialToolPoints(source, category),
-    next_maintenance_due: toDateTimeLocal(source?.next_maintenance_due),
   }
 }
 
@@ -739,6 +732,7 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
 }
 
 export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
+  const { data: toolOptions = [] } = useToolOptions()
   const { register, handleSubmit, watch, reset } = useForm({
     defaultValues: buildToolDefaults(initialData),
   })
@@ -761,12 +755,11 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
       ...data,
       category,
       name: cleanText(data.name) || generatedName || TOOL_CATEGORY_LABELS[category],
-      code: cleanText(data.code) || cleanText(points.code),
-      subcategory: toolSubcategory(category, points),
+      attribute_values: points,
       spec_text: serializeToolMasterPoints(category, points),
     }
     delete payload.points
-    for (const key of ["code", "subcategory", "spec_text", "location", "condition_notes", "next_maintenance_due"]) {
+    for (const key of ["subcategory"]) {
       if (payload[key] === "") {
         payload[key] = undefined
       }
@@ -777,6 +770,17 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
   const pointFields = TOOL_MASTER_POINT_FIELDS[selectedCategory] || []
   const watchedPoints = (watch("points") || {}) as Record<string, any>
   const previewName = formatToolMasterPoints(selectedCategory, watchedPoints)
+  const optionsByField = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const option of toolOptions as any[]) {
+      if (option?.active === false) continue
+      const key = `${String(option?.category || "").toUpperCase()}:${String(option?.field_key || "").toLowerCase()}`
+      const value = String(option?.value || "").trim()
+      if (!value) continue
+      map.set(key, Array.from(new Set([...(map.get(key) || []), value])))
+    }
+    return map
+  }, [toolOptions])
 
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -816,23 +820,14 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
           >
             <option value="ACTIVE">Active</option>
-            <option value="MAINTENANCE">Maintenance</option>
-            <option value="SCRAP">Scrap</option>
+            <option value="DISCONTINUED">Discontinued</option>
           </select>
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Location</label>
-          <Input {...register("location")} placeholder="Tool rack / machine / store" />
         </div>
       </div>
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <label className="text-sm font-medium">Display Name</label>
           <Input {...register("name")} placeholder={previewName || "Auto from tool points"} />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium">Code</label>
-          <Input {...register("code")} placeholder="Auto from Code point if blank" />
         </div>
       </div>
 
@@ -856,7 +851,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
                   className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
                 >
                   <option value="">Select {field.label.toLowerCase()}</option>
-                  {(field.options || []).map((option) => (
+                  {(optionsByField.get(`${selectedCategory}:${field.key}`) || []).map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
@@ -871,18 +866,6 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
             </div>
           ))}
         </div>
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Next Maintenance Due</label>
-        <Input type="datetime-local" {...register("next_maintenance_due")} />
-      </div>
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Condition Notes</label>
-        <textarea
-          {...register("condition_notes")}
-          className="min-h-20 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          placeholder="Maintenance, calibration, scrap, or location note"
-        />
       </div>
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel}>

@@ -13,7 +13,6 @@ import { PackingCard } from "@/components/specs/sections/PackingCard"
 import { RecipeMixCard } from "@/components/specs/sections/RecipeMixCard"
 import { TubeCalcCard } from "@/components/specs/sections/TubeCalcCard"
 import { ValidationFooter } from "@/components/specs/sections/ValidationFooter"
-import { DeltaPill } from "@/components/specs/shared/DeltaPill"
 import { NumericInput } from "@/components/specs/shared/NumericInput"
 import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
@@ -29,6 +28,7 @@ import {
   usePapers,
   useParchments,
   useLogToolUsage,
+  useToolOptions,
   useTools,
   useTubeSizes,
 } from "@/hooks/use-master-data"
@@ -42,7 +42,6 @@ import {
   useSpecDefaults,
   useSpecFields,
   useSpecSheetPreview,
-  useSpecSheetSuggestions,
   useSpecSheetDocument,
   useUpdateSpecSheet,
 } from "@/hooks/use-specs"
@@ -74,7 +73,6 @@ import {
   parseJsonField,
   parsePlyPositions,
   ProcessGuidanceRow,
-  RecipeSuggestion,
   roundValue,
   SpecProfile,
   stringifyJsonField,
@@ -640,6 +638,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const { data: packagingPlasticSheets } = usePackagingPlasticSheets()
   const { data: packagingFadda } = usePackagingFadda()
   const { data: tools } = useTools()
+  const { data: toolMasterOptions } = useToolOptions()
   const { data: specConstants } = useSpecConstants()
   const { data: specDefaults } = useSpecDefaults(hasConcreteWritePlant ? activePlant : null)
   const { data: specFields, isSuccess: specFieldsLoaded } = useSpecFields()
@@ -749,18 +748,27 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }, [form.dynamicValues, toolLookupByCategoryName])
 
   const externalSelectOptionsByField = useMemo<Record<string, string[]>>(
-    () => ({
-      box_code: activePackagingBoxes
+    () => {
+      const options: Record<string, string[]> = {
+        box_code: activePackagingBoxes
         .map((row) => String(row?.code || "").trim())
         .filter(Boolean),
-      plastic_sku: activePackagingPlasticSheets
+        plastic_sku: activePackagingPlasticSheets
         .map((row) => String(row?.sku || "").trim())
         .filter(Boolean),
-      fadda_sku: activePackagingFadda
+        fadda_sku: activePackagingFadda
         .map((row) => String(row?.sku || "").trim())
         .filter(Boolean),
-    }),
-    [activePackagingBoxes, activePackagingFadda, activePackagingPlasticSheets],
+      }
+      for (const row of (toolMasterOptions || []) as any[]) {
+        const key = String(row?.field_key || "").trim()
+        const value = String(row?.value || "").trim()
+        if (!key || !value || row?.active === false) continue
+        options[key] = Array.from(new Set([...(options[key] || []), value]))
+      }
+      return options
+    },
+    [activePackagingBoxes, activePackagingFadda, activePackagingPlasticSheets, toolMasterOptions],
   )
 
   const selectedCustomer = customerMap.get(form.customerId)
@@ -1117,63 +1125,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     setTodayLabel(formatter.format(new Date()))
   }, [])
 
-  const paperCandidatesForSuggestions = useMemo(
-    () =>
-      activePapers
-        .filter((paper) => Number(paper?.gsm || 0) > 0)
-        .map((paper) => ({
-          ...paper,
-          id: String(paper?.id || ""),
-          code: String(paper?.code || ""),
-          gsm: Number(paper?.gsm || 0),
-          bf: Number(paper?.bf ?? paper?.strength_value ?? 0),
-          thickness_mm: Number(paper?.thickness_mm || 0),
-          bulk_factor: Number(paper?.bulk_factor || 0),
-          ply_bond: Number(paper?.ply_bond || 0),
-        })),
-    [activePapers],
-  )
-  const suggestionInputsReady =
-    Boolean(form.mandrelId) &&
-    previewTubeLengthMm > 0 &&
-    previewTubeOdMm > 0 &&
-    previewTubeIdMm > 0 &&
-    targetDryWeightG > 0 &&
-    paperCandidatesForSuggestions.length >= 3
-  const suggestionRequest = useMemo(
-    () => ({
-      recipeId: specDocument?.latestRecipe?.id || undefined,
-      tubeLengthMm: suggestionInputsReady ? previewTubeLengthMm : 0,
-      tubeOdMm: suggestionInputsReady ? previewTubeOdMm : 0,
-      tubeIdMm: suggestionInputsReady ? previewTubeIdMm : 0,
-      targetWetWeightG: suggestionInputsReady ? targetDryWeightG / Math.max(0.01, 1 - dryingPercent / 100) : 0,
-      dryingPercent,
-      parchmentPercent,
-      paperCandidates: paperCandidatesForSuggestions,
-    }),
-    [
-      dryingPercent,
-      paperCandidatesForSuggestions,
-      parchmentPercent,
-      previewTubeIdMm,
-      previewTubeLengthMm,
-      previewTubeOdMm,
-      specDocument?.latestRecipe?.id,
-      suggestionInputsReady,
-      targetDryWeightG,
-    ],
-  )
-  const debouncedSuggestionRequest = useDebouncedValue(suggestionRequest, 400)
-  const suggestionsQuery = useSpecSheetSuggestions(debouncedSuggestionRequest)
-  const recipeSuggestions = useMemo(
-    () => ((suggestionsQuery.data?.suggestions || []) as RecipeSuggestion[]),
-    [suggestionsQuery.data?.suggestions],
-  )
-  const isSpecMathUpdating =
-    previewQuery.isFetching ||
-    suggestionsQuery.isFetching ||
-    previewRequest !== debouncedPreviewRequest ||
-    suggestionRequest !== debouncedSuggestionRequest
+  const isSpecMathUpdating = previewQuery.isFetching || previewRequest !== debouncedPreviewRequest
 
   const notchDistanceMm = parseMmValue(form.dynamicValues.notch_distance_mm)
   const notchDepthMm = parseMmValue(form.dynamicValues.notch_depth_mm)
@@ -1551,7 +1503,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const currentRecipeRuleTitle = formatRecipeRowsTitle(form.recipeRows)
   const comboRuleTitle =
     currentRecipeRuleTitle ||
-    "Build a live recipe or apply one of the closest-delta suggestions."
+    "Build the live recipe from approved paper, adhesive, and parchment masters."
   const clientSpecRows = [
     { label: "I.D", values: [`${Number(selectedTube?.inner_diameter_mm || 0).toFixed(2)} mm`] },
     { label: "O.D", values: [`${Number(selectedTube?.outer_diameter_mm || 0).toFixed(2)} mm`] },
@@ -1659,16 +1611,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     setForm((current) => ({
       ...current,
       recipeRows: current.recipeRows.length === 1 ? current.recipeRows : current.recipeRows.filter((row) => row.id !== rowId),
-    }))
-  }
-
-  const applyRecipeSuggestion = (suggestion: RecipeSuggestion) => {
-    setForm((current) => ({
-      ...current,
-      recipeRows: suggestion.rows.map((row, index) => ({
-        ...row,
-        id: `row-${nextRecipeRowSeed()}-${index + 1}`,
-      })),
     }))
   }
 
@@ -2737,7 +2679,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
                 {isEditable ? (
                   <div className="flex justify-between gap-3">
-                    <p className="text-sm text-slate-500">Paper rows drive wall thickness, tube paper weight, and the best-mix suggestions.</p>
+                    <p className="text-sm text-slate-500">Paper rows drive wall thickness, tube paper weight, and the manufacturing output.</p>
                     <button
                       type="button"
                       onClick={addRecipeRow}
@@ -2767,7 +2709,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       detail={
                         hasRecipeSelection
                           ? `${livePaperTotal.toFixed(2)} g paper + ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g glue + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g parchment`
-                          : "No live recipe yet. Suggestions below are ranked against the target."
+                          : "Select paper rows to build the live recipe against the target."
                       }
                       tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
                     />
@@ -2780,46 +2722,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                 ) : null}
 
-                <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
-                  {recipeSuggestions.length === 0 ? (
-                    <div className="rounded-[26px] border border-[#dfe7f1] bg-[#f8fafc] p-5 text-sm text-slate-600 md:col-span-2 2xl:col-span-3">
-                      Add customer weight, tube size, mandrel, and papers to unlock the 3-5 paper combination set.
-                    </div>
-                  ) : (
-                    recipeSuggestions.slice(0, 6).map((suggestion) => (
-                      <div
-                        key={suggestion.id}
-                        data-testid={`spec-sheet-suggestion-${suggestion.id}`}
-                        className="flex h-full flex-col rounded-[24px] border border-[#dfe7f1] bg-[#f8fafc] p-4"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-semibold text-slate-950">{suggestion.title}</p>
-                            <p className="mt-1 text-sm text-slate-600">
-                              Paper {safeNumber(suggestion.predictedPaperWeightG).toFixed(2)} g · Wet {safeNumber(suggestion.predictedWetTubeG).toFixed(2)} g · Dry {safeNumber(suggestion.predictedDryTubeG).toFixed(2)} g
-                            </p>
-                            <p className="mt-1 text-xs uppercase tracking-[0.14em] text-slate-400">{safeNumber(suggestion.totalPlyCount || 0)} ply total</p>
-                          </div>
-                          <div className="text-right">
-                            <DeltaPill value={safeNumber(suggestion.deltaG)} />
-                            {isEditable ? (
-                              <button
-                                type="button"
-                                onClick={() => applyRecipeSuggestion(suggestion)}
-                                className="mt-2 rounded-full border border-[#d6dfeb] bg-white px-3 py-2 text-xs font-semibold text-slate-700"
-                              >
-                                Apply mix
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="mt-4 text-xs leading-5 text-slate-500">
-                          {suggestion.rows.map((row) => `${row.code} × ${row.plyCount}`).join(" + ")}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
               </div>
             </div>
           </RecipeMixCard>

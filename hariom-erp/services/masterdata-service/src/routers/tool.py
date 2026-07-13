@@ -20,14 +20,31 @@ from ..utils.auth import (
 
 router = APIRouter(prefix="/master/tools", tags=["tools"])
 
-TOOL_STATUSES = {"ACTIVE", "MAINTENANCE", "SCRAP"}
-TOOL_USAGE_EVENTS = {"SPEC_SELECTED", "PRODUCTION_USED", "MAINTENANCE", "SCRAP", "STATUS_CHANGE"}
+TOOL_STATUSES = {"ACTIVE", "DISCONTINUED"}
+TOOL_USAGE_EVENTS = {"SPEC_SELECTED", "PRODUCTION_USED", "STATUS_CHANGE"}
 NOTCH_TOOL_CATEGORIES = {
     "NOTCH": "Notch",
     "BLADE": "Blade",
     "HOLDER": "Holder",
     "V_FLAT": "V + Flat",
     "PUNCH": "Punch",
+}
+
+# The category list is fixed. These field values are editable master data.
+TOOL_OPTION_FIELDS = {
+    "NOTCH": {"type", "design", "degree", "notch_direction", "notch_distance_mm", "notch_depth_mm"},
+    "BLADE": {"type"},
+    "PUNCH": {"punch"},
+}
+DEFAULT_TOOL_OPTIONS = {
+    ("NOTCH", "type"): ["Bottom LHS", "Bottom RHS", "Top RHS"],
+    ("NOTCH", "design"): ["Plain", "Step"],
+    ("NOTCH", "degree"): ["50", "55", "60"],
+    ("NOTCH", "notch_direction"): ["Clockwise", "Anticlockwise"],
+    ("NOTCH", "notch_distance_mm"): ["10.0", "10.50", "11.00"],
+    ("NOTCH", "notch_depth_mm"): ["3.5 mm", "4.0 mm", "4.5 mm"],
+    ("BLADE", "type"): ["Plain", "Half Serration", "Full Serration"],
+    ("PUNCH", "punch"): ["Single", "Double", "N/A"],
 }
 
 
@@ -153,39 +170,26 @@ class ToolCreate(BaseModel):
     category: str
     subcategory: Optional[str] = None
     name: str
-    code: Optional[str] = None
     spec_text: Optional[str] = None
+    attribute_values: Dict[str, Any] = {}
     department: str = "COMMON"
     status: Optional[str] = "ACTIVE"
-    location: Optional[str] = None
-    condition_notes: Optional[str] = None
-    last_maintenance_at: Optional[datetime] = None
-    next_maintenance_due: Optional[datetime] = None
 
 
 class ToolUpdate(BaseModel):
     category: Optional[str] = None
     subcategory: Optional[str] = None
     name: Optional[str] = None
-    code: Optional[str] = None
     spec_text: Optional[str] = None
+    attribute_values: Optional[Dict[str, Any]] = None
     department: Optional[str] = None
     status: Optional[str] = None
-    location: Optional[str] = None
-    condition_notes: Optional[str] = None
-    last_maintenance_at: Optional[datetime] = None
-    next_maintenance_due: Optional[datetime] = None
-    scrapped_at: Optional[datetime] = None
-    usage_count: Optional[int] = None
     active: Optional[bool] = None
 
 
 class ToolStatusUpdate(BaseModel):
     status: str
     notes: Optional[str] = None
-    location: Optional[str] = None
-    condition_notes: Optional[str] = None
-    next_maintenance_due: Optional[datetime] = None
 
 
 class ToolUsageLogCreate(BaseModel):
@@ -207,16 +211,11 @@ class ToolResponse(BaseModel):
     category: str
     subcategory: Optional[str]
     name: str
-    code: Optional[str]
     spec_text: Optional[str]
+    attribute_values: Dict[str, Any] = {}
     department: str
     plant_id: str
     status: str
-    location: Optional[str] = None
-    condition_notes: Optional[str] = None
-    last_maintenance_at: Optional[datetime] = None
-    next_maintenance_due: Optional[datetime] = None
-    scrapped_at: Optional[datetime] = None
     usage_count: int = 0
     active: bool
     created_at: Optional[datetime] = None
@@ -274,6 +273,122 @@ def get_tools(
 @router.get("/categories")
 def get_tool_categories():
     return [{"value": value, "label": label} for value, label in NOTCH_TOOL_CATEGORIES.items()]
+
+
+class ToolOptionCreate(BaseModel):
+    category: str
+    field_key: str
+    value: str
+    sort_order: int = 0
+
+
+class ToolOptionUpdate(BaseModel):
+    value: Optional[str] = None
+    sort_order: Optional[int] = None
+    active: Optional[bool] = None
+
+
+class ToolOptionResponse(BaseModel):
+    id: uuid.UUID
+    category: str
+    field_key: str
+    value: str
+    plant_id: str
+    active: bool
+    sort_order: int
+
+    class Config:
+        from_attributes = True
+
+
+def _validate_option_key(category: str, field_key: str) -> tuple[str, str]:
+    normalized_category = _normalize_category(category)
+    normalized_key = (_normalize_text(field_key) or "").lower()
+    if normalized_key not in TOOL_OPTION_FIELDS.get(normalized_category, set()):
+        raise HTTPException(status_code=400, detail="This option field is not editable for the selected tooling category")
+    return normalized_category, normalized_key
+
+
+@router.get("/options", response_model=List[ToolOptionResponse])
+def get_tool_options(
+    category: Optional[str] = Query(default=None),
+    field_key: Optional[str] = Query(default=None),
+    include_inactive: bool = Query(default=False),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+):
+    query = db.query(models.ToolAttributeOption)
+    query = apply_plant_scope(query, models.ToolAttributeOption.plant_id, plant_scope)
+    if category:
+        query = query.filter(models.ToolAttributeOption.category == _normalize_category(category))
+    if field_key:
+        query = query.filter(models.ToolAttributeOption.field_key == field_key.strip().lower())
+    if not include_inactive:
+        query = query.filter(models.ToolAttributeOption.active == True)
+    return query.order_by(models.ToolAttributeOption.category, models.ToolAttributeOption.field_key, models.ToolAttributeOption.sort_order, models.ToolAttributeOption.value).all()
+
+
+@router.post("/options", response_model=ToolOptionResponse)
+def create_tool_option(
+    payload: ToolOptionCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin"])),
+):
+    category, field_key = _validate_option_key(payload.category, payload.field_key)
+    value = _normalize_text(payload.value)
+    if not value:
+        raise HTTPException(status_code=400, detail="Option value is required")
+    existing = db.query(models.ToolAttributeOption).filter(
+        models.ToolAttributeOption.plant_id.in_(_plant_values(plant_id)),
+        models.ToolAttributeOption.category == category,
+        models.ToolAttributeOption.field_key == field_key,
+        models.ToolAttributeOption.value.ilike(value),
+    ).first()
+    if existing:
+        existing.active = True
+        existing.sort_order = payload.sort_order
+        db.commit()
+        db.refresh(existing)
+        return existing
+    row = models.ToolAttributeOption(
+        category=category,
+        field_key=field_key,
+        value=value,
+        sort_order=payload.sort_order,
+        plant_id=plant_id,
+        active=True,
+    )
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.put("/options/{option_id}", response_model=ToolOptionResponse)
+def update_tool_option(
+    option_id: uuid.UUID,
+    payload: ToolOptionUpdate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin"])),
+):
+    row = db.query(models.ToolAttributeOption).filter(
+        models.ToolAttributeOption.id == option_id,
+        models.ToolAttributeOption.plant_id.in_(_plant_values(plant_id)),
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Tool option not found")
+    if payload.value is not None:
+        row.value = _normalize_text(payload.value) or row.value
+    if payload.sort_order is not None:
+        row.sort_order = payload.sort_order
+    if payload.active is not None:
+        row.active = payload.active
+    row.updated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(row)
+    return row
 
 
 @router.get("/logs", response_model=List[ToolUsageLogResponse])
@@ -456,12 +571,10 @@ def create_tool(
     data["category"] = _normalize_category(data.get("category"))
     data["status"] = _normalize_status(data.get("status"))
     data["name"] = _normalize_text(data.get("name")) or ""
-    data["code"] = _normalize_text(data.get("code"))
+    data["attribute_values"] = data.get("attribute_values") or {}
     data["department"] = (_normalize_text(data.get("department")) or "COMMON").upper()
     if not data["name"]:
         raise HTTPException(status_code=400, detail="Tool name is required")
-    if data["status"] == "SCRAP" and not data.get("scrapped_at"):
-        data["scrapped_at"] = datetime.utcnow()
     model = models.ToolMaster(**data, plant_id=plant_id)
     db.add(model)
     db.flush()
@@ -505,16 +618,12 @@ def update_tool(
         incoming["status"] = _normalize_status(incoming["status"])
     if "department" in incoming and incoming["department"] is not None:
         incoming["department"] = str(incoming["department"]).strip().upper()
-    if "code" in incoming:
-        incoming["code"] = _normalize_text(incoming.get("code"))
     if "name" in incoming and incoming["name"] is not None:
         incoming["name"] = _normalize_text(incoming["name"]) or model.name
+    if "attribute_values" in incoming:
+        incoming["attribute_values"] = incoming["attribute_values"] or {}
     for key, value in incoming.items():
         setattr(model, key, value)
-    if model.status == "SCRAP" and model.scrapped_at is None:
-        model.scrapped_at = datetime.utcnow()
-    if model.status == "ACTIVE":
-        model.scrapped_at = None
     model.updated_at = datetime.utcnow()
     if old_status != model.status:
         _log_tool_event(
@@ -552,25 +661,14 @@ def update_tool_status(
     old_status = model.status
     next_status = _normalize_status(payload.status)
     model.status = next_status
-    model.location = _normalize_text(payload.location) or model.location
-    model.condition_notes = _normalize_text(payload.condition_notes) or model.condition_notes
-    if payload.next_maintenance_due is not None:
-        model.next_maintenance_due = payload.next_maintenance_due
-    if next_status == "MAINTENANCE":
-        model.last_maintenance_at = datetime.utcnow()
-    if next_status == "SCRAP":
-        model.scrapped_at = model.scrapped_at or datetime.utcnow()
-    if next_status == "ACTIVE":
-        model.scrapped_at = None
     model.updated_at = datetime.utcnow()
-    event_type = "SCRAP" if next_status == "SCRAP" else "MAINTENANCE" if next_status == "MAINTENANCE" else "STATUS_CHANGE"
     _log_tool_event(
         db=db,
         tool=model,
         plant_id=plant_id,
         category=model.category,
         tool_name=model.name,
-        event_type=event_type,
+        event_type="STATUS_CHANGE",
         source_type="MASTER_TOOL",
         actor=_current_actor(current_user),
         notes=payload.notes or f"Status changed from {old_status} to {next_status}",

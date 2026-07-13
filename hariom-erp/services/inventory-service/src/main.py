@@ -22,6 +22,7 @@ from .routers import (
     reels,
     reservations,
     stock_control,
+    tool_assets,
     stock_moves,
     valuation,
 )
@@ -558,6 +559,7 @@ app.include_router(stock_moves.router)
 app.include_router(health.router)
 app.include_router(valuation.router)
 app.include_router(stock_control.router)
+app.include_router(tool_assets.router)
 
 
 @app.get("/")

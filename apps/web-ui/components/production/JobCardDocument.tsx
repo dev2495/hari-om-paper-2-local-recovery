@@ -1510,6 +1510,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
           {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderSimpleField(stage, "Tool QR asset IDs", "tool_asset_ids")}
           {renderShiftPicker(stage)}
         </div>
         {renderLateEntryWarning(stage)}

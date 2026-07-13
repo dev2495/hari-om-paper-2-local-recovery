@@ -5,6 +5,7 @@ import { AlertTriangle, ClipboardList } from "lucide-react"
 
 import { KpiRail, Panel, ReportHero, formatNumber } from "@/components/reports/primitives"
 import { useToolReport } from "@/hooks/use-master-data"
+import { useToolAssetReport } from "@/hooks/use-inventory"
 import { TOOL_CATEGORY_LABELS } from "@/lib/spec-sheet"
 
 const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
@@ -25,34 +26,38 @@ function eventTone(eventType: string) {
 
 export default function ToolingReportPage() {
   const { data, isLoading } = useToolReport()
+  const { data: assetData, isLoading: assetsLoading } = useToolAssetReport()
   const summary = (data as any)?.summary || {}
   const byCategory = ((data as any)?.by_category || []) as any[]
   const usage = ((data as any)?.usage || []) as any[]
   const recentLogs = ((data as any)?.recent_logs || []) as any[]
   const maintenanceCount = Number(summary.maintenance || 0)
   const scrapCount = Number(summary.scrap || 0)
+  const physicalSummary = (assetData as any)?.summary || {}
+  const physicalCategories = ((assetData as any)?.by_category || []) as any[]
+  const assetOutput = ((assetData as any)?.asset_output || []) as any[]
 
   return (
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="tooling-report-page">
       <ReportHero
         eyebrow="Operations report"
         title="Tooling Ledger"
-        description="One view for notch tool availability, maintenance/scrap status, spec-sheet selections, and job-card usage trace."
+        description="Definition masters, inwarded QR assets, location, issue/return, grinding cycles, and actual production output in one trace."
         accent="cyan"
         chips={[
-          { label: `${formatNumber(Number(summary.total_tools || 0))} tools`, tone: "neutral" },
-          { label: `${formatNumber(maintenanceCount)} maintenance`, tone: maintenanceCount ? "warn" : "ok" },
-          { label: `${formatNumber(scrapCount)} scrap`, tone: scrapCount ? "critical" : "neutral" },
+          { label: `${formatNumber(Number(physicalSummary.total_assets || 0))} physical assets`, tone: "neutral" },
+          { label: `${formatNumber(Number(physicalSummary.available || 0))} available`, tone: physicalSummary.available ? "ok" : "warn" },
+          { label: `${formatNumber(Number(physicalSummary.grinding_out || 0))} grinding out`, tone: physicalSummary.grinding_out ? "warn" : "neutral" },
         ]}
       />
 
       <KpiRail
         columns={4}
         items={[
-          { label: "Active tools", value: formatNumber(Number(summary.active || 0)), tone: "emerald", detail: "Visible in spec dropdowns" },
-          { label: "Maintenance", value: formatNumber(maintenanceCount), tone: maintenanceCount ? "amber" : "slate", detail: "Hidden from future spec use" },
-          { label: "Scrap", value: formatNumber(scrapCount), tone: scrapCount ? "rose" : "slate", detail: "Historical trace retained" },
-          { label: "Usage rows", value: formatNumber(usage.length), tone: "cyan", detail: "Spec and job-card events" },
+          { label: "Active definitions", value: formatNumber(Number(summary.active || 0)), tone: "emerald", detail: "Visible in spec dropdowns" },
+          { label: "Available assets", value: formatNumber(Number(physicalSummary.available || 0)), tone: "cyan", detail: "Ready for issue" },
+          { label: "Grinding cycles", value: formatNumber(Number(physicalSummary.grinding_out || 0)), tone: "amber", detail: "Blade assets outside" },
+          { label: "Actual output", value: formatNumber(Number(physicalSummary.produced_qty || 0)), tone: "slate", detail: "Recorded against QR assets" },
         ]}
       />
 
@@ -60,7 +65,7 @@ export default function ToolingReportPage() {
         <Panel
           eyebrow="Availability"
           title="Category Status Matrix"
-          description="Only ACTIVE records are shown inside the spec sheet. Maintenance and scrap remain reportable here."
+          description="Master definitions stay separate from physical asset status and location."
           actions={
             <Link href="/masters/tools" className="text-sm font-semibold text-cyan-800 hover:underline">
               Manage tools
@@ -123,10 +128,18 @@ export default function ToolingReportPage() {
         </Panel>
       </div>
 
+      <Panel eyebrow="Physical assets" title="Asset output by category" description="Actual completed-stage output is aggregated from QR asset usage events; no planned quantity is substituted.">
+        {assetsLoading ? <div className="py-6 text-sm text-slate-500">Loading physical asset report...</div> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500"><th className="py-2 pr-3">Category</th><th className="py-2 pr-3 text-right">Assets</th><th className="py-2 pr-3 text-right">Available</th><th className="py-2 pr-3 text-right">Issued</th><th className="py-2 pr-3 text-right">Grinding</th><th className="py-2 pr-3 text-right">Scrap</th><th className="py-2 text-right">Actual output</th></tr></thead><tbody>{physicalCategories.map((row) => <tr key={row.category} className="border-b border-slate-100"><td className="py-2 pr-3 font-semibold text-slate-900">{CATEGORY_LABELS[row.category] || row.category}</td><td className="py-2 pr-3 text-right">{formatNumber(Number(row.assets || 0))}</td><td className="py-2 pr-3 text-right">{formatNumber(Number(row.available || 0))}</td><td className="py-2 pr-3 text-right">{formatNumber(Number(row.issued || 0))}</td><td className="py-2 pr-3 text-right">{formatNumber(Number(row.grinding_out || 0))}</td><td className="py-2 pr-3 text-right">{formatNumber(Number(row.scrap || 0))}</td><td className="py-2 text-right font-semibold">{formatNumber(Number(row.produced_qty || 0))}</td></tr>)}</tbody></table></div>}
+      </Panel>
+
+      <Panel eyebrow="Blade accountability" title="Output by physical tool" description="Use this register to see how many accepted and scrap units each QR asset has produced across its current grinding version.">
+        {assetsLoading ? <div className="py-6 text-sm text-slate-500">Loading asset output...</div> : <div className="overflow-x-auto"><table className="w-full min-w-[900px] text-sm"><thead><tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Tool</th><th className="py-2 pr-3">Category</th><th className="py-2 pr-3">Version</th><th className="py-2 pr-3 text-right">Usage runs</th><th className="py-2 pr-3 text-right">Good output</th><th className="py-2 pr-3 text-right">Scrap output</th><th className="py-2">Status</th></tr></thead><tbody>{assetOutput.map((row) => <tr key={row.asset_no} className="border-b border-slate-100"><td className="py-2 pr-3"><p className="font-semibold text-slate-950">{row.asset_no}</p><p className="text-xs text-slate-500">{row.qr_value}</p></td><td className="py-2 pr-3">{row.definition_name}</td><td className="py-2 pr-3">{CATEGORY_LABELS[row.category] || row.category}</td><td className="py-2 pr-3">V{row.grind_version || 0}</td><td className="py-2 pr-3 text-right">{formatNumber(Number(row.usage_count || 0))}</td><td className="py-2 pr-3 text-right font-semibold text-emerald-800">{formatNumber(Number(row.produced_qty || 0))}</td><td className="py-2 pr-3 text-right text-rose-700">{formatNumber(Number(row.scrap_qty || 0))}</td><td className="py-2">{row.status}</td></tr>)}</tbody></table>{!assetOutput.length ? <div className="py-5 text-sm text-slate-500">No inwarded physical tools yet.</div> : null}</div>}
+      </Panel>
+
       <Panel
         eyebrow="Ledger"
         title="Recent Tool Trace"
-        description="Spec selections and production job-card usage appear here with source references."
+        description="Definition selections remain as design history. Actual production usage is recorded in the physical asset report above."
         actions={
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
             <ClipboardList className="h-4 w-4" />

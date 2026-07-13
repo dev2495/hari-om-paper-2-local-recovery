@@ -31,6 +31,57 @@ export function useInventoryLocations() {
   })
 }
 
+export function useToolAssets(params?: any) {
+  return useQuery({
+    queryKey: ["tool-assets", params || {}],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getToolAssets(params)
+      return Array.isArray(data) ? data : []
+    },
+  })
+}
+
+export function useToolAssetReport() {
+  return useQuery({
+    queryKey: ["tool-asset-report"],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getToolAssetReport()
+      return data || { summary: {}, by_category: [] }
+    },
+  })
+}
+
+export function useReceiveToolAssets() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.receiveToolAssets(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tool-assets"] })
+      queryClient.invalidateQueries({ queryKey: ["tool-asset-report"] })
+    },
+  })
+}
+
+function useToolAssetMutation(fn: (id: string, data?: any) => any) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data?: any }) => fn(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tool-assets"] })
+      queryClient.invalidateQueries({ queryKey: ["tool-asset-report"] })
+    },
+  })
+}
+
+export const useIssueToolAsset = () => useToolAssetMutation(inventoryApi.issueToolAsset)
+export const useReturnToolAsset = () => useToolAssetMutation(inventoryApi.returnToolAsset)
+export const useMoveToolAsset = () => useToolAssetMutation(inventoryApi.moveToolAsset)
+export const useGrindingOutToolAsset = () => useToolAssetMutation(inventoryApi.grindingOutToolAsset)
+export const useGrindingReturnToolAsset = () => useToolAssetMutation(inventoryApi.grindingReturnToolAsset)
+export const useMaintainToolAsset = () => useToolAssetMutation(inventoryApi.maintainToolAsset)
+export const useCompleteToolMaintenance = () => useToolAssetMutation(inventoryApi.completeToolMaintenance)
+export const useScrapToolAsset = () => useToolAssetMutation(inventoryApi.scrapToolAsset)
+
 export function useInventoryItemBalance(itemId?: string, enabled = true) {
   return useQuery({
     queryKey: ["inventory-item-balance", itemId || ""],

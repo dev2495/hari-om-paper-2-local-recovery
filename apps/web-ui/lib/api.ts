@@ -277,6 +277,9 @@ export const masterApi = {
 
   getTools: (params?: any) => api.get("/api/master/tools", { params }),
   getToolCategories: () => api.get("/api/master/tools/categories"),
+  getToolOptions: (params?: any) => api.get("/api/master/tools/options", { params }),
+  createToolOption: (data: any) => api.post("/api/master/tools/options", data),
+  updateToolOption: (id: string, data: any) => api.put(`/api/master/tools/options/${id}`, data),
   getToolLogs: (params?: any) => api.get("/api/master/tools/logs", { params }),
   getToolReport: (params?: any) => api.get("/api/master/tools/report", { params }),
   createTool: (data: any) => api.post("/api/master/tools", data),
@@ -318,8 +321,6 @@ export const specApi = {
     api.get(`/api/spec/calculate/bom/${recipeId}`, { params: { tube_length_mm: tubeLengthMm, tube_od_mm: tubeOdMm } }),
   calculatePreview: (data: any, plantId?: string) =>
     api.post("/api/spec/calculate/preview", data, withPlantHeader(plantId)),
-  calculateSuggestions: (data: any, plantId?: string) =>
-    api.post("/api/spec/calculate/suggestions", data, withPlantHeader(plantId)),
 }
 
 export const salesApi = {
@@ -467,6 +468,19 @@ export const inventoryApi = {
   createCarryForward: (id: string, data?: any) => api.post(`/api/inventory/stock-control/certifications/${id}/carry-forward`, data || {}),
   getLocations: () => api.get("/api/inventory/locations"),
   createLocation: (data: any) => api.post("/api/inventory/locations", data),
+  receiveToolAssets: (data: any) => api.post("/api/inventory/tools/receipts", data),
+  getToolAssets: (params?: any) => api.get("/api/inventory/tools/assets", { params }),
+  getToolAsset: (id: string) => api.get(`/api/inventory/tools/assets/${id}`),
+  getToolAssetReport: () => api.get("/api/inventory/tools/report"),
+  moveToolAsset: (id: string, data: any) => api.post(`/api/inventory/tools/assets/${id}/move`, data),
+  issueToolAsset: (id: string, data: any) => api.post(`/api/inventory/tools/assets/${id}/issue`, data),
+  recordToolUsage: (id: string, data: any) => api.post(`/api/inventory/tools/assets/${id}/usage`, data),
+  returnToolAsset: (id: string, data?: any) => api.post(`/api/inventory/tools/assets/${id}/return`, data || {}),
+  grindingOutToolAsset: (id: string, data?: any) => api.post(`/api/inventory/tools/assets/${id}/grinding-out`, data || {}),
+  grindingReturnToolAsset: (id: string, data?: any) => api.post(`/api/inventory/tools/assets/${id}/grinding-return`, data || {}),
+  maintainToolAsset: (id: string, data?: any) => api.post(`/api/inventory/tools/assets/${id}/maintenance`, data || {}),
+  completeToolMaintenance: (id: string, data?: any) => api.post(`/api/inventory/tools/assets/${id}/maintenance-complete`, data || {}),
+  scrapToolAsset: (id: string, data?: any) => api.post(`/api/inventory/tools/assets/${id}/scrap`, data || {}),
   getInventoryHealthSummary: () => api.get("/api/inventory/health/summary"),
   notifyMrpShortage: (data: any) => api.post("/api/inventory/mrp/notify-shortage", data),
   getInventoryStatusSummary: () => api.get("/api/inventory/health/status-summary"),

@@ -333,12 +333,35 @@ class ToolMaster(Base):
     active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    # Definition attributes are editable master values. Physical tool identity,
+    # location, maintenance, and lifecycle are owned by inventory-service.
+    attribute_values = Column(JSON, nullable=False, default=dict)
 
     usage_logs = relationship("ToolUsageLog", back_populates="tool")
 
     __table_args__ = (
         UniqueConstraint("plant_id", "category", "name", name="uq_tool_plant_category_name"),
         UniqueConstraint("plant_id", "code", name="uq_tool_plant_code"),
+    )
+
+
+class ToolAttributeOption(Base):
+    """Editable option catalog used by the five fixed tooling categories."""
+
+    __tablename__ = "tool_attribute_option"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    category = Column(String(50), nullable=False, index=True)
+    field_key = Column(String(80), nullable=False, index=True)
+    value = Column(String(160), nullable=False)
+    plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
+    active = Column(Boolean, nullable=False, default=True)
+    sort_order = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "category", "field_key", "value", name="uq_tool_attribute_option"),
     )
 
 

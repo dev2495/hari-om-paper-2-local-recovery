@@ -2355,54 +2355,56 @@ def _current_actor_label(current_user: dict) -> Optional[str]:
     )
 
 
-def _log_tooling_usage_for_job_card(
+def _default_plan_date_from_snapshot(spec_snapshot: dict[str, Any]) -> date:
+    return _snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or datetime.utcnow().date()
+
+
+def _record_physical_tool_usage(
     *,
+    stage: JobCardStage,
+    segment: JobCardStageSegment,
     job_card: JobCard,
+    selected_stage: str,
     token: str,
     plant_id: str,
     current_user: dict,
-) -> None:
-    usage_rows = _notch_tooling_usage_from_snapshot(job_card.spec_snapshot or {})
-    if not usage_rows:
-        return
+) -> list[str]:
+    """Post actual completed-stage output against QR asset IDs, idempotently."""
+    entry = dict(stage.entry_snapshot or {})
+    raw_ids = entry.get("tool_asset_ids") or []
+    if isinstance(raw_ids, str):
+        asset_ids = [value.strip() for value in raw_ids.replace("\n", ",").split(",") if value.strip()]
+    elif isinstance(raw_ids, list):
+        asset_ids = [str(value).strip() for value in raw_ids if str(value).strip()]
+    else:
+        asset_ids = []
+    if not asset_ids:
+        return []
+
+    good_qty = float(stage.output_qty or 0.0)
+    scrap_qty = float(stage.scrap_qty or 0.0)
     headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
     actor = _current_actor_label(current_user)
-    with httpx.Client(timeout=3.0) as client:
-        for row in usage_rows:
-            category = str(row.get("category") or "").strip()
-            tool_name = str(row.get("tool_name") or "").strip()
-            if not category or not tool_name:
-                continue
-            try:
-                client.post(
-                    f"{settings.MASTERDATA_SERVICE_URL}/master/tools/log-usage",
-                    headers=headers,
-                    json={
-                        "tool_id": row.get("tool_id"),
-                        "category": category,
-                        "tool_name": tool_name,
-                        "event_type": "PRODUCTION_USED",
-                        "source_type": "JOB_CARD",
-                        "source_id": str(job_card.id),
-                        "source_ref": _format_ref("JC", job_card.id),
-                        "production_qty": float(job_card.planned_qty or 0.0),
-                        "actor": actor,
-                        "notes": "Tool assigned to production job card",
-                        "metadata_json": {
-                            "field_key": row.get("field_key"),
-                            "field_label": row.get("label"),
-                            "spec_id": str(job_card.spec_id),
-                            "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
-                            "release_lot_id": str(job_card.release_lot_id) if job_card.release_lot_id else None,
-                        },
-                    },
-                )
-            except (httpx.HTTPError, ValueError):
-                continue
-
-
-def _default_plan_date_from_snapshot(spec_snapshot: dict[str, Any]) -> date:
-    return _snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or datetime.utcnow().date()
+    recorded: list[str] = []
+    with httpx.Client(timeout=5.0) as client:
+        for asset_id in asset_ids:
+            response = client.post(
+                f"{settings.INVENTORY_SERVICE_URL}/inventory/tools/{asset_id}/usage",
+                headers=headers,
+                json={
+                    "job_card_id": str(job_card.id),
+                    "stage_type": selected_stage,
+                    "good_qty": good_qty,
+                    "scrap_qty": scrap_qty,
+                    "usage_key": f"{job_card.id}:{stage.id}:{segment.id}:{asset_id}",
+                    "notes": f"Actual {selected_stage} output captured by {actor or 'operator'}",
+                },
+            )
+            if response.status_code >= 400:
+                detail = response.text[:500] or "Inventory tooling usage was rejected"
+                raise HTTPException(status_code=409, detail=f"Tool {asset_id} usage could not be recorded: {detail}")
+            recorded.append(asset_id)
+    return recorded
 
 
 def _line_remaining_qty(line: dict[str, Any]) -> float:
@@ -2957,15 +2959,6 @@ def _create_or_sync_job_card_for_line(
             },
         )
         _reset_winder_to_release_queue(existing)
-        try:
-            _log_tooling_usage_for_job_card(
-                job_card=existing,
-                token=token,
-                plant_id=plant_id,
-                current_user=current_user,
-            )
-        except Exception:
-            pass
         return existing, queue_created
 
     job_card = JobCard(
@@ -3017,15 +3010,6 @@ def _create_or_sync_job_card_for_line(
         },
     )
     _reset_winder_to_release_queue(job_card)
-    try:
-        _log_tooling_usage_for_job_card(
-            job_card=job_card,
-            token=token,
-            plant_id=plant_id,
-            current_user=current_user,
-        )
-    except Exception:
-        pass
     return job_card, queue_created
 
 
@@ -6314,6 +6298,18 @@ def capture_stage_output(
             )
             _apply_fg_inward_snapshot(packing_record, fg_inward_result)
 
+    physical_tool_asset_ids: list[str] = []
+    if save_mode == "complete":
+        physical_tool_asset_ids = _record_physical_tool_usage(
+            stage=stage,
+            segment=segment,
+            job_card=job_card,
+            selected_stage=selected_stage,
+            token=token,
+            plant_id=plant_id,
+            current_user=current_user,
+        )
+
     _record_audit_event(
         db=db,
         plant_id=plant_uuid,
@@ -6331,6 +6327,7 @@ def capture_stage_output(
             "packing_record_id": str(packing_record.id) if packing_record else None,
             "override_reason": override_reason,
             "prior_incomplete": prior_incomplete,
+            "physical_tool_asset_ids": physical_tool_asset_ids,
         },
         before_payload=before_payload,
         after_payload={

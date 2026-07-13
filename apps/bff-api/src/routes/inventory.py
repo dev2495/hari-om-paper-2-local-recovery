@@ -407,6 +407,86 @@ async def create_location(request: Request, token: str = Depends(get_token)):
     return response
 
 
+# Physical tooling is inventory-controlled. Master definitions stay under
+# /api/master/tools; these routes own GRN inward, QR assets, movement, usage,
+# grinding, maintenance, scrap, and the asset report.
+@router.post("/tools/receipts")
+async def receive_tool_assets(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/tools/receipts", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="TOOL_ASSETS_RECEIVED",
+        title=f"Tool inward posted: {payload.get('receipt', {}).get('receipt_no') or 'new receipt'}",
+        message="Physical tool assets received and assigned QR identities.",
+        href="/masters/tools",
+        recipient_roles=["Owner", "Admin", "Store", "Production"],
+        payload={"receipt_id": str(payload.get("receipt", {}).get("id") or "")},
+    )
+    return response
+
+
+@router.get("/tools/assets")
+async def list_tool_assets(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/tools", request, token)
+
+
+@router.get("/tools/assets/{asset_id}")
+async def get_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}", request, token)
+
+
+@router.get("/tools/report")
+async def get_tool_asset_report(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/tools/report/summary", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/move")
+async def move_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/move", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/issue")
+async def issue_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/issue", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/usage")
+async def record_tool_asset_usage(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/usage", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/return")
+async def return_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/return", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/grinding-out")
+async def grinding_out_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/grinding-out", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/grinding-return")
+async def grinding_return_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/grinding-return", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/maintenance")
+async def maintain_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/maintenance", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/maintenance-complete")
+async def complete_tool_maintenance(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/maintenance-complete", request, token)
+
+
+@router.post("/tools/assets/{asset_id}/scrap")
+async def scrap_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/scrap", request, token)
+
+
 @router.get("/lots/availability")
 async def lot_availability(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/lots/availability", request, token)

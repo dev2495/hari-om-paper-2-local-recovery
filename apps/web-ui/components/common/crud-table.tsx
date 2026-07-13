@@ -42,7 +42,7 @@ interface CrudTableProps {
 function describeDataset(title: string) {
     switch (title.toLowerCase()) {
         case "papers":
-            return "Recipe-grade paper masters used in specification math, best-mix suggestions, and production handoff."
+            return "Recipe-grade paper masters used in specification math and production handoff."
         case "adhesives":
             return "Adhesive chemistry, process parameters, and recipe notes shared across spec and floor execution."
         case "parchments":

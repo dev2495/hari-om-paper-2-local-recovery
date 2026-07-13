@@ -631,6 +631,36 @@ export function useToolCategories() {
     })
 }
 
+export function useToolOptions(params?: any) {
+    return useQuery({
+        queryKey: ["tool-options", params || {}],
+        queryFn: async () => {
+            const { data } = await masterApi.getToolOptions(params)
+            return Array.isArray(data) ? data : []
+        },
+    })
+}
+
+export function useCreateToolOption() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: (data: any) => masterApi.createToolOption(data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tool-options"] })
+        },
+    })
+}
+
+export function useUpdateToolOption() {
+    const queryClient = useQueryClient()
+    return useMutation({
+        mutationFn: ({ id, data }: { id: string; data: any }) => masterApi.updateToolOption(id, data),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["tool-options"] })
+        },
+    })
+}
+
 export function useToolLogs(params?: any) {
     return useQuery({
         queryKey: ["tool-logs", params || {}],

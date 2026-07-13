@@ -524,6 +524,21 @@ async def get_tool_categories(request: Request, token: str = Depends(get_token))
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/categories", request, token)
 
 
+@router.get("/tools/options")
+async def get_tool_options(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/options", request, token)
+
+
+@router.post("/tools/options")
+async def create_tool_option(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/options", request, token)
+
+
+@router.put("/tools/options/{option_id}")
+async def update_tool_option(option_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(MASTER_SERVICE_URL, f"/master/tools/options/{option_id}", request, token)
+
+
 @router.get("/tools/logs")
 async def get_tool_logs(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(MASTER_SERVICE_URL, "/master/tools/logs", request, token)

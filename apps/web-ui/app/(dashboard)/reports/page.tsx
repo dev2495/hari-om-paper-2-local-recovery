@@ -57,7 +57,7 @@ const REPORTS: Array<{
   {
     href: "/reports/tooling",
     title: "Tooling Ledger",
-    description: "Notch tool master status, maintenance/scrap view, spec selections, and production job-card usage trail.",
+    description: "Tool definitions, inwarded QR assets, location, grinding cycles, and production job-card usage trail.",
     audience: "operations",
     accent: "ops",
   },
