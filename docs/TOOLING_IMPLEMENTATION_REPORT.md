@@ -121,3 +121,12 @@ The code and flows are ready for real-data onboarding. Before plant use, the cli
 6. Complete one supervised job card and verify the tooling report.
 
 These actions are data onboarding and operating acceptance; they cannot be completed accurately with placeholder test data.
+
+## Release and deployment status
+
+- Release commit: `8740c55`.
+- Git remote: `main` branch contains the release commit.
+- Linked Railway project: `hariom-paper-client-test`, production service `hariom-erp`.
+- Public service: `https://hariom-erp-production.up.railway.app`.
+- Existing Railway deployment remains online as deployment `4644fe4f-7913-49f1-ba3c-0d024ac5badb`.
+- New upload was refused by Railway because the account trial has expired. The code is committed and pushed; after a Railway plan is selected, redeploy commit `8740c55` and rerun the authenticated production smoke test.

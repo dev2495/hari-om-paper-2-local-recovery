@@ -66,3 +66,10 @@ The legacy broad release gate was also run against the fresh local UI. Two low-l
 - [ ] Confirm the client approver and production operator accounts.
 
 These are plant onboarding actions, not software defects. They require the client's real master and stock data.
+
+## Release status
+
+- [x] Release commit `8740c55` created.
+- [x] Release commit pushed to the Git remote `main` branch.
+- [x] Linked Railway service confirmed online at `https://hariom-erp-production.up.railway.app`.
+- [ ] New Railway deployment accepted and verified. The upload was refused because the Railway trial has expired; select a Railway plan, then redeploy commit `8740c55`.
