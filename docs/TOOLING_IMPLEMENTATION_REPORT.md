@@ -53,6 +53,10 @@ The specification sheet now consumes active tool masters and the option registry
 - Physical asset output table.
 - Usage count, produced quantity, scrap quantity, grinding version, and current job assignment.
 
+### Release operations
+
+- Direct runtime shutdown now honors the same selected runtime directory as startup and status checks, preventing stale service processes after a verified QA run.
+
 ## Data flow
 
 ```text
@@ -99,6 +103,7 @@ Physical receipt + Location Master + QR asset
 - `npm audit` reported 0 vulnerabilities.
 - Analytics scheduler regression test passed: the scheduler status key and durable queue job ID no longer collide.
 - Repository verification script passed.
+- Runtime shutdown override test passed with a temporary service PID and selected runtime directory.
 - Fresh local BFF health returned `healthy`.
 - Fresh local service startup reported all ERP services ready.
 - Focused Playwright browser suite: 2 tests passed.

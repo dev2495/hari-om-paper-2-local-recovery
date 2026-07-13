@@ -36,6 +36,7 @@ This checklist covers the fixed five-category tooling master, editable option re
 - [x] Searchable dropdown behavior verified in the browser.
 - [x] Tooling master UI screenshot reviewed.
 - [x] Specification-sheet UI screenshot reviewed.
+- [x] Runtime start/stop uses the same selected runtime directory and clears service PID markers.
 
 ## Verification evidence
 
@@ -51,6 +52,7 @@ This checklist covers the fixed five-category tooling master, editable option re
 | Web lint | Passed; no warnings or errors |
 | Dependency audit | 0 vulnerabilities |
 | Verification script | Passed |
+| Runtime shutdown override test | Passed |
 | Analytics scheduler regression | 2 passed; scheduler key and durable queue ID are stored separately |
 | Focused browser tooling/spec suite | 2 passed |
 | BFF health | Healthy |
