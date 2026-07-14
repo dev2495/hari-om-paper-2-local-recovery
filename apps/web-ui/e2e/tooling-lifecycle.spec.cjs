@@ -52,6 +52,12 @@ test("tooling master and physical ledger expose the production workflow", async 
   await expect(dialog.getByText(/maintenance due/i)).toHaveCount(0)
   await expect(dialog.getByText(/^Location$/i)).toHaveCount(0)
   const category = dialog.locator("select").first()
+  await dialog.getByTestId("tool-option-manage-degree").click()
+  await expect(dialog.getByTestId("tool-option-panel-degree")).toBeVisible()
+  await expect(dialog.getByPlaceholder(/Add degree value/i)).toBeVisible()
+  await expect(dialog.getByRole("button", { name: /Discontinue/i }).first()).toBeVisible()
+  await page.screenshot({ path: path.join(workspaceRoot, "reports", "tooling-dropdown-manager-browser.png"), fullPage: true })
+  await dialog.getByTestId("tool-option-manage-degree").click()
   await category.selectOption("BLADE")
   for (const label of ["Type", "Thickness", "Height", "Length"]) {
     await expect(dialog.getByText(new RegExp(`^${label}$`, "i"))).toBeVisible()

@@ -36,6 +36,7 @@ TOOL_OPTION_FIELDS = {
     "BLADE": {"type"},
     "PUNCH": {"punch"},
 }
+TOOL_MASTER_WRITE_ROLES = ["Admin", "Owner", "PlantManager"]
 DEFAULT_TOOL_OPTIONS = {
     ("NOTCH", "type"): ["Bottom LHS", "Bottom RHS", "Top RHS"],
     ("NOTCH", "design"): ["Plain", "Step"],
@@ -391,7 +392,7 @@ def create_tool_option(
     payload: ToolOptionCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
 ):
     category, field_key = _validate_option_key(payload.category, payload.field_key)
     value = _normalize_text(payload.value)
@@ -429,7 +430,7 @@ def update_tool_option(
     payload: ToolOptionUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
 ):
     row = db.query(models.ToolAttributeOption).filter(
         models.ToolAttributeOption.id == option_id,
@@ -633,7 +634,7 @@ def create_tool(
     payload: ToolCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
 ):
     data = payload.model_dump()
     data["category"] = _normalize_category(data.get("category"))
@@ -675,7 +676,7 @@ def update_tool(
     payload: ToolUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
 ):
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.ToolMaster).filter(
@@ -737,7 +738,7 @@ def update_tool_status(
     payload: ToolStatusUpdate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
 ):
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.ToolMaster).filter(
@@ -772,7 +773,7 @@ def delete_tool(
     tool_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin"])),
+    current_user: dict = Depends(require_role(TOOL_MASTER_WRITE_ROLES)),
 ):
     plant_values = accepted_persisted_plant_ids(plant_id)
     model = db.query(models.ToolMaster).filter(

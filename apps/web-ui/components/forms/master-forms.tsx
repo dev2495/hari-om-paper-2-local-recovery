@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useForm } from "react-hook-form"
 import {
   TOOL_CATEGORY_LABELS,
@@ -13,8 +13,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { DialogFooter } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { BadgeCheck, Factory, Gauge, Power, Wrench } from "lucide-react"
-import { useToolOptions } from "@/hooks/use-master-data"
+import { BadgeCheck, Factory, Gauge, ListPlus, Pencil, Plus, Power, Wrench } from "lucide-react"
+import { useCreateToolOption, useToolOptions, useUpdateToolOption } from "@/hooks/use-master-data"
 
 interface MasterFormProps {
   initialData?: any
@@ -732,8 +732,15 @@ export function FaddaForm({ initialData, onSubmit, onCancel }: MasterFormProps) 
 }
 
 export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
-  const { data: toolOptions = [] } = useToolOptions()
-  const { register, handleSubmit, watch, reset } = useForm({
+  const { data: toolOptions = [] } = useToolOptions({ include_inactive: true })
+  const createOptionMutation = useCreateToolOption()
+  const updateOptionMutation = useUpdateToolOption()
+  const [managedField, setManagedField] = useState<string | null>(null)
+  const [newOptionValue, setNewOptionValue] = useState("")
+  const [editingOptionId, setEditingOptionId] = useState("")
+  const [editingOptionValue, setEditingOptionValue] = useState("")
+  const [optionError, setOptionError] = useState("")
+  const { register, handleSubmit, watch, reset, setValue } = useForm({
     defaultValues: buildToolDefaults(initialData),
   })
 
@@ -787,6 +794,52 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
     }
     return map
   }, [toolOptions])
+
+  const managedOptions = useMemo(
+    () => (toolOptions as any[])
+      .filter((option) => String(option?.category || "").toUpperCase() === selectedCategory && String(option?.field_key || "").toLowerCase() === managedField)
+      .sort((left, right) => String(left.value || "").localeCompare(String(right.value || ""))),
+    [managedField, selectedCategory, toolOptions],
+  )
+
+  const optionFailure = (error: any) => {
+    setOptionError(String(error?.response?.data?.detail || error?.message || "Dropdown value could not be saved"))
+  }
+
+  const addManagedOption = async (fieldKey: string) => {
+    const value = newOptionValue.trim()
+    if (!value) return
+    setOptionError("")
+    try {
+      await createOptionMutation.mutateAsync({ category: selectedCategory, field_key: fieldKey, value })
+      setValue(`points.${fieldKey}`, value, { shouldDirty: true })
+      setNewOptionValue("")
+    } catch (error) {
+      optionFailure(error)
+    }
+  }
+
+  const saveManagedOption = async (option: any) => {
+    const value = editingOptionValue.trim()
+    if (!value) return
+    setOptionError("")
+    try {
+      await updateOptionMutation.mutateAsync({ id: option.id, data: { value } })
+      setEditingOptionId("")
+      setEditingOptionValue("")
+    } catch (error) {
+      optionFailure(error)
+    }
+  }
+
+  const toggleManagedOption = async (option: any) => {
+    setOptionError("")
+    try {
+      await updateOptionMutation.mutateAsync({ id: option.id, data: { active: option.active === false } })
+    } catch (error) {
+      optionFailure(error)
+    }
+  }
 
   return (
     <form onSubmit={submit} className="space-y-4">
@@ -850,20 +903,80 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {pointFields.map((field) => (
-            <div key={`${selectedCategory}-${field.key}`} className="space-y-1.5">
-              <label className="text-sm font-medium">{field.label}</label>
+            <div key={`${selectedCategory}-${field.key}`} className={`space-y-1.5 ${field.input === "select" && managedField === field.key ? "md:col-span-2" : ""}`}>
+              <div className="flex min-h-8 items-center justify-between gap-2">
+                <label className="text-sm font-medium">{field.label}</label>
+                {field.input === "select" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 shrink-0 px-2 text-xs"
+                    onClick={() => {
+                      setManagedField((current) => current === field.key ? null : field.key)
+                      setNewOptionValue("")
+                      setEditingOptionId("")
+                      setOptionError("")
+                    }}
+                    aria-expanded={managedField === field.key}
+                    data-testid={`tool-option-manage-${field.key}`}
+                  >
+                    <ListPlus className="mr-1 h-3.5 w-3.5" /> Manage list
+                  </Button>
+                ) : null}
+              </div>
               {field.input === "select" ? (
-                <select
-                  {...register(`points.${field.key}`, { required: field.required })}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                >
-                  <option value="">Select {field.label.toLowerCase()}</option>
-                  {(optionsByField.get(`${selectedCategory}:${field.key}`) || []).map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
+                <>
+                  <select
+                    {...register(`points.${field.key}`, { required: field.required })}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                  >
+                    <option value="">Select {field.label.toLowerCase()}</option>
+                    {(optionsByField.get(`${selectedCategory}:${field.key}`) || []).map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                  {managedField === field.key ? (
+                    <div className="mt-2 rounded-lg border border-cyan-200 bg-white p-3" data-testid={`tool-option-panel-${field.key}`}>
+                      <div className="flex gap-2">
+                        <Input
+                          value={newOptionValue}
+                          onChange={(event) => setNewOptionValue(event.target.value)}
+                          placeholder={`Add ${field.label.toLowerCase()} value`}
+                          className="h-9"
+                        />
+                        <Button type="button" size="sm" className="h-9" onClick={() => addManagedOption(field.key)} disabled={!newOptionValue.trim() || createOptionMutation.isPending}>
+                          <Plus className="mr-1 h-4 w-4" /> Add
+                        </Button>
+                      </div>
+                      {optionError ? <p className="mt-2 text-xs font-medium text-rose-700" role="alert">{optionError}</p> : null}
+                      <div className="mt-3 max-h-44 space-y-2 overflow-y-auto pr-1">
+                        {managedOptions.map((option) => (
+                          <div key={option.id} className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-2">
+                            {editingOptionId === option.id ? (
+                              <Input value={editingOptionValue} onChange={(event) => setEditingOptionValue(event.target.value)} className="h-8 min-w-0 flex-1" autoFocus />
+                            ) : (
+                              <span className={`min-w-0 flex-1 truncate text-sm font-medium ${option.active === false ? "text-slate-400 line-through" : "text-slate-800"}`}>{option.value}</span>
+                            )}
+                            {editingOptionId === option.id ? (
+                              <Button type="button" size="sm" className="h-8" onClick={() => saveManagedOption(option)} disabled={!editingOptionValue.trim() || updateOptionMutation.isPending}>Save</Button>
+                            ) : (
+                              <Button type="button" size="icon" variant="ghost" className="h-8 w-8" title={`Rename ${option.value}`} onClick={() => { setEditingOptionId(option.id); setEditingOptionValue(option.value); setOptionError("") }}>
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                            )}
+                            <Button type="button" size="sm" variant="ghost" className="h-8" onClick={() => toggleManagedOption(option)} disabled={updateOptionMutation.isPending}>
+                              {option.active === false ? "Reactivate" : "Discontinue"}
+                            </Button>
+                          </div>
+                        ))}
+                        {!managedOptions.length ? <p className="py-2 text-xs text-slate-500">No values yet. Add the first value above.</p> : null}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
               ) : (
                 <Input
                   {...register(`points.${field.key}`, { required: field.required })}

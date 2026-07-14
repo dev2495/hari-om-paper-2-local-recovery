@@ -68,6 +68,18 @@ class ToolMasterContractTests(unittest.TestCase):
             tool_router._normalize_category("DIE")
         self.assertEqual(caught.exception.status_code, 400)
 
+    def test_client_master_roles_can_maintain_tools_and_dropdown_values(self):
+        self.assertEqual(
+            tool_router.TOOL_MASTER_WRITE_ROLES,
+            ["Admin", "Owner", "PlantManager"],
+        )
+        checker = tool_router.require_role(tool_router.TOOL_MASTER_WRITE_ROLES)
+        self.assertEqual(checker({"roles": ["Owner"]})["roles"], ["Owner"])
+        self.assertEqual(checker({"roles": ["PlantManager"]})["roles"], ["PlantManager"])
+        with self.assertRaises(HTTPException) as denied:
+            checker({"roles": ["Operator"]})
+        self.assertEqual(denied.exception.status_code, 403)
+
     def test_multiple_tools_can_be_created_and_edited_under_every_fixed_category(self):
         categories = ["NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"]
         created = []
