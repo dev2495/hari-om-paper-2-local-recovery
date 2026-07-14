@@ -2378,15 +2378,25 @@ def _record_physical_tool_usage(
         asset_ids = [str(value).strip() for value in raw_ids if str(value).strip()]
     else:
         asset_ids = []
-    if not asset_ids:
-        return []
-
     good_qty = float(stage.output_qty or 0.0)
     scrap_qty = float(stage.scrap_qty or 0.0)
     headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
     actor = _current_actor_label(current_user)
     recorded: list[str] = []
     with httpx.Client(timeout=5.0) as client:
+        if not asset_ids:
+            assigned_response = client.get(
+                f"{settings.INVENTORY_SERVICE_URL}/inventory/tools",
+                headers=headers,
+                params={"job_card_id": str(job_card.id), "stage_type": selected_stage, "limit": 1000},
+            )
+            if assigned_response.status_code >= 400:
+                detail = assigned_response.text[:500] or "Inventory tooling assignments could not be read"
+                raise HTTPException(status_code=409, detail=f"Physical tool assignments could not be verified: {detail}")
+            assigned_rows = assigned_response.json()
+            asset_ids = [str(row.get("id")) for row in assigned_rows if isinstance(row, dict) and row.get("id")]
+        if not asset_ids:
+            return []
         for asset_id in asset_ids:
             response = client.post(
                 f"{settings.INVENTORY_SERVICE_URL}/inventory/tools/{asset_id}/usage",

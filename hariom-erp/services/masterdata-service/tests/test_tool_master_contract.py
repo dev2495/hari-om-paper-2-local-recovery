@@ -138,6 +138,14 @@ class ToolMasterContractTests(unittest.TestCase):
     def test_only_editable_attribute_fields_are_allowed(self):
         with self.assertRaises(HTTPException):
             tool_router._validate_option_key("NOTCH", "location")
+        with self.assertRaises(HTTPException):
+            tool_router._validate_option_key("NOTCH", "notch_distance_mm")
+        with self.assertRaises(HTTPException):
+            tool_router._validate_option_key("NOTCH", "notch_depth_mm")
+        self.assertEqual(
+            tool_router._validate_option_key("NOTCH", "notch_direction"),
+            ("NOTCH", "notch_direction"),
+        )
         self.assertEqual(tool_router._validate_option_key("PUNCH", "punch"), ("PUNCH", "punch"))
 
     def test_tool_attributes_are_scoped_to_category_and_required_fields(self):

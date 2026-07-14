@@ -6,10 +6,17 @@ import httpx
 from src.middleware.auth import get_token
 from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
-from src.services.workspace import MASTER_SERVICE_URL, emit_from_response, emit_notification_event, response_body_json, service_get
+from src.services.workspace import MASTER_SERVICE_URL, PRODUCTION_SERVICE_URL, emit_from_response, emit_notification_event, response_body_json, service_get
 
 router = APIRouter()
 INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:18005")
+
+
+def _validate_tool_issue_job_card(job_card: dict, stage_type: str) -> None:
+    stages = job_card.get("stages") if isinstance(job_card, dict) else []
+    valid_stages = {str(stage.get("stage_type") or "").upper() for stage in stages or [] if isinstance(stage, dict)}
+    if valid_stages and stage_type not in valid_stages:
+        raise HTTPException(status_code=409, detail=f"{stage_type.title()} is not part of this job card")
 
 
 def _authoritative_tool_inward_body(body: dict, master: dict) -> dict:
@@ -490,7 +497,31 @@ async def move_tool_asset(asset_id: str, request: Request, token: str = Depends(
 
 @router.post("/tools/assets/{asset_id}/issue")
 async def issue_tool_asset(asset_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/tools/{asset_id}/issue", request, token)
+    try:
+        body = await request.json()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="Tool issue payload must be valid JSON") from exc
+    job_card_id = str(body.get("job_card_id") or "").strip() if isinstance(body, dict) else ""
+    stage_type = str(body.get("stage_type") or "").strip().upper() if isinstance(body, dict) else ""
+    if not job_card_id or not stage_type:
+        raise HTTPException(status_code=422, detail="Select a job card and production stage")
+    try:
+        job_card = await service_get(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}", token, request)
+    except httpx.HTTPStatusError as exc:
+        status_code = exc.response.status_code if exc.response is not None else 502
+        if status_code == 404:
+            raise HTTPException(status_code=409, detail="The selected job card no longer exists") from exc
+        raise HTTPException(status_code=502, detail="Production service could not validate the tool issue") from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail="Production service is unavailable; the tool was not issued") from exc
+    _validate_tool_issue_job_card(job_card, stage_type)
+    return await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/tools/{asset_id}/issue",
+        request,
+        token,
+        json_body={**body, "job_card_id": job_card_id, "stage_type": stage_type},
+    )
 
 
 @router.post("/tools/assets/{asset_id}/usage")

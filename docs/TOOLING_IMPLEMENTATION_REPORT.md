@@ -42,7 +42,7 @@ The specification sheet now consumes active tool masters and the option registry
 
 - Notch fields are limited to the eight approved client fields.
 - Tool selections come from active master definitions.
-- Direction, distance, and depth use maintained option values.
+- Direction uses maintained dropdown values; notch distance and depth are numeric input fields.
 - Mandrel selection narrows tube choices to plus or minus 1 mm.
 - Suggestions and their calculation route were removed.
 
@@ -51,6 +51,8 @@ The specification sheet now consumes active tool masters and the option registry
 - Tooling summary report.
 - Per-category status counts.
 - Physical asset output table.
+- One-click QR label printing and a complete physical-asset event timeline.
+- Lifetime output plus accepted/scrap output split by blade grinding version.
 - Usage count, produced quantity, scrap quantity, grinding version, and current job assignment.
 
 ### Release operations
@@ -84,7 +86,7 @@ Physical receipt + Location Master + QR asset
 | Definition | Plain Blade, BLADE |
 | Receipt | 14-Jul-2026, Tool Rack A |
 | Physical asset | TA-260714-001, QR value generated |
-| Issue | JC-2026-014, Notching stage |
+| Issue | JC-2026-014, Process stage |
 | Completion | 1,200 produced, 15 scrap |
 | Return | Asset available at Tool Rack A |
 | Grinding | Grinding out, then return as V1 |
@@ -94,8 +96,8 @@ Physical receipt + Location Master + QR asset
 
 - Service compilation completed successfully.
 - Masterdata tooling contract: 5 tests passed.
-- BFF inward-authority contract: 4 tests passed.
-- Inventory physical lifecycle: 31 tests passed.
+- BFF route/inward/job-card contract: 5 tests passed.
+- Inventory physical lifecycle: 3 focused tests passed.
 - Web unit/static suite: 21 spec math, 2 reconciliation, and 11 quality tests passed.
 - TypeScript check passed.
 - Production web build passed.
@@ -106,19 +108,21 @@ Physical receipt + Location Master + QR asset
 - Runtime shutdown override test passed with a temporary service PID and selected runtime directory.
 - Fresh local BFF health returned `healthy`.
 - Fresh local service startup reported all ERP services ready.
-- Focused Playwright browser suite: 2 tests passed.
+- Focused Playwright browser suite: 3 tests passed.
 
 ## Browser evidence
 
 The focused browser suite covers:
 
 1. Tooling master page, all five category values, editable registry, QR ledger, asset search, and screenshot capture.
-2. Specification sheet, searchable mandrel selection, filtered tube-size selection, live builder load, and zero suggestion components.
+2. Specification sheet, searchable mandrel selection, filtered tube-size selection, numeric notch distance/depth fields, live builder load, and zero suggestion components.
+3. Supervisor job card, physical-tool trace field, and removal of the legacy free-text QR asset field.
 
 Evidence screenshots:
 
 - `reports/tooling-master-browser.png`
 - `reports/spec-sheet-browser.png`
+- `reports/job-card-tooling-browser.png`
 
 ## Client onboarding actions
 

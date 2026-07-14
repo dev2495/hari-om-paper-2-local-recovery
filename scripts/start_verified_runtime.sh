@@ -37,6 +37,7 @@ INTEGRITY_SCRIPT="${BASE_DIR}/scripts/runtime_integrity.py"
 TARGET_PORTS=(
   3101
   13000
+  13001
   14000
   14001
   18001
@@ -59,7 +60,7 @@ stop_port() {
   local port="$1"
   local pids=""
   if command -v lsof >/dev/null 2>&1; then
-    pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
+    pids="$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)"
   fi
   if [[ -z "$pids" ]]; then
     return 0
@@ -86,7 +87,7 @@ scope_dataless_count() {
 }
 
 echo "[verified-runtime] stopping managed runtime..."
-"${BASE_DIR}/stop_all.sh" >/dev/null 2>&1 || true
+ERP_RUNTIME_DIR="${RUNTIME_DIR}" "${BASE_DIR}/stop_all.sh" >/dev/null 2>&1 || true
 
 echo "[verified-runtime] reclaiming stale ports..."
 for port in "${TARGET_PORTS[@]}"; do

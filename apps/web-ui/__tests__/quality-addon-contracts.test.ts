@@ -8,9 +8,7 @@ import {
   isMasterOptionActive,
   isTubeWithinMandrelBand,
   NOTCH_DIAGRAM_FIELD_KEYS,
-  NOTCH_DEPTH_OPTIONS,
   NOTCH_DIRECTION_OPTIONS,
-  NOTCH_DISTANCE_OPTIONS,
   NOTCH_TOOL_FIELD_CATEGORY_MAP,
   NOTCH_TOOL_FIELD_KEYS,
   SPEC_NOTCH_FIELD_KEYS,
@@ -71,13 +69,11 @@ test("tool categories and non-tool notch inputs match the client correction", ()
   assert.deepEqual(Object.keys(TOOL_CATEGORY_LABELS), ["NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"])
   assert.deepEqual([...NOTCH_DIAGRAM_FIELD_KEYS], ["notch_distance_mm", "notch_depth_mm"])
   assert.deepEqual([...NOTCH_DIRECTION_OPTIONS], ["Clockwise", "Anticlockwise"])
-  assert.deepEqual([...NOTCH_DISTANCE_OPTIONS], ["10.0", "10.50", "11.00"])
-  assert.deepEqual([...NOTCH_DEPTH_OPTIONS], ["3.5 mm", "4.0 mm", "4.5 mm"])
   assert.equal(fieldsByKey.get("notch_direction")?.field_type, "select")
   assert.equal(fieldsByKey.get("notch_direction")?.options, undefined)
-  assert.equal(fieldsByKey.get("notch_distance_mm")?.field_type, "select")
+  assert.equal(fieldsByKey.get("notch_distance_mm")?.field_type, "number")
   assert.equal(fieldsByKey.get("notch_distance_mm")?.options, undefined)
-  assert.equal(fieldsByKey.get("notch_depth_mm")?.field_type, "select")
+  assert.equal(fieldsByKey.get("notch_depth_mm")?.field_type, "number")
   assert.equal(fieldsByKey.get("notch_depth_mm")?.options, undefined)
 })
 

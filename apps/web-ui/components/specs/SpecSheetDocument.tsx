@@ -1889,7 +1889,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           recipeData,
           recipeLayers,
         })
-        await Promise.allSettled(
+        const toolLogResults = await Promise.allSettled(
           selectedNotchToolEntries.map((entry) =>
             logToolUsage.mutateAsync({
               tool_id: entry.tool_id,
@@ -1907,7 +1907,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             }),
           ),
         )
-        showToast("Specification draft created.", "success")
+        const toolLogFailures = toolLogResults.filter((entry) => entry.status === "rejected").length
+        showToast(
+          toolLogFailures
+            ? `Specification draft created, but ${toolLogFailures} tooling trace entr${toolLogFailures === 1 ? "y" : "ies"} could not be logged. Save once more after checking connectivity.`
+            : "Specification draft created.",
+          toolLogFailures ? "error" : "success",
+        )
         router.push(`/specifications/${result.spec.id}/edit`)
         return
       }
@@ -1919,7 +1925,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         recipeLayers,
         trialData,
       })
-      await Promise.allSettled(
+      const toolLogResults = await Promise.allSettled(
         selectedNotchToolEntries.map((entry) =>
           logToolUsage.mutateAsync({
             tool_id: entry.tool_id,
@@ -1937,11 +1943,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           }),
         ),
       )
+      const toolLogFailures = toolLogResults.filter((entry) => entry.status === "rejected").length
       showToast(
-        result.recipe
-          ? `Specification v${result.spec.version || "next"} saved as a new active version with a new recipe.`
-          : `Specification v${result.spec.version || "next"} saved as a new active version.`,
-        "success",
+        toolLogFailures
+          ? `Specification saved, but ${toolLogFailures} tooling trace entr${toolLogFailures === 1 ? "y" : "ies"} could not be logged. Save once more after checking connectivity.`
+          : result.recipe
+            ? `Specification v${result.spec.version || "next"} saved as a new active version with a new recipe.`
+            : `Specification v${result.spec.version || "next"} saved as a new active version.`,
+        toolLogFailures ? "error" : "success",
       )
       router.push(`/specifications/${result.spec.id}`)
     } catch (error: any) {
@@ -2040,7 +2049,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       )
     }
 
-    if (definition?.field_type === "select" && (options.length > 0 || toolCategories.length > 0)) {
+    if (type !== "number" && definition?.field_type === "select" && (options.length > 0 || toolCategories.length > 0)) {
       return (
         <div className="space-y-1">
           <FieldLabel>{label}</FieldLabel>
@@ -2078,6 +2087,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       <div className="space-y-1">
         <FieldLabel>{label}</FieldLabel>
         <input
+          data-testid={`spec-field-${key}`}
           type={inputType}
           value={optionValue(form.dynamicValues[key])}
           onChange={(event) => updateDynamicValue(key, event.target.value)}

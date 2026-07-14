@@ -184,7 +184,7 @@ def build():
     for item in ["Select Add Tool.", "Choose one of the five fixed categories.", "Enter the category points and status.", "Save. The definition becomes available to the specification sheet while active."]:
         story.append(bullet(item))
     story += [P("Editing approved dropdown values", "H2Custom")]
-    story += [P("Use the Editable dropdown registry to maintain the values used by the master and the notch process. Direction, distance, and depth are process option values, not extra tool categories. Only active values appear for selection.", "BodyCustom")]
+    story += [P("Use the Editable dropdown registry to maintain tool Type, Design, Degree, Punch, and process Direction values. Values can be renamed, discontinued, and reactivated. Notch distance and depth are numeric inputs, not dropdown masters.", "BodyCustom")]
     story += [P("Important", "H2Custom"), P("Master definition and physical asset are separate records. Updating a definition does not erase the saved snapshot or history of a tool that was already inwarded.", "Callout")]
 
     story += [P("2. Physical inward and QR identity", "H1Custom"), P("Use Inward beside the tool definition. Enter receipt date, quantity, and a Location Master position. The system expands the quantity into individual physical assets.", "BodyCustom")]
@@ -195,12 +195,12 @@ def build():
     story += [P("3. Physical lifecycle", "H1Custom"), P("The ledger shows only the actions valid for the current physical status.", "BodyCustom")]
     story += [table([["Status", "Use"], ["Available", "Ready to issue, maintain, grind (blade), or scrap"], ["Issued", "Assigned to a job card and stage; return after use"], ["Maintenance", "Temporarily with maintenance; complete when usable"], ["Grinding out", "Blade sent for sharpening; grinding return completes the cycle"], ["Scrap", "Permanently removed from use; history retained"]], [38 * mm, 136 * mm])]
     story += [P("Issue to production", "H2Custom")]
-    for item in ["Search or scan the QR/asset number.", "Select Issue.", "Enter the job card ID and production stage.", "Save. The asset becomes Issued and the job card stores the exact asset ID."]:
+    for item in ["Search or scan the QR/asset number.", "Select Issue.", "Choose a released job card and production stage.", "Save. The asset becomes Issued and the job card stores the exact asset ID."]:
         story.append(bullet(item))
     story += [P("Blade grinding", "H2Custom"), P("Return the blade if it is issued, select Grinding out, send it for sharpening, then select Grinding return. The same asset number remains in use and the version increments from V0 to V1, then V2, and so on.", "BodyCustom")]
     story += [P("A non-blade tool cannot use the blade grinding action.", "Callout")]
 
-    story += [P("4. Production output and trace", "H1Custom"), P("At job-card completion, actual completed output is recorded against the physical asset IDs assigned to the stage. A retry cannot double-count the same completion.", "BodyCustom")]
+    story += [P("4. Production output and trace", "H1Custom"), P("In the Winder or Process job-card section, select an available QR asset and issue it directly to the stage. At completion, actual output is recorded against open assignments even after a browser refresh. A retry cannot double-count the same completion.", "BodyCustom")]
     story += [table([["Trace point", "Example"], ["Job card", "JC-2026-014"], ["Stage", "Notching"], ["Physical asset", "TA-260714-001"], ["Good output", "1,200 tubes"], ["Scrap output", "15 tubes"], ["Next lifecycle", "Returned, then grinding V1"]], [50 * mm, 124 * mm])]
     story += [P("This answers how much each blade produced, how much scrap was associated with it, which job cards used it, and how many grinding cycles it completed.", "BodyCustom")]
     story += [PageBreak()]
@@ -209,7 +209,7 @@ def build():
     story += [P("The notch section contains exactly eight process fields", "H2Custom")]
     for item in ["Notch type", "Notching blade", "Notching holder", "V + Flat", "Punch", "Notch direction", "Notch distance", "Notch depth"]:
         story.append(bullet(item))
-    story += [P("The first five are tool selections. Direction, distance, and depth are editable process options. Tool points are displayed from the master and are not retyped in the specification sheet.", "BodyCustom")]
+    story += [P("The first five are tool selections. Direction is an editable dropdown. Distance and depth are numeric inputs. Tool points are displayed from the master and are not retyped in the specification sheet.", "BodyCustom")]
     story += [P("Mandrel and tube rule", "H2Custom"), P("Select a mandrel first. The tube-size picker then becomes active and shows only tube IDs within plus or minus 1 mm of the selected mandrel. This keeps the sheet aligned with the physical mandrel choice.", "BodyCustom")]
     story += [P("Suggestions are removed", "H2Custom"), P("The specification sheet no longer shows suggestion cards or runs the removed suggestion calculation route. The user builds and saves the approved recipe directly from the masters and entered production values.", "Callout")]
 
@@ -218,7 +218,7 @@ def build():
     story += [PageBreak()]
 
     story += [P("6. Reports and rejection trace", "H1Custom"), P("Open Reports > Tooling. Use the report for current physical status and output by asset.", "BodyCustom")]
-    for item in ["Total assets and counts by status.", "Category-level physical stock.", "Searchable physical ledger with location and QR value.", "Usage count and produced quantity per asset.", "Scrap quantity, grinding version, and current job assignment.", "Lifecycle history for inward, issue, return, maintenance, grinding, and scrap."]:
+    for item in ["Total assets and counts by status.", "Category-level physical stock.", "Searchable physical ledger with location and QR value.", "One-click QR label printing and complete asset history.", "Lifetime output plus good/scrap output for each grinding version.", "Scrap quantity, grinding version, and current job assignment.", "Lifecycle history for inward, issue, return, maintenance, grinding, and scrap."]:
         story.append(bullet(item))
     story += [P("Customer rejection investigation", "H2Custom")]
     for item in ["Start with the order, finished-good lot, or job card.", "Read the physical tool asset IDs on the completed job-card stage.", "Open each asset from the tooling ledger.", "Review inward, location, issue/return, maintenance, grinding versions, and production output.", "Compare the asset output with the job-card and QC records."]:
@@ -233,9 +233,14 @@ def build():
         story += [PageBreak(), P("Browser evidence - tooling master, option registry, and QR ledger", "H1Custom")]
         add_screenshot_slices(story, tool_img, 5, "Tooling master and physical ledger")
 
+    job_card_img = SCREENSHOTS / "job-card-tooling-browser.png"
+    if job_card_img.exists():
+        story += [PageBreak(), P("Browser evidence - job-card physical tool trace", "H1Custom")]
+        add_screenshot_slices(story, job_card_img, 5, "Supervisor job card and physical tool snapshot")
+
     story += [PageBreak(), P("Release verification", "H1Custom"), P("The implementation was checked locally with service, unit, build, static, and focused browser verification. The application is ready for client data onboarding; the final plant acceptance steps are listed below.", "BodyCustom")]
     story += [P("Deployment status", "H2Custom"), P("The tooling changes are committed and pushed to GitHub. The linked Railway service remains online on its previous deployment. Railway refused the new upload because the account trial has expired; after selecting a Railway plan, redeploy the latest pushed commit and run the authenticated production smoke test.", "Callout")]
-    story += [table([["Verification", "Result"], ["Service compilation", "Passed"], ["Master tooling contract", "5 passed"], ["BFF inward-authority contract", "4 passed"], ["Physical lifecycle tests", "31 passed"], ["Web unit/static checks", "Passed"], ["TypeScript and production build", "Passed"], ["Dependency audit", "0 vulnerabilities"], ["Runtime shutdown override", "Passed"], ["Focused browser tooling/spec suite", "2 passed"], ["BFF health and service startup", "Healthy / ready"]], [70 * mm, 104 * mm])]
+    story += [table([["Verification", "Result"], ["Service compilation", "Passed"], ["Master tooling contract", "5 passed"], ["BFF route/inward/job-card contract", "5 passed"], ["Physical lifecycle tests", "3 focused tests passed"], ["Web unit/static checks", "Passed"], ["TypeScript and production build", "Passed"], ["Dependency audit", "0 vulnerabilities"], ["Runtime shutdown override", "Passed"], ["Focused browser tooling/spec/job-card suite", "3 passed"], ["BFF health and service startup", "Healthy / ready"]], [70 * mm, 104 * mm])]
     story += [P("Client onboarding acceptance", "H2Custom")]
     for item in ["Confirm Location Master positions.", "Load approved tool definitions and option values.", "Inward opening physical tool stock.", "Print and apply QR labels.", "Run one supervised issue/return cycle.", "Run one supervised blade grinding cycle.", "Complete one supervised job card and verify the tooling report."]:
         story.append(bullet(item))

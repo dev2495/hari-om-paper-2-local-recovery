@@ -2,7 +2,7 @@ from collections import defaultdict
 
 import pytest
 
-from src.routes.inventory import _authoritative_tool_inward_body
+from src.routes.inventory import _authoritative_tool_inward_body, _validate_tool_issue_job_card
 from src.routes.production import router as production_router
 from src.routes.spec import router as spec_router
 
@@ -66,4 +66,12 @@ def test_tool_inward_rejects_discontinued_master():
             {"tool_definition_id": "master-id"},
             {"id": "master-id", "status": "DISCONTINUED", "active": True},
         )
+    assert caught.value.status_code == 409
+
+
+def test_tool_issue_stage_must_exist_on_selected_job_card():
+    card = {"id": "job-1", "stages": [{"stage_type": "WINDER"}, {"stage_type": "PROCESS"}]}
+    _validate_tool_issue_job_card(card, "PROCESS")
+    with pytest.raises(Exception) as caught:
+        _validate_tool_issue_job_card(card, "PACKING")
     assert caught.value.status_code == 409

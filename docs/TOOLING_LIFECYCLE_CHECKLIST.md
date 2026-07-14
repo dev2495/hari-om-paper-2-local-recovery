@@ -13,10 +13,13 @@ This checklist covers the fixed five-category tooling master, editable option re
 - [x] Tool master excludes legacy code, maintenance-date, and free-text location fields.
 - [x] Tool category is fixed after creation; only its approved points can be edited.
 - [x] Editable dropdown registry for approved tool/process values.
+- [x] Dropdown values can be renamed, discontinued, and reactivated without deleting history.
 - [x] Active/discontinued handling for master records.
 - [x] Discontinued items excluded from active specification-sheet selections.
 - [x] Physical tool receipt with quantity expansion into individual assets.
 - [x] Asset number and QR value generated for every physical unit.
+- [x] QR label preview and print action available directly from the asset ledger.
+- [x] Full physical-asset lifecycle timeline available from the asset ledger.
 - [x] Location Master selection at inward.
 - [x] Selected active tool master is authoritative for physical inward category, name, and attributes.
 - [x] Search by QR value or asset number.
@@ -28,8 +31,10 @@ This checklist covers the fixed five-category tooling master, editable option re
 - [x] Same blade asset retained across grinding versions.
 - [x] Idempotent production usage recording.
 - [x] Job card stores assigned physical tool asset IDs.
+- [x] Winder and Process job-card sections issue from available physical QR assets; no free-text asset entry.
 - [x] Produced and scrap quantities per physical tool.
 - [x] Tooling report with physical asset output table.
+- [x] Blade output report split by permanent asset and grinding version.
 - [x] Exactly eight notch process fields in the specification sheet.
 - [x] Mandrel selection filters tube sizes to plus or minus 1 mm.
 - [x] Specification-sheet suggestions removed from UI and calculation route.
@@ -44,8 +49,8 @@ This checklist covers the fixed five-category tooling master, editable option re
 | --- | --- |
 | Python service compilation | Passed |
 | Master tooling contract tests | 5 passed |
-| BFF inward authority contract | 4 passed |
-| Physical tool lifecycle tests | 31 passed |
+| BFF route, inward, and job-card contract | 5 passed |
+| Physical tool lifecycle tests | 3 focused tests passed |
 | Web unit/static tests | Passed: 21 spec math, 2 reconciliation, 11 quality |
 | TypeScript check | Passed |
 | Web build | Passed |
@@ -54,13 +59,13 @@ This checklist covers the fixed five-category tooling master, editable option re
 | Verification script | Passed |
 | Runtime shutdown override test | Passed |
 | Analytics scheduler regression | 2 passed; scheduler key and durable queue ID are stored separately |
-| Focused browser tooling/spec suite | 2 passed |
+| Focused browser tooling/spec/job-card suite | 3 passed |
 | BFF health | Healthy |
 | Local service startup | All services ready |
 
 ## Browser note
 
-The legacy broad release gate was also run against the fresh local UI. Two low-level login/reconciliation tests passed. Six older tests remain incompatible with current seeded fixture assumptions or old page copy/select contracts; their failures are not used as evidence against the changed tooling flow. The focused tooling/spec suite is the authoritative browser check for this release and is green. After the production build, the local Next server was restarted before browser QA so its chunk manifest matched the build output.
+The legacy broad release gate was also run against the fresh local UI. Two low-level login/reconciliation tests passed. Six older tests remain incompatible with current seeded fixture assumptions or old page copy/select contracts; their failures are not used as evidence against the changed tooling flow. The focused tooling/spec/job-card suite is the authoritative browser check for this release and is green. After the production build, the local Next server was restarted before browser QA so its chunk manifest matched the build output.
 
 ## Operational acceptance before production use
 

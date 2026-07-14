@@ -15,6 +15,7 @@ router = APIRouter(prefix="/inventory/tools", tags=["physical-tooling"])
 
 VALID_STATUSES = {"AVAILABLE", "ISSUED", "MAINTENANCE", "GRINDING_OUT", "SCRAP"}
 CANONICAL_TOOL_CATEGORIES = {"NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"}
+VALID_STAGE_TYPES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"}
 
 
 def _plant_values(plant_id: str) -> list[str]:
@@ -137,6 +138,10 @@ class ToolAction(BaseModel):
 
 def _asset_payload(row: ToolAsset) -> dict[str, Any]:
     location = row.location
+    open_assignment = next(
+        (assignment for assignment in sorted(row.assignments or [], key=lambda item: item.issued_at, reverse=True) if assignment.status == "OPEN"),
+        None,
+    )
     return {
         "id": row.id,
         "asset_no": row.asset_no,
@@ -154,6 +159,8 @@ def _asset_payload(row: ToolAsset) -> dict[str, Any]:
         "produced_qty": row.produced_qty,
         "scrap_qty": row.scrap_qty,
         "current_job_card_id": row.current_job_card_id,
+        "current_stage_type": open_assignment.stage_type if open_assignment else None,
+        "current_assignment_id": open_assignment.id if open_assignment else None,
         "received_at": row.received_at,
         "created_at": row.created_at,
         "updated_at": row.updated_at,
@@ -216,6 +223,8 @@ def list_tool_assets(
     category: Optional[str] = Query(default=None),
     status: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    job_card_id: Optional[str] = Query(default=None),
+    stage_type: Optional[str] = Query(default=None),
     limit: int = Query(default=200, ge=1, le=1000),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
@@ -241,6 +250,16 @@ def list_tool_assets(
             | (ToolAsset.qr_value.ilike(value))
             | (ToolAsset.definition_name.ilike(value))
             | (ToolAsset.current_job_card_id.ilike(value))
+        )
+    if job_card_id:
+        query = query.filter(ToolAsset.current_job_card_id == job_card_id.strip())
+    if stage_type:
+        normalized_stage = stage_type.strip().upper()
+        if normalized_stage not in VALID_STAGE_TYPES:
+            raise HTTPException(status_code=400, detail="Invalid production stage")
+        query = query.join(ToolAssetAssignment).filter(
+            ToolAssetAssignment.status == "OPEN",
+            ToolAssetAssignment.stage_type == normalized_stage,
         )
     return [_asset_payload(row) for row in query.order_by(ToolAsset.created_at.desc()).limit(limit).all()]
 
@@ -281,11 +300,14 @@ def move_tool(asset_id: str, payload: ToolMove, db: Session = Depends(get_db), p
 
 
 @router.post("/{asset_id}/issue")
-def issue_tool(asset_id: str, payload: ToolIssue, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Production"]))):
+def issue_tool(asset_id: str, payload: ToolIssue, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Store", "Production", "PlantManager", "Operator"]))):
     asset = _asset(db, asset_id, plant_id)
     if asset.status != "AVAILABLE":
         raise HTTPException(status_code=409, detail=f"Tool is {asset.status}; only AVAILABLE tools can be issued")
-    assignment = ToolAssetAssignment(asset_id=asset.id, job_card_id=payload.job_card_id.strip(), stage_type=payload.stage_type.strip().upper(), notes=payload.notes)
+    stage_type = payload.stage_type.strip().upper()
+    if stage_type not in VALID_STAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Select a valid production stage")
+    assignment = ToolAssetAssignment(asset_id=asset.id, job_card_id=payload.job_card_id.strip(), stage_type=stage_type, notes=payload.notes)
     db.add(assignment)
     old_status = asset.status
     asset.status = "ISSUED"
@@ -296,9 +318,12 @@ def issue_tool(asset_id: str, payload: ToolIssue, db: Session = Depends(get_db),
 
 
 @router.post("/{asset_id}/usage")
-def record_tool_usage(asset_id: str, payload: ToolUsage, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Production"]))):
+def record_tool_usage(asset_id: str, payload: ToolUsage, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Production", "PlantManager", "Operator"]))):
     asset = _asset(db, asset_id, plant_id)
-    existing = db.query(ToolAssetAssignment).filter(ToolAssetAssignment.usage_key == payload.usage_key).first()
+    existing = db.query(ToolAssetAssignment).filter(
+        ToolAssetAssignment.asset_id == asset.id,
+        ToolAssetAssignment.usage_key == payload.usage_key,
+    ).first()
     if existing:
         return {"assignment_id": existing.id, "asset": _asset_payload(asset), "idempotent": True}
     if asset.status != "ISSUED" or asset.current_job_card_id != payload.job_card_id:
@@ -323,7 +348,7 @@ def record_tool_usage(asset_id: str, payload: ToolUsage, db: Session = Depends(g
 
 
 @router.post("/{asset_id}/return")
-def return_tool(asset_id: str, payload: ToolAction, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Store", "Production"]))):
+def return_tool(asset_id: str, payload: ToolAction, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Admin", "Owner", "Store", "Production", "PlantManager", "Operator"]))):
     asset = _asset(db, asset_id, plant_id)
     assignment = db.query(ToolAssetAssignment).filter(ToolAssetAssignment.asset_id == asset.id, ToolAssetAssignment.status == "OPEN").order_by(ToolAssetAssignment.issued_at.desc()).first()
     if not assignment:
@@ -406,9 +431,46 @@ def scrap_tool(asset_id: str, payload: ToolAction, db: Session = Depends(get_db)
 @router.get("/report/summary")
 def tool_asset_report(db: Session = Depends(get_db), plant_scope: dict = Depends(get_current_plant_scope)):
     query = db.query(ToolAsset)
-    if not plant_scope.get("scope_all"):
+    if plant_scope.get("scope_all"):
+        allowed = plant_scope.get("allowed_plants") or []
+        if allowed:
+            query = query.filter(ToolAsset.plant_id.in_(allowed))
+    else:
         query = query.filter(ToolAsset.plant_id == plant_scope["selected_plant_id"])
     rows = query.all()
+    asset_ids = [row.id for row in rows]
+    usage_events = (
+        db.query(ToolAssetEvent)
+        .filter(
+            ToolAssetEvent.asset_id.in_(asset_ids),
+            ToolAssetEvent.event_type == "PRODUCTION_USAGE",
+        )
+        .order_by(ToolAssetEvent.event_at.desc())
+        .all()
+        if asset_ids
+        else []
+    )
+    asset_by_id = {row.id: row for row in rows}
+    cycle_totals: dict[tuple[uuid.UUID, int], dict[str, Any]] = {}
+    for event in usage_events:
+        version = int(event.grind_version or 0)
+        key = (event.asset_id, version)
+        cycle = cycle_totals.setdefault(
+            key,
+            {
+                "asset_id": event.asset_id,
+                "grind_version": version,
+                "usage_count": 0,
+                "produced_qty": 0.0,
+                "scrap_qty": 0.0,
+                "last_used_at": event.event_at,
+            },
+        )
+        cycle["usage_count"] += 1
+        cycle["produced_qty"] += float(event.good_qty or 0)
+        cycle["scrap_qty"] += float(event.scrap_qty or 0)
+        if event.event_at and (not cycle["last_used_at"] or event.event_at > cycle["last_used_at"]):
+            cycle["last_used_at"] = event.event_at
     by_category: dict[str, dict[str, Any]] = {}
     for row in rows:
         bucket = by_category.setdefault(row.category, {"category": row.category, "assets": 0, "available": 0, "issued": 0, "maintenance": 0, "grinding_out": 0, "scrap": 0, "produced_qty": 0.0})
@@ -440,5 +502,22 @@ def tool_asset_report(db: Session = Depends(get_db), plant_scope: dict = Depends
                 "current_job_card_id": row.current_job_card_id,
             }
             for row in sorted(rows, key=lambda item: (float(item.produced_qty or 0), item.asset_no), reverse=True)
+        ],
+        "grind_cycles": [
+            {
+                "asset_no": asset_by_id[cycle["asset_id"]].asset_no,
+                "qr_value": asset_by_id[cycle["asset_id"]].qr_value,
+                "definition_name": asset_by_id[cycle["asset_id"]].definition_name,
+                "category": asset_by_id[cycle["asset_id"]].category,
+                "grind_version": cycle["grind_version"],
+                "usage_count": cycle["usage_count"],
+                "produced_qty": cycle["produced_qty"],
+                "scrap_qty": cycle["scrap_qty"],
+                "last_used_at": cycle["last_used_at"],
+            }
+            for cycle in sorted(
+                cycle_totals.values(),
+                key=lambda item: (asset_by_id[item["asset_id"]].asset_no, item["grind_version"]),
+            )
         ],
     }

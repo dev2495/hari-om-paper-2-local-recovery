@@ -32,7 +32,7 @@ NOTCH_TOOL_CATEGORIES = {
 
 # The category list is fixed. These field values are editable master data.
 TOOL_OPTION_FIELDS = {
-    "NOTCH": {"type", "design", "degree", "notch_direction", "notch_distance_mm", "notch_depth_mm"},
+    "NOTCH": {"type", "design", "degree", "notch_direction"},
     "BLADE": {"type"},
     "PUNCH": {"punch"},
 }
@@ -41,8 +41,6 @@ DEFAULT_TOOL_OPTIONS = {
     ("NOTCH", "design"): ["Plain", "Step"],
     ("NOTCH", "degree"): ["50", "55", "60"],
     ("NOTCH", "notch_direction"): ["Clockwise", "Anticlockwise"],
-    ("NOTCH", "notch_distance_mm"): ["10.0", "10.50", "11.00"],
-    ("NOTCH", "notch_depth_mm"): ["3.5 mm", "4.0 mm", "4.5 mm"],
     ("BLADE", "type"): ["Plain", "Half Serration", "Full Serration"],
     ("PUNCH", "punch"): ["Single", "Double", "N/A"],
 }
@@ -311,7 +309,12 @@ def get_tools(
         query = query.filter(models.ToolMaster.category == _normalize_category(category))
     if department:
         query = query.filter(models.ToolMaster.department.ilike(department.strip()))
-    return query.order_by(models.ToolMaster.category.asc(), models.ToolMaster.name.asc()).all()
+    rows = query.order_by(models.ToolMaster.category.asc(), models.ToolMaster.name.asc(), models.ToolMaster.updated_at.desc()).all()
+    deduplicated: dict[tuple[str, str], models.ToolMaster] = {}
+    for row in rows:
+        key = (row.category, row.name.strip().casefold())
+        deduplicated.setdefault(key, row)
+    return list(deduplicated.values())
 
 
 @router.get("/categories")
@@ -369,7 +372,18 @@ def get_tool_options(
         query = query.filter(models.ToolAttributeOption.field_key == field_key.strip().lower())
     if not include_inactive:
         query = query.filter(models.ToolAttributeOption.active == True)
-    return query.order_by(models.ToolAttributeOption.category, models.ToolAttributeOption.field_key, models.ToolAttributeOption.sort_order, models.ToolAttributeOption.value).all()
+    rows = query.order_by(models.ToolAttributeOption.category, models.ToolAttributeOption.field_key, models.ToolAttributeOption.sort_order, models.ToolAttributeOption.value).all()
+    # Legacy rows for fields that are now numeric inputs remain harmless in the
+    # audit database but must never reappear in current dropdown consumers.
+    deduplicated: dict[tuple[str, str, str], models.ToolAttributeOption] = {}
+    for row in rows:
+        if row.field_key not in TOOL_OPTION_FIELDS.get(row.category, set()):
+            continue
+        key = (row.category, row.field_key, row.value.strip().casefold())
+        current = deduplicated.get(key)
+        if current is None or (row.active and not current.active):
+            deduplicated[key] = row
+    return list(deduplicated.values())
 
 
 @router.post("/options", response_model=ToolOptionResponse)
@@ -424,7 +438,17 @@ def update_tool_option(
     if not row:
         raise HTTPException(status_code=404, detail="Tool option not found")
     if payload.value is not None:
-        row.value = _normalize_text(payload.value) or row.value
+        next_value = _normalize_text(payload.value) or row.value
+        duplicate = db.query(models.ToolAttributeOption).filter(
+            models.ToolAttributeOption.id != row.id,
+            models.ToolAttributeOption.plant_id.in_(_plant_values(plant_id)),
+            models.ToolAttributeOption.category == row.category,
+            models.ToolAttributeOption.field_key == row.field_key,
+            models.ToolAttributeOption.value.ilike(next_value),
+        ).first()
+        if duplicate and duplicate.id != row.id:
+            raise HTTPException(status_code=409, detail="This dropdown value already exists")
+        row.value = next_value
     if payload.sort_order is not None:
         row.sort_order = payload.sort_order
     if payload.active is not None:
@@ -619,6 +643,13 @@ def create_tool(
     data["department"] = (_normalize_text(data.get("department")) or "COMMON").upper()
     if not data["name"]:
         raise HTTPException(status_code=400, detail="Tool name is required")
+    duplicate = db.query(models.ToolMaster).filter(
+        models.ToolMaster.plant_id.in_(_plant_values(plant_id)),
+        models.ToolMaster.category == data["category"],
+        models.ToolMaster.name.ilike(data["name"]),
+    ).first()
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A tooling master with this name already exists in the category")
     model = models.ToolMaster(**data, plant_id=plant_id)
     db.add(model)
     db.flush()
@@ -671,6 +702,15 @@ def update_tool(
             incoming.get("category") or model.category,
             incoming["attribute_values"],
         )
+    next_name = incoming.get("name") or model.name
+    duplicate = db.query(models.ToolMaster).filter(
+        models.ToolMaster.id != model.id,
+        models.ToolMaster.plant_id.in_(plant_values),
+        models.ToolMaster.category == model.category,
+        models.ToolMaster.name.ilike(next_name),
+    ).first()
+    if duplicate and duplicate.id != model.id:
+        raise HTTPException(status_code=409, detail="A tooling master with this name already exists in the category")
     for key, value in incoming.items():
         setattr(model, key, value)
     model.updated_at = datetime.utcnow()

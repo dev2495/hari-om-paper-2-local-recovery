@@ -32,8 +32,6 @@ export const NOTCH_TOOL_FIELD_CATEGORY_MAP: Record<string, string[]> = {
 export const NOTCH_TOOL_FIELD_KEYS = Object.keys(NOTCH_TOOL_FIELD_CATEGORY_MAP)
 export const NOTCH_DIAGRAM_FIELD_KEYS = ["notch_distance_mm", "notch_depth_mm"] as const
 export const NOTCH_DIRECTION_OPTIONS = ["Clockwise", "Anticlockwise"] as const
-export const NOTCH_DISTANCE_OPTIONS = ["10.0", "10.50", "11.00"] as const
-export const NOTCH_DEPTH_OPTIONS = ["3.5 mm", "4.0 mm", "4.5 mm"] as const
 export const SPEC_NOTCH_FIELD_KEYS = [
   "notch_type",
   "notching_blade",
@@ -486,8 +484,8 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "v_flat", label: "V + Flat Tool", field_type: "select" },
   { field_key: "punch", label: "Punch", field_type: "select" },
   { field_key: "notch_direction", label: "Direction", field_type: "select" },
-  { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "select" },
-  { field_key: "notch_depth_mm", label: "Notch Deep", field_type: "select" },
+  { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "number" },
+  { field_key: "notch_depth_mm", label: "Notch Depth", field_type: "number" },
   { field_key: "winder_tool_required", label: "Winder Tool", field_type: "boolean" },
   { field_key: "bundle_type", label: "Bundle Type", field_type: "text" },
   { field_key: "bundle_code", label: "Bundle Code", field_type: "text" },

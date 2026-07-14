@@ -41,6 +41,17 @@ export function useToolAssets(params?: any) {
   })
 }
 
+export function useToolAsset(id?: string) {
+  return useQuery({
+    queryKey: ["tool-asset", id || ""],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getToolAsset(String(id))
+      return data || { asset: null, events: [] }
+    },
+    enabled: Boolean(id),
+  })
+}
+
 export function useToolAssetReport() {
   return useQuery({
     queryKey: ["tool-asset-report"],
@@ -57,6 +68,7 @@ export function useReceiveToolAssets() {
     mutationFn: (data: any) => inventoryApi.receiveToolAssets(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tool-assets"] })
+      queryClient.invalidateQueries({ queryKey: ["tool-asset"] })
       queryClient.invalidateQueries({ queryKey: ["tool-asset-report"] })
     },
   })

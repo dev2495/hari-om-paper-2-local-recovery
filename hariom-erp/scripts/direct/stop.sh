@@ -31,6 +31,42 @@ SERVICES=(
   auth-service
 )
 
+terminate_managed_pid() {
+  local pid="$1"
+  local pgid=""
+  pgid="$(ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' || true)"
+  if [[ -n "$pgid" && "$pgid" == "$pid" ]]; then
+    kill -TERM -- "-${pid}" >/dev/null 2>&1 || true
+  else
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+  fi
+  sleep 1
+  if kill -0 "$pid" >/dev/null 2>&1; then
+    if [[ -n "$pgid" && "$pgid" == "$pid" ]]; then
+      kill -KILL -- "-${pid}" >/dev/null 2>&1 || true
+    else
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
+stop_listener_port() {
+  local port="$1"
+  local pids=""
+  command -v lsof >/dev/null 2>&1 || return 0
+  pids="$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)"
+  [[ -n "$pids" ]] || return 0
+  for pid in $pids; do
+    kill -TERM "$pid" >/dev/null 2>&1 || true
+  done
+  sleep 1
+  for pid in $pids; do
+    if kill -0 "$pid" >/dev/null 2>&1; then
+      kill -KILL "$pid" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
 if [[ ! -d "$PID_DIR" ]]; then
   echo "No runtime PID directory found: $PID_DIR"
   exit 0
@@ -45,17 +81,27 @@ for service in "${SERVICES[@]}"; do
   pid="$(cat "$pidfile")"
   if kill -0 "$pid" >/dev/null 2>&1; then
     echo "[stop] ${service} (pid ${pid})"
-    kill "$pid" >/dev/null 2>&1 || true
-    sleep 1
-    if kill -0 "$pid" >/dev/null 2>&1; then
-      kill -9 "$pid" >/dev/null 2>&1 || true
-    fi
+    terminate_managed_pid "$pid"
   else
     echo "[stop] ${service} pid file exists but process is already stopped"
   fi
 
   rm -f "$pidfile"
 done
+
+# npm and similar launchers may hand work to a child before the marker is
+# observed. Close only listeners on ports recorded by this managed runtime.
+if [[ -f "$PORTS_FILE" ]]; then
+  while IFS='=' read -r key value; do
+    case "$key" in
+      *_PORT)
+        if [[ "$value" =~ ^[0-9]+$ ]]; then
+          stop_listener_port "$value"
+        fi
+        ;;
+    esac
+  done < "$PORTS_FILE"
+fi
 
 rm -f "$PORTS_FILE"
 

@@ -42,6 +42,8 @@ test("tooling master and physical ledger expose the production workflow", async 
   await expect(page.getByPlaceholder(/Search QR \/ asset no/i)).toBeVisible()
   await expect(page.getByRole("button", { name: /Scan QR/i })).toBeVisible()
   await expect(page.getByText(/QR asset ledger/i)).toBeVisible()
+  await expect(page.getByText(/notch_distance_mm/i)).toHaveCount(0)
+  await expect(page.getByText(/notch_depth_mm/i)).toHaveCount(0)
 
   await page.getByRole("button", { name: /Add Tool/i }).click()
   const dialog = page.getByRole("dialog")
@@ -77,6 +79,20 @@ test("spec sheet uses searchable mandrel and tube controls and has no suggestion
   await expect(page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last()).toBeVisible()
   await page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last().click()
   await expect(page.getByTestId("spec-sheet-live-builder")).toContainText(/Paper total/i)
+  await expect(page.getByTestId("spec-field-notch_distance_mm")).toHaveAttribute("type", "number")
+  await expect(page.getByTestId("spec-field-notch_depth_mm")).toHaveAttribute("type", "number")
   await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]')).toHaveCount(0)
   await page.screenshot({ path: path.join(workspaceRoot, "reports", "spec-sheet-browser.png"), fullPage: true })
+})
+
+test("supervisor job card uses physical tool assignment controls", async ({ page }) => {
+  await loginThroughUi(page)
+  await page.goto("/production/supervisor-entry", { waitUntil: "domcontentloaded" })
+  const firstJobCard = page.locator('[data-testid^="supervisor-entry:select:"]').first()
+  await expect(firstJobCard).toBeVisible()
+  await firstJobCard.click()
+
+  await expect(page.getByText(/Physical Tool Issue|Physical Tools/i).first()).toBeVisible()
+  await expect(page.getByText(/Tool QR asset IDs/i)).toHaveCount(0)
+  await page.screenshot({ path: path.join(workspaceRoot, "reports", "job-card-tooling-browser.png"), fullPage: true })
 })

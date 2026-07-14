@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { useReelIssues } from "@/hooks/use-inventory"
+import { useIssueToolAsset, useReelIssues, useToolAssets } from "@/hooks/use-inventory"
 import { useEmployees, useMandrels, useShifts } from "@/hooks/use-master-data"
 import { displayPlantScope } from "@/lib/plant-scope"
 import {
@@ -426,6 +426,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   const shiftsQuery = useShifts()
   const employeesQuery = useEmployees()
   const [stageForms, setStageForms] = useState<Record<string, any>>({})
+  const [toolSelection, setToolSelection] = useState<Record<string, string>>({})
+  const toolAssetsQuery = useToolAssets({ limit: 1000 })
+  const issueToolMutation = useIssueToolAsset()
   const activeEmployees = useMemo(() => {
     const rows = Array.isArray(employeesQuery.data) ? employeesQuery.data : []
     return rows.filter((row: any) => row && (row.id ?? null) !== null && row.is_active !== false && row.active !== false)
@@ -1328,6 +1331,57 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     )
   }
 
+  function renderToolAssignment(stage: StageName) {
+    const rows = Array.isArray(toolAssetsQuery.data) ? toolAssetsQuery.data : []
+    const assigned = rows.filter(
+      (asset: any) =>
+        String(asset.current_job_card_id || "") === String(card?.id || "") &&
+        String(asset.current_stage_type || "").toUpperCase() === stage,
+    )
+    const available = rows.filter((asset: any) => asset.status === "AVAILABLE")
+    const selectedId = toolSelection[stage] || ""
+    if (!stageEditable(stage)) {
+      return <LabeledValue label="Physical Tools" value={assigned.map((asset: any) => asset.asset_no).join(", ") || "-"} />
+    }
+    const issueSelected = async () => {
+      if (!selectedId || !card?.id) return
+      try {
+        await issueToolMutation.mutateAsync({ id: selectedId, data: { job_card_id: card.id, stage_type: stage } })
+        const nextIds = Array.from(new Set([...assigned.map((asset: any) => asset.id), selectedId]))
+        updateSnapshotField(stage, "tool_asset_ids", nextIds.join(","))
+        setToolSelection((current) => ({ ...current, [stage]: "" }))
+        showToast("Physical tool issued and linked to this stage", "success")
+      } catch (error: any) {
+        const detail = error?.response?.data?.detail || error?.message || "Physical tool could not be issued"
+        showToast(String(detail), "error")
+      }
+    }
+    return (
+      <div className="border border-slate-300 px-2 py-2 md:col-span-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Physical Tool Issue</div>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <select
+            value={selectedId}
+            onChange={(event) => setToolSelection((current) => ({ ...current, [stage]: event.target.value }))}
+            className="h-9 min-w-0 flex-1 border border-slate-300 bg-white px-2 text-sm"
+          >
+            <option value="">Scan or select an available QR asset</option>
+            {available.map((asset: any) => (
+              <option key={asset.id} value={asset.id}>{asset.asset_no} · {asset.definition_name} · {asset.location_label || "Unlocated"}</option>
+            ))}
+          </select>
+          <button type="button" onClick={issueSelected} disabled={!selectedId || issueToolMutation.isPending} className="h-9 bg-slate-900 px-4 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50">
+            Issue to {stage.toLowerCase()}
+          </button>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {assigned.map((asset: any) => <span key={asset.id} className="border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-900">{asset.asset_no} · {asset.definition_name}</span>)}
+          {!assigned.length ? <span className="text-xs text-slate-500">No physical tool issued to this stage.</span> : null}
+        </div>
+      </div>
+    )
+  }
+
   function employeesForStage(stage: StageName) {
     const wanted = String(stage || "").toUpperCase()
     const matched = activeEmployees.filter((emp: any) => {
@@ -1510,7 +1564,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
           {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
-          {renderSimpleField(stage, "Tool QR asset IDs", "tool_asset_ids")}
+          {renderToolAssignment(stage)}
           {renderShiftPicker(stage)}
         </div>
         {renderLateEntryWarning(stage)}
@@ -1767,6 +1821,10 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <LabeledValue label="Notch Depth" value={entry.final_measurements?.notch_depth || ""} />
             </>
           )}
+        </div>
+
+        <div className="mt-3 grid gap-2 md:grid-cols-3">
+          {renderToolAssignment(stage)}
         </div>
 
         {renderNotes(stage)}
