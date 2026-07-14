@@ -57,6 +57,7 @@ INVENTORY_PORT = env("INVENTORY_PORT", "18005")
 ANALYTICS_PORT = env("ANALYTICS_PORT", "18007")
 SALES_PORT = env("SALES_PORT", "18008")
 BFF_PORT = env("BFF_PORT", "14000")
+BFF_BIND_HOST = env("BFF_BIND_HOST", "127.0.0.1")
 WEB_UI_PORT = public_web_port()
 
 AUTH_URL = f"http://127.0.0.1:{AUTH_PORT}"
@@ -180,7 +181,7 @@ PROCESSES = [
     ManagedProcess(
         name="bff-api",
         cwd=ROOT / "apps/bff-api",
-        command=[PYTHON, "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", BFF_PORT],
+        command=[PYTHON, "-m", "uvicorn", "src.main:app", "--host", BFF_BIND_HOST, "--port", BFF_PORT],
         health_url=f"{BFF_URL}/health/ready",
         extra_env={},
     ),

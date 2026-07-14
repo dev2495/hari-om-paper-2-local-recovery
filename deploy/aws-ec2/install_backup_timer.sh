@@ -4,6 +4,8 @@ set -euo pipefail
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/hariom/app/deploy/aws-ec2}"
 
 chmod 0755 "${DEPLOY_DIR}/backup_databases.sh"
+chmod 0755 "${DEPLOY_DIR}/bootstrap_runtime.sh"
+chmod 0755 "${DEPLOY_DIR}/restore_latest_backup.sh"
 chmod 0755 "${DEPLOY_DIR}/restore_drill.sh"
 chmod 0755 "${DEPLOY_DIR}/publish_health_metrics.sh"
 chmod 0755 "${DEPLOY_DIR}/install_cloudwatch_agent.sh"

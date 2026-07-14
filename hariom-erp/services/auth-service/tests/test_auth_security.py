@@ -5,6 +5,7 @@ from fastapi import HTTPException, Request
 from pydantic import ValidationError
 
 from src.routers import auth
+from src.utils.deps import get_session_claims, require_role
 
 
 @pytest.mark.parametrize(
@@ -67,3 +68,27 @@ def test_unassigned_acting_role_is_disabled_by_default(monkeypatch):
             current_user=user,
         )
     assert caught.value.status_code == 403
+
+
+def test_session_claims_prefer_effective_acting_roles():
+    user = SimpleNamespace(
+        roles=[SimpleNamespace(name="Owner")],
+        token_payload={"roles": ["Owner"], "effective_roles": ["Dispatch"]},
+    )
+    assert get_session_claims(user)["roles"] == ["Dispatch"]
+
+
+def test_privileged_dependency_rejects_owner_during_dispatch_acting_session():
+    user = SimpleNamespace(
+        roles=[SimpleNamespace(name="Owner")],
+        token_payload={"roles": ["Dispatch"], "effective_roles": ["Dispatch"]},
+    )
+    with pytest.raises(HTTPException) as caught:
+        require_role(["Owner", "Admin"])(current_user=user)
+    assert caught.value.status_code == 403
+
+
+def test_production_app_imports_all_routers():
+    from src.main import app
+
+    assert any(route.path == "/plants" for route in app.routes)

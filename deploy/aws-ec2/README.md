@@ -35,6 +35,22 @@ sudo systemctl start hariom-health-metrics.service
 
 The first manual executions are release gates: all three services must exit successfully before traffic is signed off.
 
+## Replacement-host recovery
+
+On a clean host, create a mode-`0600` runtime environment with generated secrets, then restore the newest checksum-verified S3 archive before starting the application:
+
+```bash
+sudo install -d -o "$USER" -g "$USER" /opt/hariom/app
+SITE_HOST=<ip-with-dashes>.sslip.io \
+ELASTIC_IP=<elastic-ip> \
+BACKUP_S3_BUCKET=<backup-bucket> \
+  deploy/aws-ec2/bootstrap_runtime.sh
+deploy/aws-ec2/restore_latest_backup.sh
+docker compose --env-file deploy/aws-ec2/.env --project-directory deploy/aws-ec2 up -d
+```
+
+`bootstrap_runtime.sh` refuses to overwrite an existing `.env`. `restore_latest_backup.sh` verifies every dump checksum, recreates all seven databases, restores them without ownership/privilege drift, and verifies that each database contains public tables.
+
 ## Release procedure
 
 1. Run `bash scripts/run_verification.sh` locally.

@@ -2,7 +2,7 @@ name: hariom-erp-production
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${DB_USER:?set DB_USER}
@@ -69,6 +69,7 @@ services:
       ANALYTICS_PORT: 18007
       SALES_PORT: 18008
       BFF_PORT: 14000
+      BFF_BIND_HOST: 0.0.0.0
       WEB_UI_PORT: 13000
       PUBLIC_WEB_PORT: 13000
       BFF_INTERNAL_URL: http://127.0.0.1:14000
@@ -87,7 +88,7 @@ services:
         max-file: "5"
 
   caddy:
-    image: caddy:2-alpine
+    image: caddy@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
     restart: unless-stopped
     depends_on:
       erp-app:

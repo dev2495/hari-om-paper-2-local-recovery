@@ -3,7 +3,7 @@ set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/hariom/app/deploy/aws-ec2}"
 ENV_FILE="${ENV_FILE:-${DEPLOY_DIR}/.env}"
-RESTORE_IMAGE="${RESTORE_IMAGE:-postgres:16-alpine}"
+RESTORE_IMAGE="${RESTORE_IMAGE:-postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777}"
 
 dotenv_get() {
   local key="$1"
@@ -47,7 +47,7 @@ fi
 archive_path="${work_dir}/backup.tar.gz"
 aws s3 cp "s3://${BACKUP_S3_BUCKET}/${latest_key}" "${archive_path}" --only-show-errors
 tar -xzf "${archive_path}" -C "${work_dir}"
-(cd "${work_dir}" && sha256sum --check SHA256SUMS)
+(cd "${work_dir}" && sed 's#  .*/#  #' SHA256SUMS | sha256sum --check -)
 
 docker run -d --rm \
   --name "${container_name}" \

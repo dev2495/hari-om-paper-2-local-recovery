@@ -50,6 +50,19 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.
     return user
 
 
+def get_session_claims(current_user: models.User) -> dict:
+    """Return normalized claims for the authenticated or acting session."""
+    payload = getattr(current_user, "token_payload", None)
+    if not isinstance(payload, dict):
+        payload = decode_access_token(getattr(current_user, "token", "")) or {}
+    claims = dict(payload)
+    roles = claims.get("effective_roles") or claims.get("roles")
+    if not roles:
+        roles = [role.name for role in current_user.roles]
+    claims["roles"] = sorted({str(role) for role in roles if str(role).strip()})
+    return claims
+
+
 def get_current_plant(request: Request, current_user: models.User = Depends(get_current_user)) -> str:
     requested_plant = request.headers.get("X-Plant-ID")
     if requested_plant:
@@ -65,7 +78,7 @@ def require_role(allowed_roles: Iterable[str]) -> Callable[..., models.User]:
     def dependency(current_user: models.User = Depends(get_current_user)) -> models.User:
         if not allowed:
             return current_user
-        user_roles = {role.name for role in current_user.roles}
+        user_roles = set(get_session_claims(current_user).get("roles") or [])
         if user_roles.intersection(allowed):
             return current_user
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")
