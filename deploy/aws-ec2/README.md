@@ -21,7 +21,7 @@ Production data migration is deliberately whitelist-based. It imports active use
 - `hariom-health-metrics.timer` publishes disk, memory, and critical-route health every five minutes.
 - `hariom-backup.timer` uploads checksum-verified custom-format database dumps to the private S3 bucket every day.
 - `hariom-restore-drill.timer` restores the latest archive into a temporary PostgreSQL 16 container every week and verifies that each database contains public tables.
-- `install_cloudwatch_agent.sh` sends Docker JSON logs and syslog to `/hariom/erp/production`, retained for 14 days.
+- `install_cloudwatch_agent.sh` sends Docker JSON logs and syslog to `/hariom/erp/production-v2`, retained for 14 days.
 - CloudWatch alarms cover EC2 status, CPU, disk, memory, readiness, backup freshness, and restore-drill freshness.
 
 Install or refresh the host controls after syncing this directory:

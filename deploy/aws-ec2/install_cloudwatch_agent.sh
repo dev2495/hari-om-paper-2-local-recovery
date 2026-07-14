@@ -28,12 +28,12 @@ install -m 0644 /dev/stdin /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatc
         "collect_list": [
           {
             "file_path": "/var/lib/docker/containers/*/*.log",
-            "log_group_name": "/hariom/erp/production",
+            "log_group_name": "/hariom/erp/production-v2",
             "log_stream_name": "{instance_id}/docker"
           },
           {
             "file_path": "/var/log/syslog",
-            "log_group_name": "/hariom/erp/production",
+            "log_group_name": "/hariom/erp/production-v2",
             "log_stream_name": "{instance_id}/syslog"
           }
         ]

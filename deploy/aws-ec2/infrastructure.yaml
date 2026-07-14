@@ -230,7 +230,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      LogGroupName: /hariom/erp/production
+      LogGroupName: /hariom/erp/production-v2
       RetentionInDays: 14
       Tags:
         - Key: Project
@@ -312,8 +312,8 @@ Resources:
       MetricName: DatabaseRestoreDrillSuccess
       Statistic: Minimum
       Period: 86400
-      EvaluationPeriods: 8
-      DatapointsToAlarm: 8
+      EvaluationPeriods: 7
+      DatapointsToAlarm: 7
       Threshold: 0.5
       ComparisonOperator: LessThanThreshold
       TreatMissingData: breaching
