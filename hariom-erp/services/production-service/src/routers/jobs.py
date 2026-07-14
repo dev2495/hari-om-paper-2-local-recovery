@@ -5,7 +5,7 @@ import uuid
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import String, cast, or_
 from sqlalchemy.orm import Session
 
@@ -148,8 +148,7 @@ class JobResponse(BaseModel):
     closed_at: Optional[datetime]
     closed_by: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def _fetch_spec(spec_id: uuid.UUID, token: str, plant_id: str) -> dict:

@@ -11,17 +11,18 @@ if [[ ! -x "$PYTEST" ]]; then
   exit 1
 fi
 
-echo "== BFF route contracts =="
-env PYTHONPATH=apps/bff-api "$PYTEST" apps/bff-api/tests/test_route_contracts.py
-
-echo "== Tooling master contract =="
-env PYTHONPATH=hariom-erp/services/masterdata-service "$PYTEST" hariom-erp/services/masterdata-service/tests/test_tool_master_contract.py
-
-echo "== Physical tooling lifecycle contract =="
-env PYTHONPATH=hariom-erp/services/inventory-service "$PYTEST" hariom-erp/services/inventory-service/tests/test_tool_asset_lifecycle.py
+echo "== Full backend regression suites =="
+env PYTHONPATH=apps/bff-api "$PYTEST" apps/bff-api/tests
+env PYTHONPATH=hariom-erp/services/auth-service "$PYTEST" hariom-erp/services/auth-service/tests
+env PYTHONPATH=hariom-erp/services/masterdata-service "$PYTEST" hariom-erp/services/masterdata-service/tests
+env PYTHONPATH=hariom-erp/services/spec-service/src "$PYTEST" hariom-erp/services/spec-service/tests
+env PYTHONPATH=hariom-erp/services/sales-service "$PYTEST" hariom-erp/services/sales-service/tests
+env PYTHONPATH=hariom-erp/services/inventory-service "$PYTEST" hariom-erp/services/inventory-service/tests
+env PYTHONPATH=hariom-erp/services/production-service "$PYTEST" hariom-erp/services/production-service/tests
+env PYTHONPATH=hariom-erp/services/analytics-service "$PYTEST" hariom-erp/services/analytics-service/tests
 
 echo "== Runtime control scripts =="
-bash -n hariom-erp/scripts/direct/start.sh hariom-erp/scripts/direct/stop.sh hariom-erp/scripts/direct/status.sh start_all.sh stop_all.sh status_all.sh scripts/start_verified_runtime.sh
+bash -n hariom-erp/scripts/direct/start.sh hariom-erp/scripts/direct/stop.sh hariom-erp/scripts/direct/status.sh start_all.sh stop_all.sh status_all.sh scripts/start_verified_runtime.sh deploy/aws-ec2/*.sh
 RUNTIME_CONTROL_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hariom-stop-contract.XXXXXX")"
 RUNTIME_CONTROL_TEST_PID=""
 cleanup_runtime_control_test() {
@@ -72,13 +73,6 @@ assert status["ttl_seconds"] == 60
 assert status["mode"] in {"inprocess_only", "redis_with_inprocess_fallback", "shared_required"}
 assert "redis" in status
 PY
-
-echo "== Analytics scheduler regression tests =="
-env PYTHONPATH=hariom-erp/services/analytics-service "$ROOT_DIR/hariom-erp/venv-runtime/bin/pytest" \
-  hariom-erp/services/analytics-service/tests/test_scheduler.py
-
-echo "== Spec math parity =="
-env PYTHONPATH=hariom-erp/services/spec-service/src "$PYTEST" hariom-erp/services/spec-service/tests/test_spec_math.py
 
 echo "== Web dependency audit =="
 cd "$ROOT_DIR/apps/web-ui"

@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -33,14 +33,14 @@ class ReservationCreate(BaseModel):
     sales_order_id: uuid.UUID
     sales_order_line_id: uuid.UUID
     item_id: uuid.UUID
-    qty: float
+    qty: float = Field(..., gt=0)
     batch_id: Optional[uuid.UUID] = None
     spec_id: Optional[uuid.UUID] = None
 
 
 class ReservationConsume(BaseModel):
-    qty: float
-    dispatch_ref: str
+    qty: float = Field(..., gt=0)
+    dispatch_ref: str = Field(..., min_length=1, max_length=100)
 
 
 class ReservationResponse(BaseModel):
@@ -87,12 +87,12 @@ def create_reservation(
     payload: ReservationCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "Dispatch"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "Dispatch"])),
 ):
     item = db.query(ItemMaster).filter(
         ItemMaster.id == payload.item_id,
         ItemMaster.plant_id == plant_id
-    ).first()
+    ).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
 
@@ -101,7 +101,7 @@ def create_reservation(
         batch = db.query(StockBatch).filter(
             StockBatch.id == selected_batch_id,
             StockBatch.plant_id == plant_id
-        ).first()
+        ).with_for_update().first()
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
         if str(batch.item_id) != str(payload.item_id):
@@ -191,12 +191,12 @@ def release_reservation(
     reservation_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "Dispatch"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "Dispatch"])),
 ):
     reservation = db.query(Reservation).filter(
         Reservation.id == reservation_id,
         Reservation.plant_id == plant_id
-    ).first()
+    ).with_for_update().first()
     if not reservation:
         raise HTTPException(status_code=404, detail="Reservation not found")
 
@@ -240,12 +240,12 @@ def consume_reservation(
     payload: ReservationConsume,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Dispatch", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Dispatch", "Store"])),
 ):
     reservation = db.query(Reservation).filter(
         Reservation.id == reservation_id,
         Reservation.plant_id == plant_id
-    ).first()
+    ).with_for_update().first()
     if not reservation:
         raise HTTPException(status_code=404, detail="Reservation not found")
 

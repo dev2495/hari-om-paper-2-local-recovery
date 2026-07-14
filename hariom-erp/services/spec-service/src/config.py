@@ -1,8 +1,9 @@
 import os
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     # Database
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://devarshthakkar@localhost:5432/specdb")
     
@@ -21,9 +22,6 @@ class Settings(BaseSettings):
     SERVICE_NAME: str = "spec-service"
     SERVICE_PORT: int = 8003
     
-    class Config:
-        env_file = ".env"
-
 @lru_cache()
 def get_settings():
     return Settings()

@@ -5,7 +5,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -52,8 +52,7 @@ class BoxResponse(BaseModel):
     active: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class PlasticSheetCreate(BaseModel):
@@ -78,8 +77,7 @@ class PlasticSheetResponse(BaseModel):
     active: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FaddaCreate(BaseModel):
@@ -101,8 +99,7 @@ class FaddaResponse(BaseModel):
     active: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def _normalize_code(value: Optional[str], label: str) -> str:

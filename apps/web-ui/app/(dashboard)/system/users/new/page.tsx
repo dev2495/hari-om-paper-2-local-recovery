@@ -204,7 +204,8 @@ export default function NewUserPage() {
             </label>
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">Initial password</span>
-              <input required minLength={8} type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-cyan-700 transition focus:ring-2" placeholder="Minimum 8 characters" />
+              <input required minLength={12} maxLength={128} type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none ring-cyan-700 transition focus:ring-2" aria-describedby="password-policy" />
+              <span id="password-policy" className="text-xs text-slate-500">At least 12 characters with uppercase, lowercase, number, and symbol.</span>
             </label>
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-700">Assigned plant</span>

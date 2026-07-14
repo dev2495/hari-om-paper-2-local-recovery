@@ -137,8 +137,7 @@ class EmployeeResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @employee_router.get("/", response_model=List[EmployeeResponse])
@@ -355,8 +354,7 @@ class ShiftResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @shift_router.get("/", response_model=List[ShiftResponse])
@@ -543,8 +541,7 @@ class HolidayResponse(BaseModel):
     plant_id: str
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @holiday_router.get("/", response_model=List[HolidayResponse])
@@ -741,8 +738,7 @@ class ReasonResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @reason_router.get("/", response_model=List[ReasonResponse])

@@ -198,6 +198,48 @@ async def create_dispatch(request: Request, token: str = Depends(get_token)):
     return response
 
 
+@router.get("/reservations")
+async def list_reservations(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/reservations", request, token)
+
+
+@router.post("/reservations")
+async def create_reservation(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/reservations", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="FG_RESERVATION_CREATED",
+        title="Finished-goods reservation created",
+        message="Stock has been protected against a released sales-order line.",
+        href="/inventory/reservations",
+        recipient_roles=["Owner", "Admin", "Dispatch", "Store", "Sales"],
+    )
+    return response
+
+
+@router.post("/reservations/{reservation_id}/release")
+async def release_reservation(reservation_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/reservations/{reservation_id}/release",
+        request,
+        token,
+    )
+
+
+@router.post("/reservations/{reservation_id}/consume")
+async def consume_reservation(reservation_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/reservations/{reservation_id}/consume",
+        request,
+        token,
+    )
+    await invalidate_books_cache(token, request.headers.get("X-Plant-ID", ""))
+    return response
+
+
 @router.get("/balance")
 async def get_all_balances(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/all-balances", request, token)

@@ -1,9 +1,10 @@
 import os
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
     DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://devarshthakkar@localhost:5432/productiondb")
 
     JWT_SECRET: str = os.getenv("JWT_SECRET", "change_me_in_production")
@@ -24,10 +25,6 @@ class Settings(BaseSettings):
 
     SERVICE_NAME: str = "production-service"
     SERVICE_PORT: int = 8004
-
-    class Config:
-        env_file = ".env"
-
 
 @lru_cache()
 def get_settings():

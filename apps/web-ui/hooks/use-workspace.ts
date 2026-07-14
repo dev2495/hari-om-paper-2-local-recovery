@@ -72,3 +72,16 @@ export function useNotificationUnreadCount(enabled = true) {
     enabled,
   })
 }
+
+export function useSystemHealth(enabled = true) {
+  return useQuery({
+    queryKey: ["workspace-system-health"],
+    queryFn: async () => {
+      const { data } = await api.get("/api/workspace/system-health")
+      return data
+    },
+    enabled,
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+}

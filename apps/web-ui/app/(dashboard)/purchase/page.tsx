@@ -15,8 +15,10 @@ import {
 } from "lucide-react"
 
 import { EmptyState, Panel, StatusBadge } from "@/components/erp/shell"
+import { useAuth } from "@/context/AuthContext"
 import { useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
+import { usePlants } from "@/hooks/use-system"
 import { api, purchaseApi } from "@/lib/api"
 
 type EndpointState = {
@@ -37,10 +39,9 @@ function normalizeRows(raw: any) {
 }
 
 function errorMessage(error: any) {
-  if (error?.response?.status === 404) return "Purchase endpoint pending in backend."
   const detail = error?.response?.data?.detail || error?.response?.data?.message || error?.message
   if (typeof detail === "string") return detail
-  return detail ? JSON.stringify(detail) : "Purchase endpoint is not available yet."
+  return detail ? JSON.stringify(detail) : "The purchase request failed."
 }
 
 async function safePurchaseGet(path: string): Promise<EndpointState> {
@@ -66,7 +67,7 @@ function EndpointChip({ label, state }: { label: string; state?: EndpointState }
         : "border-amber-200 bg-amber-50 text-amber-800"
     }`}>
       {available ? <CheckCircle2 className="h-3.5 w-3.5" /> : <AlertTriangle className="h-3.5 w-3.5" />}
-      {label}: {available ? "connected" : state?.status ? `pending (${state.status})` : "pending"}
+      {label}: {available ? "connected" : state?.status ? `error (${state.status})` : "unavailable"}
     </span>
   )
 }
@@ -77,6 +78,9 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
 
 export default function PurchaseFlowPage() {
   const queryClient = useQueryClient()
+  const { activePlant, setActivePlant } = useAuth()
+  const { data: plants = [] } = usePlants()
+  const concretePlant = Boolean(activePlant && activePlant.toUpperCase() !== "ALL")
   const vendorsQuery = useVendors()
   const itemsQuery = useInventoryItems()
   const vendors = useMemo(() => (Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []), [vendorsQuery.data])
@@ -86,12 +90,14 @@ export default function PurchaseFlowPage() {
   )
 
   const ordersQuery = useQuery({
-    queryKey: ["purchase", "orders"],
+    queryKey: ["purchase", "orders", activePlant],
     queryFn: () => safePurchaseGet("/api/purchase/orders"),
+    enabled: concretePlant,
   })
   const receiptsQuery = useQuery({
-    queryKey: ["purchase", "receipts"],
+    queryKey: ["purchase", "receipts", activePlant],
     queryFn: () => safePurchaseGet("/api/purchase/receipts"),
+    enabled: concretePlant,
   })
 
   const [poForm, setPoForm] = useState({
@@ -162,6 +168,20 @@ export default function PurchaseFlowPage() {
       queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
     },
   })
+
+  if (!concretePlant) {
+    return (
+      <section className="mx-auto max-w-2xl rounded-3xl border border-cyan-200 bg-cyan-50 p-6">
+        <ShieldCheck className="h-7 w-7 text-cyan-800" />
+        <h1 className="mt-3 text-2xl font-semibold text-slate-950">Select one plant for Purchase and GRN</h1>
+        <p className="mt-2 text-sm text-slate-700">Purchase orders, receipts, batch costing, and incoming QC are plant-owned records. Select the receiving plant before reading or posting them.</p>
+        <select className="mt-5 h-11 w-full rounded-xl border border-cyan-200 bg-white px-3" value="" onChange={(event) => { if (event.target.value) { setActivePlant(event.target.value); window.location.reload() } }}>
+          <option value="">Select plant</option>
+          {plants.filter((plant: any) => plant.is_active !== false).map((plant: any) => <option key={plant.id} value={plant.id}>{plant.code} · {plant.name}</option>)}
+        </select>
+      </section>
+    )
+  }
 
   const orders = ordersQuery.data?.rows || []
   const receipts = receiptsQuery.data?.rows || []
@@ -246,7 +266,7 @@ export default function PurchaseFlowPage() {
   }
 
   return (
-    <div className="space-y-5" data-testid="purchase-flow-page">
+    <div className="min-w-0 space-y-5 overflow-x-hidden" data-testid="purchase-flow-page">
       <section className="rounded-[1.6rem] border border-slate-200 bg-slate-950 p-5 text-white shadow-xl shadow-slate-900/10">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
@@ -274,7 +294,7 @@ export default function PurchaseFlowPage() {
 
       {endpointPending ? (
         <section className="rounded-[1.2rem] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          Purchase-service routes are not fully connected in this checkout. Use direct bulk/reel GRN for live stock posting until `/api/purchase/*` is available.
+          A purchase API request failed. Review the error shown on the affected section and retry after the service is healthy.
         </section>
       ) : null}
 
@@ -288,11 +308,11 @@ export default function PurchaseFlowPage() {
         </section>
       ) : null}
 
-      <section className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
+      <section className="grid min-w-0 gap-4 xl:grid-cols-[0.92fr_1.08fr] [&>*]:min-w-0">
         <Panel
           title="Create Purchase Order"
           subtitle="Vendor, material, quantity, rate, expected date, and incoming QC requirement are captured before GRN."
-          actions={<StatusBadge value={ordersQuery.data?.available ? "CONNECTED" : "PENDING"} />}
+          actions={<StatusBadge value={ordersQuery.data?.available ? "CONNECTED" : "ERROR"} />}
         >
           <form onSubmit={submitPurchaseOrder} className="grid gap-3 md:grid-cols-2">
             <label className="space-y-1">
@@ -452,7 +472,7 @@ export default function PurchaseFlowPage() {
         <Panel
           title="Post GRN Against PO"
           subtitle="Approved PO lines receive into inventory batches. Incoming QC lines remain QC_HOLD until released."
-          actions={<StatusBadge value={receiptsQuery.data?.available ? "CONNECTED" : "PENDING"} />}
+          actions={<StatusBadge value={receiptsQuery.data?.available ? "CONNECTED" : "ERROR"} />}
         >
           <form onSubmit={submitGrn} className="grid gap-3 md:grid-cols-3">
             <label className="space-y-1">

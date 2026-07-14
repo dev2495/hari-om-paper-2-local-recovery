@@ -1,7 +1,10 @@
 """Hari Om Paper ERP BFF API."""
 
+import asyncio
 import os
+import time
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -122,3 +125,42 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "bff-api", "books_guard": books_guard_status()}
+
+
+@app.get("/health/ready")
+async def readiness_check():
+    """Dependency-aware readiness used by the container and public monitor."""
+    services = {
+        "auth": os.getenv("AUTH_SERVICE_URL", "http://127.0.0.1:18001"),
+        "masterdata": os.getenv("MASTER_SERVICE_URL", "http://127.0.0.1:18002"),
+        "spec": os.getenv("SPEC_SERVICE_URL", "http://127.0.0.1:18003"),
+        "production": os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004"),
+        "inventory": os.getenv("INVENTORY_SERVICE_URL", "http://127.0.0.1:18005"),
+        "analytics": os.getenv("ANALYTICS_SERVICE_URL", "http://127.0.0.1:18007"),
+        "sales": os.getenv("SALES_SERVICE_URL", "http://127.0.0.1:18008"),
+    }
+
+    async def probe(name: str, base_url: str) -> tuple[str, dict]:
+        started = time.perf_counter()
+        try:
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                response = await client.get(f"{base_url}/health")
+            return name, {
+                "status": "UP" if response.status_code == 200 else "DOWN",
+                "http_status": response.status_code,
+                "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
+            }
+        except httpx.RequestError as exc:
+            return name, {
+                "status": "DOWN",
+                "http_status": None,
+                "latency_ms": round((time.perf_counter() - started) * 1000.0, 1),
+                "detail": str(exc)[:200],
+            }
+
+    results = dict(await asyncio.gather(*(probe(name, url) for name, url in services.items())))
+    ready = all(result["status"] == "UP" for result in results.values())
+    payload = {"status": "ready" if ready else "not_ready", "service": "bff-api", "dependencies": results}
+    if not ready:
+        return JSONResponse(status_code=503, content=payload)
+    return payload

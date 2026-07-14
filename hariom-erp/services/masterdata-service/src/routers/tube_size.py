@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 import uuid
 from ..database import get_db
 from .. import models
@@ -34,8 +34,7 @@ class TubeSizeResponse(BaseModel):
     active: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.get("/", response_model=List[TubeSizeResponse])
 def get_tube_sizes(

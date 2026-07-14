@@ -4,7 +4,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -113,8 +113,7 @@ class ReelIssueResponse(BaseModel):
     closed_at: Optional[datetime] = None
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:

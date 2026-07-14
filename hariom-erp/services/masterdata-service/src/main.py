@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import FastAPI
-from sqlalchemy import text
+from sqlalchemy import inspect, text
 
 from . import models
 from .database import engine
@@ -516,6 +516,13 @@ _ensure_schema_compatibility()
 
 def _retire_legacy_notch_tool_placeholders() -> None:
     """Keep legacy tool rows for history while retiring them from current tooling use."""
+    columns = {column["name"] for column in inspect(engine).get_columns("tool_master")}
+    assignments = ["active = FALSE", "status = 'DISCONTINUED'", "updated_at = NOW()"]
+    if "condition_notes" in columns:
+        assignments.append(
+            "condition_notes = COALESCE(NULLIF(condition_notes, ''), :retirement_note)"
+        )
+    assignment_sql = ",\n            ".join(assignments)
     legacy_codes = (
         "NOTCH-DROP-DOWN",
         "BLADE-DROP-DOWN",
@@ -531,25 +538,23 @@ def _retire_legacy_notch_tool_placeholders() -> None:
         "NOTCH-DIR-FORWARD",
         "NOTCH-DIR-REVERSE",
     )
-    retire_sql = text(
-        """
+    retire_sql = (
+        text(
+            f"""
         UPDATE tool_master
         SET
-            active = FALSE,
-            status = 'DISCONTINUED',
-            condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired legacy seeded placeholder; recreate manually under the new field category if still required.'),
-            updated_at = NOW()
+            {assignment_sql}
         WHERE code = :legacy_code
         """
+        )
+        if "code" in columns
+        else None
     )
     retire_category_sql = text(
-        """
+        f"""
         UPDATE tool_master
         SET
-            active = FALSE,
-            status = 'DISCONTINUED',
-            condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired non-current notching tool category. Valid categories are Notch, Blade, Holder, V + Flat, and Punch.'),
-            updated_at = NOW()
+            {assignment_sql}
         WHERE category IN (
             'NOTCH_TYPE','NOTCH_THICKNESS','NOTCH_DESIGN','NOTCH_CODE','NOTCH_DEGREE',
             'BLADE_TYPE','BLADE_THICKNESS','BLADE_CODE','BLADE_HEIGHT','BLADE_LENGTH',
@@ -562,21 +567,35 @@ def _retire_legacy_notch_tool_placeholders() -> None:
         """
     )
     retire_unknown_category_sql = text(
-        """
+        f"""
         UPDATE tool_master
         SET
-            active = FALSE,
-            status = 'DISCONTINUED',
-            condition_notes = COALESCE(NULLIF(condition_notes, ''), 'Retired legacy tool category. Current tooling categories are Notch, Blade, Holder, V + Flat, and Punch.'),
-            updated_at = NOW()
+            {assignment_sql}
         WHERE UPPER(COALESCE(category, '')) NOT IN ('NOTCH', 'BLADE', 'HOLDER', 'V_FLAT', 'PUNCH')
         """
     )
     with engine.begin() as connection:
-        for legacy_code in legacy_codes:
-            connection.execute(retire_sql, {"legacy_code": legacy_code})
-        connection.execute(retire_category_sql)
-        connection.execute(retire_unknown_category_sql)
+        if retire_sql is not None:
+            for legacy_code in legacy_codes:
+                connection.execute(
+                    retire_sql,
+                    {
+                        "legacy_code": legacy_code,
+                        "retirement_note": "Retired legacy seeded placeholder; recreate manually under the new field category if still required.",
+                    },
+                )
+        connection.execute(
+            retire_category_sql,
+            {
+                "retirement_note": "Retired non-current notching tool category. Valid categories are Notch, Blade, Holder, V + Flat, and Punch."
+            },
+        )
+        connection.execute(
+            retire_unknown_category_sql,
+            {
+                "retirement_note": "Retired legacy tool category. Current tooling categories are Notch, Blade, Holder, V + Flat, and Punch."
+            },
+        )
 
 
 def _seed_default_suppliers() -> None:

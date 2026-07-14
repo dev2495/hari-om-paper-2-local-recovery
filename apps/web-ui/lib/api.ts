@@ -499,6 +499,7 @@ export const inventoryApi = {
   getReservations: (params?: any) => api.get("/api/inventory/reservations", { params }),
   createReservation: (data: any) => api.post("/api/inventory/reservations", data),
   releaseReservation: (id: string) => api.post(`/api/inventory/reservations/${id}/release`, {}),
+  consumeReservation: (id: string, data: any) => api.post(`/api/inventory/reservations/${id}/consume`, data),
   getLotAvailability: (itemId: string, specId?: string) =>
     api.get("/api/inventory/lots/availability", { params: { item_id: itemId, spec_id: specId } }),
   createReelInward: (data: any) => api.post("/api/inventory/reels/inward", data),

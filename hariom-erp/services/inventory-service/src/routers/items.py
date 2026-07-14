@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 from datetime import datetime
 import uuid
 from ..database import get_db
@@ -89,12 +89,12 @@ class ItemResponse(BaseModel):
     reorder_level: float | None = 0
     safety_stock: float | None = 0
     lead_time_days: float | None = 0
+    spec_id: uuid.UUID | None = None
     plant_id: str
     active: str
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ItemUpdate(BaseModel):

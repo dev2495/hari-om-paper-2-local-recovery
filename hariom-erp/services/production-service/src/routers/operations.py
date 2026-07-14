@@ -144,11 +144,11 @@ def _validate_reason_code(
     code: str,
     category: str,
 ) -> None:
-    """Soft-validate `code` against masterdata reason-codes for `category`.
+    """Strictly validate `code` against active masterdata reason codes.
 
-    Network/upstream failures do NOT block (logged + proceed) — masterdata
-    being down should never gate operations honesty writes. Only an active,
-    successful 200 with a complete list that omits `code` raises 422.
+    Reason codes drive reconciliation and operational reporting. Accepting an
+    unvalidated value while masterdata is unavailable permanently corrupts
+    those dimensions, so availability failures are surfaced for a safe retry.
     """
     if not code or not category:
         return
@@ -167,24 +167,27 @@ def _validate_reason_code(
                 params={"category": cat_upper},
             )
     except httpx.RequestError as exc:
-        logger.warning(
-            "reason_code validation network failure (proceeding): %s", exc
-        )
-        return
+        logger.warning("reason_code validation network failure: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Reason-code master is unavailable; retry without changing the entry",
+        ) from exc
     if response.status_code != 200:
-        logger.warning(
-            "reason_code validation upstream %s (proceeding): %s",
-            response.status_code,
-            (response.text or "")[:160],
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Reason-code master rejected validation "
+                f"(HTTP {response.status_code}); retry without changing the entry"
+            ),
         )
-        return
     try:
         rows = response.json() or []
     except ValueError as exc:
-        logger.warning(
-            "reason_code validation parse failure (proceeding): %s", exc
-        )
-        return
+        logger.warning("reason_code validation parse failure: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail="Reason-code master returned an invalid response; retry without changing the entry",
+        ) from exc
     valid = {
         str((r or {}).get("code") or "").strip().upper()
         for r in rows
@@ -294,12 +297,13 @@ def _reallocate_carry_forward_release_lot(
     release_lot_id: uuid.UUID,
     carry_forward_job_card_id: uuid.UUID,
     gap_qty: float,
+    new_release_lot_id: uuid.UUID,
 ) -> uuid.UUID:
     """Split the original release lot so the carry-forward JC owns `gap_qty`.
 
     Server-to-server call to sales-service. Returns the NEW release lot id on
-    success. Raises HTTPException on any failure so the caller can fall back to
-    orphaning the carry JC's release_lot_id (P1.10 fallback).
+    success. Raises HTTPException on any failure so production never commits an
+    unallocated carry-forward job card.
     """
     try:
         response = httpx.post(
@@ -308,6 +312,7 @@ def _reallocate_carry_forward_release_lot(
             json={
                 "carry_forward_job_card_id": str(carry_forward_job_card_id),
                 "gap_qty": gap_qty,
+                "release_lot_id": str(new_release_lot_id),
             },
             timeout=10.0,
         )
@@ -333,19 +338,17 @@ def _reallocate_carry_forward_release_lot(
             status_code=502,
             detail="Release-lot reallocation response missing release_lot_id",
         )
-    # Cross-check the lot sales minted against the split we expect (P1.10
-    # invariant: the new lot carries exactly the gap). A mismatch points at a
-    # sales-side math regression — warn but don't hard-fail, since the lot id is
-    # valid and orphaning the carry JC would be worse than a slightly-off qty.
+    # Cross-check the lot sales minted against the split we expect. Quantity
+    # mismatch is a hard contract failure because silent genealogy drift is not
+    # acceptable in the production flow.
     _, expected_new_qty = carry_forward_lot_split(0.0, gap_qty)
     returned_qty = body.get("release_qty")
     if returned_qty is not None:
         try:
             if abs(float(returned_qty) - expected_new_qty) > 0.01:
-                logger.warning(
-                    "carry-forward new lot qty mismatch: expected %s, sales returned %s",
-                    expected_new_qty,
-                    returned_qty,
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"Carry-forward lot qty mismatch: expected {expected_new_qty}, received {returned_qty}",
                 )
         except (TypeError, ValueError):
             pass
@@ -376,16 +379,16 @@ def _spawn_carry_forward_job_card(
     assigned machine because capacity should be re-validated by the planner on
     the new JC.
 
-    P1.10 — the carry JC gets its OWN release lot, split from the original via
-    sales-service so the SO line correctly tracks the gap qty back in
-    production. If the source JC has no release_lot_id OR the sales call fails we
-    fall back to release_lot_id=None (orphan) and signal it via the returned
-    flag — never hard-fail the short-close on this.
-
-    Returns (carry_job_card, orphaned) where ``orphaned`` is True when no lot
-    could be reallocated.
+    The carry JC gets its own release lot, split from the original through an
+    idempotent sales-service request. Missing lineage or an upstream failure
+    blocks the write; an orphan carry-forward is never committed.
     """
+    if source_job.release_lot_id is None:
+        raise HTTPException(status_code=409, detail="Cannot carry forward a job card without a sales release lot")
+    carry_id = uuid.uuid5(uuid.NAMESPACE_URL, f"hariom:carry:{source_job.id}:{float(gap_qty):.4f}")
+    new_release_lot_id = uuid.uuid5(uuid.NAMESPACE_URL, f"hariom:carry-release:{carry_id}")
     carry = JobCard(
+        id=carry_id,
         plant_id=source_job.plant_id,
         sales_order_id=source_job.sales_order_id,
         sales_order_line_id=source_job.sales_order_line_id,
@@ -405,30 +408,15 @@ def _spawn_carry_forward_job_card(
     db.add(carry)
     db.flush()
 
-    orphaned = True
-    if source_job.release_lot_id is not None:
-        try:
-            new_lot_id = _reallocate_carry_forward_release_lot(
-                token=token,
-                plant_id=source_job.plant_id,
-                release_lot_id=source_job.release_lot_id,
-                carry_forward_job_card_id=carry.id,
-                gap_qty=gap_qty,
-            )
-            carry.release_lot_id = new_lot_id
-            orphaned = False
-        except HTTPException as exc:
-            # Never hard-fail the short-close on a reallocation failure — fall
-            # back to orphaning the carry JC's release_lot_id (P1.10 fallback).
-            logger.warning(
-                "carry-forward release-lot reallocation failed (orphaning carry JC %s): %s",
-                carry.id,
-                exc.detail,
-            )
-            carry.release_lot_id = None
-            orphaned = True
-
-    return carry, orphaned
+    carry.release_lot_id = _reallocate_carry_forward_release_lot(
+        token=token,
+        plant_id=source_job.plant_id,
+        release_lot_id=source_job.release_lot_id,
+        carry_forward_job_card_id=carry.id,
+        gap_qty=gap_qty,
+        new_release_lot_id=new_release_lot_id,
+    )
+    return carry, False
 
 
 # ──────────────────────────────────────────────────────────────────────────

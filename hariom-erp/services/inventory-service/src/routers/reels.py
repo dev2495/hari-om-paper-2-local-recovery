@@ -3,7 +3,7 @@ from typing import Any, List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -155,8 +155,7 @@ class ReelResponse(BaseModel):
     created_at: datetime
     qr_payload: Optional[dict[str, Any]] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ReelScanCreate(BaseModel):

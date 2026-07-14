@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 import uuid
 from ..database import get_db
@@ -22,8 +22,7 @@ class ReelIssueResponse(BaseModel):
     weight_used: float
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 @router.post("/jobs/{job_id}/reels", response_model=ReelIssueResponse)
 def add_reel_issue(

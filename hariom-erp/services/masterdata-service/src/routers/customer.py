@@ -3,7 +3,7 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy.orm import Session
 
 from .. import models
@@ -92,8 +92,7 @@ class CustomerResponse(BaseModel):
     payment_terms: Optional[str] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CustomerContactCreate(BaseModel):
@@ -130,8 +129,7 @@ class CustomerContactResponse(BaseModel):
     active: bool
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def _normalized_code(value: Optional[str]) -> str:

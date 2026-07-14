@@ -1,0 +1,113 @@
+name: hariom-erp-production
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:?set DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../tinypod/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    shm_size: 256mb
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  erp-app:
+    build:
+      context: ../..
+      dockerfile: deploy/tinypod/Dockerfile.erp
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      ENVIRONMENT: production
+      NODE_ENV: production
+      SEED_DEMO_USERS: "false"
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:?set DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+      DB_ADMIN_DB: postgres
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      SECRET_KEY: ${JWT_SECRET:?set JWT_SECRET}
+      INTERNAL_EVENT_TOKEN: ${INTERNAL_EVENT_TOKEN:?set INTERNAL_EVENT_TOKEN}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:?set BOOTSTRAP_ADMIN_EMAIL}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:?set BOOTSTRAP_ADMIN_PASSWORD}
+      BOOTSTRAP_ADMIN_NAME: ${BOOTSTRAP_ADMIN_NAME:-Devarsh Admin}
+      BOOTSTRAP_ADMIN_PLANT_ID: ${BOOTSTRAP_ADMIN_PLANT_ID:-PLANT_A}
+      BOOTSTRAP_OWNER_EMAIL: ${BOOTSTRAP_OWNER_EMAIL:?set BOOTSTRAP_OWNER_EMAIL}
+      BOOTSTRAP_OWNER_PASSWORD: ${BOOTSTRAP_OWNER_PASSWORD:?set BOOTSTRAP_OWNER_PASSWORD}
+      BOOTSTRAP_OWNER_NAME: ${BOOTSTRAP_OWNER_NAME:-Yash Owner}
+      BOOTSTRAP_OWNER_PLANT_ID: ${BOOTSTRAP_OWNER_PLANT_ID:-PLANT_A}
+      RESET_BOOTSTRAP_PASSWORDS: "false"
+      USE_SIMPLE_STAGING_PASSWORDS: "false"
+      COOKIE_SECURE: "true"
+      ALLOW_UNASSIGNED_ACTING_ROLES: "false"
+      LOGIN_MAX_ATTEMPTS: "5"
+      LOGIN_WINDOW_SECONDS: "900"
+      SCHEDULER_ENABLED: "true"
+      OWNER_PACK_IN_PROCESS: "true"
+      PLANT_TIMEZONE: Asia/Kolkata
+      ANALYTICS_CACHE_TTL_SECONDS: "120"
+      AUTH_PORT: 18001
+      MASTER_PORT: 18002
+      SPEC_PORT: 18003
+      PRODUCTION_PORT: 18004
+      INVENTORY_PORT: 18005
+      ANALYTICS_PORT: 18007
+      SALES_PORT: 18008
+      BFF_PORT: 14000
+      WEB_UI_PORT: 13000
+      PUBLIC_WEB_PORT: 13000
+      BFF_INTERNAL_URL: http://127.0.0.1:14000
+      NEXT_PUBLIC_BFF_URL: http://127.0.0.1:14000
+    expose:
+      - "13000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:14000/health/ready >/dev/null && curl -fsS http://127.0.0.1:13000/login >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      start_period: 180s
+      retries: 5
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      erp-app:
+        condition: service_healthy
+    environment:
+      SITE_HOST: ${SITE_HOST:?set SITE_HOST}
+      ELASTIC_IP: ${ELASTIC_IP:?set ELASTIC_IP}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

@@ -181,7 +181,7 @@ PROCESSES = [
         name="bff-api",
         cwd=ROOT / "apps/bff-api",
         command=[PYTHON, "-m", "uvicorn", "src.main:app", "--host", "127.0.0.1", "--port", BFF_PORT],
-        health_url=f"{BFF_URL}/health",
+        health_url=f"{BFF_URL}/health/ready",
         extra_env={},
     ),
     ManagedProcess(

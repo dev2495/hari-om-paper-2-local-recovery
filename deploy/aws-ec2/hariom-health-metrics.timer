@@ -1,0 +1,12 @@
+[Unit]
+Description=Monitor Hari Om ERP host and public readiness every five minutes
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+AccuracySec=30s
+Persistent=true
+Unit=hariom-health-metrics.service
+
+[Install]
+WantedBy=timers.target

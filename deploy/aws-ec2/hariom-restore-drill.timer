@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly Hari Om ERP clean-database restore drill
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00 Asia/Kolkata
+Persistent=true
+RandomizedDelaySec=600
+Unit=hariom-restore-drill.service
+
+[Install]
+WantedBy=timers.target

@@ -1,13 +1,11 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI
 from sqlalchemy.orm import Session
 import os
-import uuid
 
 from .database import SessionLocal, engine
 from . import models
 from .plant_service import PLANT_A_ID, PLANT_B_ID
-from .routers import audit_events, auth, notifications, roles, users
+from .routers import audit_events, auth, notifications, plants, roles, users
 from .security import hashing
 from .workspace import BUSINESS_ROLE_ORDER, LEGACY_ROLE_NAMES, ROLE_CAPABILITIES, canonical_role_name
 
@@ -18,6 +16,7 @@ app.include_router(roles.router)
 app.include_router(users.router)
 app.include_router(notifications.router)
 app.include_router(audit_events.router)
+app.include_router(plants.router)
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -309,123 +308,6 @@ def seed_canonical_demo_users():
 
 if should_seed_demo_users():
     seed_canonical_demo_users()
-
-
-class PlantCreate(BaseModel):
-    code: str
-    name: str
-    address: str | None = None
-    legal_name: str | None = None
-    gstin: str | None = None
-    is_active: bool = True
-
-
-class PlantUpdate(BaseModel):
-    code: str | None = None
-    name: str | None = None
-    address: str | None = None
-    legal_name: str | None = None
-    gstin: str | None = None
-    is_active: bool | None = None
-
-
-def _serialize_plant(plant: models.Plant) -> dict:
-    return {
-        "id": str(plant.id),
-        "code": plant.code,
-        "name": plant.name,
-        "address": plant.address,
-        "legal_name": plant.legal_name,
-        "gstin": plant.gstin,
-        "is_active": plant.is_active,
-    }
-
-
-def _plant_lookup(db: Session, plant_id: str) -> models.Plant | None:
-    text = str(plant_id or "").strip()
-    if not text or text.upper() == "ALL":
-        return None
-    query = db.query(models.Plant).filter(models.Plant.code == text)
-    try:
-        query = query.union(db.query(models.Plant).filter(models.Plant.id == uuid.UUID(text)))
-    except ValueError:
-        pass
-    return query.first()
-
-
-@app.get("/plants")
-def list_plants():
-    db: Session = SessionLocal()
-    try:
-        plants = (
-            db.query(models.Plant)
-            .filter(models.Plant.code != "ALL")
-            .order_by(models.Plant.code.asc())
-            .all()
-        )
-        return [_serialize_plant(plant) for plant in plants]
-    finally:
-        db.close()
-
-
-@app.post("/plants")
-def create_plant(payload: PlantCreate):
-    db: Session = SessionLocal()
-    try:
-        code = payload.code.strip()
-        if not code or code.upper() == "ALL":
-            raise HTTPException(status_code=400, detail="ALL is a reporting scope, not an editable plant.")
-        existing = db.query(models.Plant).filter(models.Plant.code == code).first()
-        if existing:
-            raise HTTPException(status_code=409, detail="Plant code already exists")
-        plant = models.Plant(
-            id=uuid.uuid4(),
-            code=code,
-            name=payload.name,
-            address=payload.address,
-            legal_name=payload.legal_name,
-            gstin=payload.gstin,
-            is_active=payload.is_active,
-        )
-        db.add(plant)
-        db.commit()
-        db.refresh(plant)
-        return _serialize_plant(plant)
-    finally:
-        db.close()
-
-
-@app.patch("/plants/{plant_id}")
-def update_plant(plant_id: str, payload: PlantUpdate):
-    db: Session = SessionLocal()
-    try:
-        plant = _plant_lookup(db, plant_id)
-        if not plant:
-            raise HTTPException(status_code=404, detail="Plant not found")
-        updates = payload.model_dump(exclude_unset=True)
-        if str(updates.get("code") or "").strip().upper() == "ALL":
-            raise HTTPException(status_code=400, detail="ALL is a reporting scope, not an editable plant.")
-        for key, value in updates.items():
-            setattr(plant, key, value.strip() if isinstance(value, str) else value)
-        db.commit()
-        db.refresh(plant)
-        return _serialize_plant(plant)
-    finally:
-        db.close()
-
-
-@app.delete("/plants/{plant_id}")
-def delete_plant(plant_id: str):
-    db: Session = SessionLocal()
-    try:
-        plant = _plant_lookup(db, plant_id)
-        if not plant:
-            raise HTTPException(status_code=404, detail="Plant not found")
-        plant.is_active = False
-        db.commit()
-        return {"message": "Plant disabled"}
-    finally:
-        db.close()
 
 
 @app.get("/")

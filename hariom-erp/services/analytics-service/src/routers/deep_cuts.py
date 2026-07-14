@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Query
 
 from src.config import (
     INVENTORY_SERVICE_URL,
+    MASTER_DATA_SERVICE_URL,
     PRODUCTION_SERVICE_URL,
     SALES_SERVICE_URL,
 )
@@ -157,40 +158,80 @@ def customer_360(
     })
 
     for plant_id in scope_plant_ids(plant_scope):
+        customer_rows = service_get(
+            f"{MASTER_DATA_SERVICE_URL}/master/customers/",
+            token,
+            plant_id=plant_id,
+            required=True,
+        ) or []
+        customer_names = {
+            str(customer.get("id")): str(customer.get("name") or customer.get("customer_code") or customer.get("id"))
+            for customer in customer_rows
+            if isinstance(customer, dict) and customer.get("id")
+        }
         orders = service_get(
-            f"{SALES_SERVICE_URL}/orders",
+            f"{SALES_SERVICE_URL}/sales-orders",
             token,
             params={"limit": 500},
             plant_id=plant_id,
+            required=True,
         ) or []
         orders = orders if isinstance(orders, list) else orders.get("items") or []
         for order in orders:
             cust_id = str(order.get("customer_id") or order.get("customer_name") or "UNKNOWN")
             row = customers[cust_id]
             row["customer_id"] = cust_id
-            row["customer_name"] = order.get("customer_name") or row["customer_name"] or "Unknown"
+            row["customer_name"] = customer_names.get(cust_id) or row["customer_name"] or cust_id
             status = str(order.get("status") or "").upper()
-            value = _safe_float(order.get("total_value"))
-            created = _parse_dt(order.get("created_at"))
-            promise = _parse_dt(order.get("promise_date") or order.get("delivery_date"))
-            dispatched = _parse_dt(order.get("dispatched_at") or order.get("closed_at"))
+            lines = [line for line in (order.get("lines") or []) if isinstance(line, dict)]
+            ordered_value = sum(_safe_float(line.get("qty")) * _safe_float(line.get("rate_per_pc")) for line in lines)
+            fulfilled_value = sum(_safe_float(line.get("fulfilled_qty")) * _safe_float(line.get("rate_per_pc")) for line in lines)
+            open_value = max(0.0, ordered_value - fulfilled_value)
+            due_dates = [_parse_dt(line.get("due_date")) for line in lines]
+            promise = max((value for value in due_dates if value), default=None)
+            dispatch_events = [
+                (_parse_dt(log.get("created_at")), _safe_float(log.get("qty")), _safe_float(line.get("rate_per_pc")))
+                for line in lines
+                for log in (line.get("dispatch_logs") or [])
+                if isinstance(log, dict)
+            ]
+            range_events = [
+                event for event in dispatch_events
+                if event[0] and start <= event[0].date() <= end
+            ]
+            dispatched = max((event[0] for event in range_events), default=None)
+            final_dispatch = max((event[0] for event in dispatch_events if event[0]), default=None)
+            period_dispatch_qty = sum(event[1] for event in range_events)
+            period_dispatch_value = sum(event[1] * event[2] for event in range_events)
+            if dispatched:
+                row["last_dispatch_at"] = max(filter(None, [dispatched.isoformat(), row.get("last_dispatch_at")]))
             if status in {"CLOSED", "COMPLETED", "DISPATCHED"}:
-                row["orders_closed"] += 1
-                row["dispatched_value"] += value
-                if dispatched:
-                    row["last_dispatch_at"] = max(filter(None, [dispatched.isoformat(), row.get("last_dispatch_at")]))
-                row["completed_count"] += 1
-                if promise and dispatched and dispatched.date() <= promise.date():
-                    row["on_time_count"] += 1
-            elif status in {"OPEN", "RELEASED", "IN_PROGRESS", "PLANNED", "CONFIRMED"}:
+                if final_dispatch and start <= final_dispatch.date() <= end:
+                    row["orders_closed"] += 1
+                    row["completed_count"] += 1
+                    if promise and final_dispatch.date() <= promise.date():
+                        row["on_time_count"] += 1
+            elif status in {
+                "DRAFT",
+                "SUBMITTED",
+                "APPROVED",
+                "OPEN",
+                "RELEASED",
+                "PARTIALLY_RELEASED",
+                "PARTIALLY_DISPATCHED",
+                "IN_PROGRESS",
+                "PLANNED",
+                "CONFIRMED",
+            }:
                 row["orders_open"] += 1
-                row["open_value"] += value
+                row["open_value"] += open_value
                 if promise and promise.date() < today:
                     row["orders_delayed"] += 1
 
-            # dispatched_qty roll-up
-            for item in order.get("items") or []:
-                row["dispatched_qty"] += _safe_float(item.get("dispatched_qty"))
+            # Dispatch metrics are period-based and sourced from immutable logs;
+            # current open order book remains a point-in-time metric.
+            row["dispatched_qty"] += period_dispatch_qty
+            row["dispatched_value"] += period_dispatch_value
 
     rows: list[dict[str, Any]] = []
     for cust in customers.values():
@@ -372,16 +413,24 @@ def leadtime_anatomy(
 
     for plant_id in scope_plant_ids(plant_scope):
         orders = service_get(
-            f"{SALES_SERVICE_URL}/orders",
+            f"{SALES_SERVICE_URL}/sales-orders",
             token,
             params={"limit": 500, "status": "CLOSED"},
             plant_id=plant_id,
+            required=True,
         ) or []
         orders = orders if isinstance(orders, list) else orders.get("items") or []
         for order in orders:
             created = _parse_dt(order.get("created_at"))
             released = _parse_dt(order.get("released_at")) or _parse_dt(order.get("released_on"))
-            dispatched = _parse_dt(order.get("dispatched_at") or order.get("closed_at"))
+            dispatch_dates = [
+                _parse_dt(log.get("created_at"))
+                for line in (order.get("lines") or [])
+                if isinstance(line, dict)
+                for log in (line.get("dispatch_logs") or [])
+                if isinstance(log, dict)
+            ]
+            dispatched = max((value for value in dispatch_dates if value), default=None)
             if not created or not dispatched:
                 continue
             if dispatched.date() < start or dispatched.date() > end:

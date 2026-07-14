@@ -12,6 +12,13 @@ AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://127.0.0.1:18001")
 http_client = httpx.AsyncClient(timeout=15.0)
 
 
+def _secure_cookie() -> bool:
+    explicit = os.getenv("COOKIE_SECURE")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
+
+
 class LoginPayload(BaseModel):
     email: str
     password: str
@@ -75,7 +82,7 @@ async def login(payload: LoginPayload):
         key="token",
         value=token,
         httponly=True,
-        secure=False,
+        secure=_secure_cookie(),
         samesite="lax",
         max_age=86400,
     )
@@ -117,7 +124,7 @@ async def set_acting_role(request: Request):
             key="acting_token",
             value=acting_token,
             httponly=True,
-            secure=False,
+            secure=_secure_cookie(),
             samesite="lax",
             max_age=28800,
         )
@@ -330,11 +337,36 @@ async def mark_notification_read(notification_id: str, request: Request):
     return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to mark notification read"))
 
 
-@router.get("/plants")
-async def list_plants(request: Request):
+async def _authorize_plant_request(request: Request, allowed_roles: set[str] | None = None):
+    """Validate the token at the auth service before proxying plant operations."""
     token = extract_token(request)
     if not token:
-        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+        return None, JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    try:
+        response = await http_client.get(
+            f"{AUTH_SERVICE_URL}/auth/me",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return None, JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    if response.status_code != 200:
+        return None, JSONResponse(
+            status_code=response.status_code,
+            content=_safe_json(response, "Invalid authentication credentials"),
+        )
+    if allowed_roles:
+        user = _safe_json(response, "Malformed auth response")
+        roles = {str(role) for role in (user.get("roles") or [])}
+        if not roles.intersection(allowed_roles):
+            return None, JSONResponse(status_code=403, content={"detail": "Operation not permitted for your role"})
+    return token, None
+
+
+@router.get("/plants")
+async def list_plants(request: Request):
+    token, denial = await _authorize_plant_request(request)
+    if denial:
+        return denial
     try:
         response = await http_client.get(
             f"{AUTH_SERVICE_URL}/plants",
@@ -347,9 +379,9 @@ async def list_plants(request: Request):
 
 @router.post("/plants")
 async def create_plant(request: Request):
-    token = extract_token(request)
-    if not token:
-        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    token, denial = await _authorize_plant_request(request, {"Owner", "Admin"})
+    if denial:
+        return denial
     try:
         body = await request.json()
     except Exception:
@@ -367,9 +399,9 @@ async def create_plant(request: Request):
 
 @router.patch("/plants/{plant_id}")
 async def update_plant(plant_id: str, request: Request):
-    token = extract_token(request)
-    if not token:
-        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    token, denial = await _authorize_plant_request(request, {"Owner", "Admin"})
+    if denial:
+        return denial
     try:
         body = await request.json()
     except Exception:
@@ -387,9 +419,9 @@ async def update_plant(plant_id: str, request: Request):
 
 @router.delete("/plants/{plant_id}")
 async def delete_plant(plant_id: str, request: Request):
-    token = extract_token(request)
-    if not token:
-        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+    token, denial = await _authorize_plant_request(request, {"Owner", "Admin"})
+    if denial:
+        return denial
     try:
         response = await http_client.delete(
             f"{AUTH_SERVICE_URL}/plants/{plant_id}",

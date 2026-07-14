@@ -1,0 +1,438 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Low-cost single-node production infrastructure for Hari Om ERP.
+
+Parameters:
+  AdminCidr:
+    Type: String
+    Description: IPv4 CIDR allowed to SSH to the instance.
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+  SSHPublicKey:
+    Type: String
+    Description: Existing operator SSH public key material.
+    NoEcho: true
+  UbuntuAmi:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/canonical/ubuntu/server/24.04/stable/current/arm64/hvm/ebs-gp3/ami-id
+  InstanceType:
+    Type: String
+    Default: t4g.medium
+    AllowedValues:
+      - t4g.medium
+      - t4g.large
+  AlertEmail:
+    Type: String
+    Default: ""
+    Description: Optional operator email for AWS alarm notifications.
+
+Conditions:
+  HasAlertEmail: !Not [!Equals [!Ref AlertEmail, ""]]
+
+Resources:
+  SSHKeyPair:
+    Type: AWS::EC2::KeyPair
+    Properties:
+      KeyName: hariom-erp-operator
+      KeyType: ed25519
+      PublicKeyMaterial: !Ref SSHPublicKey
+      Tags:
+        - Key: Project
+          Value: hariom-erp
+
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Hari Om ERP public web and restricted administration
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref AdminCidr
+          Description: Operator SSH
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP and certificate validation
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS application traffic
+      Tags:
+        - Key: Name
+          Value: hariom-erp-production
+        - Key: Project
+          Value: hariom-erp
+
+  BackupsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: RetainProductionBackups
+            Status: Enabled
+            ExpirationInDays: 90
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 30
+      Tags:
+        - Key: Project
+          Value: hariom-erp
+        - Key: DataClass
+          Value: production-backup
+
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Policies:
+        - PolicyName: HariOmBackupBucketAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt BackupsBucket.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:AbortMultipartUpload
+                Resource: !Sub "${BackupsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - cloudwatch:PutMetricData
+                Resource: "*"
+                Condition:
+                  StringEquals:
+                    cloudwatch:namespace: HariOmERP
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                Resource: !Sub "${ApplicationLogGroup.Arn}:*"
+      Tags:
+        - Key: Project
+          Value: hariom-erp
+
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+  ApplicationInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref UbuntuAmi
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref InstanceProfile
+      KeyName: !Ref SSHKeyPair
+      SecurityGroupIds:
+        - !GetAtt InstanceSecurityGroup.GroupId
+      MetadataOptions:
+        HttpEndpoint: enabled
+        HttpTokens: required
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            DeleteOnTermination: false
+            Encrypted: true
+            VolumeSize: 40
+            VolumeType: gp3
+      UserData:
+        Fn::Base64: |
+          #!/usr/bin/env bash
+          set -euxo pipefail
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install -y docker.io docker-compose-v2 git curl jq unzip postgresql-client unattended-upgrades
+          systemctl enable --now docker
+          usermod -aG docker ubuntu
+          install -d -o ubuntu -g ubuntu -m 0750 /opt/hariom /opt/hariom/app /opt/hariom/backups /opt/hariom/import
+          if ! swapon --show | grep -q /swapfile; then
+            fallocate -l 2G /swapfile
+            chmod 600 /swapfile
+            mkswap /swapfile
+            swapon /swapfile
+            echo '/swapfile none swap sw 0 0' >> /etc/fstab
+          fi
+          install -d -m 0755 /etc/docker
+          printf '%s\n' '{"log-driver":"json-file","log-opts":{"max-size":"10m","max-file":"5"}}' > /etc/docker/daemon.json
+          systemctl restart docker
+          machine_arch="$(uname -m)"
+          if [ "${machine_arch}" = "aarch64" ]; then
+            aws_arch="aarch64"
+          else
+            aws_arch="x86_64"
+          fi
+          curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o /tmp/awscliv2.zip
+          unzip -q /tmp/awscliv2.zip -d /tmp
+          /tmp/aws/install
+          rm -rf /tmp/aws /tmp/awscliv2.zip
+          touch /var/log/hariom-bootstrap-complete
+      Tags:
+        - Key: Name
+          Value: hariom-erp-production
+        - Key: Project
+          Value: hariom-erp
+        - Key: Environment
+          Value: production
+
+  ElasticIp:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: hariom-erp-production
+        - Key: Project
+          Value: hariom-erp
+
+  ElasticIpAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIp.AllocationId
+      InstanceId: !Ref ApplicationInstance
+
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Hari Om ERP production alerts
+      Tags:
+        - Key: Project
+          Value: hariom-erp
+
+  ApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      LogGroupName: /hariom/erp/production
+      RetentionInDays: 14
+      Tags:
+        - Key: Project
+          Value: hariom-erp
+
+  AlertEmailSubscription:
+    Type: AWS::SNS::Subscription
+    Condition: HasAlertEmail
+    Properties:
+      TopicArn: !Ref AlertTopic
+      Protocol: email
+      Endpoint: !Ref AlertEmail
+
+  InstanceStatusAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP EC2 instance status check failed
+      Namespace: AWS/EC2
+      MetricName: StatusCheckFailed
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref ApplicationInstance
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  HighCpuAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP CPU above 85 percent for 15 minutes
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref ApplicationInstance
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: missing
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  DatabaseBackupAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP database backup failed or stopped reporting
+      Namespace: HariOmERP
+      MetricName: DatabaseBackupSuccess
+      Statistic: Minimum
+      Period: 86400
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 1
+      Threshold: 0.5
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  RestoreDrillAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP weekly clean-database restore drill failed or stopped reporting
+      Namespace: HariOmERP
+      MetricName: DatabaseRestoreDrillSuccess
+      Statistic: Minimum
+      Period: 86400
+      EvaluationPeriods: 8
+      DatapointsToAlarm: 8
+      Threshold: 0.5
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  DiskPressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP root filesystem above 80 percent
+      Namespace: HariOmERP
+      MetricName: DiskUsedPercent
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  MemoryPressureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP memory above 90 percent
+      Namespace: HariOmERP
+      MetricName: MemoryUsedPercent
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 3
+      Threshold: 90
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  CriticalRouteAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Hari Om ERP dependency-aware public readiness route failed
+      Namespace: HariOmERP
+      MetricName: CriticalRouteSuccess
+      Statistic: Minimum
+      Period: 300
+      EvaluationPeriods: 2
+      DatapointsToAlarm: 2
+      Threshold: 0.5
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+      AlarmActions:
+        - !Ref AlertTopic
+      OKActions:
+        - !Ref AlertTopic
+
+  BackupServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - backup.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForBackup
+        - arn:aws:iam::aws:policy/service-role/AWSBackupServiceRolePolicyForRestores
+
+  BackupVault:
+    Type: AWS::Backup::BackupVault
+    Properties:
+      BackupVaultName: !Sub "hariom-erp-${AWS::AccountId}-${AWS::Region}"
+
+  DailyEc2BackupPlan:
+    Type: AWS::Backup::BackupPlan
+    Properties:
+      BackupPlan:
+        BackupPlanName: hariom-erp-daily-ec2
+        BackupPlanRule:
+          - RuleName: daily-seven-day-retention
+            TargetBackupVault: !Ref BackupVault
+            ScheduleExpression: cron(0 21 * * ? *)
+            StartWindowMinutes: 120
+            CompletionWindowMinutes: 360
+            Lifecycle:
+              DeleteAfterDays: 7
+
+  Ec2BackupSelection:
+    Type: AWS::Backup::BackupSelection
+    Properties:
+      BackupPlanId: !Ref DailyEc2BackupPlan
+      BackupSelection:
+        SelectionName: hariom-erp-production-instance
+        IamRoleArn: !GetAtt BackupServiceRole.Arn
+        Resources:
+          - !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:instance/${ApplicationInstance}"
+
+Outputs:
+  InstanceId:
+    Value: !Ref ApplicationInstance
+  ElasticIp:
+    Value: !Ref ElasticIp
+  BackupBucketName:
+    Value: !Ref BackupsBucket
+  AlertTopicArn:
+    Value: !Ref AlertTopic
+  BackupVaultName:
+    Value: !Ref BackupVault
+  ApplicationLogGroupName:
+    Value: !Ref ApplicationLogGroup
+  SshCommand:
+    Value: !Sub "ssh -i ~/.ssh/id_ed25519 ubuntu@${ElasticIp}"

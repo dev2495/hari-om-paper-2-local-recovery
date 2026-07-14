@@ -365,7 +365,7 @@ class MonthlyMaterialProvisional(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=PLANT_A_UUID)
     month_start = Column(Date, nullable=False, index=True)
-    job_card_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, index=True)
     sales_order_line_id = Column(UUID(as_uuid=True), nullable=True)
     item_code = Column(String(120), nullable=False)
     item_name = Column(String(255), nullable=True)
@@ -376,7 +376,6 @@ class MonthlyMaterialProvisional(Base):
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
-
 
 class MonthlyMaterialActual(Base):
     __tablename__ = "monthly_material_actuals"
@@ -459,13 +458,18 @@ class DispatchIdempotency(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(UUID(as_uuid=True), nullable=False, index=True, default=PLANT_A_UUID)
     request_id = Column(String(120), nullable=False)
-    job_card_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, index=True)
     request_hash = Column(String(128), nullable=False)
     status = Column(String(20), nullable=False, default="PENDING")
     response_snapshot = Column(JSONB, nullable=False, default=dict)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_dispatch_idempotency_request_id"),
+        CheckConstraint("status IN ('PENDING', 'SUCCESS', 'FAILED')", name="ck_dispatch_idempotency_status"),
+    )
 
 
 class PlantToleranceSetting(Base):

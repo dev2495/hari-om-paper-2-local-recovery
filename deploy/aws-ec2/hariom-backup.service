@@ -1,0 +1,10 @@
+[Unit]
+Description=Back up Hari Om ERP PostgreSQL databases to S3
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/hariom/app/deploy/aws-ec2/backup_databases.sh
+

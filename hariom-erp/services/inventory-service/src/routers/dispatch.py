@@ -2,7 +2,7 @@ import logging
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -10,6 +10,8 @@ from ..database import get_db
 from ..models import (
     ItemMaster,
     ReferenceType,
+    Reservation,
+    ReservationStatus,
     StockBatch,
     StockTransaction,
     TransactionType,
@@ -32,12 +34,13 @@ router = APIRouter(prefix="/dispatch", tags=["dispatch"])
 class DispatchCreate(BaseModel):
     item_id: uuid.UUID
     batch_id: Optional[uuid.UUID] = None
-    qty: float
-    dispatch_ref: str
+    qty: float = Field(..., gt=0)
+    dispatch_ref: str = Field(..., min_length=1, max_length=100)
     external_ref: Optional[str] = None
     existing_transaction_id: Optional[uuid.UUID] = None
     production_job_id: Optional[uuid.UUID] = None
     sales_order_id: Optional[uuid.UUID] = None
+    sales_order_line_id: Optional[uuid.UUID] = None
 
 
 class DispatchResponse(BaseModel):
@@ -56,6 +59,7 @@ def _backfill_dispatch_lineage(transaction: StockTransaction, dispatch: Dispatch
         "dispatch_ref": dispatch.dispatch_ref,
         "production_job_id": str(dispatch.production_job_id) if dispatch.production_job_id else None,
         "sales_order_id": str(dispatch.sales_order_id) if dispatch.sales_order_id else None,
+        "sales_order_line_id": str(dispatch.sales_order_line_id) if dispatch.sales_order_line_id else None,
     }
     changed = False
     for key, value in updates.items():
@@ -93,14 +97,42 @@ def create_dispatch(
     dispatch: DispatchCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Store", "Admin", "Dispatch", "PlantManager", "Logistics", "Supervisor"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Dispatch"])),
 ):
     item = db.query(ItemMaster).filter(
         ItemMaster.id == dispatch.item_id,
         ItemMaster.plant_id == plant_id
-    ).first()
+    ).with_for_update().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+
+    reservation = None
+    reservation_remaining = 0.0
+    if dispatch.sales_order_line_id:
+        reservation_query = (
+            db.query(Reservation)
+            .filter(
+                Reservation.plant_id == plant_id,
+                Reservation.sales_order_line_id == dispatch.sales_order_line_id,
+                Reservation.item_id == dispatch.item_id,
+                Reservation.status == ReservationStatus.ACTIVE,
+            )
+        )
+        if dispatch.batch_id:
+            reservation = reservation_query.filter(Reservation.batch_id == dispatch.batch_id).order_by(Reservation.created_at.asc()).first()
+            if reservation is None and reservation_query.first() is not None:
+                raise HTTPException(status_code=409, detail="Dispatch batch does not match an active sales-line reservation")
+        else:
+            reservation = reservation_query.order_by(Reservation.created_at.asc()).first()
+        if reservation:
+            reservation_remaining = max(0.0, float(reservation.reserved_qty or 0.0) - float(reservation.consumed_qty or 0.0))
+            if dispatch.qty > reservation_remaining + 0.0001:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Dispatch qty exceeds reserved remaining ({round(reservation_remaining, 2)})",
+                )
+            if reservation.batch_id and dispatch.batch_id and reservation.batch_id != dispatch.batch_id:
+                raise HTTPException(status_code=409, detail="Dispatch batch does not match the sales-line reservation")
 
     if dispatch.existing_transaction_id:
         existing_by_id = db.query(StockTransaction).filter(
@@ -166,7 +198,7 @@ def create_dispatch(
             _audit_logger.warning("audit emit failed for dispatch_recorded (idempotent) %s: %s", existing.id, exc)
         return response
 
-    selected_batch_id = dispatch.batch_id
+    selected_batch_id = reservation.batch_id if reservation and reservation.batch_id else dispatch.batch_id
     batch = None
     if selected_batch_id is None:
         batches = (
@@ -194,16 +226,19 @@ def create_dispatch(
         batch = db.query(StockBatch).filter(
             StockBatch.id == selected_batch_id,
             StockBatch.plant_id == plant_id
-        ).first()
+        ).with_for_update().first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
     if batch.stock_status not in {"UNRESTRICTED", "DISPATCH_STAGING"}:
         raise HTTPException(status_code=400, detail=f"Batch is not dispatchable ({batch.stock_status})")
 
-    if not validate_batch_sufficient_available_stock(str(selected_batch_id), dispatch.qty, db):
+    effective_batch_available = get_available_batch_qty(str(selected_batch_id), db)
+    if reservation and reservation.batch_id == selected_batch_id:
+        effective_batch_available += reservation_remaining
+    if effective_batch_available + 0.0001 < dispatch.qty:
         raise HTTPException(
             status_code=400,
-            detail=f"Insufficient available qty in batch {batch.batch_no}. Available: {get_available_batch_qty(str(selected_batch_id), db)}",
+            detail=f"Insufficient available qty in batch {batch.batch_no}. Available: {round(effective_batch_available, 2)}",
         )
 
     transaction = StockTransaction(
@@ -220,10 +255,16 @@ def create_dispatch(
             "dispatch_ref": dispatch.dispatch_ref,
             "production_job_id": str(dispatch.production_job_id) if dispatch.production_job_id else None,
             "sales_order_id": str(dispatch.sales_order_id) if dispatch.sales_order_id else None,
+            "sales_order_line_id": str(dispatch.sales_order_line_id) if dispatch.sales_order_line_id else None,
+            "reservation_id": str(reservation.id) if reservation else None,
         },
         external_ref=external_ref,
     )
     db.add(transaction)
+    if reservation:
+        reservation.consumed_qty = float(reservation.consumed_qty or 0.0) + float(dispatch.qty)
+        if reservation.consumed_qty + 0.0001 >= float(reservation.reserved_qty or 0.0):
+            reservation.status = ReservationStatus.CONSUMED
     db.commit()
     try:
         emit_audit_event(
@@ -244,6 +285,8 @@ def create_dispatch(
                 "qty_dispatched": float(dispatch.qty),
                 "production_job_id": str(dispatch.production_job_id) if dispatch.production_job_id else None,
                 "sales_order_id": str(dispatch.sales_order_id) if dispatch.sales_order_id else None,
+                "sales_order_line_id": str(dispatch.sales_order_line_id) if dispatch.sales_order_line_id else None,
+                "reservation_id": str(reservation.id) if reservation else None,
             },
         )
     except Exception as exc:

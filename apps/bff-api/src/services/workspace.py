@@ -15,6 +15,7 @@ SPEC_SERVICE_URL = os.getenv("SPEC_SERVICE_URL", "http://localhost:28003")
 PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://localhost:28004")
 INVENTORY_SERVICE_URL = os.getenv("INVENTORY_SERVICE_URL", "http://localhost:28005")
 MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", "http://localhost:28002")
+ANALYTICS_SERVICE_URL = os.getenv("ANALYTICS_SERVICE_URL", "http://localhost:28007")
 INTERNAL_EVENT_TOKEN = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")
 
 workspace_http_client = httpx.AsyncClient(timeout=20.0)

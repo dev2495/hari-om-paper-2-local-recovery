@@ -1,0 +1,12 @@
+[Unit]
+Description=Nightly Hari Om ERP database backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 Asia/Kolkata
+Persistent=true
+RandomizedDelaySec=300
+Unit=hariom-backup.service
+
+[Install]
+WantedBy=timers.target
+

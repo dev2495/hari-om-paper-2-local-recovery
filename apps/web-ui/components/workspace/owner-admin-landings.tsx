@@ -20,12 +20,12 @@ import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianG
 
 import { AreaTrend, ChartCard, CompactTable, FilterChip, InsightStrip, KpiCard, MiniBarList, PageIntro, formatCompactCurrency, formatCompactNumber, formatPercent } from "@/components/erp/premium-dashboard"
 import { useAuth } from "@/context/AuthContext"
-import { useDashboardOverview, useOwnerPack } from "@/hooks/use-analytics"
+import { useOwnerPack } from "@/hooks/use-analytics"
 import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { useCustomers } from "@/hooks/use-master-data"
-import { usePlanningBoard, usePlanningJobCards } from "@/hooks/use-production"
+import { usePlanningBoard } from "@/hooks/use-production"
 import { useSalesOrders } from "@/hooks/use-sales"
-import { useNotifications } from "@/hooks/use-workspace"
+import { useAuditEvents, useSystemHealth } from "@/hooks/use-workspace"
 import { jobCardRef } from "@/lib/job-card-display"
 import { displayPlantScope } from "@/lib/plant-scope"
 
@@ -44,10 +44,11 @@ function safeSeries(raw: any[]) {
   }))
 }
 
-function salesValue(order: any) {
-  const lines = Array.isArray(order?.lines) ? order.lines : []
-  const fromLines = lines.reduce((sum: number, line: any) => sum + Number(line.qty || 0) * Number(line.rate_per_pc || 0), 0)
-  return fromLines || Number(order?.order_value || order?.amount || 0)
+function openSalesValue(order: any) {
+  return (Array.isArray(order?.lines) ? order.lines : []).reduce(
+    (sum: number, line: any) => sum + Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0)) * Number(line.rate_per_pc || 0),
+    0,
+  )
 }
 
 function looksLikeUuid(value: unknown) {
@@ -70,24 +71,24 @@ export function OwnerLandingPage() {
   const pack: any = ownerPack || {}
   const headline = pack.headline || {}
   const series = safeSeries(pack.production?.series || [])
-  const orderBookValue = orders
-    .filter((row: any) => !["closed", "completed"].includes(String(row.status || "").toLowerCase()))
-    .reduce((sum: number, row: any) => sum + salesValue(row), 0)
-  const fallbackSeries = useMemo(() => {
-    const base = Math.max(1, orders.length)
-    return Array.from({ length: 10 }, (_, index) => {
-      const multiplier = index + 1
-      return {
-        label: `D${multiplier}`,
-        winder: Math.round(base * 8 + multiplier * 4),
-        oven: Math.round(base * 5 + multiplier * 3),
-        process: Math.round(base * 4 + multiplier * 2),
-        dispatch: Math.round((orderBookValue || base * 1200) * (0.035 + multiplier * 0.006)),
-        otif: Math.max(72, Math.min(98, 86 + multiplier - Math.max(0, Number(headline.delayed_orders || 0)) * 2)),
+  const commercial = useMemo(() => orders.reduce(
+    (totals: { booked: number; open: number; releasedOpen: number; dispatched: number }, order: any) => {
+      for (const line of Array.isArray(order.lines) ? order.lines : []) {
+        const rate = Number(line.rate_per_pc || 0)
+        const qty = Number(line.qty || 0)
+        const fulfilled = Math.min(qty, Number(line.fulfilled_qty || 0))
+        const released = Math.min(qty, Number(line.released_qty || 0))
+        totals.booked += qty * rate
+        totals.open += Math.max(0, qty - fulfilled) * rate
+        totals.releasedOpen += Math.max(0, released - fulfilled) * rate
+        totals.dispatched += fulfilled * rate
       }
-    })
-  }, [headline.delayed_orders, orderBookValue, orders.length])
-  const recentSeries = (series.length ? series : fallbackSeries).slice(-10).map((row) => ({ ...row, otifTarget: 92 }))
+      return totals
+    },
+    { booked: 0, open: 0, releasedOpen: 0, dispatched: 0 },
+  ), [orders])
+  const orderBookValue = commercial.open
+  const recentSeries = series.slice(-10).map((row) => ({ ...row, otifTarget: 92 }))
   const topCustomers = useMemo(() => {
     const map = new Map<string, number>()
     for (const order of orders) {
@@ -97,9 +98,9 @@ export function OwnerLandingPage() {
         (!looksLikeUuid(rawName) ? rawName : null) ||
           mappedName ||
           order.customer_code ||
-          "Unknown customer",
+          String(order.customer_id || "Unassigned customer"),
       )
-      map.set(customer, (map.get(customer) || 0) + salesValue(order))
+      map.set(customer, (map.get(customer) || 0) + openSalesValue(order))
     }
     return Array.from(map.entries())
       .map(([label, value]) => ({ label, value }))
@@ -115,19 +116,13 @@ export function OwnerLandingPage() {
     label: String(stage.stage || stage.stage_type || "Stage"),
     value: (Array.isArray(stage.lanes) ? stage.lanes : []).reduce((sum: number, lane: any) => sum + Number(lane?.jobs?.length || 0), 0),
   }))
-  const stageRows = stageRowsRaw.some((row: any) => Number(row.value || 0) > 0)
-    ? stageRowsRaw
-    : [
-        { label: "Released queue", value: Number(headline.backlog_orders || orders.length || 0) },
-        { label: "Active job cards", value: Number(headline.active_job_cards || 0) },
-        { label: "Blocked jobs", value: Number(headline.blocked_jobs || blockedRows.length || 0) },
-      ]
+  const stageRows = stageRowsRaw
+  const openOrderCount = orders.filter((order: any) => openSalesValue(order) > 0).length
   const waterfall = [
-    { label: "Plan", value: Number(headline.revenue_plan || orderBookValue * 1.08 || 0) },
-    { label: "Booked", value: orderBookValue },
-    { label: "Released", value: Number(headline.release_value || orderBookValue * 0.72 || 0) },
-    { label: "Dispatched", value: Number(headline.dispatch_value || headline.dispatch_qty || 0) },
-    { label: "Collected", value: Number(headline.collected_value || headline.dispatch_value || 0) * 0.82 },
+    { label: "Booked", value: commercial.booked },
+    { label: "Open", value: commercial.open },
+    { label: "Released open", value: commercial.releasedOpen },
+    { label: "Dispatched", value: Number(headline.dispatch_value ?? commercial.dispatched) },
   ]
   const plantMix = (Array.isArray(pack.plant_compare) ? pack.plant_compare : [])
     .map((row: any) => ({
@@ -144,7 +139,7 @@ export function OwnerLandingPage() {
       : null,
     lowStockRows.length
       ? { id: "stock", tone: "warn" as const, title: `${lowStockRows.length} materials are under reorder or safety level.`, action: "Open MRP" }
-      : { id: "stock-ok", tone: "good" as const, title: "Material posture is currently above reorder bands.", action: "View MRP" },
+      : null,
   ].filter(Boolean) as Array<{ id: string; tone?: "good" | "warn" | "critical"; title: string; action?: string }>
 
   return (
@@ -177,16 +172,16 @@ export function OwnerLandingPage() {
       <InsightStrip items={insights} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Revenue MTD" value={formatCompactCurrency(Number(headline.dispatch_value || orderBookValue * 0.48 || 0))} detail="Dispatch-led revenue proxy" icon={BarChart3} tone="cyan" delta={{ value: 6, suffix: "%", positive: false, label: "vs plan" }} sparkline={buildSparkline(recentSeries.map((row) => row.dispatch))} />
-        <KpiCard label="Order Book" value={formatCompactCurrency(orderBookValue)} detail={`${orders.length} open or in-flight sales orders`} icon={Workflow} tone="amber" delta={{ value: 12, suffix: "%", positive: true, label: "vs prior window" }} sparkline={buildSparkline(recentSeries.map((row, index) => row.dispatch + index * 10))} />
-        <KpiCard label="WIP Value" value={formatCompactCurrency(Number(headline.inventory_value || inventoryHealth?.summary?.total_value || 0))} detail={`${formatCompactNumber(Number(headline.active_job_cards || 0))} active job cards across the route`} icon={Factory} tone="violet" delta={{ value: 3, suffix: "%", positive: false, label: "vs prior window" }} sparkline={buildSparkline(recentSeries.map((row) => row.winder + row.oven + row.process))} />
-        <KpiCard label="OTIF" value={formatPercent(Number(headline.otif_percent || 0))} detail="Closed orders on-time and in-full" icon={Gauge} tone={Number(headline.otif_percent || 0) >= 92 ? "emerald" : "rose"} delta={{ value: Math.abs(92 - Number(headline.otif_percent || 0)), suffix: "pp", positive: Number(headline.otif_percent || 0) >= 92, label: "vs 92% target" }} sparkline={buildSparkline(recentSeries.map((row) => row.otif))} />
-        <KpiCard label="Blocked Jobs" value={formatCompactNumber(blockedRows.length || Number(headline.blocked_jobs || 0))} detail="Job cards waiting on floor or approval intervention" icon={AlertTriangle} tone={(blockedRows.length || Number(headline.blocked_jobs || 0)) > 0 ? "rose" : "emerald"} sparkline={buildSparkline(recentSeries.map((row, index) => Math.max(0, 6 + index - 4)))} />
-        <KpiCard label="Cash-ish Variance" value={formatCompactCurrency(Number(pack.reconciliation?.summary?.variance_value || orderBookValue * -0.08 || 0))} detail="Current proxy from reconciliation and delayed handoff" icon={Layers3} tone="slate" sparkline={buildSparkline(recentSeries.map((row, index) => row.dispatch - index * 3))} />
+        <KpiCard label="Dispatched Value" value={formatCompactCurrency(Number(headline.dispatch_value ?? commercial.dispatched))} detail="Fulfilled quantity multiplied by the sales-line rate" icon={BarChart3} tone="cyan" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.dispatch)) : undefined} />
+        <KpiCard label="Open Order Book" value={formatCompactCurrency(orderBookValue)} detail={`${openOrderCount} sales orders with quantity remaining`} icon={Workflow} tone="amber" />
+        <KpiCard label="Inventory Value" value={formatCompactCurrency(Number(headline.inventory_value ?? inventoryHealth?.summary?.total_value ?? 0))} detail={`${formatCompactNumber(Number(headline.active_job_cards || 0))} active job cards across the route`} icon={Factory} tone="violet" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.winder + row.oven + row.process)) : undefined} />
+        <KpiCard label="OTIF" value={formatPercent(Number(headline.otif_percent || 0))} detail="Closed orders on-time and in-full" icon={Gauge} tone={Number(headline.otif_percent || 0) >= 92 ? "emerald" : "rose"} delta={{ value: Math.abs(92 - Number(headline.otif_percent || 0)), suffix: "pp", positive: Number(headline.otif_percent || 0) >= 92, label: "vs 92% target" }} sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.otif)) : undefined} />
+        <KpiCard label="Blocked Jobs" value={formatCompactNumber(blockedRows.length || Number(headline.blocked_jobs || 0))} detail="Job cards waiting on floor or approval intervention" icon={AlertTriangle} tone={(blockedRows.length || Number(headline.blocked_jobs || 0)) > 0 ? "rose" : "emerald"} />
+        <KpiCard label="Consumption Variance" value={formatCompactCurrency(Number(pack.reconciliation?.summary?.variance_value || 0))} detail="Actual material variance from reconciliation" icon={Layers3} tone="slate" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <ChartCard eyebrow="Revenue Waterfall" title="Plan to collection" description="Live commercial posture with the stages where value is currently stuck.">
+        <ChartCard eyebrow="Commercial Flow" title="Booked to dispatched value" description="Values calculated from real sales-line quantity, fulfilled quantity, released quantity, and rate.">
           <AreaTrend rows={waterfall} dataKey="value" color="#0891b2" />
         </ChartCard>
         <ChartCard eyebrow="Top Customers" title="Customer share of the current order book" description="Commercial concentration by open order value.">
@@ -204,7 +199,7 @@ export function OwnerLandingPage() {
           <MiniBarList rows={stageRows} formatter={(value) => `${formatCompactNumber(value)} JCs`} />
         </ChartCard>
         <ChartCard eyebrow="OTIF Trend" title="Daily execution confidence" description="Recent OTIF movement against the target threshold.">
-          <div className="h-[300px]">
+          {recentSeries.length ? <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={recentSeries}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -215,7 +210,7 @@ export function OwnerLandingPage() {
                 <Line type="monotone" dataKey="otifTarget" stroke="#0f172a" strokeDasharray="6 6" dot={false} />
               </LineChart>
             </ResponsiveContainer>
-          </div>
+          </div> : <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">No production or dispatch events exist in the selected period.</p>}
         </ChartCard>
       </section>
 
@@ -253,7 +248,7 @@ export function OwnerLandingPage() {
           />
         </ChartCard>
         <ChartCard eyebrow="Dispatch & Plant Mix" title="Next handoff and plant contribution" description="Short-range dispatch view and plant contribution mix.">
-          <MiniBarList rows={plantMix.length ? plantMix : [{ label: displayPlantScope(activePlant, "Current plant"), value: Number(headline.inventory_value || 0) }]} formatter={(value) => formatCompactCurrency(value)} />
+          {plantMix.length ? <MiniBarList rows={plantMix} formatter={(value) => formatCompactCurrency(value)} /> : <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">No plant-comparison records exist in the selected period.</p>}
           <div className="mt-5 rounded-[1.35rem] border border-slate-200 bg-slate-50 p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Dispatch next 7 days</p>
             <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCompactNumber(Number(pack.dispatch?.summary?.ready_job_count || 0))} ready jobs</p>
@@ -270,29 +265,42 @@ export function OwnerLandingPage() {
 
 export function AdminLandingPage() {
   const { activePlant } = useAuth()
-  const { data: overview } = useDashboardOverview(activePlant || undefined)
-  const { data: ownerPack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
-  const { data: jobCards } = usePlanningJobCards(undefined, true)
-  const { data: notifications } = useNotifications(true)
+  const { data: systemHealth, isLoading: healthLoading, error: healthError } = useSystemHealth(true)
+  const { data: auditEvents } = useAuditEvents({ since_hours: 72, limit: 8 })
 
-  const pack: any = ownerPack || {}
-  const services = [
-    { name: "web-ui", status: "UP", latency: 48, rps: 8.1, err: 0 },
-    { name: "bff-api", status: "UP", latency: 132, rps: 14.2, err: 0.04 },
-    { name: "analytics-service", status: "UP", latency: 98, rps: 2.4, err: 0.02 },
-    { name: "inventory-service", status: "UP", latency: 84, rps: 1.9, err: 0 },
-    { name: "production-service", status: pack.production?.blocked_rows?.length ? "WARN" : "UP", latency: 121, rps: 4.8, err: pack.production?.blocked_rows?.length ? 0.6 : 0.05 },
-  ]
-  const auditRows = (Array.isArray(notifications?.items) ? notifications.items : []).slice(0, 8).map((row: any, index: number) => ({
-    id: row.id || index,
-    ts: row.created_at || row.ts || "-",
-    actor: row.actor || row.source || "system",
-    action: row.title || row.message || "Event",
+  const services = Array.isArray(systemHealth?.services) ? systemHealth.services : []
+  const summary = systemHealth?.summary || {}
+  const runtime = systemHealth?.runtime || {}
+  const schedulerJobs = Object.entries(systemHealth?.scheduler?.jobs || {}).map(([name, value]: [string, any]) => ({
+    label: name.replaceAll("_", " "),
+    value: ["OK", "SCHEDULED", "QUEUED", "DUPLICATE"].includes(String(value?.status || "").toUpperCase()) ? 100 : 0,
+    hint: value?.last_error || systemHealth?.scheduler?.next_runs?.[name] || value?.status || "No run recorded",
   }))
-  const healthSeries = buildSparkline([132, 128, 126, 139, 144, 118, 121, 132])
-  const errorSeries = buildSparkline([0.02, 0.05, 0.04, 0.07, 0.03, 0.02, 0.04, 0.04])
-  const activeUsers = Number(overview?.active_users || 8)
-  const currentJobCards = Array.isArray(jobCards) ? jobCards.length : Number(pack.headline?.active_job_cards || 0)
+  const auditRows = (Array.isArray(auditEvents?.items) ? auditEvents.items : []).slice(0, 8).map((row: any, index: number) => ({
+    id: row.id || index,
+    ts: row.occurred_at || "-",
+    actor: row.actor_email || row.actor_role || row.source_service || "system",
+    action: row.summary || row.event_type,
+  }))
+  const systemStatus = healthError ? "Unavailable" : healthLoading ? "Checking" : String(systemHealth?.status || "Unknown")
+  const systemHealthy = systemStatus === "HEALTHY"
+  const infrastructureRows = [
+    runtime?.memory?.used_percent != null ? { label: "Memory used %", value: Number(runtime.memory.used_percent), hint: "Measured from the runtime cgroup" } : null,
+    runtime?.storage?.used_percent != null ? { label: "Storage used %", value: Number(runtime.storage.used_percent), hint: "Measured from the application filesystem" } : null,
+    runtime?.load_1m != null ? { label: "Load average 1m", value: Number(runtime.load_1m), hint: "Current process-host load" } : null,
+  ].filter(Boolean) as Array<{ label: string; value: number; hint: string }>
+  const integrityRows = [
+    ...services.map((service: any) => ({
+      check: `${service.name} health endpoint`,
+      status: service.status,
+      detail: service.status === "UP" ? `HTTP ${service.http_status} in ${service.latency_ms} ms` : service.detail || "Probe failed",
+    })),
+    {
+      check: "Analytics scheduler",
+      status: systemHealth?.scheduler?.enabled ? "UP" : "DOWN",
+      detail: systemHealth?.scheduler ? `${Object.keys(systemHealth.scheduler.jobs || {}).length} jobs registered; queue ${systemHealth.scheduler.queue?.available === false ? "unavailable" : "available"}` : "Scheduler status unavailable",
+    },
+  ]
 
   return (
     <div className="space-y-5" data-testid="landing-admin-page">
@@ -310,20 +318,20 @@ export function AdminLandingPage() {
           <div className="space-y-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200">Status banner</p>
             <p className="text-2xl font-semibold tracking-tight">
-              System green, {formatCompactNumber(services.length)} primary services visible, {activeUsers} active users.
+              System {systemStatus.toLowerCase()}, {formatCompactNumber(Number(summary.services_up || 0))} of {formatCompactNumber(Number(summary.services_total || 0))} service probes passing.
             </p>
             <p className="text-sm leading-6 text-slate-300">
-              BFF p95 132 ms, analytics feed live, and {formatCompactNumber(currentJobCards)} active job cards tracked through the platform.
+              Last measured {systemHealth?.checked_at ? new Date(systemHealth.checked_at).toLocaleString("en-IN") : "not yet"}; maximum current probe latency {formatCompactNumber(Number(summary.max_probe_latency_ms || 0))} ms.
             </p>
           </div>
         }
       />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard label="System Status" value="Green" detail="No critical route outages reported" icon={ShieldCheck} tone="emerald" sparkline={healthSeries} />
-        <KpiCard label="Latency p95" value="132 ms" detail="Live BFF posture" icon={Gauge} tone="cyan" sparkline={healthSeries} />
-        <KpiCard label="Error Rate" value="0.04%" detail="Cross-service request failures" icon={AlertTriangle} tone="amber" sparkline={errorSeries} />
-        <KpiCard label="Active Users" value={formatCompactNumber(activeUsers)} detail="Current authenticated sessions" icon={Users} tone="violet" sparkline={buildSparkline([5, 7, 7, 8, 9, 8, 8, 8])} />
+        <KpiCard label="System Status" value={systemStatus} detail={systemHealthy ? "All measured service probes pass" : "One or more measured checks need attention"} icon={ShieldCheck} tone={systemHealthy ? "emerald" : "rose"} />
+        <KpiCard label="Max Probe Latency" value={`${formatCompactNumber(Number(summary.max_probe_latency_ms || 0))} ms`} detail="Slowest current service health probe" icon={Gauge} tone="cyan" />
+        <KpiCard label="Failed Probes" value={formatCompactNumber(Number(summary.failed_probes || 0))} detail="Current dependency health failures" icon={AlertTriangle} tone={Number(summary.failed_probes || 0) ? "rose" : "emerald"} />
+        <KpiCard label="Active Accounts" value={summary.active_accounts == null ? "Unknown" : formatCompactNumber(Number(summary.active_accounts))} detail="Enabled user accounts; live sessions are not inferred" icon={Users} tone="violet" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -332,40 +340,26 @@ export function AdminLandingPage() {
             columns={[
               { key: "name", label: "Service" },
               { key: "status", label: "Status" },
-              { key: "latency", label: "p95 ms" },
-              { key: "rps", label: "RPS" },
-              { key: "err", label: "Err%" },
+              { key: "latency_ms", label: "Probe ms" },
+              { key: "http_status", label: "HTTP" },
             ]}
             rows={services}
           />
         </ChartCard>
         <ChartCard eyebrow="Infrastructure" title="Host and workload health" description="Foundational platform checks and integrity signals.">
-          <MiniBarList
-            rows={[
-              { label: "CPU %", value: 38, hint: "Healthy headroom" },
-              { label: "Memory %", value: 71, hint: "Current process footprint" },
-              { label: "Storage %", value: 21, hint: "Disk used" },
-              { label: "Queue depth", value: Number(pack.dispatch?.summary?.ready_job_count || 7), hint: "Background action pressure" },
-            ]}
-            formatter={(value) => formatCompactNumber(value)}
-          />
+          {infrastructureRows.length ? <MiniBarList rows={infrastructureRows} formatter={(value) => formatCompactNumber(value)} /> : <p className="text-sm text-slate-600">Runtime metrics are unavailable.</p>}
         </ChartCard>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <ChartCard eyebrow="Data Integrity" title="Platform integrity checklist" description="Derived from the current owner pack and platform state.">
+        <ChartCard eyebrow="Dependency Integrity" title="Measured platform checks" description="Current health endpoints and scheduler state; no unmeasured database claims are shown.">
           <CompactTable
             columns={[
               { key: "check", label: "Check" },
               { key: "status", label: "Status" },
               { key: "detail", label: "Detail" },
             ]}
-            rows={[
-              { check: "Foreign-key posture", status: "OK", detail: "No orphaned critical rows surfaced in active pack data." },
-              { check: "Release snapshots", status: pack.sales?.delayed_rows?.length ? "WARN" : "OK", detail: pack.sales?.delayed_rows?.length ? "Delayed orders are affecting commercial analytics posture." : "Release-linked sales rows are coherent." },
-              { check: "Inventory risk feed", status: pack.inventory?.risk_items?.low_stock?.length ? "WARN" : "OK", detail: pack.inventory?.risk_items?.low_stock?.length ? "Low-stock feed is active and should be monitored." : "No current material integrity alerts." },
-              { check: "Analytics freshness", status: "OK", detail: "Owner pack and dashboard overview are responding." },
-            ]}
+            rows={integrityRows}
           />
         </ChartCard>
         <ChartCard eyebrow="Audit Tail" title="Recent activity and admin actions" description="Recent workspace events from the notification trail.">
@@ -383,18 +377,11 @@ export function AdminLandingPage() {
 
       <section className="grid gap-4 xl:grid-cols-3">
         <ChartCard eyebrow="Background Jobs" title="Job schedule posture" description="Operational jobs and platform recomputes.">
-          <MiniBarList
-            rows={[
-              { label: "MRP recompute", value: 100, hint: "02:00 daily" },
-              { label: "Owner pack refresh", value: 100, hint: "Every 5 minutes" },
-              { label: "Analytics rollup", value: 100, hint: "Hourly" },
-              { label: "Webhook retries", value: pack.sales?.delayed_rows?.length ? 62 : 92, hint: "Current reliability score" },
-            ]}
-            formatter={(value) => `${formatCompactNumber(value)}%`}
-          />
+          {schedulerJobs.length ? <MiniBarList rows={schedulerJobs} formatter={(value) => `${formatCompactNumber(value)}%`} /> : <p className="text-sm text-slate-600">No scheduler job status was returned.</p>}
         </ChartCard>
-        <ChartCard eyebrow="Sessions" title="Role mix and access visibility" description="Current session posture, derived from active user scope.">
-          <MiniBarList rows={[{ label: "Owner", value: 1 }, { label: "Admin", value: 1 }, { label: "Planner", value: 2 }, { label: "Supervisor", value: 3 }, { label: "Sales", value: 1 }]} />
+        <ChartCard eyebrow="Accounts" title="Access visibility" description="Account data is measured separately from sessions.">
+          <p className="text-3xl font-semibold text-slate-950">{summary.active_accounts == null ? "Unknown" : formatCompactNumber(Number(summary.active_accounts))}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Enabled accounts reported by auth-service. The stack does not fabricate a current session count.</p>
         </ChartCard>
         <ChartCard eyebrow="Quick Actions" title="Admin control points" description="Navigate to the highest-value admin actions already present in the ERP.">
           <div className="space-y-3">

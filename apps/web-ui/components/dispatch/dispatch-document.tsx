@@ -9,6 +9,7 @@ export interface DispatchDocumentProps {
 }
 
 export function DispatchDocument({ dispatchData, onChange, printMode = false }: DispatchDocumentProps) {
+    const company = dispatchData.company || {}
     const updateTransporter = (field: string, value: string) => {
         if (!onChange) return
         onChange({
@@ -44,19 +45,21 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
     }
 
     return (
-        <div className={`bg-white text-slate-900 ${printMode ? "p-0" : "p-8 border rounded-lg shadow-sm"}`}>
+        <div className="max-w-full overflow-x-auto">
+        <div className={`min-w-[760px] bg-white text-slate-900 ${printMode ? "p-0" : "p-8 border rounded-lg shadow-sm"}`}>
             {/* Header Block */}
             <div className="flex justify-between items-start mb-8 border-b-2 border-slate-800 pb-4">
                 <div>
-                    <h1 className="text-3xl font-bold uppercase tracking-tight">HARI OM PAPER</h1>
-                    <p className="text-sm text-slate-600 mt-1">GIDC Vapi, Gujarat, India</p>
-                    <p className="text-sm text-slate-600">GSTIN: 24XXXXXXXXXX1Z5</p>
+                    <h1 className="text-3xl font-bold uppercase tracking-tight">{company.legal_name || company.name}</h1>
+                    <p className="text-sm text-slate-600 mt-1 whitespace-pre-line">{company.address}</p>
+                    <p className="text-sm text-slate-600">GSTIN: {company.gstin}</p>
                 </div>
                 <div className="text-right">
                     <h2 className="text-2xl font-bold bg-slate-900 text-white px-4 py-1 inline-block uppercase tracking-widest rounded-sm">
                         Delivery Challan
                     </h2>
                     <div className="mt-4 text-sm space-y-1">
+                        <p><span className="font-semibold text-slate-500 mr-2">Challan No:</span>{dispatchData.challan_no || dispatchData.dispatch_ref || "Generated on seal"}</p>
                         <p><span className="font-semibold text-slate-500 mr-2">Challan Date:</span>{dispatchData.date || new Date().toISOString().split("T")[0]}</p>
                         <p><span className="font-semibold text-slate-500 mr-2">Job Card Ref:</span> {dispatchData.job_card_no}</p>
                     </div>
@@ -67,10 +70,11 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                 {/* Customer Block */}
                 <div className="border border-slate-300 rounded p-4">
                     <h3 className="font-semibold text-xs uppercase text-slate-500 mb-2 border-b pb-1">Billed To</h3>
-                    <p className="font-bold text-lg">{dispatchData.customer?.name || "Unknown Customer"}</p>
+                    <p className="font-bold text-lg">{dispatchData.customer?.name}</p>
                     <div className="text-sm mt-2 whitespace-pre-line text-slate-700">
-                        {dispatchData.customer?.address || "Address not specified"}
+                        {dispatchData.customer?.address}
                     </div>
+                    <p className="mt-2 text-sm text-slate-700">GSTIN: {dispatchData.customer?.gstin}</p>
                 </div>
 
                 {/* Transporter Block */}
@@ -215,6 +219,7 @@ export function DispatchDocument({ dispatchData, onChange, printMode = false }: 
                     <div className="border-b border-slate-400 w-32 mx-auto"></div>
                 </div>
             </div>
+        </div>
         </div>
     )
 }

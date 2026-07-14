@@ -8,6 +8,7 @@ def service_get(
     params: Optional[Dict[str, Any]] = None,
     timeout: float = 30.0,
     plant_id: Optional[str] = None,
+    required: bool = False,
 ):
     headers = {"Authorization": f"Bearer {token}"}
     if plant_id:
@@ -19,13 +20,23 @@ def service_get(
             headers=headers,
             timeout=timeout,
         )
-    except requests.RequestException:
+    except requests.RequestException as exc:
+        if required:
+            raise HTTPException(status_code=502, detail=f"Upstream service unavailable: {exc}") from exc
         return None
     if response.status_code != 200:
+        if required:
+            detail = (response.text or "").strip()
+            raise HTTPException(
+                status_code=502,
+                detail=f"Upstream service returned {response.status_code}: {detail[:240]}",
+            )
         return None
     try:
         return response.json()
-    except ValueError:
+    except ValueError as exc:
+        if required:
+            raise HTTPException(status_code=502, detail="Upstream service returned malformed JSON") from exc
         return None
 
 def scope_plant_ids(scope: dict) -> List[str]:

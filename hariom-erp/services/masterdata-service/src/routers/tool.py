@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -264,8 +264,7 @@ class ToolResponse(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ToolUsageLogResponse(BaseModel):
@@ -284,8 +283,7 @@ class ToolUsageLogResponse(BaseModel):
     metadata_json: Optional[Dict[str, Any]] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 @router.get("/", response_model=List[ToolResponse])
@@ -345,8 +343,7 @@ class ToolOptionResponse(BaseModel):
     active: bool
     sort_order: int
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 def _validate_option_key(category: str, field_key: str) -> tuple[str, str]:

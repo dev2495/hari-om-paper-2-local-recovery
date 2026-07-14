@@ -754,7 +754,7 @@ export default function InventoryStockControlPage() {
             </div>
           </ChartCard>
 
-          <ChartCard eyebrow="Formal proof trail" title="Opening loads and year carry-forward" description="This is the audit trail users can show for opening/closing stock continuity.">
+          <ChartCard eyebrow="Formal proof trail" title="Opening loads and year carry-forward" description="Prior closing becomes next-period opening through the continuous ledger. Activation records the audit proof without adding stock again.">
             <div className="space-y-3">
               {carryForwards.slice(0, 4).map((row: any) => {
                 const cfStatus = String(row.status || "").toUpperCase()
@@ -783,10 +783,10 @@ export default function InventoryStockControlPage() {
                             ? "cursor-not-allowed bg-slate-200 text-slate-500"
                             : "bg-emerald-700 text-white hover:bg-emerald-800"
                         }`}
-                        title={isPosted ? "Opening already posted from this carry-forward" : "Post next-period opening from this proof"}
+                        title={isPosted ? "Next-period opening proof is active" : "Activate next-period opening proof without creating another stock movement"}
                       >
                         <FilePlus2 className="h-3 w-3" />
-                        {isPosted ? "Posted" : postOpeningFromCf.isPending ? "Posting…" : "Post opening"}
+                        {isPosted ? "Active" : postOpeningFromCf.isPending ? "Activating…" : "Activate opening"}
                       </button>
                     </div>
                   </div>

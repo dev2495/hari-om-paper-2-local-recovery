@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from typing import List
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+import os
+import threading
+import time
 import uuid
 from ..database import get_db
 from .. import models
@@ -12,14 +15,32 @@ from ..workspace import BUSINESS_ROLE_ORDER, canonical_role_name
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
+LOGIN_MAX_ATTEMPTS = int(os.getenv("LOGIN_MAX_ATTEMPTS", "5"))
+LOGIN_WINDOW_SECONDS = int(os.getenv("LOGIN_WINDOW_SECONDS", "900"))
+_login_attempts: dict[str, list[float]] = {}
+_login_attempts_lock = threading.Lock()
+
 class UserCreate(BaseModel):
     name: str
     email: EmailStr
-    password: str
+    password: str = Field(..., min_length=12, max_length=128)
     plant_id: str = "PLANT_A"
     role_names: List[str] = []
     allowed_plant_ids: List[uuid.UUID] = []
     is_owner_all_plants: bool = False
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        if not any(char.islower() for char in value):
+            raise ValueError("password must contain a lowercase letter")
+        if not any(char.isupper() for char in value):
+            raise ValueError("password must contain an uppercase letter")
+        if not any(char.isdigit() for char in value):
+            raise ValueError("password must contain a number")
+        if not any(not char.isalnum() for char in value):
+            raise ValueError("password must contain a symbol")
+        return value
 
 class UserResponse(BaseModel):
     id: uuid.UUID
@@ -36,8 +57,7 @@ class UserResponse(BaseModel):
     acting_role: str | None = None
     is_acting_session: bool = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserStatusUpdate(BaseModel):
@@ -137,10 +157,35 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     new_user = create_user_record(user_in, db)
     return serialize_user(new_user)
 
+def _login_key(request: Request, email: str) -> str:
+    forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
+    remote = forwarded or (request.client.host if request.client else "unknown")
+    return f"{remote}:{email.strip().lower()}"
+
+
+def _active_login_attempts(key: str, now: float) -> list[float]:
+    with _login_attempts_lock:
+        active = [stamp for stamp in _login_attempts.get(key, []) if now - stamp < LOGIN_WINDOW_SECONDS]
+        if active:
+            _login_attempts[key] = active
+        else:
+            _login_attempts.pop(key, None)
+        return active
+
+
 @router.post("/login")
-def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
+    key = _login_key(request, form_data.username)
+    now = time.monotonic()
+    if len(_active_login_attempts(key, now)) >= LOGIN_MAX_ATTEMPTS:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Too many failed login attempts. Retry after {LOGIN_WINDOW_SECONDS // 60} minutes.",
+        )
     user = db.query(models.User).filter(models.User.email == form_data.username).first()
     if not user or not hashing.verify_password(form_data.password, user.hashed_password):
+        with _login_attempts_lock:
+            _login_attempts.setdefault(key, []).append(now)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -152,6 +197,9 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
         )
+
+    with _login_attempts_lock:
+        _login_attempts.pop(key, None)
 
     claims = jwt_handler.build_user_claims(user)
     access_token = jwt_handler.create_access_token(data=claims)
@@ -171,8 +219,8 @@ def set_acting_role(
     user_role_map = {role.name: role for role in current_user.roles}
     role = user_role_map.get(role_name)
     if role is None:
-        # Local runtime compatibility: admins/owners can switch to any seeded role.
-        if {"Admin", "Owner"} & set(user_role_map.keys()):
+        allow_unassigned = os.getenv("ALLOW_UNASSIGNED_ACTING_ROLES", "false").strip().lower() in {"1", "true", "yes", "on"}
+        if allow_unassigned and {"Admin", "Owner"} & set(user_role_map.keys()):
             role = db.query(models.Role).filter(models.Role.name == role_name).first()
     if role is None:
         raise HTTPException(status_code=403, detail="Requested role is not assigned to this user")

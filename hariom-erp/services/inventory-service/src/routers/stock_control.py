@@ -798,7 +798,7 @@ def create_adjustment_voucher(
     payload: AdjustmentVoucherPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     effective_at = _effective_at_for_date(payload.effective_date, payload.effective_at)
     voucher_no = (payload.voucher_no or "").strip().upper() or _next_adjustment_no(db, plant_id, payload.effective_date)
@@ -868,7 +868,7 @@ def post_adjustment_voucher(
     voucher_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     header = db.query(StockAdjustmentVoucher).filter(
         StockAdjustmentVoucher.id == voucher_id,
@@ -938,7 +938,7 @@ def create_opening_load(
     payload: OpeningLoadPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     document_no = payload.document_no or f"OPEN-{payload.effective_date.strftime('%Y%m%d')}-{uuid.uuid4().hex[:5].upper()}"
     existing = db.query(InventoryOpeningLoad).filter(
@@ -1152,7 +1152,7 @@ def create_certification(
     payload: CertificationCreatePayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     if payload.period_start > payload.period_end:
         raise HTTPException(status_code=400, detail="period_start cannot be after period_end")
@@ -1255,7 +1255,7 @@ def update_certification(
     payload: CertificationUpdatePayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     header = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1379,7 +1379,7 @@ def certify_stock(
     payload: CertificationActionPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     header = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1439,7 +1439,7 @@ def post_certification_variance(
     certification_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     certification = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1572,7 +1572,7 @@ def create_carry_forward(
     payload: CarryForwardPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store"])),
 ):
     header = db.query(InventoryCertification).filter(
         InventoryCertification.id == certification_id,
@@ -1596,6 +1596,23 @@ def create_carry_forward(
             "line_count": len(existing.lines or []),
             "message": "Carry-forward already exists for this certification",
         }
+
+    has_variance = any(
+        abs(float(line.variance_qty or 0.0)) > 0.000001
+        for line in (header.lines or [])
+    )
+    if has_variance:
+        posted_variance = db.query(StockAdjustmentVoucher.id).filter(
+            StockAdjustmentVoucher.plant_id == plant_id,
+            StockAdjustmentVoucher.source_type == "CERTIFICATION_VARIANCE",
+            StockAdjustmentVoucher.source_id == header.id,
+            StockAdjustmentVoucher.status == "POSTED",
+        ).first()
+        if not posted_variance:
+            raise HTTPException(
+                status_code=409,
+                detail="Post the certified physical-count variance before carrying stock forward",
+            )
 
     opening_date = payload.opening_date or (header.period_end + timedelta(days=1))
     document_no = payload.document_no or f"CF-{header.period_end.strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
@@ -1667,9 +1684,9 @@ def create_carry_forward(
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# Gap 5: post-opening from carry-forward — one-click conversion of the CF
-# proof document into an actual InventoryOpeningLoad + ledger OPENING txns
-# for next-period seeding.
+# Activate a carry-forward proof for the next period. The stock ledger is
+# continuous: prior-period closing already becomes next-period opening in the
+# statement calculation. This action deliberately creates no stock movement.
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -1706,125 +1723,35 @@ def post_opening_from_carry_forward(
     if not (cf.lines or []):
         raise HTTPException(status_code=400, detail="Carry-forward has no lines to post")
 
-    effective_at = _day_end(cf.opening_date)
     header = InventoryOpeningLoad(
         plant_id=plant_id,
         document_no=f"OPEN-FROM-{cf.document_no}",
         effective_date=cf.opening_date,
         status="POSTED",
-        notes=f"Auto-posted from carry-forward {cf.document_no}",
+        notes=f"Opening proof activated from carry-forward {cf.document_no}; no duplicate ledger movement",
         created_by=_actor(current_user),
     )
     db.add(header)
     db.flush()
 
-    plant_uuid = _to_uuid(plant_id)
     posted_lines = 0
     for idx, line in enumerate(cf.lines or [], start=1):
         if not line.item_id:
             continue
         opening_qty = float(line.opening_qty or 0.0)
-        if opening_qty <= 0:
-            continue
         item = db.query(ItemMaster).filter(ItemMaster.id == line.item_id, ItemMaster.plant_id == plant_id).first()
         if not item:
             raise HTTPException(status_code=404, detail=f"Carry-forward item not found on line {idx}")
-        line_row = InventoryOpeningLoadLine(
-            opening_load_id=header.id,
-            item_id=line.item_id,
-            qty=opening_qty,
-            unit_cost=float(line.unit_cost or 0.0),
-            stock_status="UNRESTRICTED",
-            notes=f"From CF {cf.document_no} line {idx}",
-        )
-        db.add(line_row)
-        if item.tracking_mode == TrackingMode.REEL:
-            reel_code = f"OPEN-{_doc_token(cf.document_no, 'CF')}-R{idx:03d}"
-            if db.query(PaperReel.id).filter(PaperReel.plant_id == plant_uuid, PaperReel.reel_code == reel_code).first():
-                reel_code = f"{reel_code}-{uuid.uuid4().hex[:4].upper()}"[:100]
-            reel = PaperReel(
-                plant_id=plant_uuid,
-                reel_code=reel_code,
-                paper_id=line.item_id,
-                supplier_name=f"CARRY FORWARD {cf.document_no}",
-                supplier_name_snapshot=f"CARRY FORWARD {cf.document_no}",
-                inward_weight_kg=opening_qty,
-                current_weight_kg=opening_qty,
-                unit_cost=float(line.unit_cost or 0.0) if float(line.unit_cost or 0.0) > 0 else None,
-                cost_source=CostSource.MANUAL if float(line.unit_cost or 0.0) > 0 else _item_cost_source(item),
-                status=ReelStatus.IN_STOCK,
-                stock_status="UNRESTRICTED",
-                genealogy_metadata={
-                    "source_document_type": "CARRY_FORWARD",
-                    "carry_forward_id": str(cf.id),
-                    "carry_forward_doc": cf.document_no,
-                    "opening_load_id": str(header.id),
-                    "opening_load_doc": header.document_no,
-                    "line_no": idx,
-                },
-                inward_date=cf.opening_date,
-            )
-            db.add(reel)
-            db.flush()
-            line_row.reel_id = reel.id
-            line_row.reel_code = reel_code
-            db.add(
-                ReelScanEvent(
-                    plant_id=plant_uuid,
-                    reel_id=reel.id,
-                    event_type=ReelScanEventType.INWARD_SCAN,
-                    source=ReelScanSource.INVENTORY,
-                    operator_id=None,
-                    event_metadata={
-                        "source_document_type": "CARRY_FORWARD",
-                        "carry_forward_id": str(cf.id),
-                        "carry_forward_doc": cf.document_no,
-                        "opening_load_id": str(header.id),
-                        "opening_load_doc": header.document_no,
-                        "line_no": idx,
-                        "effective_date": cf.opening_date.isoformat(),
-                        "effective_at": effective_at.isoformat(),
-                    },
-                )
-            )
-            posted_lines += 1
-            continue
-
-        batch = StockBatch(
-            item_id=line.item_id,
-            batch_no=f"OPEN-{cf.document_no}-{idx:03d}",
-            received_qty=opening_qty,
-            unit_cost=float(line.unit_cost or 0.0) if float(line.unit_cost or 0.0) > 0 else None,
-            cost_source="AVG_BATCH" if float(line.unit_cost or 0.0) > 0 else None,
-            supplier_name_snapshot=f"CARRY FORWARD {cf.document_no}",
-            stock_status="UNRESTRICTED",
-            plant_id=plant_id,
-        )
-        db.add(batch)
-        db.flush()
-        external_ref = f"OPENING:CF:{cf.id}:{idx}"
         db.add(
-            StockTransaction(
+            InventoryOpeningLoadLine(
+                opening_load_id=header.id,
                 item_id=line.item_id,
-                batch_id=batch.id,
-                transaction_type=TransactionType.OPENING,
-                qty_change=opening_qty,
-                reference_type=ReferenceType.ADJUSTMENT,
-                reference_id=cf.id,
-                plant_id=plant_id,
+                qty=opening_qty,
+                unit_cost=float(line.unit_cost or 0.0),
                 stock_status="UNRESTRICTED",
-                movement_metadata={
-                    "carry_forward_id": str(cf.id),
-                    "carry_forward_doc": cf.document_no,
-                    "effective_at": effective_at.isoformat(),
-                },
-                external_ref=external_ref,
-                effective_date=cf.opening_date,
-                effective_at=effective_at,
+                notes=f"Opening proof from CF {cf.document_no} line {idx}; ledger remains continuous",
             )
         )
-        line_row.batch_id = batch.id
-        line_row.batch_no = batch.batch_no
         posted_lines += 1
 
     cf.status = "POSTED"

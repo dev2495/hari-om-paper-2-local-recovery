@@ -1,0 +1,9 @@
+[Unit]
+Description=Restore the latest Hari Om ERP backup into clean temporary PostgreSQL
+Requires=docker.service
+After=docker.service network-online.target
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/hariom/app/deploy/aws-ec2/restore_drill.sh

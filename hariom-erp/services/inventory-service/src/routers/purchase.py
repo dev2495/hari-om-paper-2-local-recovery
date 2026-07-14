@@ -339,7 +339,10 @@ def approve_purchase_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner"])),
 ):
-    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).first()
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == po_id,
+        PurchaseOrder.plant_id == plant_id,
+    ).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     if order.status == "CANCELLED":
@@ -377,9 +380,12 @@ def post_grn(
     payload: GrnCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager"])),
 ):
-    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).first()
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == po_id,
+        PurchaseOrder.plant_id == plant_id,
+    ).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
     if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
@@ -576,7 +582,7 @@ def update_receipt_line_qc(
     payload: ReceiptQcPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "QC"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "QC"])),
 ):
     line = (
         db.query(PurchaseReceiptLine)

@@ -34,8 +34,8 @@ class SalesOrderLineInput(BaseModel):
     line_no: Optional[int] = None
     product_code: Optional[str] = None
     parchment_color: Optional[str] = None
-    rate_per_pc: Optional[float] = None
-    qty: float
+    rate_per_pc: Optional[float] = Field(default=None, ge=0)
+    qty: float = Field(..., gt=0)
     due_date: date
 
 
@@ -44,7 +44,7 @@ class SalesOrderCreate(BaseModel):
     po_number: Optional[str] = None
     po_date: Optional[date] = None
     notes: Optional[str] = None
-    lines: List[SalesOrderLineInput]
+    lines: List[SalesOrderLineInput] = Field(..., min_length=1)
 
 
 class SalesOrderUpdate(BaseModel):
@@ -57,17 +57,17 @@ class SalesOrderUpdate(BaseModel):
 
 
 class DispatchValidationPayload(BaseModel):
-    qty: float
+    qty: float = Field(..., gt=0)
     approved_spec_id: Optional[uuid.UUID] = None
 
 
 class RecordDispatchPayload(BaseModel):
-    qty: float
-    dispatch_line_ref: str
+    qty: float = Field(..., gt=0)
+    dispatch_line_ref: str = Field(..., min_length=1, max_length=100)
 
 
 class SalesOrderLineReleasePayload(BaseModel):
-    release_qty: float
+    release_qty: float = Field(..., gt=0)
     winder_machine_id: uuid.UUID
     product_code: Optional[str] = None
     release_lot_id: Optional[uuid.UUID] = None
@@ -79,7 +79,8 @@ class ReleaseLotJobCardSyncPayload(BaseModel):
 
 class ReleaseLotReallocatePayload(BaseModel):
     carry_forward_job_card_id: uuid.UUID
-    gap_qty: float
+    gap_qty: float = Field(..., gt=0)
+    release_lot_id: Optional[uuid.UUID] = None
 
 
 def carry_forward_lot_split(original_released_qty: float, gap_qty: float) -> tuple[float, float]:
@@ -133,6 +134,7 @@ class SalesOrderLineResponse(BaseModel):
     remaining_qty: float
     release_remaining_qty: float
     release_lots: List[SalesOrderReleaseLotResponse] = Field(default_factory=list)
+    dispatch_logs: List[dict] = Field(default_factory=list)
 
 
 class SalesOrderResponse(BaseModel):
@@ -225,6 +227,15 @@ def _serialize_line(line: SalesOrderLine) -> dict:
                 "created_at": lot.created_at,
             }
             for lot in sorted(release_lots, key=lambda lot: lot.created_at or datetime.min)
+        ],
+        "dispatch_logs": [
+            {
+                "id": str(log.id),
+                "dispatch_line_ref": log.dispatch_line_ref,
+                "qty": float(log.qty or 0.0),
+                "created_at": log.created_at,
+            }
+            for log in sorted(getattr(line, "dispatch_logs", []), key=lambda log: log.created_at or datetime.min)
         ],
     }
 
@@ -368,7 +379,10 @@ def list_sales_orders(
     current_user: dict = Depends(get_current_user),
 ):
     query = apply_plant_scope(
-        db.query(SalesOrder).options(joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots)),
+        db.query(SalesOrder).options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.dispatch_logs),
+        ),
         SalesOrder.plant_id,
         plant_scope,
     )
@@ -883,6 +897,31 @@ def reallocate_release_lot_carry_forward(
     lot shrinks to the produced portion and a new lot is minted for the gap, pointed
     at the top-up job card.
     """
+    requested_lot_id = payload.release_lot_id or uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        f"hariom:carry-release:{payload.carry_forward_job_card_id}",
+    )
+    existing = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.id == requested_lot_id).first()
+    if existing:
+        if existing.job_card_id != payload.carry_forward_job_card_id:
+            raise HTTPException(status_code=409, detail="Carry-forward release lot id belongs to another job card")
+        if abs(float(existing.released_qty or 0.0) - float(payload.gap_qty or 0.0)) > 0.0001:
+            raise HTTPException(status_code=409, detail="Carry-forward release lot was already used with a different quantity")
+        return {
+            "id": existing.id,
+            "order_id": existing.sales_order_id,
+            "line_id": existing.sales_order_line_id,
+            "release_lot_id": existing.id,
+            "release_qty": existing.released_qty,
+            "winder_machine_id": existing.winder_machine_id,
+            "product_code": existing.product_code,
+            "status": existing.status,
+            "job_card_id": existing.job_card_id,
+            "created_by": existing.released_by or "unknown",
+            "approved_by": existing.released_by_identity or existing.released_by,
+            "created_at": existing.created_at,
+        }
+
     original = (
         db.query(SalesOrderReleaseLot)
         .join(SalesOrderLine)
@@ -898,7 +937,7 @@ def reallocate_release_lot_carry_forward(
     original.released_qty = shrunk_qty
 
     new_lot = SalesOrderReleaseLot(
-        id=uuid.uuid4(),
+        id=requested_lot_id,
         sales_order_id=original.sales_order_id,
         sales_order_line_id=original.sales_order_line_id,
         product_code=original.product_code,
@@ -1073,13 +1112,14 @@ def record_dispatch_for_line(
     payload: RecordDispatchPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Dispatch"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "Dispatch"])),
 ):
     line = (
         db.query(SalesOrderLine)
         .join(SalesOrder)
         .options(joinedload(SalesOrderLine.sales_order), joinedload(SalesOrderLine.dispatch_logs))
         .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
+        .with_for_update()
         .first()
     )
     if not line:
