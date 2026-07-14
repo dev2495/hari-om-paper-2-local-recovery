@@ -438,23 +438,33 @@ def update_tool_option(
     ).first()
     if not row:
         raise HTTPException(status_code=404, detail="Tool option not found")
+    logical_rows = db.query(models.ToolAttributeOption).filter(
+        models.ToolAttributeOption.plant_id.in_(_plant_values(plant_id)),
+        models.ToolAttributeOption.category == row.category,
+        models.ToolAttributeOption.field_key == row.field_key,
+        models.ToolAttributeOption.value.ilike(row.value),
+    ).all()
+    if not logical_rows:
+        logical_rows = [row]
     if payload.value is not None:
         next_value = _normalize_text(payload.value) or row.value
-        duplicate = db.query(models.ToolAttributeOption).filter(
-            models.ToolAttributeOption.id != row.id,
-            models.ToolAttributeOption.plant_id.in_(_plant_values(plant_id)),
-            models.ToolAttributeOption.category == row.category,
-            models.ToolAttributeOption.field_key == row.field_key,
-            models.ToolAttributeOption.value.ilike(next_value),
-        ).first()
-        if duplicate and duplicate.id != row.id:
-            raise HTTPException(status_code=409, detail="This dropdown value already exists")
-        row.value = next_value
-    if payload.sort_order is not None:
-        row.sort_order = payload.sort_order
-    if payload.active is not None:
-        row.active = payload.active
-    row.updated_at = datetime.utcnow()
+        if next_value.casefold() != row.value.casefold():
+            duplicate = db.query(models.ToolAttributeOption).filter(
+                models.ToolAttributeOption.plant_id.in_(_plant_values(plant_id)),
+                models.ToolAttributeOption.category == row.category,
+                models.ToolAttributeOption.field_key == row.field_key,
+                models.ToolAttributeOption.value.ilike(next_value),
+            ).first()
+            if duplicate:
+                raise HTTPException(status_code=409, detail="This dropdown value already exists")
+        for logical_row in logical_rows:
+            logical_row.value = next_value
+    for logical_row in logical_rows:
+        if payload.sort_order is not None:
+            logical_row.sort_order = payload.sort_order
+        if payload.active is not None:
+            logical_row.active = payload.active
+        logical_row.updated_at = datetime.utcnow()
     db.commit()
     db.refresh(row)
     return row

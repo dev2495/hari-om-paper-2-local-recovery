@@ -18,6 +18,9 @@ class _ToolQuery:
     def first(self):
         return self._db.target
 
+    def all(self):
+        return self._db.option_rows
+
 
 class _ToolSession:
     """Small unit-test double for the repository calls used by tooling endpoints."""
@@ -26,6 +29,7 @@ class _ToolSession:
         self.tools = []
         self.logs = []
         self.target = None
+        self.option_rows = []
         self.commits = 0
 
     def add(self, record):
@@ -79,6 +83,38 @@ class ToolMasterContractTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as denied:
             checker({"roles": ["Operator"]})
         self.assertEqual(denied.exception.status_code, 403)
+
+    def test_option_updates_apply_to_legacy_plant_alias_rows(self):
+        first = models.ToolAttributeOption(
+            id=uuid.uuid4(),
+            category="NOTCH",
+            field_key="degree",
+            value="50",
+            plant_id="PLANT_A",
+            active=True,
+        )
+        alias = models.ToolAttributeOption(
+            id=uuid.uuid4(),
+            category="NOTCH",
+            field_key="degree",
+            value="50",
+            plant_id="00000000-0000-0000-0000-0000000000a1",
+            active=True,
+        )
+        self.db.target = first
+        self.db.option_rows = [first, alias]
+
+        updated = tool_router.update_tool_option(
+            first.id,
+            tool_router.ToolOptionUpdate(value="50", active=False),
+            db=self.db,
+            plant_id="PLANT_A",
+            current_user={"roles": ["Owner"]},
+        )
+
+        self.assertEqual(updated.value, "50")
+        self.assertFalse(first.active)
+        self.assertFalse(alias.active)
 
     def test_multiple_tools_can_be_created_and_edited_under_every_fixed_category(self):
         categories = ["NOTCH", "BLADE", "HOLDER", "V_FLAT", "PUNCH"]
