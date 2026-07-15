@@ -1915,6 +1915,8 @@ def _build_document_snapshot(
     raw_materials = dict(bom_snapshot.get("raw_materials") or {})
     expected_output = dict(bom_snapshot.get("expected_output") or {})
     weight_bridge = dict(bom_snapshot.get("weight_bridge") or {})
+    calculation_references = dict(bom_snapshot.get("calculation_references") or {})
+    weight_calculation = dict(calculation_references.get("weight_calculation") or {})
     parchment_snapshot = dict(raw_materials.get("parchment") or {})
     bamboo_snapshot = dict(raw_materials.get("bamboo") or {})
     adhesives_snapshot = dict(raw_materials.get("adhesives") or {})
@@ -1948,6 +1950,10 @@ def _build_document_snapshot(
         if tube_wet_weight_g is not None and pcs_per_bamboo
         else _snapshot_float(weight_bridge.get("bamboo_required_wet_g"))
     )
+    bamboo_trim_wet_weight_g = _snapshot_float(weight_bridge.get("bamboo_trim_wet_g"))
+    bamboo_trim_dry_weight_g = _snapshot_float(weight_bridge.get("bamboo_trim_dry_g"))
+    whole_bamboo_wet_weight_g = _snapshot_float(weight_bridge.get("whole_bamboo_wet_g"))
+    whole_bamboo_dry_weight_g = _snapshot_float(weight_bridge.get("whole_bamboo_dry_g"))
 
     return {
         "header": {
@@ -1992,6 +1998,10 @@ def _build_document_snapshot(
             "tube_wet_weight_g": tube_wet_weight_g,
             "bamboo_dry_weight_g": bamboo_dry_weight_g,
             "bamboo_wet_weight_g": bamboo_wet_weight_g,
+            "bamboo_trim_dry_weight_g": bamboo_trim_dry_weight_g,
+            "bamboo_trim_wet_weight_g": bamboo_trim_wet_weight_g,
+            "whole_bamboo_dry_weight_g": whole_bamboo_dry_weight_g,
+            "whole_bamboo_wet_weight_g": whole_bamboo_wet_weight_g,
             "weight_per_mm_g": _snapshot_float(weight_bridge.get("weight_per_mm_g")),
         },
         "client_spec": {
@@ -2024,6 +2034,10 @@ def _build_document_snapshot(
             "weight_per_mm_g": _snapshot_float(weight_bridge.get("weight_per_mm_g")),
             "bamboo_dry_weight_g": bamboo_dry_weight_g,
             "bamboo_wet_weight_g": bamboo_wet_weight_g,
+            "bamboo_trim_dry_weight_g": bamboo_trim_dry_weight_g,
+            "bamboo_trim_wet_weight_g": bamboo_trim_wet_weight_g,
+            "whole_bamboo_dry_weight_g": whole_bamboo_dry_weight_g,
+            "whole_bamboo_wet_weight_g": whole_bamboo_wet_weight_g,
             "trim_loss_mm": _snapshot_float(spec_snapshot.get("cut_loss_mm")) or _snapshot_float(yield_snapshot.get("cut_loss_mm")),
             "selected_bamboo_length_mm": selected_bamboo_length,
             "usable_length_mm": usable_length,
@@ -2078,22 +2092,17 @@ def _build_document_snapshot(
             "rows": recipe_rows,
             "adhesive_components": adhesive_components,
             "glue_base_percent": _snapshot_float(first_adhesive_component.get("base_percent")) or 15.0,
-            "adhesive_total_g": _snapshot_float(adhesives_snapshot.get("total_adhesive_weight_kg")) * 1000.0
-            if adhesives_snapshot.get("total_adhesive_weight_kg") is not None
-            else None,
-            "paper_total_g": _snapshot_float(raw_materials.get("total_input_weight_kg")) * 1000.0
-            - (_snapshot_float(adhesives_snapshot.get("total_adhesive_weight_kg")) * 1000.0 if adhesives_snapshot.get("total_adhesive_weight_kg") is not None else 0.0)
-            - (_snapshot_float(parchment_snapshot.get("weight_kg")) * 1000.0 if parchment_snapshot.get("weight_kg") is not None else 0.0)
-            if raw_materials.get("total_input_weight_kg") is not None
-            else None,
+            "adhesive_total_g": _snapshot_float(weight_calculation.get("adhesive_total_g")),
+            "paper_total_g": _snapshot_float(weight_calculation.get("paper_total_g"))
+            or _snapshot_float(weight_bridge.get("paper_required_g")),
             "parchment_percent": _snapshot_float(parchment_snapshot.get("addition_percent")) or _snapshot_float(spec_snapshot.get("parchment_percent")),
-            "parchment_weight_g": _snapshot_float(parchment_snapshot.get("weight_kg")) * 1000.0
-            if parchment_snapshot.get("weight_kg") is not None
-            else None,
+            "parchment_weight_g": _snapshot_float(weight_calculation.get("parchment_weight_g")),
             "drying_percent": shrink_percent,
             "predicted_dry_tube_g": _snapshot_float(weight_bridge.get("predicted_dry_tube_g")),
             "predicted_wet_tube_g": _snapshot_float(weight_bridge.get("predicted_wet_tube_g")),
             "bamboo_wet_weight_g": _snapshot_float(weight_bridge.get("bamboo_required_wet_g")),
+            "bamboo_trim_wet_weight_g": bamboo_trim_wet_weight_g,
+            "whole_bamboo_wet_weight_g": whole_bamboo_wet_weight_g,
             "weight_match_delta_g": _snapshot_float(weight_bridge.get("weight_match_delta_g")),
         },
         "winder_section": {

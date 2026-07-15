@@ -594,6 +594,28 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       recipeSummary?.bamboo_wet_weight_g ??
       0,
   )
+  const bambooTrimDryWeightG = Number(
+    manufacturingSpec?.bamboo_trim_dry_weight_g ??
+      documentSnapshot?.header?.bamboo_trim_dry_weight_g ??
+      0,
+  )
+  const bambooTrimWetWeightG = Number(
+    manufacturingSpec?.bamboo_trim_wet_weight_g ??
+      documentSnapshot?.header?.bamboo_trim_wet_weight_g ??
+      recipeSummary?.bamboo_trim_wet_weight_g ??
+      0,
+  )
+  const wholeBambooDryWeightG = Number(
+    manufacturingSpec?.whole_bamboo_dry_weight_g ??
+      documentSnapshot?.header?.whole_bamboo_dry_weight_g ??
+      bambooDryWeightG + bambooTrimDryWeightG,
+  )
+  const wholeBambooWetWeightG = Number(
+    manufacturingSpec?.whole_bamboo_wet_weight_g ??
+      documentSnapshot?.header?.whole_bamboo_wet_weight_g ??
+      recipeSummary?.whole_bamboo_wet_weight_g ??
+      bambooWetWeightG + bambooTrimWetWeightG,
+  )
   const weightPerMmG = Number(
     manufacturingSpec?.weight_per_mm_g ??
       documentSnapshot?.header?.weight_per_mm_g ??
@@ -1177,9 +1199,21 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Bamboo Dry / Wet</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Finished Tubes Dry / Wet</div>
                       <div className="mt-1 font-semibold text-slate-900">
                         {formatNumber(bambooDryWeightG)} / {formatNumber(bambooWetWeightG)} g
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Trim Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-slate-900">
+                        {formatNumber(bambooTrimDryWeightG)} / {formatNumber(bambooTrimWetWeightG)} g
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Whole Bamboo Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-slate-900">
+                        {formatNumber(wholeBambooDryWeightG)} / {formatNumber(wholeBambooWetWeightG)} g
                       </div>
                     </div>
                   </div>

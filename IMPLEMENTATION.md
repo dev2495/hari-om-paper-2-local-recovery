@@ -801,3 +801,11 @@ Pick by `(tubes desc, waste asc, length desc)`.
   - runtime smoke passed `35/35`.
   - targeted API probes confirmed audit events `200`, tolerance settings `200`, missing concrete plant dated write `422`, and unauthorized plant request `403`.
   - opening-stock smoke posted `OPEN-SMOKE-20260525114548-65F6`; report `reports/opening_stock_live_smoke_20260525_114548.md`.
+
+### 2026-07-15 · Finished-tube and trim weight reconciliation
+- Defined tube weight as finished-goods weight after trimming; trim/offcut is never included in per-tube FG weight.
+- Selected paper GSM, bulk, and ply order continue to define the wall geometry and relative paper distribution. The finished recipe allocates those proportions to the exact paper mass remaining after the standard adhesive and parchment additions.
+- The specification preview now exposes the nominal geometric paper mass and allocation factor as an audit bridge, so users can see why a nominal recipe may differ from the client target without confusing it with finished weight.
+- Added a complete bamboo bridge: finished tubes + fixed end trim + residual offcut = whole wound bamboo. BOM consumption uses the whole bamboo; finished output uses finished tubes only.
+- Propagated separate finished, trim, and whole-bamboo wet/dry weights into BOM snapshots and production job-card documents.
+- Added matching Python and TypeScript regression coverage for target reconciliation and trim separation.

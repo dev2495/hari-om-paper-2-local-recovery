@@ -53,6 +53,10 @@ export type BambooPlan = {
   tubes_per_bamboo: number
   trim_waste_mm: number
   usable_length_mm: number
+  finished_length_mm: number
+  fixed_end_trim_mm: number
+  residual_offcut_mm: number
+  total_trim_mm: number
 }
 
 export type RecipeValidation = {
@@ -74,11 +78,17 @@ export type PreviewResult = {
   per_ply_thickness_mm: number[]
   per_ply_avg_dia_mm: number[]
   per_ply_weight_per_mm_g: number[]
+  target_per_ply_weight_per_mm_g: number[]
   paper_weight_per_mm_g: number
+  target_paper_weight_per_mm_g: number
   tube: WeightBreakdown
+  nominal_tube: WeightBreakdown
   bamboo: WeightBreakdown
+  bamboo_trim: WeightBreakdown
+  whole_bamboo: WeightBreakdown
   bamboo_plan: BambooPlan
   paper_required_g: number
+  paper_calibration_factor: number
   validation: RecipeValidation
 }
 
@@ -180,6 +190,17 @@ export function wetDryBreakdown(
   }
 }
 
+export function scaleBreakdown(breakdown: WeightBreakdown, factor: number): WeightBreakdown {
+  const scale = Math.max(Number.isFinite(factor) ? factor : 0, 0)
+  return {
+    paper_g: round4(breakdown.paper_g * scale),
+    adhesive_g: round4(breakdown.adhesive_g * scale),
+    parchment_g: round4(breakdown.parchment_g * scale),
+    wet_g: round4(breakdown.wet_g * scale),
+    dry_g: round4(breakdown.dry_g * scale),
+  }
+}
+
 export function requiredPaperG(
   targetDryG: number,
   opts?: {
@@ -229,6 +250,10 @@ export function buildBambooPlan(
       tubes_per_bamboo: tubes,
       trim_waste_mm: waste,
       usable_length_mm: usable,
+      finished_length_mm: tubes * tubeLen,
+      fixed_end_trim_mm: Math.min(Math.max(cut, 0), L),
+      residual_offcut_mm: waste,
+      total_trim_mm: Math.max(L - tubes * tubeLen, 0),
     }
     if (!best) {
       best = candidate
@@ -295,24 +320,13 @@ export function computePreview(opts: PreviewOptions): PreviewResult {
   const paper_wpm = per_ply_wpm.reduce((a, b) => a + b, 0)
   const od_mm = id_mm + 2 * wall_mm
 
-  const tube_paper_g = paper_wpm * tube_length_mm
-  const tube = wetDryBreakdown(tube_paper_g, {
+  const nominal_tube_paper_g = paper_wpm * tube_length_mm
+  const nominal_tube = wetDryBreakdown(nominal_tube_paper_g, {
     adhesive_percent,
     parchment_percent,
     moisture_loss_percent,
     parchment_allowed,
     target_dry_g: opts.target_dry_g,
-  })
-
-  const plan = buildBambooPlan(tube_length_mm || 1)
-  const bamboo_paper_g = paper_wpm * plan.usable_length_mm
-  const bambooTargetDryG = (opts.target_dry_g || 0) * Math.max(plan.tubes_per_bamboo || 0, 0)
-  const bamboo = wetDryBreakdown(bamboo_paper_g, {
-    adhesive_percent,
-    parchment_percent,
-    moisture_loss_percent,
-    parchment_allowed,
-    target_dry_g: bambooTargetDryG,
   })
 
   const required = requiredPaperG(opts.target_dry_g, {
@@ -321,6 +335,26 @@ export function computePreview(opts: PreviewOptions): PreviewResult {
     moisture_loss_percent,
     parchment_allowed,
   })
+  const has_recipe = nominal_tube_paper_g > 0 && expanded.length > 0
+  const allocated_tube_paper_g = has_recipe && opts.target_dry_g > 0 ? required : nominal_tube_paper_g
+  const paper_calibration_factor = nominal_tube_paper_g > 0 ? allocated_tube_paper_g / nominal_tube_paper_g : 0
+  const target_per_ply_wpm = per_ply_wpm.map((weight) => weight * paper_calibration_factor)
+  const target_paper_wpm = target_per_ply_wpm.reduce((sum, weight) => sum + weight, 0)
+  const tube = has_recipe
+    ? wetDryBreakdown(allocated_tube_paper_g, {
+        adhesive_percent,
+        parchment_percent,
+        moisture_loss_percent,
+        parchment_allowed,
+        target_dry_g: opts.target_dry_g,
+      })
+    : { paper_g: 0, adhesive_g: 0, parchment_g: 0, wet_g: 0, dry_g: 0 }
+
+  const plan = buildBambooPlan(tube_length_mm || 1)
+  const tube_basis_mm = Math.max(tube_length_mm, 1)
+  const bamboo = scaleBreakdown(tube, plan.tubes_per_bamboo)
+  const bamboo_trim = scaleBreakdown(tube, plan.total_trim_mm / tube_basis_mm)
+  const whole_bamboo = scaleBreakdown(tube, plan.bamboo_length_mm / tube_basis_mm)
 
   const validation = validateRecipe(opts.papers, opts.target_dry_g || 0, tube.dry_g)
 
@@ -332,11 +366,17 @@ export function computePreview(opts: PreviewOptions): PreviewResult {
     per_ply_thickness_mm: thicknesses.map(round4),
     per_ply_avg_dia_mm: avg_dias.map(round4),
     per_ply_weight_per_mm_g: per_ply_wpm.map(round6),
+    target_per_ply_weight_per_mm_g: target_per_ply_wpm.map(round6),
     paper_weight_per_mm_g: round6(paper_wpm),
+    target_paper_weight_per_mm_g: round6(target_paper_wpm),
     tube,
+    nominal_tube,
     bamboo,
+    bamboo_trim,
+    whole_bamboo,
     bamboo_plan: plan,
     paper_required_g: required,
+    paper_calibration_factor: round6(paper_calibration_factor),
     validation,
   }
 }

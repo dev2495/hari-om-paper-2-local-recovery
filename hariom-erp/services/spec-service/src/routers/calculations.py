@@ -175,7 +175,8 @@ def calculate_preview(
     ply_details = []
     for row in payload.recipe_rows:
         row_ply_count = max(int(row.ply_count or 1), 1)
-        row_weight_per_mm = sum(preview.per_ply_weight_per_mm_g[ply_cursor: ply_cursor + row_ply_count])
+        row_nominal_weight_per_mm = sum(preview.per_ply_weight_per_mm_g[ply_cursor: ply_cursor + row_ply_count])
+        row_target_weight_per_mm = sum(preview.target_per_ply_weight_per_mm_g[ply_cursor: ply_cursor + row_ply_count])
         ply_cursor += row_ply_count
         ply_details.append(
             {
@@ -184,7 +185,8 @@ def calculate_preview(
                 "variety": row.variety,
                 "gsm": row.gsm,
                 "ply_count": row_ply_count,
-                "weightG": round(row_weight_per_mm * float(payload.tube_length_mm or 0.0), 2),
+                "weightG": round(row_target_weight_per_mm * float(payload.tube_length_mm or 0.0), 2),
+                "nominalWeightG": round(row_nominal_weight_per_mm * float(payload.tube_length_mm or 0.0), 2),
             }
         )
 
@@ -194,6 +196,8 @@ def calculate_preview(
     return {
         "summary": {
             "paper_total_g": round(preview.tube.paper_g, 2),
+            "nominal_paper_total_g": round(preview.nominal_tube.paper_g, 2),
+            "paper_calibration_factor": round(preview.paper_calibration_factor, 6),
             "parchment_weight_g": round(preview.tube.parchment_g, 2),
             "adhesive_total_g": round(preview.tube.adhesive_g, 2),
             "adhesive_components": adhesive_components,
@@ -202,6 +206,9 @@ def calculate_preview(
             "pre_moisture_target_tube_g": round(pre_moisture_target, 2),
             "predicted_dry_tube_g": round(preview.tube.dry_g, 2),
             "predicted_wet_tube_g": round(preview.tube.wet_g, 2),
+            "nominal_wet_tube_g": round(preview.nominal_tube.wet_g, 2),
+            "nominal_dry_tube_g": round(preview.nominal_tube.dry_g, 2),
+            "nominal_paper_delta_g": round(preview.nominal_tube.paper_g - preview.paper_required_g, 2),
             "dry_delta_g": round(preview.validation.delta_g, 2),
             "wet_delta_g": round(preview.tube.wet_g - pre_moisture_target, 2),
             "weight_per_mm_g": round(preview.tube.wet_g / max(float(payload.tube_length_mm or 0.0), 1.0), 4),
@@ -209,8 +216,18 @@ def calculate_preview(
             "bamboo_required_wet_g": round(preview.bamboo.wet_g, 2),
             "bamboo_required_dry_g": round(preview.bamboo.dry_g, 2),
             "bamboo_required_paper_g": round(preview.bamboo.paper_g, 2),
+            "bamboo_trim_wet_g": round(preview.bamboo_trim.wet_g, 2),
+            "bamboo_trim_dry_g": round(preview.bamboo_trim.dry_g, 2),
+            "bamboo_trim_paper_g": round(preview.bamboo_trim.paper_g, 2),
+            "whole_bamboo_wet_g": round(preview.whole_bamboo.wet_g, 2),
+            "whole_bamboo_dry_g": round(preview.whole_bamboo.dry_g, 2),
+            "whole_bamboo_paper_g": round(preview.whole_bamboo.paper_g, 2),
             "selected_bamboo_length_mm": preview.bamboo_plan.bamboo_length_mm,
             "usable_length_mm": preview.bamboo_plan.usable_length_mm,
+            "finished_length_mm": preview.bamboo_plan.finished_length_mm,
+            "fixed_end_trim_mm": preview.bamboo_plan.fixed_end_trim_mm,
+            "residual_offcut_mm": preview.bamboo_plan.residual_offcut_mm,
+            "total_trim_mm": preview.bamboo_plan.total_trim_mm,
             "tube_length_mm": float(payload.tube_length_mm or 0.0),
             "tubes_per_bamboo": preview.bamboo_plan.tubes_per_bamboo,
             "ply_details": ply_details,

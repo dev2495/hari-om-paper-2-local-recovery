@@ -292,6 +292,36 @@ def test_compute_preview_respects_custom_globals():
     assert p.tube.dry_g == pytest.approx(p.tube.wet_g * 0.90, rel=1e-4)
 
 
+def test_finished_tube_reconciles_target_and_trim_stays_separate():
+    p = compute_preview(
+        mandrel_od_mm=80.0,
+        tube_length_mm=120.0,
+        papers=[
+            RecipePaper("230", 230, 1.30, 3),
+            RecipePaper("301", 301, 1.40, 1),
+            RecipePaper("355", 355, 1.40, 5),
+            RecipePaper("351", 351, 1.45, 5),
+        ],
+        target_dry_g=230.0,
+    )
+
+    assert p.paper_required_g == pytest.approx(214.7973, abs=1e-4)
+    assert p.tube.paper_g == pytest.approx(p.paper_required_g, abs=1e-4)
+    assert p.tube.wet_g == pytest.approx(230.0 / 0.91, abs=1e-4)
+    assert p.tube.dry_g == pytest.approx(230.0, abs=1e-4)
+    assert p.validation.delta_g == pytest.approx(0.0, abs=1e-4)
+    assert sum(p.target_per_ply_weight_per_mm_g) * 120.0 == pytest.approx(p.paper_required_g, rel=1e-5)
+
+    assert p.bamboo_plan.bamboo_length_mm == 1480
+    assert p.bamboo_plan.finished_length_mm == 1440
+    assert p.bamboo_plan.fixed_end_trim_mm == 40
+    assert p.bamboo_plan.residual_offcut_mm == 0
+    assert p.bamboo_plan.total_trim_mm == 40
+    assert p.bamboo.wet_g == pytest.approx(p.tube.wet_g * 12, abs=1e-3)
+    assert p.bamboo_trim.wet_g == pytest.approx(p.tube.wet_g * 40 / 120, abs=1e-3)
+    assert p.whole_bamboo.wet_g == pytest.approx(p.bamboo.wet_g + p.bamboo_trim.wet_g, abs=1e-3)
+
+
 # ----- constants sanity -------------------------------------------------------
 
 def test_defaults_match_workbook():

@@ -319,6 +319,36 @@ test('computePreview respects custom globals', () => {
   approx(p.tube.dry_g, p.tube.wet_g * 0.9, 1e-3)
 })
 
+test('finished tube reconciles target and trim stays separate', () => {
+  const p = computePreview({
+    mandrel_od_mm: 80,
+    tube_length_mm: 120,
+    papers: [
+      { paper_id: '230', gsm: 230, bulk: 1.3, ply_count: 3 },
+      { paper_id: '301', gsm: 301, bulk: 1.4, ply_count: 1 },
+      { paper_id: '355', gsm: 355, bulk: 1.4, ply_count: 5 },
+      { paper_id: '351', gsm: 351, bulk: 1.45, ply_count: 5 },
+    ],
+    target_dry_g: 230,
+  })
+
+  approx(p.paper_required_g, 214.7973, 1e-4)
+  approx(p.tube.paper_g, p.paper_required_g, 1e-4)
+  approx(p.tube.wet_g, 230 / 0.91, 1e-4)
+  approx(p.tube.dry_g, 230, 1e-4)
+  approx(p.validation.delta_g, 0, 1e-4)
+  approx(p.target_per_ply_weight_per_mm_g.reduce((sum, value) => sum + value, 0) * 120, p.paper_required_g, 1e-3)
+
+  assert.equal(p.bamboo_plan.bamboo_length_mm, 1480)
+  assert.equal(p.bamboo_plan.finished_length_mm, 1440)
+  assert.equal(p.bamboo_plan.fixed_end_trim_mm, 40)
+  assert.equal(p.bamboo_plan.residual_offcut_mm, 0)
+  assert.equal(p.bamboo_plan.total_trim_mm, 40)
+  approx(p.bamboo.wet_g, p.tube.wet_g * 12, 1e-3)
+  approx(p.bamboo_trim.wet_g, p.tube.wet_g * 40 / 120, 1e-3)
+  approx(p.whole_bamboo.wet_g, p.bamboo.wet_g + p.bamboo_trim.wet_g, 1e-3)
+})
+
 // ----- report ----------------------------------------------------------------
 
 console.log(`PASS ${passed.length}/${passed.length + failed.length}`)

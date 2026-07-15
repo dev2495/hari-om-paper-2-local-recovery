@@ -65,6 +65,10 @@ class BambooPlan:
     tubes_per_bamboo: int
     trim_waste_mm: int
     usable_length_mm: int
+    finished_length_mm: int
+    fixed_end_trim_mm: int
+    residual_offcut_mm: int
+    total_trim_mm: int
 
 
 @dataclass(frozen=True)
@@ -90,11 +94,17 @@ class PreviewResult:
     per_ply_thickness_mm: List[float]
     per_ply_avg_dia_mm: List[float]
     per_ply_weight_per_mm_g: List[float]
+    target_per_ply_weight_per_mm_g: List[float]
     paper_weight_per_mm_g: float
+    target_paper_weight_per_mm_g: float
     tube: WeightBreakdown
+    nominal_tube: WeightBreakdown
     bamboo: WeightBreakdown
+    bamboo_trim: WeightBreakdown
+    whole_bamboo: WeightBreakdown
     bamboo_plan: BambooPlan
     paper_required_g: float
+    paper_calibration_factor: float
     validation: RecipeValidation
 
 
@@ -202,6 +212,18 @@ def wet_dry_breakdown(
     )
 
 
+def scale_breakdown(breakdown: WeightBreakdown, factor: float) -> WeightBreakdown:
+    """Scale one finished-tube breakdown to another length/count basis."""
+    scale = max(float(factor or 0.0), 0.0)
+    return WeightBreakdown(
+        paper_g=round(breakdown.paper_g * scale, 4),
+        adhesive_g=round(breakdown.adhesive_g * scale, 4),
+        parchment_g=round(breakdown.parchment_g * scale, 4),
+        wet_g=round(breakdown.wet_g * scale, 4),
+        dry_g=round(breakdown.dry_g * scale, 4),
+    )
+
+
 def required_paper_g(
     target_dry_g: float,
     *,
@@ -244,6 +266,10 @@ def build_bamboo_plan(
             tubes_per_bamboo=tubes,
             trim_waste_mm=waste,
             usable_length_mm=usable,
+            finished_length_mm=tubes * tube_len,
+            fixed_end_trim_mm=min(max(cut_loss_mm, 0), L),
+            residual_offcut_mm=waste,
+            total_trim_mm=max(L - tubes * tube_len, 0),
         )
         if best is None:
             best = candidate
@@ -310,26 +336,14 @@ def compute_preview(
     paper_wpm = sum(per_ply_wpm)
     od_mm = id_mm + 2.0 * wall
 
-    tube_paper_g = paper_wpm * tube_len
-    tube = wet_dry_breakdown(
-        tube_paper_g,
+    nominal_tube_paper_g = paper_wpm * tube_len
+    nominal_tube = wet_dry_breakdown(
+        nominal_tube_paper_g,
         adhesive_percent=adhesive_percent,
         parchment_percent=parchment_percent,
         moisture_loss_percent=moisture_loss_percent,
         parchment_allowed=parchment_allowed,
         target_dry_g=target_dry_g,
-    )
-
-    plan = build_bamboo_plan(tube_len if tube_len else 1.0)
-    bamboo_paper_g = paper_wpm * plan.usable_length_mm
-    bamboo_target_dry_g = float(target_dry_g or 0.0) * max(int(plan.tubes_per_bamboo or 0), 0)
-    bamboo = wet_dry_breakdown(
-        bamboo_paper_g,
-        adhesive_percent=adhesive_percent,
-        parchment_percent=parchment_percent,
-        moisture_loss_percent=moisture_loss_percent,
-        parchment_allowed=parchment_allowed,
-        target_dry_g=bamboo_target_dry_g,
     )
 
     required = required_paper_g(
@@ -339,6 +353,31 @@ def compute_preview(
         moisture_loss_percent=moisture_loss_percent,
         parchment_allowed=parchment_allowed,
     )
+    has_recipe = nominal_tube_paper_g > 0 and len(expanded) > 0
+    allocated_tube_paper_g = required if has_recipe and float(target_dry_g or 0.0) > 0 else nominal_tube_paper_g
+    paper_calibration_factor = (
+        allocated_tube_paper_g / nominal_tube_paper_g if nominal_tube_paper_g > 0 else 0.0
+    )
+    target_per_ply_wpm = [w * paper_calibration_factor for w in per_ply_wpm]
+    target_paper_wpm = sum(target_per_ply_wpm)
+    tube = (
+        wet_dry_breakdown(
+            allocated_tube_paper_g,
+            adhesive_percent=adhesive_percent,
+            parchment_percent=parchment_percent,
+            moisture_loss_percent=moisture_loss_percent,
+            parchment_allowed=parchment_allowed,
+            target_dry_g=target_dry_g,
+        )
+        if has_recipe
+        else WeightBreakdown(0.0, 0.0, 0.0, 0.0, 0.0)
+    )
+
+    plan = build_bamboo_plan(tube_len if tube_len else 1.0)
+    tube_basis_mm = max(tube_len, 1.0)
+    bamboo = scale_breakdown(tube, plan.tubes_per_bamboo)
+    bamboo_trim = scale_breakdown(tube, plan.total_trim_mm / tube_basis_mm)
+    whole_bamboo = scale_breakdown(tube, plan.bamboo_length_mm / tube_basis_mm)
 
     validation = validate_recipe(papers, target_dry_g or 0.0, tube.dry_g)
 
@@ -349,11 +388,17 @@ def compute_preview(
         per_ply_thickness_mm=[round(t, 4) for t in thicknesses],
         per_ply_avg_dia_mm=[round(d, 4) for d in avg_dias],
         per_ply_weight_per_mm_g=[round(w, 6) for w in per_ply_wpm],
+        target_per_ply_weight_per_mm_g=[round(w, 6) for w in target_per_ply_wpm],
         paper_weight_per_mm_g=round(paper_wpm, 6),
+        target_paper_weight_per_mm_g=round(target_paper_wpm, 6),
         tube=tube,
+        nominal_tube=nominal_tube,
         bamboo=bamboo,
+        bamboo_trim=bamboo_trim,
+        whole_bamboo=whole_bamboo,
         bamboo_plan=plan,
         paper_required_g=required,
+        paper_calibration_factor=round(paper_calibration_factor, 6),
         validation=validation,
     )
 
@@ -371,13 +416,22 @@ def preview_to_dict(p: PreviewResult) -> dict:
         "per_ply_thickness_mm": p.per_ply_thickness_mm,
         "per_ply_avg_dia_mm": p.per_ply_avg_dia_mm,
         "per_ply_weight_per_mm_g": p.per_ply_weight_per_mm_g,
+        "target_per_ply_weight_per_mm_g": p.target_per_ply_weight_per_mm_g,
         "paper_weight_per_mm_g": p.paper_weight_per_mm_g,
+        "target_paper_weight_per_mm_g": p.target_paper_weight_per_mm_g,
         "tube": {
             "paper_g": p.tube.paper_g,
             "adhesive_g": p.tube.adhesive_g,
             "parchment_g": p.tube.parchment_g,
             "wet_g": p.tube.wet_g,
             "dry_g": p.tube.dry_g,
+        },
+        "nominal_tube": {
+            "paper_g": p.nominal_tube.paper_g,
+            "adhesive_g": p.nominal_tube.adhesive_g,
+            "parchment_g": p.nominal_tube.parchment_g,
+            "wet_g": p.nominal_tube.wet_g,
+            "dry_g": p.nominal_tube.dry_g,
         },
         "bamboo": {
             "paper_g": p.bamboo.paper_g,
@@ -386,13 +440,32 @@ def preview_to_dict(p: PreviewResult) -> dict:
             "wet_g": p.bamboo.wet_g,
             "dry_g": p.bamboo.dry_g,
         },
+        "bamboo_trim": {
+            "paper_g": p.bamboo_trim.paper_g,
+            "adhesive_g": p.bamboo_trim.adhesive_g,
+            "parchment_g": p.bamboo_trim.parchment_g,
+            "wet_g": p.bamboo_trim.wet_g,
+            "dry_g": p.bamboo_trim.dry_g,
+        },
+        "whole_bamboo": {
+            "paper_g": p.whole_bamboo.paper_g,
+            "adhesive_g": p.whole_bamboo.adhesive_g,
+            "parchment_g": p.whole_bamboo.parchment_g,
+            "wet_g": p.whole_bamboo.wet_g,
+            "dry_g": p.whole_bamboo.dry_g,
+        },
         "bamboo_plan": {
             "bamboo_length_mm": p.bamboo_plan.bamboo_length_mm,
             "tubes_per_bamboo": p.bamboo_plan.tubes_per_bamboo,
             "trim_waste_mm": p.bamboo_plan.trim_waste_mm,
             "usable_length_mm": p.bamboo_plan.usable_length_mm,
+            "finished_length_mm": p.bamboo_plan.finished_length_mm,
+            "fixed_end_trim_mm": p.bamboo_plan.fixed_end_trim_mm,
+            "residual_offcut_mm": p.bamboo_plan.residual_offcut_mm,
+            "total_trim_mm": p.bamboo_plan.total_trim_mm,
         },
         "paper_required_g": p.paper_required_g,
+        "paper_calibration_factor": p.paper_calibration_factor,
         "validation": {
             "distinct_papers": p.validation.distinct_papers,
             "total_plies": p.validation.total_plies,

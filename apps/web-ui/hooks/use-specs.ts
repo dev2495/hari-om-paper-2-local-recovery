@@ -129,7 +129,10 @@ function buildPreviewSummaryFallback(payload: {
   let plyCursor = 0
   const plyDetails = recipeRows.map((row: any) => {
     const rowPlyCount = Math.max(1, Number(row.ply_count || 1))
-    const rowWeightPerMm = preview.per_ply_weight_per_mm_g
+    const rowNominalWeightPerMm = preview.per_ply_weight_per_mm_g
+      .slice(plyCursor, plyCursor + rowPlyCount)
+      .reduce((sum, value) => sum + Number(value || 0), 0)
+    const rowTargetWeightPerMm = preview.target_per_ply_weight_per_mm_g
       .slice(plyCursor, plyCursor + rowPlyCount)
       .reduce((sum, value) => sum + Number(value || 0), 0)
     plyCursor += rowPlyCount
@@ -139,7 +142,8 @@ function buildPreviewSummaryFallback(payload: {
       variety: row.variety,
       gsm: row.gsm,
       ply_count: rowPlyCount,
-      weightG: roundValue(rowWeightPerMm * tubeLengthMm, 2),
+      weightG: roundValue(rowTargetWeightPerMm * tubeLengthMm, 2),
+      nominalWeightG: roundValue(rowNominalWeightPerMm * tubeLengthMm, 2),
     }
   })
 
@@ -158,6 +162,8 @@ function buildPreviewSummaryFallback(payload: {
 
   return {
     paper_total_g: roundValue(preview.tube.paper_g, 2),
+    nominal_paper_total_g: roundValue(preview.nominal_tube.paper_g, 2),
+    paper_calibration_factor: roundValue(preview.paper_calibration_factor, 6),
     parchment_weight_g: roundValue(preview.tube.parchment_g, 2),
     adhesive_total_g: roundValue(preview.tube.adhesive_g, 2),
     adhesive_components: adhesiveComponents,
@@ -166,6 +172,9 @@ function buildPreviewSummaryFallback(payload: {
     pre_moisture_target_tube_g: roundValue(targetDryWeightG / Math.max(1 - dryingPercent / 100, 0.01), 2),
     predicted_dry_tube_g: roundValue(preview.tube.dry_g, 2),
     predicted_wet_tube_g: roundValue(preview.tube.wet_g, 2),
+    nominal_wet_tube_g: roundValue(preview.nominal_tube.wet_g, 2),
+    nominal_dry_tube_g: roundValue(preview.nominal_tube.dry_g, 2),
+    nominal_paper_delta_g: roundValue(preview.nominal_tube.paper_g - preview.paper_required_g, 2),
     dry_delta_g: roundValue(preview.validation.delta_g, 2),
     wet_delta_g: roundValue(preview.tube.wet_g - targetDryWeightG / Math.max(1 - dryingPercent / 100, 0.01), 2),
     weight_per_mm_g: roundValue(preview.tube.wet_g / Math.max(tubeLengthMm, 1), 4),
@@ -173,8 +182,18 @@ function buildPreviewSummaryFallback(payload: {
     bamboo_required_wet_g: roundValue(preview.bamboo.wet_g, 2),
     bamboo_required_dry_g: roundValue(preview.bamboo.dry_g, 2),
     bamboo_required_paper_g: roundValue(preview.bamboo.paper_g, 2),
+    bamboo_trim_wet_g: roundValue(preview.bamboo_trim.wet_g, 2),
+    bamboo_trim_dry_g: roundValue(preview.bamboo_trim.dry_g, 2),
+    bamboo_trim_paper_g: roundValue(preview.bamboo_trim.paper_g, 2),
+    whole_bamboo_wet_g: roundValue(preview.whole_bamboo.wet_g, 2),
+    whole_bamboo_dry_g: roundValue(preview.whole_bamboo.dry_g, 2),
+    whole_bamboo_paper_g: roundValue(preview.whole_bamboo.paper_g, 2),
     selected_bamboo_length_mm: Number(preview.bamboo_plan.bamboo_length_mm || 0),
     usable_length_mm: Number(preview.bamboo_plan.usable_length_mm || 0),
+    finished_length_mm: Number(preview.bamboo_plan.finished_length_mm || 0),
+    fixed_end_trim_mm: Number(preview.bamboo_plan.fixed_end_trim_mm || 0),
+    residual_offcut_mm: Number(preview.bamboo_plan.residual_offcut_mm || 0),
+    total_trim_mm: Number(preview.bamboo_plan.total_trim_mm || 0),
     tube_length_mm: tubeLengthMm,
     tubes_per_bamboo: Number(preview.bamboo_plan.tubes_per_bamboo || 0),
     ply_details: plyDetails,

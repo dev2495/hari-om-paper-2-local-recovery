@@ -37,27 +37,17 @@ def _effective_bulk(value: Any) -> float:
 
 
 def _recipe_to_papers(recipe: RecipeHeader) -> list[spec_math.RecipePaper]:
-    grouped: dict[str, dict[str, Any]] = {}
-    ordered_keys: list[str] = []
-    for layer in sorted(recipe.layers, key=lambda r: (r.ply_no or 0)):
-        key = str(layer.paper_id)
-        if key not in grouped:
-            grouped[key] = {
-                "paper_id": key,
-                "gsm": float(layer.gsm_snapshot or 0.0),
-                "bulk": _effective_bulk(layer.bulk_snapshot),
-                "ply_count": 0,
-            }
-            ordered_keys.append(key)
-        grouped[key]["ply_count"] += 1
+    # Preserve the stored inner-to-outer ply order. Grouping by paper identity
+    # changes circumference (and therefore nominal mass) when a paper is reused
+    # in non-contiguous positions.
     return [
         spec_math.RecipePaper(
-            paper_id=grouped[k]["paper_id"],
-            gsm=grouped[k]["gsm"],
-            bulk=grouped[k]["bulk"],
-            ply_count=grouped[k]["ply_count"],
+            paper_id=str(layer.paper_id),
+            gsm=float(layer.gsm_snapshot or 0.0),
+            bulk=_effective_bulk(layer.bulk_snapshot),
+            ply_count=1,
         )
-        for k in ordered_keys
+        for layer in sorted(recipe.layers, key=lambda row: (row.ply_no or 0))
     ]
 
 
@@ -91,6 +81,8 @@ def calculate_weights(recipe_id: str, db: Session, *, tube_length_mm: float | No
         "paper_gsm_total": sum(p.gsm * p.ply_count for p in papers),
         "paper_required_g": preview.paper_required_g,
         "estimated_paper_weight_g": preview.tube.paper_g,
+        "nominal_paper_weight_g": preview.nominal_tube.paper_g,
+        "paper_calibration_factor": preview.paper_calibration_factor,
         "estimated_parchment_weight_g": preview.tube.parchment_g,
         "estimated_adhesive_weight_g": preview.tube.adhesive_g,
         "estimated_wet_weight_g": preview.tube.wet_g,
@@ -110,6 +102,10 @@ def calculate_yield(spec_id: str, tube_length_mm: int, db: Session) -> dict[str,
         "tube_length_mm": int(tube_length_mm or 0),
         "tubes_per_bamboo": plan.tubes_per_bamboo,
         "trim_waste_mm": plan.trim_waste_mm,
+        "finished_length_mm": plan.finished_length_mm,
+        "fixed_end_trim_mm": plan.fixed_end_trim_mm,
+        "residual_offcut_mm": plan.residual_offcut_mm,
+        "total_trim_mm": plan.total_trim_mm,
     }
 
 
@@ -158,15 +154,33 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
         "bamboo_required_wet_g": preview.bamboo.wet_g,
         "bamboo_required_dry_g": preview.bamboo.dry_g,
         "bamboo_required_paper_g": preview.bamboo.paper_g,
+        "bamboo_trim_wet_g": preview.bamboo_trim.wet_g,
+        "bamboo_trim_dry_g": preview.bamboo_trim.dry_g,
+        "bamboo_trim_paper_g": preview.bamboo_trim.paper_g,
+        "whole_bamboo_wet_g": preview.whole_bamboo.wet_g,
+        "whole_bamboo_dry_g": preview.whole_bamboo.dry_g,
+        "whole_bamboo_paper_g": preview.whole_bamboo.paper_g,
+        "nominal_paper_total_g": preview.nominal_tube.paper_g,
+        "paper_calibration_factor": preview.paper_calibration_factor,
     }
-    total_gsm_plies = sum(float(row["gsm_snapshot"] or 0.0) * int(row["ply_count"] or 0) for row in grouped_layers.values())
-    paper_rows = []
-    for row in grouped_layers.values():
-        share = (
-            float(row["gsm_snapshot"] or 0.0) * int(row["ply_count"] or 0) / total_gsm_plies
-            if total_gsm_plies > 0
-            else 0.0
+    target_paper_by_group: dict[tuple[str, float, float, float], float] = defaultdict(float)
+    for layer, target_weight_per_mm in zip(
+        sorted(recipe.layers, key=lambda row: (row.ply_no or 0)),
+        preview.target_per_ply_weight_per_mm_g,
+    ):
+        effective_bulk = _effective_bulk(layer.bulk_snapshot)
+        key = (
+            str(layer.paper_id),
+            float(layer.gsm_snapshot or 0.0),
+            float(layer.bf_snapshot or 0.0),
+            effective_bulk,
         )
+        target_paper_by_group[key] += float(target_weight_per_mm or 0.0) * float(tube_length_mm or 0.0)
+
+    paper_rows = []
+    for key, row in grouped_layers.items():
+        finished_tube_paper_g = target_paper_by_group.get(key, 0.0)
+        whole_bamboo_factor = preview.bamboo_plan.bamboo_length_mm / max(float(tube_length_mm or 0.0), 1.0)
         paper_rows.append(
             {
                 "paper_id": row["paper_id"],
@@ -174,7 +188,8 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
                 "bf": row["bf_snapshot"],
                 "bulk": row["bulk_snapshot"],
                 "ply_count": row["ply_count"],
-                "weight_kg": round(preview.bamboo.paper_g * share / 1000.0, 6),
+                "finished_tube_weight_g": round(finished_tube_paper_g, 6),
+                "weight_kg": round(finished_tube_paper_g * whole_bamboo_factor / 1000.0, 6),
             }
         )
 
@@ -184,14 +199,16 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
     adhesive_components = []
     if split_total > 0:
         adhesive_components = [
-            {"name": "20100", "ratio_percent": adhesive_20100, "weight_kg": round(preview.bamboo.adhesive_g * adhesive_20100 / split_total / 1000.0, 6)},
-            {"name": "30100", "ratio_percent": adhesive_30100, "weight_kg": round(preview.bamboo.adhesive_g * adhesive_30100 / split_total / 1000.0, 6)},
+            {"name": "20100", "ratio_percent": adhesive_20100, "weight_kg": round(preview.whole_bamboo.adhesive_g * adhesive_20100 / split_total / 1000.0, 6)},
+            {"name": "30100", "ratio_percent": adhesive_30100, "weight_kg": round(preview.whole_bamboo.adhesive_g * adhesive_30100 / split_total / 1000.0, 6)},
         ]
-    elif preview.bamboo.adhesive_g > 0:
-        adhesive_components = [{"name": "Adhesive", "ratio_percent": 100.0, "weight_kg": round(preview.bamboo.adhesive_g / 1000.0, 6)}]
+    elif preview.whole_bamboo.adhesive_g > 0:
+        adhesive_components = [{"name": "Adhesive", "ratio_percent": 100.0, "weight_kg": round(preview.whole_bamboo.adhesive_g / 1000.0, 6)}]
     calculation_references = {
         "weight_calculation": {
             "paper_total_g": preview.tube.paper_g,
+            "nominal_paper_total_g": preview.nominal_tube.paper_g,
+            "paper_calibration_factor": preview.paper_calibration_factor,
             "adhesive_total_g": preview.tube.adhesive_g,
             "parchment_weight_g": preview.tube.parchment_g,
             "pre_oven_divisor": round(divisor, 4),
@@ -219,19 +236,24 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
         "raw_materials": {
             "papers": paper_rows,
             "adhesives": {
-                "total_adhesive_weight_kg": round(preview.bamboo.adhesive_g / 1000.0, 6),
+                "total_adhesive_weight_kg": round(preview.whole_bamboo.adhesive_g / 1000.0, 6),
                 "components": adhesive_components,
             },
             "parchment": {
                 "color": spec.parchment_color,
                 "addition_percent": float(spec.parchment_percent or 0.0),
-                "weight_kg": round(preview.bamboo.parchment_g / 1000.0, 6),
+                "weight_kg": round(preview.whole_bamboo.parchment_g / 1000.0, 6),
             },
-            "total_input_weight_kg": round(preview.bamboo.wet_g / 1000.0, 6),
+            "total_input_weight_kg": round(preview.whole_bamboo.wet_g / 1000.0, 6),
+            "finished_tubes_weight_kg": round(preview.bamboo.wet_g / 1000.0, 6),
+            "trim_weight_kg": round(preview.bamboo_trim.wet_g / 1000.0, 6),
         },
         "expected_output": {
             "per_tube_weight_kg": round(preview.tube.dry_g / 1000.0, 6),
             "per_tube_wet_weight_kg": round(preview.tube.wet_g / 1000.0, 6),
             "tubes_per_bamboo": preview.bamboo_plan.tubes_per_bamboo,
+            "finished_length_mm": preview.bamboo_plan.finished_length_mm,
+            "trim_length_mm": preview.bamboo_plan.total_trim_mm,
+            "whole_bamboo_wet_weight_kg": round(preview.whole_bamboo.wet_g / 1000.0, 6),
         },
     }

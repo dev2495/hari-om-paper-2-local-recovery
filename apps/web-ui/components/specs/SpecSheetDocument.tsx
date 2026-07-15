@@ -1155,6 +1155,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       preMoistureTargetTubeG: Number(previewSummary.pre_moisture_target_tube_g ?? 0),
       weightPerMmG: Number(previewSummary.weight_per_mm_g ?? 0),
       bambooRequiredWetG: Number(previewSummary.bamboo_required_wet_g ?? 0),
+      bambooTrimWetG: Number(previewSummary.bamboo_trim_wet_g ?? 0),
+      wholeBambooWetG: Number(previewSummary.whole_bamboo_wet_g ?? 0),
       predictedWetTubeG: Number(previewSummary.predicted_wet_tube_g ?? 0),
       predictedDryTubeG: Number(previewSummary.predicted_dry_tube_g ?? 0),
       wetDeltaG: Number(previewSummary.wet_delta_g ?? 0),
@@ -1442,12 +1444,19 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     { label: "Wet / Tube", value: `${bridgeMetrics.predictedWetTubeG.toFixed(2)} g` },
     { label: "Dry / Tube", value: `${bridgeMetrics.predictedDryTubeG.toFixed(2)} g` },
     { label: "Bamboo Length", value: `${Number(previewSummary.selected_bamboo_length_mm || 0).toFixed(0)} mm` },
-    { label: "Bamboo Wet", value: `${bridgeMetrics.bambooRequiredWetG.toFixed(2)} g` },
+    { label: "Finished Tubes Wet", value: `${bridgeMetrics.bambooRequiredWetG.toFixed(2)} g` },
+    { label: "Trim Wet", value: `${bridgeMetrics.bambooTrimWetG.toFixed(2)} g` },
+    { label: "Whole Bamboo Wet", value: `${bridgeMetrics.wholeBambooWetG.toFixed(2)} g` },
     { label: "Tubes / Bamboo", value: `${Number(previewSummary.tubes_per_bamboo || 0)}` },
   ]
   const livePaperTotal = Number(previewSummary.paper_total_g || 0)
+  const nominalPaperTotal = Number(previewSummary.nominal_paper_total_g || 0)
+  const nominalPaperDelta = Number(previewSummary.nominal_paper_delta_g || 0)
+  const paperCalibrationPercent = Number(previewSummary.paper_calibration_factor || 0) * 100
   const liveDryTube = Number(previewSummary.predicted_dry_tube_g || 0)
   const liveWetTube = Number(previewSummary.predicted_wet_tube_g || 0)
+  const nominalWetTube = Number(previewSummary.nominal_wet_tube_g || 0)
+  const nominalDryTube = Number(previewSummary.nominal_dry_tube_g || 0)
   const liveDryDelta = Number(previewSummary.dry_delta_g || 0)
   const targetDryTube = Number(form.averages.weight || 0)
   const targetWetTube = Number(bridgeMetrics.preMoistureTargetTubeG || 0)
@@ -1489,6 +1498,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   }
   const selectedBambooLengthMm = Number(previewSummary.selected_bamboo_length_mm || 0)
   const usableBambooLengthMm = Number(previewSummary.usable_length_mm || recipePreview.usableLength || 0)
+  const finishedBambooLengthMm = Number(previewSummary.finished_length_mm || usableBambooLengthMm || 0)
+  const totalTrimMm = Number(previewSummary.total_trim_mm || Math.max(selectedBambooLengthMm - finishedBambooLengthMm, 0))
+  const fixedEndTrimMm = Number(previewSummary.fixed_end_trim_mm || Math.min(totalTrimMm, 40))
+  const residualOffcutMm = Number(previewSummary.residual_offcut_mm || Math.max(totalTrimMm - fixedEndTrimMm, 0))
   const tubesPerBamboo = Number(previewSummary.tubes_per_bamboo || 0)
   const bambooDryWeightG =
     Number(previewSummary.bamboo_required_dry_g || 0) ||
@@ -1496,6 +1509,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const bambooWetWeightG =
     Number(previewSummary.bamboo_required_wet_g || 0) ||
     liveWetTube * tubesPerBamboo
+  const bambooTrimWetWeightG = Number(previewSummary.bamboo_trim_wet_g || 0)
+  const bambooTrimDryWeightG = Number(previewSummary.bamboo_trim_dry_g || 0)
+  const wholeBambooWetWeightG = Number(previewSummary.whole_bamboo_wet_g || 0) || bambooWetWeightG + bambooTrimWetWeightG
+  const wholeBambooDryWeightG = Number(previewSummary.whole_bamboo_dry_g || 0) || bambooDryWeightG + bambooTrimDryWeightG
   const sheetReference =
     selectedMandrel?.mandrel_code && selectedTube
       ? `${selectedMandrel.mandrel_code}-${Number(selectedTube.inner_diameter_mm || 0).toFixed(0)}X${Number(selectedTube.outer_diameter_mm || 0).toFixed(0)}X${Number(selectedTube.length_mm || 0).toFixed(0)}`
@@ -2405,16 +2422,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     detail={`${targetPaperWeight.toFixed(2)} g required paper`}
                   />
                   <SummaryMetric
-                    label="Predicted wet / dry"
+                    label="Finished wet / dry"
                     value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
-                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g paper in live recipe` : "No recipe applied yet"}
+                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g allocated paper · trim excluded` : "No recipe applied yet"}
                   />
                   <SummaryMetric
-                    label="Tube dry band"
+                    label="Finished dry band"
                     value={`${weightBand.min.toFixed(2)} - ${weightBand.max.toFixed(2)} g`}
                     detail={
                       hasRecipeSelection
-                        ? `${liveDryTube.toFixed(2)} g predicted (${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g)`
+                        ? `${liveDryTube.toFixed(2)} g finished (${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g to target)`
                         : "Apply a recipe to compare against the min/max band"
                     }
                     tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
@@ -2550,7 +2567,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Recipe mix</p>
-                <h3 className="mt-2 text-xl font-semibold text-slate-950">Use three to five papers, stay under eighteen plies, and let the live mix drive the weights.</h3>
+                <h3 className="mt-2 text-xl font-semibold text-slate-950">Papers define the wall and ply order; the target formula fixes the finished weight.</h3>
               </div>
               <MasterLinkRow links={[{ href: "/masters/papers", label: "Papers" }]} />
             </div>
@@ -2568,27 +2585,37 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </span>
                   </div>
                   <p className="mt-3 text-sm text-slate-300">
-                    Target wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are fixed from client dry weight; paper fills the remaining wet target.
+                    Finished tube wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment stay fixed from client dry weight; required paper is allocated across the selected plies in their geometric proportions.
                   </p>
-                  <div className="mt-5 grid gap-3 md:grid-cols-3">
+                  <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                     <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Paper total</p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Finished paper</p>
                       <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">{livePaperTotal.toFixed(2)} g</p>
+                      <p className="mt-1 text-xs text-slate-400">Exact required paper after fixed additions</p>
                     </div>
                     <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Current recipe wet / dry</p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Finished tube wet / dry</p>
                       <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">
                         {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
                       </p>
-                      <p className="mt-1 text-xs text-slate-400">Target wet {targetWetTube.toFixed(2)} g</p>
+                      <p className="mt-1 text-xs text-emerald-300">Trim excluded · target reconciled</p>
                     </div>
                     <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Dry vs band</p>
-                      <p className={`mt-2 text-3xl font-black tracking-[-0.04em] ${Math.abs(liveDryDelta) <= 3 ? "text-emerald-300" : "text-amber-300"}`}>
-                        {liveDryDelta > 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g
-                      </p>
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Fixed additions</p>
+                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">{bridgeMetrics.adhesiveTotalG.toFixed(2)} + {Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g</p>
+                      <p className="mt-1 text-xs text-slate-400">15% adhesive · 1.5% parchment</p>
+                    </div>
+                    <div className="rounded-[22px] border border-cyan-300/20 bg-cyan-300/10 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-100/70">Paper allocation</p>
+                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-cyan-100">{paperCalibrationPercent.toFixed(2)}%</p>
+                      <p className="mt-1 text-xs text-cyan-100/70">Nominal {nominalPaperTotal.toFixed(2)} g → finished {livePaperTotal.toFixed(2)} g ({nominalPaperDelta >= 0 ? "-" : "+"}{Math.abs(nominalPaperDelta).toFixed(2)} g)</p>
                     </div>
                   </div>
+                  {hasRecipeSelection ? (
+                    <p className="mt-3 text-xs leading-5 text-slate-400">
+                      Why the old screen showed {nominalWetTube.toFixed(2)} / {nominalDryTube.toFixed(2)} g: it treated nominal GSM geometry ({nominalPaperTotal.toFixed(2)} g paper) as finished mass. The production formula now reconciles those same ply proportions to {targetPaperWeight.toFixed(2)} g required paper, so the finished tube is {targetWetTube.toFixed(2)} g wet / {targetDryTube.toFixed(2)} g dry.
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="overflow-x-auto rounded-[28px] border border-[#d9e2ef]">
@@ -2600,7 +2627,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">GSM</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">BF / Ply</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Thick / Ply</th>
-                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Weight</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Finished Weight</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Ply</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Ply No.</th>
                         {isEditable ? <th className="border-b border-[#d9e2ef] px-3 py-3">Action</th> : null}
@@ -2635,8 +2662,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 Bulk {Number(row.bulkFactor || 0).toFixed(2)} - Ply bond {Number(row.plyBond || 0).toFixed(2)}
                               </div>
                             </td>
-                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-slate-950">
-                              {Number(previewRow?.weightG || 0).toFixed(2)}
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
+                              <div className="font-semibold text-slate-950">{Number(previewRow?.weightG || 0).toFixed(2)} g</div>
+                              <div className="mt-1 text-[10px] text-slate-400">Nominal {Number(previewRow?.nominalWeightG || 0).toFixed(2)} g</div>
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
                               <NumericInput
@@ -2711,17 +2739,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </p>
                   </div>
                   <div className="grid gap-3 px-5 py-5 md:grid-cols-2 xl:grid-cols-1">
-                    <SummaryMetric label="One bamboo yield" value={`${Number(previewSummary.tubes_per_bamboo || 0)} pcs`} detail={`${selectedBambooLengthMm.toFixed(0)} mm selected · ${usableBambooLengthMm.toFixed(0)} mm usable`} />
-                    <SummaryMetric label="Required paper" value={`${targetPaperWeight.toFixed(2)} g`} detail={`${targetWetTube.toFixed(2)} g wet target`} />
+                    <SummaryMetric label="Finished tubes / bamboo" value={`${Number(previewSummary.tubes_per_bamboo || 0)} pcs`} detail={`${finishedBambooLengthMm.toFixed(0)} mm finished goods · trim excluded`} />
+                    <SummaryMetric label="Finished paper / tube" value={`${targetPaperWeight.toFixed(2)} g`} detail={`${targetWetTube.toFixed(2)} g wet finished tube`} />
                     <SummaryMetric
-                      label="Recipe status"
-                      value={`${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g`}
+                      label="Finished tube formula"
+                      value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
                       detail={
                         hasRecipeSelection
-                          ? `${livePaperTotal.toFixed(2)} g paper + ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g glue + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g parchment`
+                          ? `${livePaperTotal.toFixed(2)} g paper + ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g adhesive + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g parchment · trim separate`
                           : "Select paper rows to build the live recipe against the target."
                       }
-                      tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
+                      tone="success"
                     />
                   </div>
                 </section>
@@ -2742,7 +2770,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Manufacturing matrix</p>
                 <h3 className="mt-2 text-xl font-semibold text-slate-950">ID comes from mandrel, OD comes from wall, and bamboo output follows the live recipe.</h3>
               </div>
-              <p className="text-sm text-slate-500">Bamboo weight is now the predicted recipe output for the usable cut length after trim loss.</p>
+              <p className="text-sm text-slate-500">Finished tube weight excludes scrap. Trim is costed separately, then added only to the whole wound bamboo.</p>
             </div>
             <div className="mt-5 space-y-5">
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -2757,15 +2785,47 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   detail="OD = ID + 2 × wall"
                 />
                 <SummaryMetric
-                  label="Current recipe tube"
+                  label="Finished tube"
                   value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
-                  detail={`Target wet ${targetWetTube.toFixed(2)} g · Paper ${livePaperTotal.toFixed(2)} g · Glue ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g`}
+                  detail={`Wet / dry · ${livePaperTotal.toFixed(2)} g paper · trim excluded`}
                 />
                 <SummaryMetric
-                  label="Bamboo wet / dry"
-                  value={`${bambooWetWeightG.toFixed(2)} / ${bambooDryWeightG.toFixed(2)} g`}
-                  detail={`${tubesPerBamboo} pcs from ${usableBambooLengthMm.toFixed(0)} mm usable`}
+                  label="Whole wound bamboo"
+                  value={`${wholeBambooWetWeightG.toFixed(2)} / ${wholeBambooDryWeightG.toFixed(2)} g`}
+                  detail={`${finishedBambooLengthMm.toFixed(0)} mm finished + ${totalTrimMm.toFixed(0)} mm trim`}
                 />
+              </div>
+
+              <div className="rounded-[28px] border border-[#bfd8e6] bg-[linear-gradient(135deg,#eff8fb_0%,#f8fbfd_52%,#fff8ec_100%)] p-4" data-testid="bamboo-weight-bridge">
+                <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#d6e5ec] pb-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#0f5d7a]">Bamboo weight bridge</p>
+                    <h4 className="mt-1 text-lg font-semibold text-slate-950">Finished tubes + trim / offcut = whole bamboo</h4>
+                  </div>
+                  <p className="text-xs text-slate-500">All values show wet / dry weight.</p>
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-stretch">
+                  <div className="rounded-[22px] border border-emerald-200 bg-white/90 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Finished goods only</p>
+                    <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">{bambooWetWeightG.toFixed(2)} / {bambooDryWeightG.toFixed(2)} g</p>
+                    <p className="mt-1 text-xs text-slate-500">{tubesPerBamboo} × {Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm = {finishedBambooLengthMm.toFixed(0)} mm</p>
+                  </div>
+                  <div className="flex items-center justify-center text-2xl font-light text-slate-400">+</div>
+                  <div className="rounded-[22px] border border-amber-200 bg-white/90 p-4">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Trim / offcut - not FG</p>
+                    <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">{bambooTrimWetWeightG.toFixed(2)} / {bambooTrimDryWeightG.toFixed(2)} g</p>
+                    <p className="mt-1 text-xs text-slate-500">{fixedEndTrimMm.toFixed(0)} mm end trim{residualOffcutMm > 0 ? ` + ${residualOffcutMm.toFixed(0)} mm residual` : ""}</p>
+                  </div>
+                  <div className="flex items-center justify-center text-2xl font-light text-slate-400">=</div>
+                  <div className="rounded-[22px] border border-cyan-200 bg-[#071f34] p-4 text-white">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200">Whole wound bamboo</p>
+                    <p className="mt-2 text-2xl font-black tracking-[-0.04em]">{wholeBambooWetWeightG.toFixed(2)} / {wholeBambooDryWeightG.toFixed(2)} g</p>
+                    <p className="mt-1 text-xs text-cyan-100/70">Full {selectedBambooLengthMm.toFixed(0)} mm before trim removal</p>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs leading-5 text-slate-600">
+                  Finished tube weight never includes trim. Whole bamboo weight is used only for total wound material and consumption planning, so stock and finished-goods weights no longer mix.
+                </p>
               </div>
 
               <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
@@ -2800,9 +2860,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
                 <div className="space-y-4 rounded-[28px] border border-[#dfe7f1] bg-[#f8fafc] p-5">
                   <SectionLabel title="Bamboo and output logic" subtitle="This block is what moves downstream into the job card." />
-                  <SummaryMetric label="Selected bamboo" value={`${selectedBambooLengthMm.toFixed(0)} mm`} detail={`${usableBambooLengthMm.toFixed(0)} mm usable after trim`} />
-                  <SummaryMetric label="Tubes / bamboo" value={`${tubesPerBamboo} pcs`} detail={`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm tube length`} />
-                  <SummaryMetric label="Paper / mm" value={`${Number(previewSummary.weight_per_mm_g || 0).toFixed(4)} g`} detail={`${Number(previewSummary.paper_required_g || 0).toFixed(2)} g required paper`} />
+                  <SummaryMetric label="Selected bamboo" value={`${selectedBambooLengthMm.toFixed(0)} mm`} detail={`${finishedBambooLengthMm.toFixed(0)} mm finished · ${totalTrimMm.toFixed(0)} mm trim`} />
+                  <SummaryMetric label="Tubes / bamboo" value={`${tubesPerBamboo} pcs`} detail={`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm finished length each`} />
+                  <SummaryMetric label="Finished wet / mm" value={`${Number(previewSummary.weight_per_mm_g || 0).toFixed(4)} g`} detail={`${Number(previewSummary.paper_required_g || 0).toFixed(2)} g required paper / tube`} />
                 </div>
               </div>
             </div>
