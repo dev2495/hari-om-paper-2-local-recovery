@@ -164,6 +164,11 @@ async def create_trial(recipe_id: str, request: Request, token: str = Depends(ge
     return await proxy_to_service(SPEC_SERVICE_URL, f"/trials/{recipe_id}", request, token)
 
 
+@router.get("/trials/{recipe_id}")
+async def get_trials(recipe_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/trials/{recipe_id}", request, token)
+
+
 @router.get("/calculate/yield/{spec_id}")
 async def calculate_yield(spec_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, f"/calculate/yield/{spec_id}", request, token)

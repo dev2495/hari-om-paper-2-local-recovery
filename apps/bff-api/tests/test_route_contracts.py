@@ -34,6 +34,12 @@ def test_spec_bff_routes_do_not_register_duplicate_method_paths():
     assert _duplicates(spec_router) == {}
 
 
+def test_spec_bff_exposes_trial_read_and_write_contracts():
+    route_keys = set(_route_keys(spec_router))
+    assert ("GET", "/trials/{recipe_id}") in route_keys
+    assert ("POST", "/trials/{recipe_id}") in route_keys
+
+
 def test_production_bff_routes_do_not_register_duplicate_method_paths():
     assert _duplicates(production_router) == {}
 
