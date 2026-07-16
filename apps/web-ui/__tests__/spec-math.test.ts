@@ -60,7 +60,7 @@ test('defaults match workbook', () => {
   assert.equal(GLOBAL_MOISTURE_LOSS_PERCENT, 9.0)
   assert.equal(RECIPE_MIN_PAPERS, 3)
   assert.equal(RECIPE_MAX_PAPERS, 5)
-  assert.equal(RECIPE_MAX_PLIES, 18)
+  assert.equal(RECIPE_MAX_PLIES, 9)
   assert.equal(DELTA_ABS_G, 3.0)
   assert.equal(DELTA_PCT, 0.0)
   assert.equal(BAMBOO_LENGTH_MIN_MM, 1390)
@@ -227,6 +227,21 @@ test('validateRecipe too few papers', () => {
     250,
   )
   assert.equal(v.papers_ok, false)
+  assert.equal(v.ok, false)
+})
+
+test('validateRecipe rejects more than nine plies', () => {
+  const v = validateRecipe(
+    [
+      { paper_id: 'a', gsm: 250, bulk: 1.3, ply_count: 4 },
+      { paper_id: 'b', gsm: 300, bulk: 1.25, ply_count: 3 },
+      { paper_id: 'c', gsm: 350, bulk: 1.2, ply_count: 3 },
+    ],
+    250,
+    250,
+  )
+  assert.equal(v.total_plies, 10)
+  assert.equal(v.plies_ok, false)
   assert.equal(v.ok, false)
 })
 

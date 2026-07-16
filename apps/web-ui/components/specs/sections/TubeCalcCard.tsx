@@ -4,7 +4,7 @@ type TubeCalcCardProps = {
 
 export function TubeCalcCard({ children }: TubeCalcCardProps) {
   return (
-    <section id="sheet-manufacturing" className="rounded-[34px] border border-[#d9e2ef] bg-white p-6 shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+    <section id="sheet-manufacturing" className="scroll-mt-36 rounded-2xl border border-[#d7dfdc] bg-white p-4 shadow-[0_12px_35px_rgba(25,51,57,0.07)] sm:p-5">
       {children}
     </section>
   )

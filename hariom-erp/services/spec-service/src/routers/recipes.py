@@ -8,6 +8,7 @@ from ..database import get_db
 from ..models import RecipeHeader, RecipeLayer, SpecificationSheet
 from ..utils.auth import apply_plant_scope, get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..services.approval import ApprovalService
+from ..spec_math import RECIPE_MAX_PLIES
 
 router = APIRouter(prefix="/recipes", tags=["recipes"])
 
@@ -108,6 +109,19 @@ def add_layer(
         raise HTTPException(
             status_code=400,
             detail=f"Cannot add layers to recipe with status '{recipe.status}'. Recipe is immutable after approval."
+        )
+
+    if layer.ply_no < 1 or layer.ply_no > RECIPE_MAX_PLIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ply number must be between 1 and {RECIPE_MAX_PLIES}",
+        )
+
+    layer_count = db.query(RecipeLayer).filter(RecipeLayer.recipe_id == recipe_id).count()
+    if layer_count >= RECIPE_MAX_PLIES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A recipe can contain at most {RECIPE_MAX_PLIES} plies",
         )
     
     # Check for duplicate ply numbers

@@ -5,17 +5,17 @@ type PackingCardProps = {
 
 export function PackingCard({ children, forceOpen = false }: PackingCardProps) {
   return (
-    <details id="sheet-packing" open={forceOpen} className="rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
-      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-5 py-4 [&::-webkit-details-marker]:hidden">
+    <details id="sheet-packing" open={forceOpen} className="rounded-2xl border border-[#d7dfdc] bg-white shadow-[0_12px_35px_rgba(25,51,57,0.06)]">
+      <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500">Packing</p>
-          <p className="mt-2 text-sm text-slate-600">Compact packing handoff only: box, plastic, fadda, and per-box counts.</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Packing</p>
+          <p className="mt-1 text-xs text-slate-600">Compact packing handoff only: box, plastic, fadda, and per-box counts.</p>
         </div>
-        <span className="rounded-full border border-[#d9e2ef] bg-[#f8fafc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+        <span className="rounded-md border border-[#d7dfdc] bg-[#f8faf9] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
           Expand when needed
         </span>
       </summary>
-      <div className="border-t border-[#e4ebf3] px-5 py-5">{children}</div>
+      <div className="border-t border-[#e4ebe8] px-4 py-4">{children}</div>
     </details>
   )
 }

@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..models import RecipeHeader, SpecificationSheet
+from ..spec_math import RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS
 
 
 class ApprovalService:
@@ -29,6 +30,19 @@ class ApprovalService:
         spec = recipe.specification
         if not spec:
             raise HTTPException(status_code=404, detail="Specification not found")
+
+        total_plies = len(recipe.layers)
+        distinct_papers = len({str(layer.paper_id) for layer in recipe.layers})
+        if not RECIPE_MIN_PAPERS <= distinct_papers <= RECIPE_MAX_PAPERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Recipe approval requires {RECIPE_MIN_PAPERS}-{RECIPE_MAX_PAPERS} distinct papers; found {distinct_papers}",
+            )
+        if not 1 <= total_plies <= RECIPE_MAX_PLIES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Recipe approval allows at most {RECIPE_MAX_PLIES} plies; found {total_plies}",
+            )
 
         existing_approved = (
             self.db.query(SpecificationSheet)

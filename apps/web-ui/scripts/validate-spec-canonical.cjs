@@ -29,7 +29,7 @@ const checks = [
     file: path.join(root, "lib", "spec-math.ts"),
     required: [
       /GLOBAL_MOISTURE_LOSS_PERCENT = 9\.0?\b/,
-      /RECIPE_MAX_PLIES = 18\b/,
+      /RECIPE_MAX_PLIES = 9\b/,
       /DELTA_ABS_G = 3\.0?\b/,
       /DELTA_PCT = 0\.0?\b/,
     ],
@@ -38,7 +38,7 @@ const checks = [
     file: path.join(repoRoot, "hariom-erp", "services", "spec-service", "src", "spec_math.py"),
     required: [
       /GLOBAL_MOISTURE_LOSS_PERCENT: float = 9\.0\b/,
-      /RECIPE_MAX_PLIES: int = 18\b/,
+      /RECIPE_MAX_PLIES: int = 9\b/,
       /DELTA_ABS_G: float = 3\.0\b/,
       /DELTA_PCT: float = 0\.0\b/,
     ],

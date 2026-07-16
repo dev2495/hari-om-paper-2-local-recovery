@@ -442,14 +442,16 @@ export function formatRecipeRowsTitle(
 
   if (!activeRows.length) return ""
 
-  return activeRows
-    .map((row) => {
-      const code = String(row.code || row.variety || row.category || row.paper_id || "PAPER").trim()
-      const plyCount = Math.max(1, Math.floor(Number(row.plyCount || 1)))
-      if (!includeCounts || plyCount === 1) return code
-      return `${code} x ${plyCount}`
-    })
-    .join(" + ")
+  const grouped = new Map<string, number>()
+  for (const row of activeRows) {
+    const code = String(row.code || row.variety || row.category || row.paper_id || "PAPER").trim()
+    const plyCount = Math.max(1, Math.floor(Number(row.plyCount || 1)))
+    grouped.set(code, (grouped.get(code) || 0) + plyCount)
+  }
+
+  return Array.from(grouped.entries())
+    .map(([code, plyCount]) => (includeCounts ? `${code} × ${plyCount}` : code))
+    .join(" · ")
 }
 
 export type ProcessGuidanceRow = {

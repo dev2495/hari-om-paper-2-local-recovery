@@ -18,6 +18,7 @@ import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
+import { RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
 import {
   useAdhesives,
   useCustomers,
@@ -252,9 +253,9 @@ function defaultFormState(): FormState {
 
 function SectionLabel({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-slate-300 pb-2">
-      <h2 className="text-sm font-bold uppercase tracking-[0.18em] text-slate-700">{title}</h2>
-      {subtitle ? <p className="text-xs text-slate-500">{subtitle}</p> : null}
+    <div className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-[#dfe7e4] pb-2">
+      <h2 className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#173b47]">{title}</h2>
+      {subtitle ? <p className="text-[11px] text-slate-500">{subtitle}</p> : null}
     </div>
   )
 }
@@ -266,7 +267,7 @@ function MasterLinkRow({ links }: { links: Array<{ href: string; label: string }
         <Link
           key={link.href}
           href={link.href}
-          className="rounded-full border border-slate-300 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-600 hover:bg-white"
+          className="rounded-md border border-[#d6dfdc] bg-[#f8faf9] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-600 transition hover:border-[#9db7b0] hover:bg-white"
         >
           {link.label}
         </Link>
@@ -276,7 +277,7 @@ function MasterLinkRow({ links }: { links: Array<{ href: string; label: string }
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">{children}</label>
+  return <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{children}</label>
 }
 
 type SmartSelectOption = {
@@ -321,13 +322,13 @@ function SmartSelect({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen((current) => !current)}
-        className="flex h-11 w-full items-center justify-between gap-3 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-left text-sm text-slate-900 shadow-sm transition hover:border-slate-400 disabled:bg-slate-100 disabled:text-slate-500"
+        className="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-[#ccd8d5] bg-white px-3 text-left text-sm font-medium text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:border-[#8eaaa3] disabled:cursor-not-allowed disabled:bg-[#f2f5f4] disabled:text-slate-500"
       >
         <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
         <span className="shrink-0 text-xs font-semibold text-slate-400">v</span>
       </button>
       {open && !disabled ? (
-        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[min(460px,92vw)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[min(460px,92vw)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
           <div className="border-b border-slate-100 p-2">
             <input
               autoFocus
@@ -338,7 +339,7 @@ function SmartSelect({
                 if (event.key === "Escape") setOpen(false)
               }}
               placeholder={`Search ${placeholder.toLowerCase()}`}
-              className="h-10 w-full rounded-xl border border-[#cfd9e6] bg-slate-50 px-3 text-sm outline-none focus:border-cyan-400 focus:bg-white"
+              className="h-10 w-full rounded-lg border border-[#cfd9e6] bg-slate-50 px-3 text-sm outline-none focus:border-emerald-500 focus:bg-white"
             />
           </div>
           <div className="max-h-72 overflow-y-auto p-1">
@@ -354,7 +355,7 @@ function SmartSelect({
                     setQuery("")
                     setOpen(false)
                   }}
-                  className="block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-800 hover:bg-cyan-50 hover:text-cyan-900"
+                  className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-800 hover:bg-emerald-50 hover:text-emerald-900"
                 >
                   <span className="block font-semibold">{option.label}</span>
                   {option.meta ? <span className="block text-xs text-slate-500">{option.meta}</span> : null}
@@ -381,16 +382,16 @@ function SummaryMetric({
 }) {
   const toneClass =
     tone === "accent"
-      ? "border-[#d8cfbf] bg-[#f8f1e3]"
+      ? "border-[#ead39b] bg-[#fbf1d9]"
       : tone === "success"
-        ? "border-emerald-200 bg-emerald-50"
-        : "border-[#dfe7f1] bg-white"
+        ? "border-[#b9e4d1] bg-[#e4f6ed]"
+        : "border-[#dce4e1] bg-white"
 
   return (
-    <div className={`rounded-[24px] border p-4 ${toneClass}`}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-3 text-2xl font-black tracking-[-0.04em] text-slate-950">{value}</p>
-      {detail ? <p className="mt-2 text-sm text-slate-500">{detail}</p> : null}
+    <div className={`min-w-0 rounded-xl border px-3 py-3 ${toneClass}`}>
+      <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-500">{label}</p>
+      <p className="mt-1.5 break-words text-xl font-black tracking-[-0.035em] text-[#102832]">{value}</p>
+      {detail ? <p className="mt-1 text-[11px] leading-4 text-slate-500">{detail}</p> : null}
     </div>
   )
 }
@@ -1130,8 +1131,27 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const notchDistanceMm = parseMmValue(form.dynamicValues.notch_distance_mm)
   const notchDepthMm = parseMmValue(form.dynamicValues.notch_depth_mm)
   const tubeLengthMm = safeNumber(selectedTube?.length_mm || form.averages.length || 0)
+  const notchSetupRequested = Boolean(
+    selectedNotchToolEntries.length > 0 ||
+      notchDistanceMm > 0 ||
+      notchDepthMm > 0 ||
+      String(form.dynamicValues.notch_direction || "").trim(),
+  )
+  const notchGeometryValid = Boolean(
+    !notchSetupRequested ||
+      (tubeLengthMm > 0 &&
+        notchDistanceMm > 0 &&
+        notchDistanceMm <= tubeLengthMm &&
+        notchDepthMm > 0 &&
+        String(form.dynamicValues.notch_direction || "").trim()),
+  )
+  const notchToolsLinked = selectedNotchToolEntries.every((entry) => Boolean(entry.tool_id))
   const computedNotchDiagram = useMemo(() => {
-    const distance = notchDistanceMm > 0 ? notchDistanceMm : roundValue(tubeLengthMm * 0.07, 2)
+    const distance = clamp(
+      notchDistanceMm,
+      0,
+      Math.max(tubeLengthMm, 0),
+    )
     const depth = notchDepthMm > 0 ? notchDepthMm : 0
     return {
       title: form.notchDiagram.title || "Reference sketch",
@@ -1387,6 +1407,23 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const footerComplete = footerValidation.every((field) => field.filled)
 
   const hasRecipeSelection = form.recipeRows.some((row) => String(row.paper_id || "").trim().length > 0 && Number(row.plyCount || 0) > 0)
+  const recipeDistinctPaperCount = new Set(
+    form.recipeRows
+      .filter((row) => String(row.paper_id || "").trim() && Number(row.plyCount || 0) > 0)
+      .map((row) => String(row.paper_id)),
+  ).size
+  const recipeTotalPlyCount = form.recipeRows.reduce(
+    (sum, row) =>
+      sum +
+      (String(row.paper_id || "").trim()
+        ? parsePlyPositions(row.positionsText, Number(row.plyCount || 1)).length
+        : 0),
+    0,
+  )
+  const recipePaperCountValid =
+    recipeDistinctPaperCount >= RECIPE_MIN_PAPERS && recipeDistinctPaperCount <= RECIPE_MAX_PAPERS
+  const recipePlyCountValid = recipeTotalPlyCount >= 1 && recipeTotalPlyCount <= RECIPE_MAX_PLIES
+  const recipeStructureValid = recipePaperCountValid && recipePlyCountValid
   const adhesiveRatioTotalValue = adhesiveRatioTotal(form.adhesiveComponents)
   const adhesiveRatioBalanced = isAdhesiveRatioBalanced(form.adhesiveComponents)
   const selectedTubeMatchesMandrel =
@@ -1398,6 +1435,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       form.mandrelId &&
       selectedTubeMatchesMandrel &&
       hasRecipeSelection &&
+      recipeStructureValid &&
+      notchGeometryValid &&
+      notchToolsLinked &&
       adhesiveRatioBalanced,
   )
   const canApprove =
@@ -1407,6 +1447,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     specDocument?.spec?.status === "draft" &&
     Boolean(specDocument?.latestRecipe?.id) &&
     adhesiveRatioBalanced &&
+    recipeStructureValid &&
+    notchGeometryValid &&
+    notchToolsLinked &&
     selectedTubeMatchesMandrel &&
     Boolean(effectiveBalance.withinBand) &&
     footerComplete &&
@@ -1889,6 +1932,25 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       showToast("Add at least one active paper recipe row before saving.", "error")
       return
     }
+    if (!recipePaperCountValid) {
+      showToast(
+        `Select ${RECIPE_MIN_PAPERS}-${RECIPE_MAX_PAPERS} distinct papers before saving. Current recipe has ${recipeDistinctPaperCount}.`,
+        "error",
+      )
+      return
+    }
+    if (!recipePlyCountValid) {
+      showToast(`Recipe must contain 1-${RECIPE_MAX_PLIES} plies. Current recipe has ${recipeTotalPlyCount}.`, "error")
+      return
+    }
+    if (!notchToolsLinked) {
+      showToast("Every selected notch, blade, holder, V + Flat, and punch must come from the active Tools master.", "error")
+      return
+    }
+    if (!notchGeometryValid) {
+      showToast("Complete notch direction, distance, and depth. Distance must be within the finished tube length.", "error")
+      return
+    }
     if (!canSubmit) {
       showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
       return
@@ -2106,6 +2168,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         <input
           data-testid={`spec-field-${key}`}
           type={inputType}
+          min={inputType === "number" ? "0" : undefined}
+          max={key === "notch_distance_mm" && tubeLengthMm > 0 ? String(tubeLengthMm) : undefined}
+          step={inputType === "number" ? "0.01" : undefined}
           value={optionValue(form.dynamicValues[key])}
           onChange={(event) => updateDynamicValue(key, event.target.value)}
           disabled={!isEditable}
@@ -2131,6 +2196,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       adhesiveRatioBalanced &&
       selectedTubeMatchesMandrel &&
       hasRecipeSelection &&
+      recipeStructureValid &&
+      notchGeometryValid &&
+      notchToolsLinked &&
       effectiveBalance.withinBand &&
       footerComplete &&
       !csGateFailed,
@@ -2139,73 +2207,50 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   return (
     <SpecSheetWorkspace printMode={isPrint}>
       <SpecSheetPrint enabled={isPrint} />
-      <div className="min-w-0 space-y-6" data-testid="spec-sheet-page">
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-3" data-testid="spec-sheet-page">
+      <div className="space-y-3">
         <section
-          className="rounded-[30px] border border-[#e6dccd] bg-[linear-gradient(180deg,#faf6ee_0%,#f6eedf_100%)] px-6 py-5 shadow-[0_20px_60px_rgba(15,23,42,0.07)]"
+          className="scroll-mt-24"
           data-print-hidden="true"
           id="sheet-header"
         >
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">{headerTitle}</p>
-              <h2 className="mt-2 text-[2rem] font-semibold tracking-[-0.05em] text-slate-950">Client requirement first. Everything else derives from it.</h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Pick customer, mandrel, tube, target weight, and CS first. Then build the paper mix and the manufacturing outputs will follow from one workbook rule.
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+            <div className="min-w-0">
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">{headerTitle}</p>
+              <h2 className="mt-1 truncate text-2xl font-black tracking-[-0.04em] text-[#102832] sm:text-[2rem]">
+                {selectedCustomer?.name || specDocument?.spec?.customer_name || "New tube specification"}
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {sheetReference} {selectedTube ? `· ${selectedTube.inner_diameter_mm} × ${selectedTube.outer_diameter_mm} × ${selectedTube.length_mm} mm` : "· select client, mandrel and tube"}
               </p>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  Glue {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}%
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                <span className="rounded-full border border-[#ead39b] bg-[#fbf1d9] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-[#805a09]">
+                  {currentStatus || "Draft"}
                 </span>
-                <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  Parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "Off"}
+                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${effectiveBalance.withinBand ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
+                  {effectiveBalance.withinBand ? "Weight reconciled" : "Weight outside band"}
                 </span>
-                <span className="rounded-full border border-[#e2d5bf] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">
-                  Wet divisor {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}
+                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${reviewChecksPass ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-slate-200 bg-white text-slate-600"}`}>
+                  {reviewChecksPass ? "All checks pass" : "Review pending"}
+                </span>
+                <span className="rounded-full border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-slate-600">
+                  {targetDryTube.toFixed(2)} g dry target
                 </span>
               </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <a href="#sheet-header" className="rounded-full border border-[#d6dfeb] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 hover:bg-white">
-                  Design
-                </a>
-                <a href="#recipe-mix" className="rounded-full border border-[#d6dfeb] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 hover:bg-white">
-                  Specifications
-                </a>
-                {!isCreate ? (
-                  <a href="#review-approve" className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-emerald-800 hover:bg-emerald-100">
-                    Review & Approve
-                  </a>
-                ) : null}
-                {specId ? (
-                  <Link href={`/specifications/${specId}/print`} className="rounded-full border border-[#d6dfeb] bg-white/80 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 hover:bg-white">
-                    Print
-                  </Link>
-                ) : null}
-              </div>
-              {editBlockReason ? (
-                <div className="mt-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  {editBlockReason}
-                </div>
-              ) : null}
-              {previewDegraded ? (
-                <div className="mt-4 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-                  Preview service degraded: {previewDegradedReason}
-                </div>
-              ) : null}
             </div>
-            <div className="flex flex-wrap gap-2 xl:max-w-[520px] xl:justify-end">
+            <div className="flex flex-wrap gap-2 lg:max-w-[600px] lg:justify-end">
               {isEditable ? (
                 <button
                   type="button"
                   onClick={handleSave}
                   disabled={!canSubmit || createSpecSheet.isPending || updateSpecSheet.isPending}
-                  className="rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                  className="rounded-lg bg-[#102832] px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#183946] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isCreate ? "Save Draft" : "Save as New Version + Recipe"}
                 </button>
               ) : null}
               {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" ? (
-                <Link href={`/specifications/${specId}/edit`} className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-[#9db7b0]">
                   Create New Version
                 </Link>
               ) : null}
@@ -2214,7 +2259,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
-                  className="rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60"
+                  className="rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3.5 py-2 text-sm font-bold text-[#166b51] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Approve
                 </button>
@@ -2224,7 +2269,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   onClick={handleObsolete}
                   disabled={obsoleteSpec.isPending}
-                  className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 disabled:opacity-60"
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm font-bold text-rose-700 disabled:opacity-50"
                 >
                   Mark Obsolete
                 </button>
@@ -2234,13 +2279,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   onClick={handleClone}
                   disabled={cloneSpec.isPending}
-                  className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-60"
+                  className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm disabled:opacity-50"
                 >
                   Clone Draft
                 </button>
               ) : null}
               {!isPrint && specId ? (
-                <Link href={`/specifications/${specId}/print`} className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700">
+                <Link href={`/specifications/${specId}/print`} className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm">
                   Print View
                 </Link>
               ) : null}
@@ -2248,23 +2293,49 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                  className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm"
                 >
                   Print / Save PDF
                 </button>
               ) : null}
             </div>
           </div>
+
+          <nav className="sticky top-[5.15rem] z-20 mt-3 flex min-h-11 items-center gap-1 overflow-x-auto rounded-xl border border-[#d7dfdc] bg-white/95 p-1 shadow-[0_8px_24px_rgba(28,54,60,0.05)] backdrop-blur" aria-label="Specification sections">
+            <a href="#sheet-client" className="whitespace-nowrap rounded-lg bg-[#e8f2f4] px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#102832]">01 Requirement</a>
+            <a href="#sheet-recipe" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">02 Recipe</a>
+            <a href="#sheet-manufacturing" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">03 Manufacturing</a>
+            {!isCreate ? <a href="#review-approve" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">04 Review</a> : null}
+            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-slate-500 lg:block">Glue {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% · Parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
+          </nav>
+
+          {editBlockReason ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">{editBlockReason}</div>
+          ) : null}
+          {previewDegraded ? (
+            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900">Preview service degraded: {previewDegradedReason}</div>
+          ) : null}
+
+          <div className="mt-3 grid overflow-hidden rounded-2xl border border-[#bed4d7] bg-white shadow-[0_12px_35px_rgba(25,51,57,0.07)] md:grid-cols-[1.05fr_auto_0.9fr_auto_1.05fr_auto_1.1fr]" aria-label="Finished tube formula">
+            <div className="px-4 py-3"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Client dry target</p><p className="mt-1 text-xl font-black tracking-[-0.035em] text-[#102832]">{targetDryTube.toFixed(2)} g</p><p className="mt-1 text-[10px] text-slate-500">Finished tube, trim excluded</p></div>
+            <div className="hidden items-center px-2 text-xl font-light text-slate-400 md:flex">÷</div>
+            <div className="border-t border-[#d7dfdc] px-4 py-3 md:border-l-0 md:border-t-0"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Wet divisor</p><p className="mt-1 text-xl font-black tracking-[-0.035em] text-[#102832]">{(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}</p><p className="mt-1 text-[10px] text-slate-500">Moisture-loss basis</p></div>
+            <div className="hidden items-center px-2 text-xl font-light text-slate-400 md:flex">=</div>
+            <div className="border-t border-[#b9e4d1] bg-[#e4f6ed] px-4 py-3 md:border-t-0"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Finished tube wet</p><p className="mt-1 text-xl font-black tracking-[-0.035em] text-[#102832]">{liveWetTube.toFixed(2)} g</p><p className="mt-1 text-[10px] text-slate-500">{livePaperTotal.toFixed(2)} paper + fixed additions</p></div>
+            <div className="hidden items-center px-2 text-xl font-light text-slate-400 md:flex">→</div>
+            <div className="bg-[#102832] px-4 py-3 text-white"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#afc4c8]">One wound bamboo</p><p className="mt-1 text-xl font-black tracking-[-0.035em]">{wholeBambooWetWeightG.toFixed(2)} g</p><p className="mt-1 text-[10px] text-[#c4d4d7]">{tubesPerBamboo} tubes + {totalTrimMm.toFixed(0)} mm trim</p></div>
+          </div>
         </section>
 
-        <div className="space-y-6">
+        <div className="space-y-3">
           <ClientReqCard>
-            <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-5">
-                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
+            <div className="space-y-4">
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebe8] pb-3">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Client requirement</p>
-                    <h3 className="mt-2 text-xl font-semibold text-slate-950">Start with the commercial ask. The whole sheet derives from this block.</h3>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">01 · Client requirement</p>
+                    <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Lock the commercial inputs first</h3>
+                    <p className="mt-1 text-xs text-slate-500">Everything below derives from these client-controlled fields.</p>
                   </div>
                   <MasterLinkRow
                     links={[
@@ -2275,8 +2346,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   />
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="space-y-1 xl:col-span-2">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.35fr_1.1fr_0.75fr_1.15fr_0.72fr_0.72fr]">
+                  <div className="space-y-1">
                     <FieldLabel>Client / Party Name</FieldLabel>
                     {isEditable ? (
                       <SmartSelect
@@ -2287,7 +2358,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         onChange={(nextValue) => setForm((current) => ({ ...current, customerId: nextValue }))}
                       />
                     ) : (
-                      <div className="rounded-2xl border border-[#cfd9e6] bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-800">
+                      <div className="flex h-10 items-center rounded-lg border border-[#ccd8d5] bg-[#f2f5f4] px-3 text-sm font-semibold text-slate-800">
                         {selectedCustomer?.name || specDocument?.spec?.customer_name || "-"}
                       </div>
                     )}
@@ -2325,7 +2396,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       onChange={(nextValue) => setForm((current) => ({ ...current, parchmentAllowed: nextValue === "true" }))}
                     />
                   </div>
-                  <div className="space-y-1 xl:col-span-2">
+                  <div className="space-y-1">
                     <FieldLabel>Tube Size</FieldLabel>
                     <SmartSelect
                       testId="spec-sheet-tube-size"
@@ -2349,13 +2420,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       step="0.01"
                       unit="g"
                       value={inputNumberValue(form.averages.weight)}
+                      disabled={!isEditable}
                       onChange={(event) =>
                         setForm((current) => ({
                           ...current,
                           averages: { ...current.averages, weight: safeNumber(event.target.value || 0) },
                         }))
                       }
-                      className="h-11 rounded-2xl"
+                      className="h-10 rounded-lg"
                     />
                   </div>
                   <div className="space-y-1">
@@ -2364,18 +2436,19 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       step="0.01"
                       unit="kgf"
                       value={inputNumberValue(form.averages.cs)}
+                      disabled={!isEditable}
                       onChange={(event) =>
                         setForm((current) => ({
                           ...current,
                           averages: { ...current.averages, cs: safeNumber(event.target.value || 0) },
                         }))
                       }
-                      className="h-11 rounded-2xl"
+                      className="h-10 rounded-lg"
                     />
                   </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-4">
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                   <SummaryMetric
                     label="Sheet reference"
                     value={sheetReference}
@@ -2400,17 +2473,36 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
               </div>
 
-              <div className="space-y-5 rounded-[30px] border border-[#d9e2ef] bg-[linear-gradient(180deg,#fbfdff_0%,#f6f8fb_100%)] p-5">
-                <div className="border-b border-[#e4ebf3] pb-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Material rule sheet</p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-950">One formula, one parchment gate, one adhesive split.</h3>
-                  <p className="mt-2 text-sm text-slate-600">
+              <details className="group rounded-xl border border-[#d7dfdc] bg-[#f8faf9]" open={isPrint || undefined}>
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <div>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Fixed material assumptions</p>
+                    <p className="mt-1 text-sm font-bold text-[#102832]">{targetAdhesiveWeight.toFixed(2)} g adhesive · {targetParchmentWeight.toFixed(2)} g parchment · ratio {adhesiveRatioTotalValue.toFixed(0)}%</p>
+                  </div>
+                  <span className="rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:hidden">Show allocation</span>
+                  <span className="hidden rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:inline-flex">Hide allocation</span>
+                </summary>
+                <div className="space-y-4 border-t border-[#e4ebe8] p-4">
+                <div className="border-b border-[#e4ebe8] pb-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-500">Material rule sheet</p>
+                      <h3 className="mt-1 text-base font-bold text-[#102832]">One formula, one parchment gate, one adhesive split.</h3>
+                    </div>
+                    <MasterLinkRow
+                      links={[
+                        { href: "/masters/adhesives", label: "Adhesives" },
+                        { href: "/masters/parchments", label: "Parchments" },
+                      ]}
+                    />
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
                     Wet target = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are percentages of client dry weight; paper is the remaining wet target.
                     Glue stays at {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% of dry weight and parchment stays at {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}% of dry weight` : "off"} until validation changes it.
                   </p>
                 </div>
 
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                   <SummaryMetric
                     label="Target wet / dry"
                     value={`${targetWetTube.toFixed(2)} / ${targetDryTube.toFixed(2)} g`}
@@ -2438,7 +2530,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   />
                 </div>
 
-                <div className="rounded-[24px] border border-[#dfe7f1] bg-white p-4">
+                <div className="rounded-xl border border-[#dfe7e3] bg-white p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Allowed parchment families</p>
@@ -2476,7 +2568,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                 </div>
 
-                <div className="rounded-[24px] border border-[#dfe7f1] bg-white p-4">
+                <div className="rounded-xl border border-[#dfe7e3] bg-white p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Adhesive breakdown</p>
@@ -2498,7 +2590,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       return (
                         <div
                           key={`${component.name}-${index}`}
-                          className="grid gap-3 rounded-[20px] border border-[#e4ebf3] bg-[#f8fafc] p-3 md:grid-cols-[1.4fr_0.65fr_0.8fr_auto]"
+                          className="grid gap-2 rounded-lg border border-[#e4ebe8] bg-[#f8faf9] p-2.5 md:grid-cols-[1.4fr_0.65fr_0.8fr_auto]"
                         >
                           <SmartSelect
                             value={component.name}
@@ -2523,9 +2615,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             value={optionValue(component.ratio_percent)}
                             disabled={!isEditable}
                             onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
-                            className="h-11 rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm disabled:bg-slate-100"
+                            className="h-10 rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm disabled:bg-[#f2f5f4]"
                           />
-                          <div className="flex h-11 items-center rounded-2xl border border-[#cfd9e6] bg-white px-3 text-sm font-semibold text-slate-950">
+                          <div className="flex h-10 items-center rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm font-semibold text-slate-950">
                             {Number(previewComponent?.weight_g || 0).toFixed(2)} g
                           </div>
                           <div className="flex items-center justify-end">
@@ -2558,69 +2650,86 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </div>
                   ) : null}
                 </div>
-              </div>
+                </div>
+              </details>
             </div>
           </ClientReqCard>
 
           <RecipeMixCard>
             <div id="recipe-mix" className="scroll-mt-24" />
-            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebe8] pb-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Recipe mix</p>
-                <h3 className="mt-2 text-xl font-semibold text-slate-950">Papers define the wall and ply order; the target formula fixes the finished weight.</h3>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">02 · Recipe mix</p>
+                <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Paper selection, ply order and reconciled mass</h3>
+                <p className="mt-1 text-xs text-slate-500">The table gets the full width; the answer stays attached to the recipe.</p>
               </div>
               <MasterLinkRow links={[{ href: "/masters/papers", label: "Papers" }]} />
             </div>
 
-            <div className="mt-5 grid gap-5 xl:grid-cols-[1.08fr_0.92fr]">
-              <div className="space-y-4">
-                <div className="rounded-[28px] bg-[#071224] p-5 text-white" data-testid="spec-sheet-live-builder">
+            <div className="mt-4 space-y-3">
+              <div className="space-y-3">
+                <div className="overflow-hidden rounded-xl bg-[#102832] text-white" data-testid="spec-sheet-live-builder">
+                  <div className="p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-200/80">Applied combo rule</p>
-                      <p className="mt-3 text-2xl font-semibold leading-tight tracking-[-0.03em]">{comboRuleTitle}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[9px] font-extrabold uppercase tracking-[0.16em] text-[#86d2bb]">Applied paper recipe</p>
+                      <p className="mt-1.5 text-base font-black leading-snug tracking-[-0.02em] sm:text-lg">{comboRuleTitle}</p>
                     </div>
-                    <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-                      3-5 papers · 18 ply max
-                    </span>
+                    <div className="flex flex-wrap justify-end gap-1.5">
+                      <span className={`rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${recipePaperCountValid ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-200" : "border-amber-300/20 bg-amber-300/10 text-amber-200"}`}>
+                        {recipeDistinctPaperCount} papers
+                      </span>
+                      <span className={`rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${recipePlyCountValid ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-200" : "border-rose-300/20 bg-rose-300/10 text-rose-200"}`}>
+                        {recipeTotalPlyCount} / {RECIPE_MAX_PLIES} plies
+                      </span>
+                    </div>
                   </div>
-                  <p className="mt-3 text-sm text-slate-300">
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#9bb7bd]">
+                    Use {RECIPE_MIN_PAPERS}-{RECIPE_MAX_PAPERS} distinct papers · maximum {RECIPE_MAX_PLIES} total plies
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-300">
                     Finished tube wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment stay fixed from client dry weight; required paper is allocated across the selected plies in their geometric proportions.
                   </p>
-                  <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Finished paper</p>
-                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">{livePaperTotal.toFixed(2)} g</p>
-                      <p className="mt-1 text-xs text-slate-400">Exact required paper after fixed additions</p>
+                  </div>
+                  <div className="grid border-t border-white/10 sm:grid-cols-2 xl:grid-cols-5" data-testid="spec-sheet-preview-rail">
+                    <div className="border-white/10 px-4 py-3 xl:border-r">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Paper total</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{livePaperTotal.toFixed(2)} g</p>
+                      <p className="mt-1 text-[10px] text-slate-400">Required after fixed additions</p>
                     </div>
-                    <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Finished tube wet / dry</p>
-                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">
+                    <div className="border-t border-white/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Current recipe wet / dry</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
                         {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
                       </p>
-                      <p className="mt-1 text-xs text-emerald-300">Trim excluded · target reconciled</p>
+                      <p className="mt-1 text-[10px] text-emerald-300">Trim excluded · reconciled</p>
                     </div>
-                    <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">Fixed additions</p>
-                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-white">{bridgeMetrics.adhesiveTotalG.toFixed(2)} + {Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g</p>
-                      <p className="mt-1 text-xs text-slate-400">15% adhesive · 1.5% parchment</p>
+                    <div className="border-t border-white/10 px-4 py-3 xl:border-r xl:border-t-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Fixed additions</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{bridgeMetrics.adhesiveTotalG.toFixed(2)} + {Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g</p>
+                      <p className="mt-1 text-[10px] text-slate-400">Adhesive + parchment</p>
                     </div>
-                    <div className="rounded-[22px] border border-cyan-300/20 bg-cyan-300/10 px-4 py-3">
-                      <p className="text-[11px] uppercase tracking-[0.14em] text-cyan-100/70">Paper allocation</p>
-                      <p className="mt-2 text-3xl font-black tracking-[-0.04em] text-cyan-100">{paperCalibrationPercent.toFixed(2)}%</p>
-                      <p className="mt-1 text-xs text-cyan-100/70">Nominal {nominalPaperTotal.toFixed(2)} g → finished {livePaperTotal.toFixed(2)} g ({nominalPaperDelta >= 0 ? "-" : "+"}{Math.abs(nominalPaperDelta).toFixed(2)} g)</p>
+                    <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Paper allocation</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{paperCalibrationPercent.toFixed(2)}%</p>
+                      <p className="mt-1 text-[10px] text-cyan-100/70">Nominal {nominalPaperTotal.toFixed(2)} → {livePaperTotal.toFixed(2)} g</p>
+                    </div>
+                    <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-t-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">One bamboo yield</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{Number(previewSummary.tubes_per_bamboo || 0)} pcs</p>
+                      <p className="mt-1 text-[10px] text-cyan-100/70">{finishedBambooLengthMm.toFixed(0)} mm finished goods</p>
                     </div>
                   </div>
                   {hasRecipeSelection ? (
-                    <p className="mt-3 text-xs leading-5 text-slate-400">
+                    <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">
                       Why the old screen showed {nominalWetTube.toFixed(2)} / {nominalDryTube.toFixed(2)} g: it treated nominal GSM geometry ({nominalPaperTotal.toFixed(2)} g paper) as finished mass. The production formula now reconciles those same ply proportions to {targetPaperWeight.toFixed(2)} g required paper, so the finished tube is {targetWetTube.toFixed(2)} g wet / {targetDryTube.toFixed(2)} g dry.
                     </p>
                   ) : null}
                 </div>
 
-                <div className="overflow-x-auto rounded-[28px] border border-[#d9e2ef]">
+                <div className="overflow-x-auto rounded-xl border border-[#d7dfdc]">
                   <table className="min-w-full text-sm">
-                    <thead className="bg-[#d8dde6] text-[11px] uppercase tracking-[0.14em] text-slate-600">
+                    <thead className="bg-[#e8efed] text-[9px] uppercase tracking-[0.13em] text-slate-600">
                       <tr>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3 text-left">Code</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3 text-left">Variety</th>
@@ -2670,6 +2779,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                               <NumericInput
                                 data-testid={rowIndex === 0 ? "spec-sheet-recipe-ply-1" : undefined}
                                 min="1"
+                                max={String(RECIPE_MAX_PLIES)}
                                 step="1"
                                 value={optionValue(row.plyCount)}
                                 disabled={!isEditable}
@@ -2682,8 +2792,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 type="text"
                                 value={row.positionsText}
                                 onChange={(event) => updateRecipeRow(row.id, { positionsText: event.target.value })}
+                                disabled={!isEditable}
                                 placeholder={encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount))}
-                                className="h-10 w-24 rounded-xl border border-[#cfd9e6] bg-white px-2 text-xs"
+                                className="h-10 w-24 rounded-lg border border-[#ccd8d5] bg-white px-2 text-xs disabled:bg-[#f2f5f4]"
                               />
                             </td>
                             {isEditable ? (
@@ -2691,7 +2802,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 <button
                                   type="button"
                                   onClick={() => removeRecipeRow(row.id)}
-                                  className="rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
+                                  className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
                                 >
                                   Remove
                                 </button>
@@ -2721,7 +2832,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     <button
                       type="button"
                       onClick={addRecipeRow}
-                      className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                      disabled={recipeTotalPlyCount >= RECIPE_MAX_PLIES}
+                      className="rounded-lg border border-[#d7dfdc] bg-white px-4 py-2 text-sm font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Add recipe row
                     </button>
@@ -2729,51 +2841,25 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 ) : null}
               </div>
 
-              <div className="space-y-4">
-                <section className="overflow-hidden rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_20px_60px_rgba(15,23,42,0.06)]" data-testid="spec-sheet-preview-rail">
-                  <div className="border-b border-[#e4ebf3] px-5 py-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#0f5d7a]">Live recipe summary</p>
-                    <h3 className="mt-3 text-2xl font-semibold tracking-[-0.04em] text-slate-950">{selectedCustomer?.name || "Select customer"}</h3>
-                    <p className="mt-2 text-sm text-slate-500">
-                      {selectedTube ? `${selectedTube.inner_diameter_mm} × ${selectedTube.outer_diameter_mm} × ${selectedTube.length_mm}` : "Pick tube size to activate the preview"}
-                    </p>
-                  </div>
-                  <div className="grid gap-3 px-5 py-5 md:grid-cols-2 xl:grid-cols-1">
-                    <SummaryMetric label="Finished tubes / bamboo" value={`${Number(previewSummary.tubes_per_bamboo || 0)} pcs`} detail={`${finishedBambooLengthMm.toFixed(0)} mm finished goods · trim excluded`} />
-                    <SummaryMetric label="Finished paper / tube" value={`${targetPaperWeight.toFixed(2)} g`} detail={`${targetWetTube.toFixed(2)} g wet finished tube`} />
-                    <SummaryMetric
-                      label="Finished tube formula"
-                      value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
-                      detail={
-                        hasRecipeSelection
-                          ? `${livePaperTotal.toFixed(2)} g paper + ${bridgeMetrics.adhesiveTotalG.toFixed(2)} g adhesive + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g parchment · trim separate`
-                          : "Select paper rows to build the live recipe against the target."
-                      }
-                      tone="success"
-                    />
-                  </div>
-                </section>
-
-                {isSpecMathUpdating ? (
-                  <div className="rounded-[22px] border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
-                    Recalculating recipe math after input settles. You can keep typing.
-                  </div>
-                ) : null}
-
-              </div>
+              {isSpecMathUpdating ? (
+                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
+                  Recalculating recipe math after input settles. You can keep typing.
+                </div>
+              ) : null}
             </div>
           </RecipeMixCard>
 
           <TubeCalcCard>
-            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebf3] pb-3">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebe8] pb-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Manufacturing matrix</p>
-                <h3 className="mt-2 text-xl font-semibold text-slate-950">ID comes from mandrel, OD comes from wall, and bamboo output follows the live recipe.</h3>
+                <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">03 · Manufacturing handoff</p>
+                <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Finished goods and process consumption stay separate</h3>
+                <p className="mt-1 text-xs text-slate-500">ID comes from the mandrel, OD comes from the wall, and bamboo output follows the live recipe.</p>
               </div>
-              <p className="text-sm text-slate-500">Finished tube weight excludes scrap. Trim is costed separately, then added only to the whole wound bamboo.</p>
+              <span className="rounded-md border border-[#b9e4d1] bg-[#e4f6ed] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#166b51]">Ready for job card</span>
             </div>
-            <div className="mt-5 space-y-5">
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <div className="mt-4 space-y-4">
+              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-4">
                 <SummaryMetric
                   label="Mandrel ID band"
                   value={`${manufacturingIdBand.avg.toFixed(2)} mm`}
@@ -2796,30 +2882,30 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 />
               </div>
 
-              <div className="rounded-[28px] border border-[#bfd8e6] bg-[linear-gradient(135deg,#eff8fb_0%,#f8fbfd_52%,#fff8ec_100%)] p-4" data-testid="bamboo-weight-bridge">
-                <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#d6e5ec] pb-3">
+              <div className="rounded-xl border border-[#bed4d7] bg-[#f8faf9] p-3" data-testid="bamboo-weight-bridge">
+                <div className="flex flex-wrap items-end justify-between gap-2 border-b border-[#d7dfdc] pb-2.5">
                   <div>
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#0f5d7a]">Bamboo weight bridge</p>
-                    <h4 className="mt-1 text-lg font-semibold text-slate-950">Finished tubes + trim / offcut = whole bamboo</h4>
+                    <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#1e765e]">Bamboo weight bridge</p>
+                    <h4 className="mt-1 text-sm font-bold text-[#102832]">Finished tubes + trim / offcut = whole bamboo</h4>
                   </div>
                   <p className="text-xs text-slate-500">All values show wet / dry weight.</p>
                 </div>
-                <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr] lg:items-stretch">
-                  <div className="rounded-[22px] border border-emerald-200 bg-white/90 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">Finished goods only</p>
-                    <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">{bambooWetWeightG.toFixed(2)} / {bambooDryWeightG.toFixed(2)} g</p>
+                <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_0.72fr_auto_1fr] lg:items-stretch">
+                  <div className="rounded-xl border border-[#b9e4d1] bg-[#e4f6ed] p-3">
+                    <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#166b51]">Finished goods only</p>
+                    <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-[#102832]">{bambooWetWeightG.toFixed(2)} / {bambooDryWeightG.toFixed(2)} g</p>
                     <p className="mt-1 text-xs text-slate-500">{tubesPerBamboo} × {Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm = {finishedBambooLengthMm.toFixed(0)} mm</p>
                   </div>
                   <div className="flex items-center justify-center text-2xl font-light text-slate-400">+</div>
-                  <div className="rounded-[22px] border border-amber-200 bg-white/90 p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-amber-700">Trim / offcut - not FG</p>
-                    <p className="mt-2 text-2xl font-black tracking-[-0.04em] text-slate-950">{bambooTrimWetWeightG.toFixed(2)} / {bambooTrimDryWeightG.toFixed(2)} g</p>
+                  <div className="rounded-xl border border-[#ead39b] bg-[#fbf1d9] p-3">
+                    <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#805a09]">Trim / offcut · not FG</p>
+                    <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-[#102832]">{bambooTrimWetWeightG.toFixed(2)} / {bambooTrimDryWeightG.toFixed(2)} g</p>
                     <p className="mt-1 text-xs text-slate-500">{fixedEndTrimMm.toFixed(0)} mm end trim{residualOffcutMm > 0 ? ` + ${residualOffcutMm.toFixed(0)} mm residual` : ""}</p>
                   </div>
                   <div className="flex items-center justify-center text-2xl font-light text-slate-400">=</div>
-                  <div className="rounded-[22px] border border-cyan-200 bg-[#071f34] p-4 text-white">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-200">Whole wound bamboo</p>
-                    <p className="mt-2 text-2xl font-black tracking-[-0.04em]">{wholeBambooWetWeightG.toFixed(2)} / {wholeBambooDryWeightG.toFixed(2)} g</p>
+                  <div className="rounded-xl border border-[#102832] bg-[#102832] p-3 text-white">
+                    <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#afc4c8]">Whole wound bamboo</p>
+                    <p className="mt-1.5 text-xl font-black tracking-[-0.035em]">{wholeBambooWetWeightG.toFixed(2)} / {wholeBambooDryWeightG.toFixed(2)} g</p>
                     <p className="mt-1 text-xs text-cyan-100/70">Full {selectedBambooLengthMm.toFixed(0)} mm before trim removal</p>
                   </div>
                 </div>
@@ -2828,15 +2914,15 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </p>
               </div>
 
-              <div className="grid gap-5 xl:grid-cols-[1fr_360px]">
-                <div className="overflow-hidden rounded-[28px] border border-[#dfe7f1] bg-[#fbfdff]">
-                  <div className="border-b border-[#e4ebf3] px-5 py-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Manufacturing specification</p>
-                    <p className="mt-2 text-sm text-slate-600">Average is the live working size. Min/max stay tied to mandrel tolerance and recipe wall.</p>
+              <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
+                <div className="overflow-hidden rounded-xl border border-[#dfe7e3] bg-[#fbfcfb]">
+                  <div className="border-b border-[#e4ebe8] px-4 py-3">
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Manufacturing specification</p>
+                    <p className="mt-1 text-xs text-slate-600">Average is the live working size. Min/max stay tied to mandrel tolerance and recipe wall.</p>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
-                      <thead className="bg-[#e8edf4] text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                      <thead className="bg-[#e8efed] text-[9px] uppercase tracking-[0.13em] text-slate-500">
                         <tr>
                           <th className="px-4 py-3 text-left">Parameter</th>
                           <th className="px-4 py-3 text-right">Min</th>
@@ -2858,7 +2944,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                 </div>
 
-                <div className="space-y-4 rounded-[28px] border border-[#dfe7f1] bg-[#f8fafc] p-5">
+                <div className="space-y-2 rounded-xl border border-[#dfe7e3] bg-[#f8faf9] p-3">
                   <SectionLabel title="Bamboo and output logic" subtitle="This block is what moves downstream into the job card." />
                   <SummaryMetric label="Selected bamboo" value={`${selectedBambooLengthMm.toFixed(0)} mm`} detail={`${finishedBambooLengthMm.toFixed(0)} mm finished · ${totalTrimMm.toFixed(0)} mm trim`} />
                   <SummaryMetric label="Tubes / bamboo" value={`${tubesPerBamboo} pcs`} detail={`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm finished length each`} />
@@ -2873,8 +2959,33 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       <NotchingCard forceOpen={isPrint}>
         <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
-            <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling fields that carry into the job card and print sheet." />
+            <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling and measured geometry that carry into the job card and print sheet." />
             <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
+            <div className="grid gap-2 sm:grid-cols-3">
+              <SummaryMetric
+                label="Tools master"
+                value={selectedNotchToolEntries.length ? `${selectedNotchToolEntries.filter((entry) => entry.tool_id).length} / ${selectedNotchToolEntries.length} linked` : notchSetupRequested ? "Tool required" : "Not configured"}
+                detail={selectedNotchToolEntries.length ? "Every selected tool must be active" : notchSetupRequested ? "Choose an active tool from Tools master" : "Leave blank when the tube has no notch"}
+                tone={notchToolsLinked ? "success" : "accent"}
+              />
+              <SummaryMetric
+                label="Notch distance"
+                value={notchSetupRequested ? `${computedNotchDiagram.notchDistanceMm.toFixed(2)} mm` : "Not configured"}
+                detail={notchSetupRequested ? `From start edge · tube ${tubeLengthMm.toFixed(2)} mm` : `Tube ${tubeLengthMm.toFixed(2)} mm`}
+                tone={notchGeometryValid ? "success" : "accent"}
+              />
+              <SummaryMetric
+                label="Notch depth"
+                value={notchSetupRequested ? `${computedNotchDiagram.notchDepthMm.toFixed(2)} mm` : "Not configured"}
+                detail={notchSetupRequested ? (form.dynamicValues.notch_direction ? String(form.dynamicValues.notch_direction) : "Direction not selected") : "No notch geometry saved"}
+                tone={notchGeometryValid ? "success" : "accent"}
+              />
+            </div>
+            {notchSetupRequested && (!notchGeometryValid || !notchToolsLinked) ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                Complete master-linked tools, direction, distance and depth. Distance must be greater than zero and no longer than the finished tube.
+              </div>
+            ) : null}
             <div className="grid gap-3 md:grid-cols-4">
               {renderScalarField("notch_type", "Notch")}
               {renderScalarField("notching_blade", "Blade")}
@@ -2883,7 +2994,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               {renderScalarField("punch", "Punch")}
               {renderScalarField("notch_direction", "Direction")}
               {renderScalarField("notch_distance_mm", "Notch Distance", "number", "Distance")}
-              {renderScalarField("notch_depth_mm", "Notch Deep", "number", "Deep")}
+              {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Depth")}
             </div>
           </div>
           <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
@@ -2983,32 +3094,32 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         <section
           id="review-approve"
           data-print-hidden="true"
-          className="scroll-mt-24 rounded-[30px] border border-emerald-200 bg-[linear-gradient(180deg,#f7fdf9_0%,#effaf3_100%)] p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]"
+          className="scroll-mt-36 rounded-2xl border border-[#b9e4d1] bg-[#f4fbf7] p-4 shadow-[0_12px_35px_rgba(25,51,57,0.06)]"
         >
-          <SectionLabel title="Review & Approve" subtitle="Saved drafts must pass review before they can become the live approved spec." />
-          <div className="grid gap-3 lg:grid-cols-3">
-            <div className={`rounded-[24px] border p-4 ${draftSaved ? "border-emerald-200 bg-white text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step 1</p>
-              <h3 className="mt-2 text-lg font-semibold text-slate-950">Draft saved</h3>
-              <p className="mt-2 text-sm text-slate-600">
+          <SectionLabel title="04 · Review & Approve" subtitle="One final release gate for the selected plant." />
+          <div className="grid gap-px overflow-hidden rounded-xl border border-[#b9e4d1] bg-[#b9e4d1] lg:grid-cols-[1fr_1.15fr_1fr]">
+            <div className={`min-h-32 p-3.5 ${draftSaved ? "bg-white text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 1 · {draftSaved ? "Complete" : "Pending"}</p>
+              <h3 className="mt-1 text-sm font-bold text-[#102832]">Draft saved</h3>
+              <p className="mt-1 text-[11px] leading-4 text-slate-600">
                 {draftSaved ? `Spec v${specDocument?.spec?.version || 1} is stored as a draft/revision record.` : "Save the sheet first to create a draft record."}
               </p>
             </div>
-            <div className={`rounded-[24px] border p-4 ${reviewChecksPass ? "border-emerald-200 bg-white text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step 2</p>
-              <h3 className="mt-2 text-lg font-semibold text-slate-950">Review checks</h3>
-              <div className="mt-3 space-y-1 text-sm">
-                <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}>Adhesive ratio: {adhesiveRatioTotalValue.toFixed(0)}%</p>
-                <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}>Mandrel/tube band: {selectedTubeMatchesMandrel ? "pass" : "must be +/- 1 mm"}</p>
-                <p className={hasRecipeSelection ? "text-emerald-700" : "text-rose-700"}>Recipe: {hasRecipeSelection ? "paper selected" : "missing paper"}</p>
-                <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}>Footer: {footerComplete ? "complete" : "incomplete"}</p>
-                <p className={effectiveBalance.withinBand ? "text-emerald-700" : "text-rose-700"}>Weight: {effectiveBalance.withinBand ? "within band" : "outside band"}</p>
+            <div className={`min-h-32 p-3.5 ${reviewChecksPass ? "bg-white text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 2 · {reviewChecksPass ? "Complete" : "Check"}</p>
+              <h3 className="mt-1 text-sm font-bold text-[#102832]">Business checks</h3>
+              <div className="mt-2 grid gap-1 text-[10px] sm:grid-cols-2">
+                <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{adhesiveRatioBalanced ? "Pass" : "Fix"}</span>Adhesive {adhesiveRatioTotalValue.toFixed(0)}%</p>
+                <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{selectedTubeMatchesMandrel ? "Pass" : "Fix"}</span>Mandrel band</p>
+                <p className={hasRecipeSelection ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{hasRecipeSelection ? "Pass" : "Fix"}</span>Recipe selected</p>
+                <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{footerComplete ? "Pass" : "Fix"}</span>Footer</p>
+                <p className={effectiveBalance.withinBand ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{effectiveBalance.withinBand ? "Pass" : "Fix"}</span>Weight band</p>
               </div>
             </div>
-            <div className={`rounded-[24px] border p-4 ${approvalComplete ? "border-emerald-200 bg-white text-emerald-800" : "border-slate-200 bg-white text-slate-700"}`}>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em]">Step 3</p>
-              <h3 className="mt-2 text-lg font-semibold text-slate-950">Approval</h3>
-              <p className="mt-2 text-sm text-slate-600">
+            <div className="min-h-32 bg-white p-3.5 text-slate-700">
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1e765e]">Step 3 · {approvalComplete ? "Complete" : reviewChecksPass ? "Ready" : "Pending"}</p>
+              <h3 className="mt-1 text-sm font-bold text-[#102832]">Approve for {writePlantLabel}</h3>
+              <p className="mt-1 text-[11px] leading-4 text-slate-600">
                 {approvalComplete
                   ? "This version is approved and active for downstream planning and job cards."
                   : "Admin/Owner approval promotes the saved draft after review checks pass."}
@@ -3018,13 +3129,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
-                  className="mt-4 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 disabled:opacity-60"
+                  className="mt-2 rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3 py-2 text-sm font-bold text-[#166b51] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Approve Draft
                 </button>
               ) : null}
               {specDocument?.spec?.active === false || currentStatus === "obsolete" ? (
-                <p className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
                   This version is disabled/read-only. Edit creates a new active version instead of overwriting history.
                 </p>
               ) : null}

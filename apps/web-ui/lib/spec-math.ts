@@ -23,7 +23,7 @@ export const MANDREL_TOLERANCE_MM = 0.1
 
 export const RECIPE_MIN_PAPERS = 3
 export const RECIPE_MAX_PAPERS = 5
-export const RECIPE_MAX_PLIES = 18
+export const RECIPE_MAX_PLIES = 9
 
 export const DELTA_ABS_G = 3.0
 export const DELTA_PCT = 0.0

@@ -30,9 +30,10 @@ export function NotchDiagramPanel({
   onNotchDepthChange,
 }: NotchDiagramPanelProps) {
   const tubeLengthMm = Math.max(asNumber(data?.tubeLengthMm, 0), 1)
-  const notchDistanceMm = clamp(asNumber(data?.notchDistanceMm, tubeLengthMm * 0.07), 0, tubeLengthMm)
+  const notchDistanceMm = clamp(asNumber(data?.notchDistanceMm, 0), 0, tubeLengthMm)
   const notchDepthMm = Math.max(asNumber(data?.notchDepthMm, 0), 0)
   const remainingLengthMm = Math.max(tubeLengthMm - notchDistanceMm, 0)
+  const hasNotchGeometry = Boolean(notchDistanceMm > 0 || notchDepthMm > 0 || data?.notchType || data?.tubeDirection)
 
   const baselineLeft = 30
   const baselineRight = 390
@@ -71,61 +72,29 @@ export function NotchDiagramPanel({
         <line x1={baselineLeft} y1={baselineY - 8} x2={baselineLeft} y2={baselineY + 8} stroke="#0f172a" strokeWidth="2" />
         <line x1={baselineRight} y1={baselineY - 8} x2={baselineRight} y2={baselineY + 8} stroke="#0f172a" strokeWidth="2" />
 
-        <line x1={notchX} y1={52} x2={notchX} y2={notchTipY + 12} stroke="#0891b2" strokeWidth="1.6" strokeDasharray="5 4" />
-        <polyline
-          points={`${notchX - 18},${baselineY} ${notchX},${notchTipY} ${notchX + 18},${baselineY}`}
-          fill="none"
-          stroke="#ef4444"
-          strokeWidth="2.4"
-        />
-
-        <line
-          x1={baselineLeft}
-          y1={38}
-          x2={notchX}
-          y2={38}
-          stroke="#64748b"
-          strokeWidth="1.2"
-          markerStart="url(#notch-arrow)"
-          markerEnd="url(#notch-arrow)"
-        />
-        <line x1={baselineLeft} y1={32} x2={baselineLeft} y2={44} stroke="#64748b" strokeWidth="1.2" />
-        <line x1={notchX} y1={32} x2={notchX} y2={44} stroke="#64748b" strokeWidth="1.2" />
-        <text x={(baselineLeft + notchX) / 2} y={30} textAnchor="middle" fontSize="11" fill="#334155">
-          {formatMm(notchDistanceMm)}
-        </text>
-
-        <line
-          x1={notchX}
-          y1={152}
-          x2={baselineRight}
-          y2={152}
-          stroke="#64748b"
-          strokeWidth="1.2"
-          markerStart="url(#notch-arrow)"
-          markerEnd="url(#notch-arrow)"
-        />
-        <line x1={notchX} y1={146} x2={notchX} y2={158} stroke="#64748b" strokeWidth="1.2" />
-        <line x1={baselineRight} y1={146} x2={baselineRight} y2={158} stroke="#64748b" strokeWidth="1.2" />
-        <text x={(notchX + baselineRight) / 2} y={146} textAnchor="middle" fontSize="11" fill="#334155">
-          Remaining {formatMm(remainingLengthMm)}
-        </text>
-
-        <line
-          x1={notchX + 30}
-          y1={baselineY}
-          x2={notchX + 30}
-          y2={notchTipY}
-          stroke="#dc2626"
-          strokeWidth="1.2"
-          markerStart="url(#notch-arrow-red)"
-          markerEnd="url(#notch-arrow-red)"
-        />
-        <line x1={notchX + 24} y1={baselineY} x2={notchX + 36} y2={baselineY} stroke="#dc2626" strokeWidth="1.2" />
-        <line x1={notchX + 24} y1={notchTipY} x2={notchX + 36} y2={notchTipY} stroke="#dc2626" strokeWidth="1.2" />
-        <text x={notchX + 42} y={(baselineY + notchTipY) / 2} fontSize="11" fill="#991b1b">
-          {formatMm(notchDepthMm)}
-        </text>
+        {hasNotchGeometry ? (
+          <>
+            <line x1={notchX} y1={52} x2={notchX} y2={notchTipY + 12} stroke="#0891b2" strokeWidth="1.6" strokeDasharray="5 4" />
+            <polyline points={`${notchX - 18},${baselineY} ${notchX},${notchTipY} ${notchX + 18},${baselineY}`} fill="none" stroke="#ef4444" strokeWidth="2.4" />
+            <line x1={baselineLeft} y1={38} x2={notchX} y2={38} stroke="#64748b" strokeWidth="1.2" markerStart="url(#notch-arrow)" markerEnd="url(#notch-arrow)" />
+            <line x1={baselineLeft} y1={32} x2={baselineLeft} y2={44} stroke="#64748b" strokeWidth="1.2" />
+            <line x1={notchX} y1={32} x2={notchX} y2={44} stroke="#64748b" strokeWidth="1.2" />
+            <text x={(baselineLeft + notchX) / 2} y={30} textAnchor="middle" fontSize="11" fill="#334155">{formatMm(notchDistanceMm)}</text>
+            <line x1={notchX} y1={152} x2={baselineRight} y2={152} stroke="#64748b" strokeWidth="1.2" markerStart="url(#notch-arrow)" markerEnd="url(#notch-arrow)" />
+            <line x1={notchX} y1={146} x2={notchX} y2={158} stroke="#64748b" strokeWidth="1.2" />
+            <line x1={baselineRight} y1={146} x2={baselineRight} y2={158} stroke="#64748b" strokeWidth="1.2" />
+            <text x={(notchX + baselineRight) / 2} y={146} textAnchor="middle" fontSize="11" fill="#334155">Remaining {formatMm(remainingLengthMm)}</text>
+            <line x1={notchX + 30} y1={baselineY} x2={notchX + 30} y2={notchTipY} stroke="#dc2626" strokeWidth="1.2" markerStart="url(#notch-arrow-red)" markerEnd="url(#notch-arrow-red)" />
+            <line x1={notchX + 24} y1={baselineY} x2={notchX + 36} y2={baselineY} stroke="#dc2626" strokeWidth="1.2" />
+            <line x1={notchX + 24} y1={notchTipY} x2={notchX + 36} y2={notchTipY} stroke="#dc2626" strokeWidth="1.2" />
+            <text x={notchX + 42} y={(baselineY + notchTipY) / 2} fontSize="11" fill="#991b1b">{formatMm(notchDepthMm)}</text>
+            <text x={notchX - 28} y={baselineY + 28} fontSize="11" fill="#0369a1">Notch point</text>
+          </>
+        ) : (
+          <text x={(baselineLeft + baselineRight) / 2} y={72} textAnchor="middle" fontSize="12" fill="#64748b">
+            Notching not configured for this specification
+          </text>
+        )}
 
         <text x={baselineLeft} y={176} fontSize="11" fill="#334155">
           Tube Length: {formatMm(tubeLengthMm)}
@@ -135,9 +104,6 @@ export function NotchDiagramPanel({
         </text>
         <text x={baselineRight - 44} y={92} fontSize="11" fill="#0f172a">
           End edge
-        </text>
-        <text x={notchX - 28} y={baselineY + 28} fontSize="11" fill="#0369a1">
-          Notch point
         </text>
       </svg>
 

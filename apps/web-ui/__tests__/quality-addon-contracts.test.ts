@@ -4,6 +4,7 @@ import {
   DEFAULT_SPEC_FIELD_DEFINITIONS,
   adhesiveRatioTotal,
   applyPaperMasterToRecipeRow,
+  formatRecipeRowsTitle,
   isAdhesiveRatioBalanced,
   isMasterOptionActive,
   isTubeWithinMandrelBand,
@@ -213,6 +214,26 @@ test("paper master facts are copied as locked recipe values", () => {
   assert.equal(row.thicknessPerPly, 0.299)
   assert.equal(row.bulkFactor, 1.3)
   assert.equal(row.plyBond, 4.5)
+})
+
+test("applied paper recipe groups repeated papers into a compact ply summary", () => {
+  const base = {
+    category: "KRAFT",
+    gsm: 250,
+    bfPerPly: 18,
+    thicknessPerPly: 0.3,
+    plyBond: 300,
+    adhesiveLabel: "TL-4",
+    positionsText: "",
+  }
+  assert.equal(
+    formatRecipeRowsTitle([
+      { ...base, id: "1", paper_id: "p1", code: "KRAFT-250-18BF", variety: "250", plyCount: 1 },
+      { ...base, id: "2", paper_id: "p1", code: "KRAFT-250-18BF", variety: "250", plyCount: 1 },
+      { ...base, id: "3", paper_id: "p2", code: "KRAFT-300-18BF", variety: "300", plyCount: 3 },
+    ]),
+    "KRAFT-250-18BF × 2 · KRAFT-300-18BF × 3",
+  )
 })
 
 if (failed.length) {

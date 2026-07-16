@@ -203,10 +203,10 @@ def test_recipe_validation_too_few_papers():
 
 def test_recipe_validation_too_many_plies():
     papers = [
-        RecipePaper("a", 250, 1.3, 10),
-        RecipePaper("b", 300, 1.25, 5),
-        RecipePaper("c", 350, 1.20, 5),
-    ]  # 20 plies
+        RecipePaper("a", 250, 1.3, 4),
+        RecipePaper("b", 300, 1.25, 3),
+        RecipePaper("c", 350, 1.20, 3),
+    ]  # 10 plies; production maximum is 9
     v = validate_recipe(papers, 250, 250)
     assert v.plies_ok is False
 
@@ -330,6 +330,6 @@ def test_defaults_match_workbook():
     assert GLOBAL_MOISTURE_LOSS_PERCENT == 9.0
     assert RECIPE_MIN_PAPERS == 3
     assert RECIPE_MAX_PAPERS == 5
-    assert RECIPE_MAX_PLIES == 18
+    assert RECIPE_MAX_PLIES == 9
     assert DELTA_ABS_G == 3.0
     assert DELTA_PCT == 0.0
