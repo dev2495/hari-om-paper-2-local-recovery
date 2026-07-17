@@ -27,9 +27,9 @@ BAMBOO_CUT_LOSS_MM: int = 40
 
 MANDREL_TOLERANCE_MM: float = 0.1
 
-RECIPE_MIN_PAPERS: int = 3
-RECIPE_MAX_PAPERS: int = 5
-RECIPE_MAX_PLIES: int = 9
+RECIPE_MIN_PAPERS: int = 1
+RECIPE_MAX_PAPERS: int = 10
+RECIPE_MAX_PLIES: int = 25
 
 DELTA_ABS_G: float = 3.0
 DELTA_PCT: float = 0.0
@@ -354,15 +354,14 @@ def compute_preview(
         parchment_allowed=parchment_allowed,
     )
     has_recipe = nominal_tube_paper_g > 0 and len(expanded) > 0
-    allocated_tube_paper_g = required if has_recipe and float(target_dry_g or 0.0) > 0 else nominal_tube_paper_g
-    paper_calibration_factor = (
-        allocated_tube_paper_g / nominal_tube_paper_g if nominal_tube_paper_g > 0 else 0.0
-    )
-    target_per_ply_wpm = [w * paper_calibration_factor for w in per_ply_wpm]
+    # A selected paper recipe is physical truth. Target weight is a comparison
+    # benchmark and must never scale GSM/geometry-derived paper consumption.
+    paper_calibration_factor = 1.0 if has_recipe else 0.0
+    target_per_ply_wpm = list(per_ply_wpm)
     target_paper_wpm = sum(target_per_ply_wpm)
     tube = (
         wet_dry_breakdown(
-            allocated_tube_paper_g,
+            nominal_tube_paper_g,
             adhesive_percent=adhesive_percent,
             parchment_percent=parchment_percent,
             moisture_loss_percent=moisture_loss_percent,

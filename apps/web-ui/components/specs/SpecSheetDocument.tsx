@@ -1493,13 +1493,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     { label: "Tubes / Bamboo", value: `${Number(previewSummary.tubes_per_bamboo || 0)}` },
   ]
   const livePaperTotal = Number(previewSummary.paper_total_g || 0)
-  const nominalPaperTotal = Number(previewSummary.nominal_paper_total_g || 0)
-  const nominalPaperDelta = Number(previewSummary.nominal_paper_delta_g || 0)
-  const paperCalibrationPercent = Number(previewSummary.paper_calibration_factor || 0) * 100
   const liveDryTube = Number(previewSummary.predicted_dry_tube_g || 0)
   const liveWetTube = Number(previewSummary.predicted_wet_tube_g || 0)
-  const nominalWetTube = Number(previewSummary.nominal_wet_tube_g || 0)
-  const nominalDryTube = Number(previewSummary.nominal_dry_tube_g || 0)
   const liveDryDelta = Number(previewSummary.dry_delta_g || 0)
   const targetDryTube = Number(form.averages.weight || 0)
   const targetWetTube = Number(bridgeMetrics.preMoistureTargetTubeG || 0)
@@ -1685,7 +1680,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const addAdhesiveComponent = () => {
     setForm((current) => {
-      if (current.adhesiveComponents.length >= 3) return current
+      if (current.adhesiveComponents.length >= 6) return current
       return {
         ...current,
         adhesiveComponents: [
@@ -1702,7 +1697,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const removeAdhesiveComponent = (index: number) => {
     setForm((current) => {
-      if (current.adhesiveComponents.length <= 2) return current
+      if (current.adhesiveComponents.length <= 1) return current
       return {
         ...current,
         adhesiveComponents: current.adhesiveComponents.filter((_, componentIndex) => componentIndex !== index),
@@ -2228,7 +2223,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   {currentStatus || "Draft"}
                 </span>
                 <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${effectiveBalance.withinBand ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
-                  {effectiveBalance.withinBand ? "Weight reconciled" : "Weight outside band"}
+                  {effectiveBalance.withinBand ? "Weight within target band" : "Weight outside target band"}
                 </span>
                 <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${reviewChecksPass ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-slate-200 bg-white text-slate-600"}`}>
                   {reviewChecksPass ? "All checks pass" : "Review pending"}
@@ -2316,15 +2311,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900">Preview service degraded: {previewDegradedReason}</div>
           ) : null}
 
-          <div className="mt-3 grid overflow-hidden rounded-2xl border border-[#bed4d7] bg-white shadow-[0_12px_35px_rgba(25,51,57,0.07)] md:grid-cols-[1.05fr_auto_0.9fr_auto_1.05fr_auto_1.1fr]" aria-label="Finished tube formula">
-            <div className="px-4 py-3"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Client dry target</p><p className="mt-1 text-xl font-black tracking-[-0.035em] text-[#102832]">{targetDryTube.toFixed(2)} g</p><p className="mt-1 text-[10px] text-slate-500">Finished tube, trim excluded</p></div>
-            <div className="hidden items-center px-2 text-xl font-light text-slate-400 md:flex">÷</div>
-            <div className="border-t border-[#d7dfdc] px-4 py-3 md:border-l-0 md:border-t-0"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Wet divisor</p><p className="mt-1 text-xl font-black tracking-[-0.035em] text-[#102832]">{(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}</p><p className="mt-1 text-[10px] text-slate-500">Moisture-loss basis</p></div>
-            <div className="hidden items-center px-2 text-xl font-light text-slate-400 md:flex">=</div>
-            <div className="border-t border-[#b9e4d1] bg-[#e4f6ed] px-4 py-3 md:border-t-0"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-slate-500">Finished tube wet</p><p className="mt-1 text-xl font-black tracking-[-0.035em] text-[#102832]">{liveWetTube.toFixed(2)} g</p><p className="mt-1 text-[10px] text-slate-500">{livePaperTotal.toFixed(2)} paper + fixed additions</p></div>
-            <div className="hidden items-center px-2 text-xl font-light text-slate-400 md:flex">→</div>
-            <div className="bg-[#102832] px-4 py-3 text-white"><p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#afc4c8]">One wound bamboo</p><p className="mt-1 text-xl font-black tracking-[-0.035em]">{wholeBambooWetWeightG.toFixed(2)} g</p><p className="mt-1 text-[10px] text-[#c4d4d7]">{tubesPerBamboo} tubes + {totalTrimMm.toFixed(0)} mm trim</p></div>
-          </div>
         </section>
 
         <div className="space-y-3">
@@ -2479,8 +2465,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Fixed material assumptions</p>
                     <p className="mt-1 text-sm font-bold text-[#102832]">{targetAdhesiveWeight.toFixed(2)} g adhesive · {targetParchmentWeight.toFixed(2)} g parchment · ratio {adhesiveRatioTotalValue.toFixed(0)}%</p>
                   </div>
-                  <span className="rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:hidden">Show allocation</span>
-                  <span className="hidden rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:inline-flex">Hide allocation</span>
+                  <span className="rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:hidden">Show material split</span>
+                  <span className="hidden rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:inline-flex">Hide material split</span>
                 </summary>
                 <div className="space-y-4 border-t border-[#e4ebe8] p-4">
                 <div className="border-b border-[#e4ebe8] pb-3">
@@ -2516,7 +2502,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   <SummaryMetric
                     label="Finished wet / dry"
                     value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
-                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g allocated paper · trim excluded` : "No recipe applied yet"}
+                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g actual paper · trim excluded` : "No recipe applied yet"}
                   />
                   <SummaryMetric
                     label="Finished dry band"
@@ -2572,7 +2558,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Adhesive breakdown</p>
-                      <p className="mt-1 text-sm text-slate-600">Pick 2-3 masters. Ratios must total 100% of the fixed glue band.</p>
+                      <p className="mt-1 text-sm text-slate-600">Use up to 6 adhesive masters. Their split must total exactly 100% of the fixed adhesive weight.</p>
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
@@ -2610,6 +2596,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             onChange={(nextValue) => updateAdhesiveComponent(index, { name: nextValue })}
                           />
                           <input
+                            aria-label={`${component.name || `Adhesive ${index + 1}`} split percentage`}
                             type="number"
                             step="0.1"
                             value={optionValue(component.ratio_percent)}
@@ -2617,15 +2604,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
                             className="h-10 rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm disabled:bg-[#f2f5f4]"
                           />
-                          <div className="flex h-10 items-center rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm font-semibold text-slate-950">
-                            {Number(previewComponent?.weight_g || 0).toFixed(2)} g
+                          <div className="flex h-10 items-center justify-between gap-2 rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm font-semibold text-slate-950">
+                            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Live</span>
+                            <span>{Number(previewComponent?.weight_g || 0).toFixed(2)} g</span>
                           </div>
                           <div className="flex items-center justify-end">
                             {isEditable ? (
                               <button
                                 type="button"
                                 onClick={() => removeAdhesiveComponent(index)}
-                                disabled={form.adhesiveComponents.length <= 2}
+                                disabled={form.adhesiveComponents.length <= 1}
                                 className="rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50"
                               >
                                 Remove
@@ -2638,11 +2626,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   {isEditable ? (
                     <div className="mt-4 flex items-center justify-between gap-3">
-                      <p className="text-xs text-slate-500">Adhesive weight updates from the live paper total only.</p>
+                      <p className="text-xs text-slate-500">Total adhesive stays {targetAdhesiveWeight.toFixed(2)} g; each component updates live from its percentage split.</p>
                       <button
                         type="button"
                         onClick={addAdhesiveComponent}
-                        disabled={form.adhesiveComponents.length >= 3}
+                        disabled={form.adhesiveComponents.length >= 6}
                         className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
                       >
                         Add Component
@@ -2660,8 +2648,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[#e4ebe8] pb-3">
               <div>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">02 · Recipe mix</p>
-                <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Paper selection, ply order and reconciled mass</h3>
-                <p className="mt-1 text-xs text-slate-500">The table gets the full width; the answer stays attached to the recipe.</p>
+                <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Paper selection, ply order and actual mass</h3>
+                <p className="mt-1 text-xs text-slate-500">Master GSM and geometry stay unchanged; compare the selected recipe directly with the client target.</p>
               </div>
               <MasterLinkRow links={[{ href: "/masters/papers", label: "Papers" }]} />
             </div>
@@ -2685,24 +2673,24 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </div>
                   </div>
                   <p className="mt-2 text-[10px] font-bold uppercase tracking-[0.13em] text-[#9bb7bd]">
-                    Use {RECIPE_MIN_PAPERS}-{RECIPE_MAX_PAPERS} distinct papers · maximum {RECIPE_MAX_PLIES} total plies
+                    Use up to {RECIPE_MAX_PAPERS} distinct paper masters · maximum {RECIPE_MAX_PLIES} total plies
                   </p>
                   <p className="mt-2 text-xs leading-5 text-slate-300">
-                    Finished tube wet = target dry ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment stay fixed from client dry weight; required paper is allocated across the selected plies in their geometric proportions.
+                    Each paper weight comes directly from its master GSM, bulk, tube geometry, and ply count. The client wet target is a benchmark only; selected papers are never scaled to force a match.
                   </p>
                   </div>
                   <div className="grid border-t border-white/10 sm:grid-cols-2 xl:grid-cols-5" data-testid="spec-sheet-preview-rail">
                     <div className="border-white/10 px-4 py-3 xl:border-r">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Paper total</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{livePaperTotal.toFixed(2)} g</p>
-                      <p className="mt-1 text-[10px] text-slate-400">Required after fixed additions</p>
+                      <p className="mt-1 text-[10px] text-slate-400">Actual selected papers</p>
                     </div>
                     <div className="border-t border-white/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Current recipe wet / dry</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
                         {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
                       </p>
-                      <p className="mt-1 text-[10px] text-emerald-300">Trim excluded · reconciled</p>
+                      <p className="mt-1 text-[10px] text-emerald-300">Actual finished tube · trim excluded</p>
                     </div>
                     <div className="border-t border-white/10 px-4 py-3 xl:border-r xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Fixed additions</p>
@@ -2710,9 +2698,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-[10px] text-slate-400">Adhesive + parchment</p>
                     </div>
                     <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Paper allocation</p>
-                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{paperCalibrationPercent.toFixed(2)}%</p>
-                      <p className="mt-1 text-[10px] text-cyan-100/70">Nominal {nominalPaperTotal.toFixed(2)} → {livePaperTotal.toFixed(2)} g</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Wet target variance</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{bridgeMetrics.wetDeltaG > 0 ? "+" : ""}{bridgeMetrics.wetDeltaG.toFixed(2)} g</p>
+                      <p className="mt-1 text-[10px] text-cyan-100/70">Target {targetWetTube.toFixed(2)} g · actual {liveWetTube.toFixed(2)} g</p>
                     </div>
                     <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">One bamboo yield</p>
@@ -2720,11 +2708,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-[10px] text-cyan-100/70">{finishedBambooLengthMm.toFixed(0)} mm finished goods</p>
                     </div>
                   </div>
-                  {hasRecipeSelection ? (
-                    <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">
-                      Why the old screen showed {nominalWetTube.toFixed(2)} / {nominalDryTube.toFixed(2)} g: it treated nominal GSM geometry ({nominalPaperTotal.toFixed(2)} g paper) as finished mass. The production formula now reconciles those same ply proportions to {targetPaperWeight.toFixed(2)} g required paper, so the finished tube is {targetWetTube.toFixed(2)} g wet / {targetDryTube.toFixed(2)} g dry.
-                    </p>
-                  ) : null}
+                  {hasRecipeSelection ? <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">Target paper after fixed additions: {targetPaperWeight.toFixed(2)} g. Current selected paper: {livePaperTotal.toFixed(2)} g. Adjust paper masters or ply counts to close the variance; weights are never auto-calibrated.</p> : null}
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-[#d7dfdc]">
@@ -2736,7 +2720,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">GSM</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">BF / Ply</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Thick / Ply</th>
-                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Finished Weight</th>
+                        <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Actual Paper Weight</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Ply</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3">Ply No.</th>
                         {isEditable ? <th className="border-b border-[#d9e2ef] px-3 py-3">Action</th> : null}
@@ -2773,7 +2757,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
                               <div className="font-semibold text-slate-950">{Number(previewRow?.weightG || 0).toFixed(2)} g</div>
-                              <div className="mt-1 text-[10px] text-slate-400">Nominal {Number(previewRow?.nominalWeightG || 0).toFixed(2)} g</div>
+                              <div className="mt-1 text-[10px] text-slate-400">From master + geometry</div>
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
                               <NumericInput
@@ -2826,13 +2810,20 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </tbody>
                   </table>
                 </div>
+                <div className="grid overflow-hidden rounded-xl border border-[#d7dfdc] bg-white sm:grid-cols-2 xl:grid-cols-5" aria-label="Selected recipe total compared with client target">
+                  <SummaryMetric label="Selected paper" value={`${livePaperTotal.toFixed(2)} g`} detail="Actual master + geometry total" />
+                  <SummaryMetric label="Fixed additions" value={`${bridgeMetrics.adhesiveTotalG.toFixed(2)} + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g`} detail="Adhesive + parchment" />
+                  <SummaryMetric label="Actual finished wet" value={`${liveWetTube.toFixed(2)} g`} detail="Paper + fixed additions" />
+                  <SummaryMetric label="Client wet target" value={`${targetWetTube.toFixed(2)} g`} detail={`Dry target ${targetDryTube.toFixed(2)} g`} />
+                  <SummaryMetric label="Wet variance" value={`${bridgeMetrics.wetDeltaG > 0 ? "+" : ""}${bridgeMetrics.wetDeltaG.toFixed(2)} g`} detail={bridgeMetrics.wetDeltaG > 0 ? "Actual is above target" : bridgeMetrics.wetDeltaG < 0 ? "Actual is below target" : "Exact target match"} tone={Math.abs(bridgeMetrics.wetDeltaG) <= 3 ? "success" : "accent"} />
+                </div>
                 {isEditable ? (
                   <div className="flex justify-between gap-3">
                     <p className="text-sm text-slate-500">Paper rows drive wall thickness, tube paper weight, and the manufacturing output.</p>
                     <button
                       type="button"
                       onClick={addRecipeRow}
-                      disabled={recipeTotalPlyCount >= RECIPE_MAX_PLIES}
+                      disabled={recipeTotalPlyCount >= RECIPE_MAX_PLIES || form.recipeRows.length >= RECIPE_MAX_PAPERS}
                       className="rounded-lg border border-[#d7dfdc] bg-white px-4 py-2 text-sm font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Add recipe row
@@ -2948,7 +2939,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   <SectionLabel title="Bamboo and output logic" subtitle="This block is what moves downstream into the job card." />
                   <SummaryMetric label="Selected bamboo" value={`${selectedBambooLengthMm.toFixed(0)} mm`} detail={`${finishedBambooLengthMm.toFixed(0)} mm finished · ${totalTrimMm.toFixed(0)} mm trim`} />
                   <SummaryMetric label="Tubes / bamboo" value={`${tubesPerBamboo} pcs`} detail={`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm finished length each`} />
-                  <SummaryMetric label="Finished wet / mm" value={`${Number(previewSummary.weight_per_mm_g || 0).toFixed(4)} g`} detail={`${Number(previewSummary.paper_required_g || 0).toFixed(2)} g required paper / tube`} />
+                  <SummaryMetric label="Actual wet / mm" value={`${Number(previewSummary.weight_per_mm_g || 0).toFixed(4)} g`} detail={`${Number(previewSummary.paper_required_g || 0).toFixed(2)} g target paper / tube`} />
                 </div>
               </div>
             </div>

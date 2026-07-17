@@ -207,6 +207,43 @@ class SpecDefaultsResponse(SpecDefaultsPayload):
     updated_at: datetime
 
 
+def _validate_recipe_profile_limits(payload: SpecCreate | SpecUpdate) -> None:
+    profile = payload.profile if isinstance(payload.profile, dict) else {}
+    recipe = profile.get("recipe") if isinstance(profile.get("recipe"), dict) else {}
+    components = recipe.get("adhesive_components")
+    rows = recipe.get("recipe_rows", recipe.get("rows"))
+
+    for field in payload.dynamic_fields or []:
+        if field.field_key == "adhesive_components_json" and components is None:
+            components = _safe_json_loads(field.value, [])
+        if field.field_key == "recipe_sheet_json" and rows is None:
+            stored_recipe = _safe_json_loads(field.value, {})
+            rows = stored_recipe.get("rows", stored_recipe.get("recipe_rows")) if isinstance(stored_recipe, dict) else []
+
+    if isinstance(components, list) and components:
+        if len(components) > 6:
+            raise HTTPException(status_code=400, detail="A specification allows at most 6 adhesive components")
+        ratio_total = sum(float(component.get("ratio_percent") or 0.0) for component in components if isinstance(component, dict))
+        if abs(ratio_total - 100.0) > 0.01:
+            raise HTTPException(status_code=400, detail=f"Adhesive component ratios must total 100%; found {ratio_total:g}%")
+
+    if isinstance(rows, list) and rows:
+        distinct_papers = {
+            str(row.get("paper_id") or "").strip()
+            for row in rows
+            if isinstance(row, dict) and str(row.get("paper_id") or "").strip()
+        }
+        total_plies = sum(
+            max(int(row.get("ply_count", row.get("plyCount", 0)) or 0), 0)
+            for row in rows
+            if isinstance(row, dict) and str(row.get("paper_id") or "").strip()
+        )
+        if len(distinct_papers) > spec_math.RECIPE_MAX_PAPERS:
+            raise HTTPException(status_code=400, detail=f"A specification allows at most {spec_math.RECIPE_MAX_PAPERS} distinct paper masters")
+        if total_plies > spec_math.RECIPE_MAX_PLIES:
+            raise HTTPException(status_code=400, detail=f"A specification allows at most {spec_math.RECIPE_MAX_PLIES} total plies")
+
+
 def _default_dynamic_label(field_key: str) -> str:
     return field_key.replace("_", " ").strip().title() or "Dynamic Field"
 
@@ -742,6 +779,7 @@ def create_spec(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
+    _validate_recipe_profile_limits(spec)
     customer_name = str(spec.customer_name or spec.customer_name_snapshot or "").strip()
     if not customer_name:
         raise HTTPException(status_code=400, detail="customer_name or customer_name_snapshot is required")
@@ -840,6 +878,7 @@ def update_spec(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
+    _validate_recipe_profile_limits(payload)
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
         SpecificationSheet.plant_id == plant_id

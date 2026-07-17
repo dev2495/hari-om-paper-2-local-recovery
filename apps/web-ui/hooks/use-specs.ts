@@ -132,7 +132,7 @@ function buildPreviewSummaryFallback(payload: {
     const rowNominalWeightPerMm = preview.per_ply_weight_per_mm_g
       .slice(plyCursor, plyCursor + rowPlyCount)
       .reduce((sum, value) => sum + Number(value || 0), 0)
-    const rowTargetWeightPerMm = preview.target_per_ply_weight_per_mm_g
+    const rowActualWeightPerMm = preview.target_per_ply_weight_per_mm_g
       .slice(plyCursor, plyCursor + rowPlyCount)
       .reduce((sum, value) => sum + Number(value || 0), 0)
     plyCursor += rowPlyCount
@@ -142,7 +142,7 @@ function buildPreviewSummaryFallback(payload: {
       variety: row.variety,
       gsm: row.gsm,
       ply_count: rowPlyCount,
-      weightG: roundValue(rowTargetWeightPerMm * tubeLengthMm, 2),
+      weightG: roundValue(rowActualWeightPerMm * tubeLengthMm, 2),
       nominalWeightG: roundValue(rowNominalWeightPerMm * tubeLengthMm, 2),
     }
   })
@@ -176,7 +176,11 @@ function buildPreviewSummaryFallback(payload: {
     nominal_dry_tube_g: roundValue(preview.nominal_tube.dry_g, 2),
     nominal_paper_delta_g: roundValue(preview.nominal_tube.paper_g - preview.paper_required_g, 2),
     dry_delta_g: roundValue(preview.validation.delta_g, 2),
-    wet_delta_g: roundValue(preview.tube.wet_g - targetDryWeightG / Math.max(1 - dryingPercent / 100, 0.01), 2),
+    wet_delta_g: roundValue(
+      roundValue(preview.tube.wet_g, 2) -
+        roundValue(targetDryWeightG / Math.max(1 - dryingPercent / 100, 0.01), 2),
+      2,
+    ),
     weight_per_mm_g: roundValue(preview.tube.wet_g / Math.max(tubeLengthMm, 1), 4),
     paper_required_g: roundValue(preview.paper_required_g, 2),
     bamboo_required_wet_g: roundValue(preview.bamboo.wet_g, 2),

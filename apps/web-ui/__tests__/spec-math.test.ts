@@ -58,9 +58,9 @@ test('defaults match workbook', () => {
   assert.equal(GLOBAL_ADHESIVE_PERCENT, 15.0)
   assert.equal(GLOBAL_PARCHMENT_PERCENT, 1.5)
   assert.equal(GLOBAL_MOISTURE_LOSS_PERCENT, 9.0)
-  assert.equal(RECIPE_MIN_PAPERS, 3)
-  assert.equal(RECIPE_MAX_PAPERS, 5)
-  assert.equal(RECIPE_MAX_PLIES, 9)
+  assert.equal(RECIPE_MIN_PAPERS, 1)
+  assert.equal(RECIPE_MAX_PAPERS, 10)
+  assert.equal(RECIPE_MAX_PLIES, 25)
   assert.equal(DELTA_ABS_G, 3.0)
   assert.equal(DELTA_PCT, 0.0)
   assert.equal(BAMBOO_LENGTH_MIN_MM, 1390)
@@ -217,30 +217,23 @@ test('validateRecipe ok path', () => {
   assert.equal(v.total_plies, 4)
 })
 
-test('validateRecipe too few papers', () => {
-  const v = validateRecipe(
-    [
-      { paper_id: 'a', gsm: 250, bulk: 1.3, ply_count: 2 },
-      { paper_id: 'b', gsm: 300, bulk: 1.25, ply_count: 1 },
-    ],
-    250,
-    250,
-  )
+test('validateRecipe requires at least one paper', () => {
+  const v = validateRecipe([], 250, 250)
   assert.equal(v.papers_ok, false)
   assert.equal(v.ok, false)
 })
 
-test('validateRecipe rejects more than nine plies', () => {
+test('validateRecipe rejects more than twenty-five plies', () => {
   const v = validateRecipe(
     [
-      { paper_id: 'a', gsm: 250, bulk: 1.3, ply_count: 4 },
-      { paper_id: 'b', gsm: 300, bulk: 1.25, ply_count: 3 },
-      { paper_id: 'c', gsm: 350, bulk: 1.2, ply_count: 3 },
+      { paper_id: 'a', gsm: 250, bulk: 1.3, ply_count: 10 },
+      { paper_id: 'b', gsm: 300, bulk: 1.25, ply_count: 8 },
+      { paper_id: 'c', gsm: 350, bulk: 1.2, ply_count: 8 },
     ],
     250,
     250,
   )
-  assert.equal(v.total_plies, 10)
+  assert.equal(v.total_plies, 26)
   assert.equal(v.plies_ok, false)
   assert.equal(v.ok, false)
 })
@@ -334,9 +327,9 @@ test('computePreview respects custom globals', () => {
   approx(p.tube.dry_g, p.tube.wet_g * 0.9, 1e-3)
 })
 
-test('finished tube reconciles target and trim stays separate', () => {
+test('production recipe keeps actual paper weights and compares them with target', () => {
   const p = computePreview({
-    mandrel_od_mm: 80,
+    mandrel_od_mm: 125.55,
     tube_length_mm: 120,
     papers: [
       { paper_id: '230', gsm: 230, bulk: 1.3, ply_count: 3 },
@@ -348,11 +341,12 @@ test('finished tube reconciles target and trim stays separate', () => {
   })
 
   approx(p.paper_required_g, 214.7973, 1e-4)
-  approx(p.tube.paper_g, p.paper_required_g, 1e-4)
-  approx(p.tube.wet_g, 230 / 0.91, 1e-4)
-  approx(p.tube.dry_g, 230, 1e-4)
-  approx(p.validation.delta_g, 0, 1e-4)
-  approx(p.target_per_ply_weight_per_mm_g.reduce((sum, value) => sum + value, 0) * 120, p.paper_required_g, 1e-3)
+  approx(p.tube.paper_g, 224.613, 1e-4)
+  approx(p.tube.wet_g, 262.563, 1e-4)
+  approx(p.tube.dry_g, 238.9323, 1e-4)
+  approx(p.validation.delta_g, 8.9323, 1e-4)
+  approx(p.target_per_ply_weight_per_mm_g.reduce((sum, value) => sum + value, 0) * 120, 224.613, 1e-3)
+  approx(p.paper_calibration_factor, 1, 1e-6)
 
   assert.equal(p.bamboo_plan.bamboo_length_mm, 1480)
   assert.equal(p.bamboo_plan.finished_length_mm, 1440)

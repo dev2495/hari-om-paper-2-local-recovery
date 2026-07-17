@@ -163,8 +163,8 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
         "nominal_paper_total_g": preview.nominal_tube.paper_g,
         "paper_calibration_factor": preview.paper_calibration_factor,
     }
-    target_paper_by_group: dict[tuple[str, float, float, float], float] = defaultdict(float)
-    for layer, target_weight_per_mm in zip(
+    actual_paper_by_group: dict[tuple[str, float, float, float], float] = defaultdict(float)
+    for layer, actual_weight_per_mm in zip(
         sorted(recipe.layers, key=lambda row: (row.ply_no or 0)),
         preview.target_per_ply_weight_per_mm_g,
     ):
@@ -175,11 +175,11 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
             float(layer.bf_snapshot or 0.0),
             effective_bulk,
         )
-        target_paper_by_group[key] += float(target_weight_per_mm or 0.0) * float(tube_length_mm or 0.0)
+        actual_paper_by_group[key] += float(actual_weight_per_mm or 0.0) * float(tube_length_mm or 0.0)
 
     paper_rows = []
     for key, row in grouped_layers.items():
-        finished_tube_paper_g = target_paper_by_group.get(key, 0.0)
+        finished_tube_paper_g = actual_paper_by_group.get(key, 0.0)
         whole_bamboo_factor = preview.bamboo_plan.bamboo_length_mm / max(float(tube_length_mm or 0.0), 1.0)
         paper_rows.append(
             {

@@ -21,9 +21,9 @@ export const BAMBOO_CUT_LOSS_MM = 40
 
 export const MANDREL_TOLERANCE_MM = 0.1
 
-export const RECIPE_MIN_PAPERS = 3
-export const RECIPE_MAX_PAPERS = 5
-export const RECIPE_MAX_PLIES = 9
+export const RECIPE_MIN_PAPERS = 1
+export const RECIPE_MAX_PAPERS = 10
+export const RECIPE_MAX_PLIES = 25
 
 export const DELTA_ABS_G = 3.0
 export const DELTA_PCT = 0.0
@@ -336,12 +336,13 @@ export function computePreview(opts: PreviewOptions): PreviewResult {
     parchment_allowed,
   })
   const has_recipe = nominal_tube_paper_g > 0 && expanded.length > 0
-  const allocated_tube_paper_g = has_recipe && opts.target_dry_g > 0 ? required : nominal_tube_paper_g
-  const paper_calibration_factor = nominal_tube_paper_g > 0 ? allocated_tube_paper_g / nominal_tube_paper_g : 0
-  const target_per_ply_wpm = per_ply_wpm.map((weight) => weight * paper_calibration_factor)
+  // A selected paper recipe is physical truth. Target weight is a comparison
+  // benchmark and must never scale GSM/geometry-derived paper consumption.
+  const paper_calibration_factor = has_recipe ? 1 : 0
+  const target_per_ply_wpm = [...per_ply_wpm]
   const target_paper_wpm = target_per_ply_wpm.reduce((sum, weight) => sum + weight, 0)
   const tube = has_recipe
-    ? wetDryBreakdown(allocated_tube_paper_g, {
+    ? wetDryBreakdown(nominal_tube_paper_g, {
         adhesive_percent,
         parchment_percent,
         moisture_loss_percent,

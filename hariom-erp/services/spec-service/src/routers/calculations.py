@@ -176,7 +176,7 @@ def calculate_preview(
     for row in payload.recipe_rows:
         row_ply_count = max(int(row.ply_count or 1), 1)
         row_nominal_weight_per_mm = sum(preview.per_ply_weight_per_mm_g[ply_cursor: ply_cursor + row_ply_count])
-        row_target_weight_per_mm = sum(preview.target_per_ply_weight_per_mm_g[ply_cursor: ply_cursor + row_ply_count])
+        row_actual_weight_per_mm = sum(preview.target_per_ply_weight_per_mm_g[ply_cursor: ply_cursor + row_ply_count])
         ply_cursor += row_ply_count
         ply_details.append(
             {
@@ -185,7 +185,7 @@ def calculate_preview(
                 "variety": row.variety,
                 "gsm": row.gsm,
                 "ply_count": row_ply_count,
-                "weightG": round(row_target_weight_per_mm * float(payload.tube_length_mm or 0.0), 2),
+                "weightG": round(row_actual_weight_per_mm * float(payload.tube_length_mm or 0.0), 2),
                 "nominalWeightG": round(row_nominal_weight_per_mm * float(payload.tube_length_mm or 0.0), 2),
             }
         )
@@ -210,7 +210,8 @@ def calculate_preview(
             "nominal_dry_tube_g": round(preview.nominal_tube.dry_g, 2),
             "nominal_paper_delta_g": round(preview.nominal_tube.paper_g - preview.paper_required_g, 2),
             "dry_delta_g": round(preview.validation.delta_g, 2),
-            "wet_delta_g": round(preview.tube.wet_g - pre_moisture_target, 2),
+            # Reconcile the same 2dp operands the operator sees on screen.
+            "wet_delta_g": round(round(preview.tube.wet_g, 2) - round(pre_moisture_target, 2), 2),
             "weight_per_mm_g": round(preview.tube.wet_g / max(float(payload.tube_length_mm or 0.0), 1.0), 4),
             "paper_required_g": round(preview.paper_required_g, 2),
             "bamboo_required_wet_g": round(preview.bamboo.wet_g, 2),

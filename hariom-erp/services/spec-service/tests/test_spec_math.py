@@ -194,19 +194,18 @@ def test_recipe_validation_ok():
     assert v.total_plies == 4
 
 
-def test_recipe_validation_too_few_papers():
-    papers = [RecipePaper("a", 250, 1.3, 2), RecipePaper("b", 300, 1.25, 1)]
-    v = validate_recipe(papers, 250, 250)
+def test_recipe_validation_requires_at_least_one_paper():
+    v = validate_recipe([], 250, 250)
     assert v.papers_ok is False
     assert v.ok is False
 
 
 def test_recipe_validation_too_many_plies():
     papers = [
-        RecipePaper("a", 250, 1.3, 4),
-        RecipePaper("b", 300, 1.25, 3),
-        RecipePaper("c", 350, 1.20, 3),
-    ]  # 10 plies; production maximum is 9
+        RecipePaper("a", 250, 1.3, 10),
+        RecipePaper("b", 300, 1.25, 8),
+        RecipePaper("c", 350, 1.20, 8),
+    ]  # 26 plies; production maximum is 25
     v = validate_recipe(papers, 250, 250)
     assert v.plies_ok is False
 
@@ -292,9 +291,9 @@ def test_compute_preview_respects_custom_globals():
     assert p.tube.dry_g == pytest.approx(p.tube.wet_g * 0.90, rel=1e-4)
 
 
-def test_finished_tube_reconciles_target_and_trim_stays_separate():
+def test_production_recipe_keeps_actual_paper_weights_and_compares_them_with_target():
     p = compute_preview(
-        mandrel_od_mm=80.0,
+        mandrel_od_mm=125.55,
         tube_length_mm=120.0,
         papers=[
             RecipePaper("230", 230, 1.30, 3),
@@ -306,11 +305,12 @@ def test_finished_tube_reconciles_target_and_trim_stays_separate():
     )
 
     assert p.paper_required_g == pytest.approx(214.7973, abs=1e-4)
-    assert p.tube.paper_g == pytest.approx(p.paper_required_g, abs=1e-4)
-    assert p.tube.wet_g == pytest.approx(230.0 / 0.91, abs=1e-4)
-    assert p.tube.dry_g == pytest.approx(230.0, abs=1e-4)
-    assert p.validation.delta_g == pytest.approx(0.0, abs=1e-4)
-    assert sum(p.target_per_ply_weight_per_mm_g) * 120.0 == pytest.approx(p.paper_required_g, rel=1e-5)
+    assert p.tube.paper_g == pytest.approx(224.613, abs=1e-4)
+    assert p.tube.wet_g == pytest.approx(262.563, abs=1e-4)
+    assert p.tube.dry_g == pytest.approx(238.9323, abs=1e-4)
+    assert p.validation.delta_g == pytest.approx(8.9323, abs=1e-4)
+    assert sum(p.target_per_ply_weight_per_mm_g) * 120.0 == pytest.approx(224.613, rel=1e-5)
+    assert p.paper_calibration_factor == pytest.approx(1.0)
 
     assert p.bamboo_plan.bamboo_length_mm == 1480
     assert p.bamboo_plan.finished_length_mm == 1440
@@ -328,8 +328,8 @@ def test_defaults_match_workbook():
     assert GLOBAL_ADHESIVE_PERCENT == 15.0
     assert GLOBAL_PARCHMENT_PERCENT == 1.5
     assert GLOBAL_MOISTURE_LOSS_PERCENT == 9.0
-    assert RECIPE_MIN_PAPERS == 3
-    assert RECIPE_MAX_PAPERS == 5
-    assert RECIPE_MAX_PLIES == 9
+    assert RECIPE_MIN_PAPERS == 1
+    assert RECIPE_MAX_PAPERS == 10
+    assert RECIPE_MAX_PLIES == 25
     assert DELTA_ABS_G == 3.0
     assert DELTA_PCT == 0.0

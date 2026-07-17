@@ -36,22 +36,20 @@ def _recipe(paper_ids):
     )
 
 
-def test_recipe_approval_rejects_more_than_nine_plies():
+def test_recipe_approval_rejects_more_than_twenty_five_plies():
     papers = [uuid.uuid4(), uuid.uuid4(), uuid.uuid4()]
-    recipe = _recipe([papers[index % 3] for index in range(10)])
+    recipe = _recipe([papers[index % 3] for index in range(26)])
     service = ApprovalService(_RecipeDb(recipe))
 
     with pytest.raises(HTTPException) as exc_info:
         service.approve_recipe(str(recipe.id), approved_by="owner")
-    assert "at most 9 plies" in str(exc_info.value.detail)
+    assert "at most 25 plies" in str(exc_info.value.detail)
 
 
-def test_recipe_approval_requires_three_to_five_distinct_papers():
-    first = uuid.uuid4()
-    second = uuid.uuid4()
-    recipe = _recipe([first, first, second, second])
+def test_recipe_approval_rejects_more_than_ten_distinct_papers():
+    recipe = _recipe([uuid.uuid4() for _ in range(11)])
     service = ApprovalService(_RecipeDb(recipe))
 
     with pytest.raises(HTTPException) as exc_info:
         service.approve_recipe(str(recipe.id), approved_by="owner")
-    assert "3-5 distinct papers" in str(exc_info.value.detail)
+    assert "1-10 distinct papers" in str(exc_info.value.detail)
