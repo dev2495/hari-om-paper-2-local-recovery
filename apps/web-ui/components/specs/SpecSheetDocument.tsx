@@ -1341,9 +1341,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           id: Number(selectedTube.inner_diameter_mm || 0),
           od: Number(selectedTube.outer_diameter_mm || 0),
           length: Number(selectedTube.length_mm || 0),
-          // Tube geometry must never invent a commercial target weight. The
-          // operator/client supplies dry target weight explicitly.
-          weight: current.averages.weight,
+          // Tube geometry must not invent a commercial target weight.
+          // The operator/client must always enter dry target explicitly.
+          weight: 0,
         },
       }
     })
@@ -2556,7 +2556,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
               </div>
 
-              <details className="group rounded-xl border border-[#d7dfdc] bg-[#f8faf9]" open={isPrint || undefined}>
+              <details
+                className="group rounded-xl border border-[#d7dfdc] bg-[#f8faf9]"
+                open={isPrint || isEditable || undefined}
+              >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
                   <div>
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Fixed material assumptions</p>
