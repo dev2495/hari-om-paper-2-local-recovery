@@ -1333,6 +1333,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           diff: Math.abs(Number(mandrel?.outer_diameter_mm || 0) - Number(selectedTube.inner_diameter_mm || 0)),
         }))
         .sort((left, right) => left.diff - right.diff)[0]
+
       return {
         ...current,
         mandrelId: current.mandrelId || closestMandrel?.id || current.mandrelId,
@@ -1341,9 +1342,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           id: Number(selectedTube.inner_diameter_mm || 0),
           od: Number(selectedTube.outer_diameter_mm || 0),
           length: Number(selectedTube.length_mm || 0),
-          // Tube geometry must not invent a commercial target weight.
-          // The operator/client must always enter dry target explicitly.
-          weight: 0,
         },
       }
     })
