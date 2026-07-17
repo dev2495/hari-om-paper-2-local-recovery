@@ -112,8 +112,10 @@ const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000
 const clamp0 = (n: number | null | undefined) =>
   typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0
 const dryDivisor = (moistureLossPercent: number) => Math.max(1 - Math.max(moistureLossPercent, 0) / 100, 0.0001)
-const addOnShare = (adhesivePercent: number, parchmentPercent: number, parchmentAllowed: boolean) =>
-  Math.max(adhesivePercent, 0) / 100 + (parchmentAllowed ? Math.max(parchmentPercent, 0) / 100 : 0)
+// The configured 15% is the combined wet-material allowance. Parchment is a
+// slice of that allowance; adhesive receives the remainder.
+const addOnShare = (totalAdditionsPercent: number, _parchmentPercent: number, _parchmentAllowed: boolean) =>
+  Math.max(totalAdditionsPercent, 0) / 100
 
 export function thicknessMm(gsm: number, bulk: number): number {
   return (clamp0(gsm) * clamp0(bulk)) / 1000
@@ -177,7 +179,8 @@ export function wetDryBreakdown(
   const divisor = dryDivisor(M)
   const addon = addOnShare(A, P, parchmentAllowed)
   const dryBase = targetDry > 0 ? targetDry : (paper * divisor) / Math.max(1 - divisor * addon, 0.0001)
-  const adhesive = (dryBase * Math.max(A, 0)) / 100
+  const adhesivePercent = Math.max(A - (parchmentAllowed ? Math.max(P, 0) : 0), 0)
+  const adhesive = (dryBase * adhesivePercent) / 100
   const parchment = parchmentAllowed ? (dryBase * Math.max(P, 0)) / 100 : 0
   const wet = paper + adhesive + parchment
   const dry = wet * divisor
@@ -217,9 +220,8 @@ export function requiredPaperG(
   const parchmentAllowed = opts?.parchment_allowed ?? true
   const divisor = dryDivisor(M)
   const targetWet = targetDryG / divisor
-  const adhesive = (targetDryG * Math.max(A, 0)) / 100
-  const parchment = parchmentAllowed ? (targetDryG * Math.max(P, 0)) / 100 : 0
-  return round4(Math.max(targetWet - adhesive - parchment, 0))
+  const totalAdditions = (targetDryG * Math.max(A, 0)) / 100
+  return round4(Math.max(targetWet - totalAdditions, 0))
 }
 
 // ---------------------------------------------------------------------------

@@ -3,12 +3,17 @@ const path = require("path")
 const { test, expect } = require("@playwright/test")
 
 const workspaceRoot = path.resolve(__dirname, "..", "..", "..")
+const preferredManifestPath = path.join(workspaceRoot, "hariom-erp", "runtime", "runtime_manifest.json")
 const manifestPath =
-  process.env.ERP_RUNTIME_MANIFEST || path.join(workspaceRoot, "hariom-erp", ".runtime", "runtime_manifest.json")
+  process.env.ERP_RUNTIME_MANIFEST ||
+  (fs.existsSync(preferredManifestPath)
+    ? preferredManifestPath
+    : path.join(workspaceRoot, "hariom-erp", ".runtime", "runtime_manifest.json"))
 const fixturePath =
   process.env.ERP_BROWSER_FIXTURE || path.join(workspaceRoot, "reports", "browser_e2e_fixture_latest.json")
 
 function readJson(filePath) {
+  if (!fs.existsSync(filePath)) return {}
   return JSON.parse(fs.readFileSync(filePath, "utf8"))
 }
 
@@ -71,7 +76,7 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
 
   const liveBuilder = page.getByTestId("spec-sheet-live-builder")
   await expect(liveBuilder).toContainText(/Paper total/i)
-  await expect(liveBuilder).toContainText(/Current recipe wet \/ dry/i)
+  await expect(liveBuilder).toContainText(/Winding \/ 9% model dry/i)
 
   const previewRail = page.getByTestId("spec-sheet-preview-rail")
   await expect(previewRail).toContainText(/One bamboo yield/i)
@@ -104,4 +109,33 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await expect(targetWeightInput).toHaveValue("300")
   await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]')).toHaveCount(0)
   await expect(liveBuilder).toContainText(/Target wet/i)
+})
+
+test("spec sheet keeps target weight explicit and applies the combined 15 percent rule", async ({ page }) => {
+  await login(page)
+  await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
+
+  if (await page.getByText(/Pick one plant in the top switcher/i).isVisible()) {
+    await page.getByTestId("plant-switcher-trigger").click()
+    await page.getByTestId("plant-option:00000000-0000-0000-0000-0000000000a1").click()
+  }
+
+  await page.getByTestId("spec-sheet-mandrel").click()
+  await page.getByRole("button", { name: /^125\.55 \| OD 125\.55/i }).click()
+
+  await page.getByTestId("spec-sheet-tube-size").click()
+  await page.getByRole("button", { name: /^125 x 137 x 120$/i }).click()
+
+  const targetWeightInput = page.getByTestId("spec-sheet-target-weight")
+  await expect(targetWeightInput).toHaveValue("")
+  await targetWeightInput.fill("230")
+
+  await page.locator("summary").filter({ hasText: "Fixed material assumptions" }).click()
+  await expect(page.getByText("252.75 / 230.00 g", { exact: true })).toBeVisible()
+  await expect(page.getByText("34.50 g total", { exact: true })).toBeVisible()
+  await expect(page.getByText(/31\.05 g adhesive \+ 3\.45 g parchment · 218\.25 g wet paper target/)).toBeVisible()
+  const appliedRows = page.getByText("Applied live").locator("..")
+  await expect(appliedRows.nth(0)).toContainText("9.32 g")
+  await expect(appliedRows.nth(1)).toContainText("21.73 g")
 })

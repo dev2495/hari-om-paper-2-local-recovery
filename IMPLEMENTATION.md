@@ -14,17 +14,17 @@ Everything below is implemented identically in `spec-service/src/spec_math.py` (
 
 | Constant | Value | Meaning |
 |---|---|---|
-| `GLOBAL_ADHESIVE_PERCENT` | 15.0 | % share of wet tube weight |
-| `GLOBAL_PARCHMENT_PERCENT` | 1.5 | % share of wet tube weight (only if `parchment_allowed`) |
+| `GLOBAL_ADHESIVE_PERCENT` | 15.0 | legacy storage name for the combined adhesive + parchment allowance as % of client dry target |
+| `GLOBAL_PARCHMENT_PERCENT` | 1.5 | parchment slice of client dry target, included inside the combined 15% allowance |
 | `GLOBAL_MOISTURE_LOSS_PERCENT` | 9.0 | wet→dry loss; wet divisor = 0.91 |
 | `BAMBOO_LENGTH_MIN_MM` | 1390 | |
 | `BAMBOO_LENGTH_MAX_MM` | 1560 | |
 | `BAMBOO_LENGTH_STEP_MM` | 10 | |
 | `BAMBOO_CUT_LOSS_MM` | 40 | |
 | `MANDREL_TOLERANCE_MM` | 0.1 | ID = mandrel_od ± tol |
-| `RECIPE_MIN_PAPERS` | 3 | distinct papers |
-| `RECIPE_MAX_PAPERS` | 5 | distinct papers |
-| `RECIPE_MAX_PLIES` | 18 | total plies |
+| `RECIPE_MIN_PAPERS` | 1 | distinct papers |
+| `RECIPE_MAX_PAPERS` | 10 | distinct papers |
+| `RECIPE_MAX_PLIES` | 25 | total plies |
 | `DELTA_ABS_G` | 3 | absolute tolerance |
 | `DELTA_PCT` | 0.0 | no percent tolerance; fixed `±3 g` only |
 
@@ -59,20 +59,22 @@ bamboo_paper_g = paper_weight_per_mm × bamboo_length_mm
 **5. Wet → dry**
 
 The commercial target is the finished dry tube. Wet target is derived first.
-Adhesive and parchment are fixed percentages of the client dry target, and the
-paper recipe must fill the remaining wet target.
+Adhesive and parchment together consume one fixed percentage of the client dry
+target. Parchment is a slice of that allowance and adhesive receives the rest;
+parchment is never added again on top of the 15%.
 
 ```
-wet_target_g     = target_dry_g ÷ (1 − M/100)
-adhesive_g       = target_dry_g × A/100
-parchment_g      = parchment_allowed ? target_dry_g × P/100 : 0
-paper_required_g = wet_target_g − adhesive_g − parchment_g
+wet_target_g       = target_dry_g ÷ (1 − M/100)
+total_additions_g  = target_dry_g × A/100
+parchment_g        = parchment_allowed ? target_dry_g × P/100 : 0
+adhesive_g         = total_additions_g − parchment_g
+paper_required_g   = wet_target_g − total_additions_g
 predicted_wet_g  = paper_recipe_g + adhesive_g + parchment_g
 predicted_dry_g  = predicted_wet_g × (1 − M/100)
 ```
 
 **6. Reverse (target dry → required paper)**
-With defaults and parchment on: `250 g dry → 274.73 g wet → 37.50 g adhesive + 3.75 g parchment + 233.48 g paper`.
+With defaults and parchment on: `250 g dry → 274.73 g wet → 37.50 g combined additions = 33.75 g adhesive + 3.75 g parchment → 237.23 g paper`.
 
 **7. Bamboo plan**
 Scan `L = MAX .. MIN` in `STEP`:
@@ -812,6 +814,14 @@ Pick by `(tubes desc, waste asc, length desc)`.
 ### 2026-07-17 · Actual-mass recipe and target comparison correction
 - Made the client wet target a comparison benchmark only. It no longer scales or reallocates the selected paper recipe.
 - Paper weight now stays faithful to paper-master GSM and tube geometry for every selected ply; adhesive and parchment remain explicit additions.
-- The production client recipe now resolves to `224.61 g` paper + `34.50 g` adhesive + `3.45 g` parchment = `262.56 g` actual wet, compared with the `252.75 g` client wet target (`+9.81 g`).
+- Superseded later on 2026-07-17: this line double-counted parchment by putting 15% into adhesive and adding another 1.5% parchment.
 - Increased enforced recipe limits to 10 distinct paper masters and 25 total plies. Adhesive mixtures support up to 6 components and must total 100%.
 - Replaced the target-allocation hero with a compact actual-versus-target comparison attached to the recipe table, and rebuilt the paper picker as a searchable, non-clipping portal.
+
+### 2026-07-17 · Combined 15% material allowance and plant-weight reconciliation
+- Confirmed the governing client rule: 15% of dry target is the combined parchment + adhesive allowance.
+- For the 230 g example: `252.75 g wet target − 34.50 g combined additions = 218.25 g wet paper target`; the additions split into `31.05 g adhesive + 3.45 g parchment`.
+- The selected master recipe remains `224.61 g` geometric paper, so its winding/model result is `259.11 g wet / 235.79 g dry` at the configured 0.91 divisor.
+- Added a measured-finished-dry input and reconciliation readout. A 232 g plant reading implies either `10.46%` effective total drying loss, or `220.44 g` actual paper at the configured 0.91 divisor (`4.17 g` below geometry); the UI reports both without altering master GSM.
+- Removed the geometry-derived `262 g` default from tube-size selection. Commercial dry target must now be entered explicitly.
+- Adhesive selections now hydrate from active masters and show each component's live applied grams alongside its master solid-content reference.

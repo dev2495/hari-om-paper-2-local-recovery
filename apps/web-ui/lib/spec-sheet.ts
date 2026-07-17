@@ -340,9 +340,11 @@ export type GroupedRecipeRow = {
 }
 
 export type AdhesiveComponent = {
+  adhesive_id?: string
   name: string
   base_percent: number
   ratio_percent: number
+  solid_content_percent?: number | null
 }
 
 export function isMasterOptionActive(row: any) {
@@ -478,6 +480,7 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "glue_base_percent", label: "Glue Base %", field_type: "number" },
   { field_key: "allowed_parchment_groups_json", label: "Allowed Parchment Groups JSON", field_type: "text" },
   { field_key: "adhesive_components_json", label: "Adhesive Components JSON", field_type: "text" },
+  { field_key: "measured_finished_dry_g", label: "Measured Finished Dry Weight", field_type: "number" },
   { field_key: "drying_percent_override", label: "Drying Override %", field_type: "number" },
   { field_key: "fill_instructions_version", label: "Fill Instructions Version", field_type: "text" },
   { field_key: "notch_type", label: "Notch Tool", field_type: "select" },
@@ -638,10 +641,21 @@ export function parseAdhesiveComponents(value: string | undefined, fallbackBaseP
         const ratio_percent = Number(source.ratio_percent ?? 0)
         if (!name || !Number.isFinite(base_percent) || !Number.isFinite(ratio_percent)) return null
         if (base_percent <= 0 || ratio_percent <= 0) return null
-        return { name, base_percent, ratio_percent }
+        const adhesive_id = String(source.adhesive_id || source.id || "").trim() || undefined
+        const rawSolids = source.solid_content_percent
+        const solid_content_percent = rawSolids === null || rawSolids === undefined || rawSolids === ""
+          ? null
+          : Number(rawSolids)
+        return {
+          adhesive_id,
+          name,
+          base_percent,
+          ratio_percent,
+          solid_content_percent: Number.isFinite(solid_content_percent) ? solid_content_percent : null,
+        }
       })
-      .filter((item): item is AdhesiveComponent => Boolean(item))
-    if (normalized.length > 0) return normalized.slice(0, 5)
+      .filter(Boolean) as AdhesiveComponent[]
+    if (normalized.length > 0) return normalized.slice(0, 6)
   }
   return []
 }
@@ -652,7 +666,7 @@ export function buildAdhesiveComponentsPayload(
 ) {
   const normalized = components
     .filter((item) => Number(item.base_percent) > 0 && Number(item.ratio_percent) > 0 && item.name.trim().length > 0)
-    .slice(0, 5)
+    .slice(0, 6)
 
   if (normalized.length > 0) return normalized
 

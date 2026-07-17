@@ -61,7 +61,7 @@ This file is the quick pickup map for the system structure. Use it together with
 
 1. Select customer, tube size, mandrel, parchment families, papers, adhesives, and packaging from masters.
 2. Select a candidate paper pool, then apply a best-mix suggestion into the recipe rows.
-3. Split the fixed `15%` adhesive base across 2+ adhesive masters by ratio.
+3. Reserve `15%` of client dry target for adhesive + parchment together; subtract the parchment share, then split the remaining adhesive grams across up to 6 adhesive masters by ratio.
 4. Derive manufacturing math from mandrel plus recipe thickness through the spec preview engine.
 5. Persist bamboo plan, recipe rows, adhesive mix, notch cues, and packing into the profile snapshot.
 6. Save draft, then approve and capture trial data later.

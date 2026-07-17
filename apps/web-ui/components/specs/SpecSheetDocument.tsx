@@ -213,6 +213,7 @@ function defaultFormState(): FormState {
     dynamicValues: {
       glue_mode: "standard",
       glue_base_percent: "15",
+      measured_finished_dry_g: "",
       drying_percent_override: "",
       fill_instructions_version: CANONICAL_VARIANT_KEY,
       winder_tool_required: "false",
@@ -249,6 +250,30 @@ function defaultFormState(): FormState {
       approved: false,
     },
   }
+}
+
+function adhesiveMasterLabel(master: any) {
+  const name = String(master?.name || master?.variety || "").trim()
+  const code = String(master?.internal_code || "").trim()
+  return code ? `${name} (${code})` : name
+}
+
+function adhesiveReferenceTokens(value: unknown) {
+  return String(value || "")
+    .toUpperCase()
+    .match(/[A-Z]+|\d{4,}/g) || []
+}
+
+function findAdhesiveMaster(component: AdhesiveComponent, masters: any[]) {
+  const byId = masters.find((master) => String(master?.id || "") === String(component.adhesive_id || ""))
+  if (byId) return byId
+  const componentTokens = new Set(adhesiveReferenceTokens(component.name))
+  return masters.find((master) => {
+    const label = adhesiveMasterLabel(master)
+    if (label.toUpperCase() === String(component.name || "").toUpperCase()) return true
+    return adhesiveReferenceTokens(`${master?.name || master?.variety || ""} ${master?.internal_code || ""}`)
+      .some((token) => /^\d{4,}$/.test(token) && componentTokens.has(token))
+  })
 }
 
 function SectionLabel({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -667,6 +692,38 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const activePackagingFadda = useMemo(() => ((packagingFadda || []) as any[]).filter(isMasterOptionActive), [packagingFadda])
   const activeTools = useMemo(() => ((tools || []) as any[]).filter(isMasterOptionActive), [tools])
 
+  const resolvedAdhesiveComponents = useMemo(
+    () =>
+      form.adhesiveComponents.map((component) => {
+        const master = findAdhesiveMaster(component, activeAdhesives)
+        if (!master) return component
+        return {
+          ...component,
+          adhesive_id: String(master.id || "") || undefined,
+          name: adhesiveMasterLabel(master),
+          solid_content_percent:
+            master.solid_content_percent === null || master.solid_content_percent === undefined
+              ? null
+              : Number(master.solid_content_percent),
+        }
+      }),
+    [activeAdhesives, form.adhesiveComponents],
+  )
+
+  useEffect(() => {
+    if (!activeAdhesives.length) return
+    const changed = resolvedAdhesiveComponents.some((component, index) => {
+      const current = form.adhesiveComponents[index]
+      return (
+        component.adhesive_id !== current?.adhesive_id ||
+        component.name !== current?.name ||
+        component.solid_content_percent !== current?.solid_content_percent
+      )
+    })
+    if (!changed) return
+    setForm((current) => ({ ...current, adhesiveComponents: resolvedAdhesiveComponents }))
+  }, [activeAdhesives.length, form.adhesiveComponents, resolvedAdhesiveComponents])
+
   const customerMap = useMemo<Map<string, any>>(
     () => new Map<string, any>(((customers || []) as any[]).map((item) => [String(item.id), item])),
     [customers],
@@ -963,13 +1020,21 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const totalAllPlyThickness = rows.reduce((sum, row) => sum + Number(row.thicknessPerPly || 0) * row.actualPlyCount, 0)
     const totalAllPlyBond = rows.reduce((sum, row) => sum + Number(row.plyBond || 0) * row.actualPlyCount, 0)
     const totalPaperWeightG = rows.reduce((sum, row) => sum + Number(row.weightG || 0), 0)
-    const adhesiveComponents = buildAdhesiveComponentsPayload(form.adhesiveComponents, {
+    const adhesiveComponents = buildAdhesiveComponentsPayload(resolvedAdhesiveComponents, {
       tl4: Number(form.adhesive20100 || 0),
       vinsol: Number(form.adhesive30100 || 0),
       basePercent: glueBasePct,
     })
+    const adhesiveRatioTotal = adhesiveComponents.reduce(
+      (sum, component) => sum + Number(component.ratio_percent || 0),
+      0,
+    )
+    const totalAdhesiveWeightG = Number(form.averages.weight || 0) *
+      (Math.max(glueBasePct - (form.parchmentAllowed ? Number(form.parchmentPercent || 0) : 0), 0) / 100)
     const componentWeights = adhesiveComponents.map((component) => {
-      const weightG = totalPaperWeightG * (Number(component.base_percent || 0) / 100) * (Number(component.ratio_percent || 0) / 100)
+      const weightG = adhesiveRatioTotal > 0
+        ? totalAdhesiveWeightG * (Number(component.ratio_percent || 0) / adhesiveRatioTotal)
+        : 0
       return {
         ...component,
         weightG,
@@ -982,7 +1047,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const vinsolWeightG = componentWeights
       .filter((component) => component.name.toLowerCase().includes("vinsol") || component.name.toLowerCase().includes("30100"))
       .reduce((sum, component) => sum + Number(component.weightG || 0), 0)
-    const parchmentWeightG = form.parchmentAllowed ? totalPaperWeightG * (Number(form.parchmentPercent || 0) / 100) : 0
+    const parchmentWeightG = form.parchmentAllowed
+      ? Number(form.averages.weight || 0) * (Number(form.parchmentPercent || 0) / 100)
+      : 0
     const wetWeightG = totalPaperWeightG + adhesiveWeightG + parchmentWeightG
     const dryWeightG = wetWeightG * dryingDivisor
     const tubesPerBamboo = tubeLength > 0 ? Math.floor(usableLength / tubeLength) : 0
@@ -1024,7 +1091,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       glueBasePct,
     }
   }, [
-    form.adhesiveComponents,
+    resolvedAdhesiveComponents,
     form.adhesive20100,
     form.adhesive30100,
     form.averages.weight,
@@ -1073,12 +1140,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   )
   const previewAdhesiveComponents = useMemo(
     () =>
-      buildAdhesiveComponentsPayload(form.adhesiveComponents, {
+      buildAdhesiveComponentsPayload(resolvedAdhesiveComponents, {
         tl4: Number(form.adhesive20100 || 0),
         vinsol: Number(form.adhesive30100 || 0),
         basePercent: adhesivePercent,
       }),
-    [adhesivePercent, form.adhesive20100, form.adhesive30100, form.adhesiveComponents],
+    [adhesivePercent, form.adhesive20100, form.adhesive30100, resolvedAdhesiveComponents],
   )
   const previewRequest = useMemo(
     () => ({
@@ -1266,15 +1333,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           diff: Math.abs(Number(mandrel?.outer_diameter_mm || 0) - Number(selectedTube.inner_diameter_mm || 0)),
         }))
         .sort((left, right) => left.diff - right.diff)[0]
-      const derivedWeight =
-        Number(selectedTube.outer_diameter_mm || 0) > 0 && Number(selectedTube.length_mm || 0) > 0
-          ? roundValue(
-              ((Number(selectedTube.outer_diameter_mm || 0) + Number(selectedTube.inner_diameter_mm || 0)) / 2) *
-                (Number(selectedTube.length_mm || 0) / 60),
-              2,
-            )
-          : 0
-
       return {
         ...current,
         mandrelId: current.mandrelId || closestMandrel?.id || current.mandrelId,
@@ -1283,7 +1341,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           id: Number(selectedTube.inner_diameter_mm || 0),
           od: Number(selectedTube.outer_diameter_mm || 0),
           length: Number(selectedTube.length_mm || 0),
-          weight: current.averages.weight > 0 ? current.averages.weight : derivedWeight,
+          // Tube geometry must never invent a commercial target weight. The
+          // operator/client supplies dry target weight explicitly.
+          weight: current.averages.weight,
         },
       }
     })
@@ -1426,6 +1486,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const recipeStructureValid = recipePaperCountValid && recipePlyCountValid
   const adhesiveRatioTotalValue = adhesiveRatioTotal(form.adhesiveComponents)
   const adhesiveRatioBalanced = isAdhesiveRatioBalanced(form.adhesiveComponents)
+  const materialAllowancePercent = Number(form.dynamicValues.glue_base_percent || 15)
+  const parchmentSharePercent = form.parchmentAllowed ? Number(form.parchmentPercent || 0) : 0
+  const materialSplitValid = materialAllowancePercent > 0 && parchmentSharePercent <= materialAllowancePercent
   const selectedTubeMatchesMandrel =
     !selectedTube || !selectedMandrel || isTubeWithinMandrelBand(selectedTube, selectedMandrel)
   const canSubmit = Boolean(
@@ -1438,7 +1501,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       recipeStructureValid &&
       notchGeometryValid &&
       notchToolsLinked &&
-      adhesiveRatioBalanced,
+      adhesiveRatioBalanced &&
+      materialSplitValid,
   )
   const canApprove =
     !isCreate &&
@@ -1447,6 +1511,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     specDocument?.spec?.status === "draft" &&
     Boolean(specDocument?.latestRecipe?.id) &&
     adhesiveRatioBalanced &&
+    materialSplitValid &&
     recipeStructureValid &&
     notchGeometryValid &&
     notchToolsLinked &&
@@ -1482,7 +1547,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const previewMetrics = [
     { label: "Paper", value: `${Number(previewSummary.paper_total_g || 0).toFixed(2)} g` },
-    { label: "Glue", value: `${bridgeMetrics.adhesiveTotalG.toFixed(2)} g` },
+    { label: "Adhesive", value: `${bridgeMetrics.adhesiveTotalG.toFixed(2)} g` },
     { label: "Parchment", value: `${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g` },
     { label: "Wet / Tube", value: `${bridgeMetrics.predictedWetTubeG.toFixed(2)} g` },
     { label: "Dry / Tube", value: `${bridgeMetrics.predictedDryTubeG.toFixed(2)} g` },
@@ -1498,9 +1563,36 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const liveDryDelta = Number(previewSummary.dry_delta_g || 0)
   const targetDryTube = Number(form.averages.weight || 0)
   const targetWetTube = Number(bridgeMetrics.preMoistureTargetTubeG || 0)
-  const targetAdhesiveWeight = targetDryTube * (Number(form.dynamicValues.glue_base_percent || 15) / 100)
+  const totalMaterialPercent = materialAllowancePercent
+  const targetTotalAdditionsWeight = targetDryTube * (totalMaterialPercent / 100)
   const targetParchmentWeight = form.parchmentAllowed ? targetDryTube * (Number(form.parchmentPercent || 1.5) / 100) : 0
-  const targetPaperWeight = Math.max(targetWetTube - targetAdhesiveWeight - targetParchmentWeight, 0)
+  const targetAdhesiveWeight = Math.max(targetTotalAdditionsWeight - targetParchmentWeight, 0)
+  const targetPaperWeight = Math.max(targetWetTube - targetTotalAdditionsWeight, 0)
+  const targetAdhesiveComponents = (() => {
+    const totalCents = Math.round(targetAdhesiveWeight * 100)
+    let allocatedCents = 0
+    return previewAdhesiveComponents.map((component, index, components) => {
+      const weightCents =
+        adhesiveRatioTotalValue <= 0
+          ? 0
+          : index === components.length - 1
+            ? Math.max(totalCents - allocatedCents, 0)
+            : Math.round(totalCents * (Number(component.ratio_percent || 0) / adhesiveRatioTotalValue))
+      allocatedCents += weightCents
+      return { ...component, weight_g: weightCents / 100 }
+    })
+  })()
+  const measuredDryTube = Number(form.dynamicValues.measured_finished_dry_g || latestApprovedTrial?.actual_weight || 0)
+  const measuredDryGap = measuredDryTube > 0 ? measuredDryTube - liveDryTube : 0
+  const effectiveDryingLossPercent = measuredDryTube > 0 && liveWetTube > 0
+    ? (1 - measuredDryTube / liveWetTube) * 100
+    : 0
+  const inferredPaperAtConfiguredDivisor = measuredDryTube > 0
+    ? measuredDryTube / Math.max(1 - Number(form.shrinkPercent || 9) / 100, 0.01) - targetTotalAdditionsWeight
+    : 0
+  const adhesiveComponentSummary = targetAdhesiveComponents
+    .map((component: any) => `${String(component?.name || "Adhesive").replace(/\s*\([^)]*\)\s*$/, "")} ${Number(component?.weight_g || 0).toFixed(2)} g`)
+    .join(" · ")
   const writePlantLabel =
     activePlant === "ALL"
       ? "Pick one plant before writing."
@@ -1923,6 +2015,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       showToast(`Adhesive ratios must total 100% before saving. Current total is ${adhesiveRatioTotalValue.toFixed(0)}%.`, "error")
       return
     }
+    if (!materialSplitValid) {
+      showToast("Parchment percentage cannot exceed the combined material allowance.", "error")
+      return
+    }
     if (!hasRecipeSelection) {
       showToast("Add at least one active paper recipe row before saving.", "error")
       return
@@ -2189,6 +2285,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const reviewChecksPass = Boolean(
     draftSaved &&
       adhesiveRatioBalanced &&
+      materialSplitValid &&
       selectedTubeMatchesMandrel &&
       hasRecipeSelection &&
       recipeStructureValid &&
@@ -2301,7 +2398,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <a href="#sheet-recipe" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">02 Recipe</a>
             <a href="#sheet-manufacturing" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">03 Manufacturing</a>
             {!isCreate ? <a href="#review-approve" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">04 Review</a> : null}
-            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-slate-500 lg:block">Glue {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% · Parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
+            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-slate-500 lg:block">Total additions {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% · includes parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
           </nav>
 
           {editBlockReason ? (
@@ -2463,7 +2560,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
                   <div>
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Fixed material assumptions</p>
-                    <p className="mt-1 text-sm font-bold text-[#102832]">{targetAdhesiveWeight.toFixed(2)} g adhesive · {targetParchmentWeight.toFixed(2)} g parchment · ratio {adhesiveRatioTotalValue.toFixed(0)}%</p>
+                    <p className="mt-1 text-sm font-bold text-[#102832]">{targetTotalAdditionsWeight.toFixed(2)} g total additions · {targetAdhesiveWeight.toFixed(2)} g adhesive · {targetParchmentWeight.toFixed(2)} g parchment</p>
                   </div>
                   <span className="rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:hidden">Show material split</span>
                   <span className="hidden rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:inline-flex">Hide material split</span>
@@ -2483,8 +2580,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     />
                   </div>
                   <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Wet target = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. Glue and parchment are percentages of client dry weight; paper is the remaining wet target.
-                    Glue stays at {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% of dry weight and parchment stays at {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}% of dry weight` : "off"} until validation changes it.
+                    Wet target = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. The {totalMaterialPercent.toFixed(1)}% allowance covers parchment and adhesive together; it is never added twice.
+                    {form.parchmentAllowed ? ` Parchment uses ${Number(form.parchmentPercent || 1.5).toFixed(1)}% and adhesive receives the remaining ${Math.max(totalMaterialPercent - Number(form.parchmentPercent || 1.5), 0).toFixed(1)}%.` : ` Parchment is off, so adhesive receives the full ${totalMaterialPercent.toFixed(1)}%.`}
                   </p>
                 </div>
 
@@ -2495,25 +2592,50 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     detail={`Dry target ${targetDryTube.toFixed(2)} g with divisor ${(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}`}
                   />
                   <SummaryMetric
-                    label="Target formula split"
-                    value={`${targetAdhesiveWeight.toFixed(2)} g glue · ${targetParchmentWeight.toFixed(2)} g parchment`}
-                    detail={`${targetPaperWeight.toFixed(2)} g required paper`}
+                    label="15% material allowance"
+                    value={`${targetTotalAdditionsWeight.toFixed(2)} g total`}
+                    detail={`${targetAdhesiveWeight.toFixed(2)} g adhesive + ${targetParchmentWeight.toFixed(2)} g parchment · ${targetPaperWeight.toFixed(2)} g wet paper target`}
                   />
                   <SummaryMetric
-                    label="Finished wet / dry"
+                    label="Recipe winding / model dry"
                     value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
-                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g actual paper · trim excluded` : "No recipe applied yet"}
+                    detail={hasRecipeSelection ? `${livePaperTotal.toFixed(2)} g geometric paper · ${Number(form.shrinkPercent || 9).toFixed(1)}% model loss` : "No recipe applied yet"}
                   />
                   <SummaryMetric
-                    label="Finished dry band"
-                    value={`${weightBand.min.toFixed(2)} - ${weightBand.max.toFixed(2)} g`}
+                    label={measuredDryTube > 0 ? "Measured dry / target" : "Modeled dry band"}
+                    value={measuredDryTube > 0 ? `${measuredDryTube.toFixed(2)} / ${targetDryTube.toFixed(2)} g` : `${weightBand.min.toFixed(2)} - ${weightBand.max.toFixed(2)} g`}
                     detail={
-                      hasRecipeSelection
-                        ? `${liveDryTube.toFixed(2)} g finished (${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g to target)`
+                      measuredDryTube > 0
+                        ? `${measuredDryTube.toFixed(2)} g measured · ${measuredDryTube - targetDryTube > 0 ? "+" : ""}${(measuredDryTube - targetDryTube).toFixed(2)} g to target`
+                        : hasRecipeSelection
+                        ? `${liveDryTube.toFixed(2)} g modeled (${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g to target)`
                         : "Apply a recipe to compare against the min/max band"
                     }
-                    tone={Math.abs(liveDryDelta) <= 3 ? "success" : "accent"}
+                    tone={Math.abs(measuredDryTube > 0 ? measuredDryTube - targetDryTube : liveDryDelta) <= 3 ? "success" : "accent"}
                   />
+                </div>
+
+                <div className="grid gap-3 rounded-xl border border-[#dfe7e3] bg-[#fbfcfb] p-3 lg:grid-cols-[220px_1fr] lg:items-center">
+                  <div>
+                    <FieldLabel>Measured finished dry weight</FieldLabel>
+                    <NumericInput
+                      min="0"
+                      step="0.01"
+                      unit="g"
+                      value={inputNumberValue(Number(form.dynamicValues.measured_finished_dry_g || 0))}
+                      disabled={!isEditable}
+                      onChange={(event) => updateDynamicValue("measured_finished_dry_g", event.target.value)}
+                    />
+                  </div>
+                  <div className="text-xs leading-5 text-slate-600">
+                    {measuredDryTube > 0 ? (
+                      <>
+                        Plant measurement {measuredDryTube.toFixed(2)} g is {measuredDryGap > 0 ? "+" : ""}{measuredDryGap.toFixed(2)} g versus the configured 9% model. It implies {effectiveDryingLossPercent.toFixed(2)}% effective total loss, or {inferredPaperAtConfiguredDivisor.toFixed(2)} g paper at the configured divisor ({inferredPaperAtConfiguredDivisor - livePaperTotal > 0 ? "+" : ""}{(inferredPaperAtConfiguredDivisor - livePaperTotal).toFixed(2)} g versus geometry).
+                      </>
+                    ) : (
+                      <>Optional but recommended: enter the scale reading after drying. The sheet will reconcile measured weight against the geometric paper calculation and configured drying divisor without changing master GSM.</>
+                    )}
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-[#dfe7e3] bg-white p-3">
@@ -2572,7 +2694,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   <div className="mt-4 space-y-3">
                     {form.adhesiveComponents.map((component, index) => {
-                      const previewComponent = bridgeMetrics.adhesiveComponents[index]
+                      const targetComponent = targetAdhesiveComponents[index]
                       return (
                         <div
                           key={`${component.name}-${index}`}
@@ -2587,13 +2709,21 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                               new Set(
                                 [
                                   ...form.adhesiveComponents.map((row) => row.name).filter(Boolean),
-                                  ...activeAdhesives.map((adhesive) =>
-                                    adhesive.internal_code ? `${adhesive.name} (${adhesive.internal_code})` : adhesive.name,
-                                  ),
+                                  ...activeAdhesives.map(adhesiveMasterLabel),
                                 ].filter(Boolean),
                               ),
                             ).map((option) => ({ value: String(option), label: String(option) }))}
-                            onChange={(nextValue) => updateAdhesiveComponent(index, { name: nextValue })}
+                            onChange={(nextValue) => {
+                              const master = activeAdhesives.find((item) => adhesiveMasterLabel(item) === nextValue)
+                              updateAdhesiveComponent(index, {
+                                name: nextValue,
+                                adhesive_id: master?.id ? String(master.id) : undefined,
+                                solid_content_percent:
+                                  master?.solid_content_percent === null || master?.solid_content_percent === undefined
+                                    ? null
+                                    : Number(master.solid_content_percent),
+                              })
+                            }}
                           />
                           <input
                             aria-label={`${component.name || `Adhesive ${index + 1}`} split percentage`}
@@ -2604,9 +2734,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
                             className="h-10 rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm disabled:bg-[#f2f5f4]"
                           />
-                          <div className="flex h-10 items-center justify-between gap-2 rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm font-semibold text-slate-950">
-                            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Live</span>
-                            <span>{Number(previewComponent?.weight_g || 0).toFixed(2)} g</span>
+                          <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-[#ccd8d5] bg-white px-3 py-2 text-sm font-semibold text-slate-950">
+                            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Applied live</span>
+                            <span className="text-right">
+                              {Number(targetComponent?.weight_g || 0).toFixed(2)} g
+                              <span className="block text-[9px] font-medium text-slate-400">Master solid {component.solid_content_percent ?? "—"}%</span>
+                            </span>
                           </div>
                           <div className="flex items-center justify-end">
                             {isEditable ? (
@@ -2626,7 +2759,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   {isEditable ? (
                     <div className="mt-4 flex items-center justify-between gap-3">
-                      <p className="text-xs text-slate-500">Total adhesive stays {targetAdhesiveWeight.toFixed(2)} g; each component updates live from its percentage split.</p>
+                      <p className="text-xs text-slate-500">Combined additions stay {targetTotalAdditionsWeight.toFixed(2)} g: {targetAdhesiveWeight.toFixed(2)} g adhesive + {targetParchmentWeight.toFixed(2)} g parchment. Every adhesive component updates live from its split.</p>
                       <button
                         type="button"
                         onClick={addAdhesiveComponent}
@@ -2686,21 +2819,21 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-[10px] text-slate-400">Actual selected papers</p>
                     </div>
                     <div className="border-t border-white/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Current recipe wet / dry</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Winding / 9% model dry</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
                         {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
                       </p>
-                      <p className="mt-1 text-[10px] text-emerald-300">Actual finished tube · trim excluded</p>
+                      <p className="mt-1 text-[10px] text-emerald-300">Process mass / modeled finish · trim excluded</p>
                     </div>
                     <div className="border-t border-white/10 px-4 py-3 xl:border-r xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Fixed additions</p>
-                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{bridgeMetrics.adhesiveTotalG.toFixed(2)} + {Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g</p>
-                      <p className="mt-1 text-[10px] text-slate-400">Adhesive + parchment</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">15% additions</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{targetTotalAdditionsWeight.toFixed(2)} g</p>
+                      <p className="mt-1 text-[10px] leading-4 text-slate-400">{adhesiveComponentSummary || `${targetAdhesiveWeight.toFixed(2)} g adhesive`} · parchment {targetParchmentWeight.toFixed(2)} g</p>
                     </div>
                     <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Wet target variance</p>
-                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{bridgeMetrics.wetDeltaG > 0 ? "+" : ""}{bridgeMetrics.wetDeltaG.toFixed(2)} g</p>
-                      <p className="mt-1 text-[10px] text-cyan-100/70">Target {targetWetTube.toFixed(2)} g · actual {liveWetTube.toFixed(2)} g</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">{measuredDryTube > 0 ? "Measured dry" : "Dry model variance"}</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{measuredDryTube > 0 ? measuredDryTube.toFixed(2) : `${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)}`} g</p>
+                      <p className="mt-1 text-[10px] text-cyan-100/70">{measuredDryTube > 0 ? `Model gap ${measuredDryGap > 0 ? "+" : ""}${measuredDryGap.toFixed(2)} g` : `Target ${targetDryTube.toFixed(2)} g · model ${liveDryTube.toFixed(2)} g`}</p>
                     </div>
                     <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">One bamboo yield</p>
@@ -2708,7 +2841,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-[10px] text-cyan-100/70">{finishedBambooLengthMm.toFixed(0)} mm finished goods</p>
                     </div>
                   </div>
-                  {hasRecipeSelection ? <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">Target paper after fixed additions: {targetPaperWeight.toFixed(2)} g. Current selected paper: {livePaperTotal.toFixed(2)} g. Adjust paper masters or ply counts to close the variance; weights are never auto-calibrated.</p> : null}
+                  {hasRecipeSelection ? <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-[#d7dfdc]">
@@ -2812,10 +2945,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
                 <div className="grid overflow-hidden rounded-xl border border-[#d7dfdc] bg-white sm:grid-cols-2 xl:grid-cols-5" aria-label="Selected recipe total compared with client target">
                   <SummaryMetric label="Selected paper" value={`${livePaperTotal.toFixed(2)} g`} detail="Actual master + geometry total" />
-                  <SummaryMetric label="Fixed additions" value={`${bridgeMetrics.adhesiveTotalG.toFixed(2)} + ${Number(previewSummary.parchment_weight_g || 0).toFixed(2)} g`} detail="Adhesive + parchment" />
-                  <SummaryMetric label="Actual finished wet" value={`${liveWetTube.toFixed(2)} g`} detail="Paper + fixed additions" />
-                  <SummaryMetric label="Client wet target" value={`${targetWetTube.toFixed(2)} g`} detail={`Dry target ${targetDryTube.toFixed(2)} g`} />
-                  <SummaryMetric label="Wet variance" value={`${bridgeMetrics.wetDeltaG > 0 ? "+" : ""}${bridgeMetrics.wetDeltaG.toFixed(2)} g`} detail={bridgeMetrics.wetDeltaG > 0 ? "Actual is above target" : bridgeMetrics.wetDeltaG < 0 ? "Actual is below target" : "Exact target match"} tone={Math.abs(bridgeMetrics.wetDeltaG) <= 3 ? "success" : "accent"} />
+                  <SummaryMetric label="Combined additions" value={`${targetTotalAdditionsWeight.toFixed(2)} g`} detail={`${targetAdhesiveWeight.toFixed(2)} adhesive + ${targetParchmentWeight.toFixed(2)} parchment`} />
+                  <SummaryMetric label="Winding mass" value={`${liveWetTube.toFixed(2)} g`} detail="Paper + combined 15% allowance" />
+                  <SummaryMetric label="Modeled finished dry" value={`${liveDryTube.toFixed(2)} g`} detail={`${Number(form.shrinkPercent || 9).toFixed(1)}% configured loss · target ${targetDryTube.toFixed(2)} g`} />
+                  <SummaryMetric label={measuredDryTube > 0 ? "Measured dry gap" : "Dry model variance"} value={`${(measuredDryTube > 0 ? measuredDryGap : liveDryDelta) > 0 ? "+" : ""}${(measuredDryTube > 0 ? measuredDryGap : liveDryDelta).toFixed(2)} g`} detail={measuredDryTube > 0 ? `${measuredDryTube.toFixed(2)} measured vs ${liveDryTube.toFixed(2)} model` : `${liveDryTube.toFixed(2)} model vs ${targetDryTube.toFixed(2)} target`} tone={Math.abs(measuredDryTube > 0 ? measuredDryGap : liveDryDelta) <= 3 ? "success" : "accent"} />
                 </div>
                 {isEditable ? (
                   <div className="flex justify-between gap-3">
@@ -2862,9 +2995,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   detail="OD = ID + 2 × wall"
                 />
                 <SummaryMetric
-                  label="Finished tube"
+                  label="Winding / modeled dry"
                   value={`${liveWetTube.toFixed(2)} / ${liveDryTube.toFixed(2)} g`}
-                  detail={`Wet / dry · ${livePaperTotal.toFixed(2)} g paper · trim excluded`}
+                  detail={`Process / ${Number(form.shrinkPercent || 9).toFixed(1)}% loss model · ${livePaperTotal.toFixed(2)} g paper · trim excluded`}
                 />
                 <SummaryMetric
                   label="Whole wound bamboo"
@@ -3101,6 +3234,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Business checks</h3>
               <div className="mt-2 grid gap-1 text-[10px] sm:grid-cols-2">
                 <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{adhesiveRatioBalanced ? "Pass" : "Fix"}</span>Adhesive {adhesiveRatioTotalValue.toFixed(0)}%</p>
+                <p className={materialSplitValid ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{materialSplitValid ? "Pass" : "Fix"}</span>Additions include parchment</p>
                 <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{selectedTubeMatchesMandrel ? "Pass" : "Fix"}</span>Mandrel band</p>
                 <p className={hasRecipeSelection ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{hasRecipeSelection ? "Pass" : "Fix"}</span>Recipe selected</p>
                 <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{footerComplete ? "Pass" : "Fix"}</span>Footer</p>
@@ -3139,7 +3273,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
         <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
           <div className="space-y-1">
-            <FieldLabel>Global Adhesive %</FieldLabel>
+            <FieldLabel>Total additions %</FieldLabel>
             <input
               type="number"
               step="0.1"
@@ -3159,7 +3293,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             />
           </div>
           <div className="space-y-1">
-            <FieldLabel>Global Parchment %</FieldLabel>
+            <FieldLabel>Parchment share of dry %</FieldLabel>
             <input
               type="number"
               step="0.1"

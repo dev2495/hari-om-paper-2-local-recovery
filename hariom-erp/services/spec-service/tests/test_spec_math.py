@@ -104,9 +104,9 @@ def test_per_ply_weight_per_mm_matches_gsm_circumference_identity():
 # ----- wet/dry breakdown ------------------------------------------------------
 
 def test_wet_dry_breakdown_defaults_match_corrected_client_formula():
-    """Adhesive/parchment are percentages of client dry weight."""
-    b = wet_dry_breakdown(233.4753, target_dry_g=250.0)
-    assert b.adhesive_g == pytest.approx(37.5, rel=1e-6)
+    """Adhesive plus parchment stay inside the combined 15% allowance."""
+    b = wet_dry_breakdown(237.2253, target_dry_g=250.0)
+    assert b.adhesive_g == pytest.approx(33.75, rel=1e-6)
     assert b.parchment_g == pytest.approx(3.75, rel=1e-6)
     assert b.wet_g == pytest.approx(274.7253, rel=1e-6)
     assert b.dry_g == pytest.approx(250.0, rel=1e-4)
@@ -114,10 +114,10 @@ def test_wet_dry_breakdown_defaults_match_corrected_client_formula():
 
 def test_wet_dry_breakdown_keeps_additives_fixed_to_client_target():
     b = wet_dry_breakdown(247.69, target_dry_g=250.0)
-    assert b.adhesive_g == pytest.approx(37.5, rel=1e-6)
+    assert b.adhesive_g == pytest.approx(33.75, rel=1e-6)
     assert b.parchment_g == pytest.approx(3.75, rel=1e-6)
-    assert b.wet_g == pytest.approx(288.94, rel=1e-6)
-    assert b.dry_g == pytest.approx(262.9354, rel=1e-6)
+    assert b.wet_g == pytest.approx(285.19, rel=1e-6)
+    assert b.dry_g == pytest.approx(259.5229, rel=1e-6)
 
 
 def test_wet_dry_breakdown_parchment_disallowed():
@@ -130,13 +130,13 @@ def test_wet_dry_breakdown_parchment_disallowed():
 
 def test_wet_dry_breakdown_custom_overrides():
     b = wet_dry_breakdown(
-        91.1111,
+        93.1111,
         target_dry_g=100.0,
         adhesive_percent=18,
         parchment_percent=2,
         moisture_loss_percent=10,
     )
-    assert b.adhesive_g == pytest.approx(18.0)
+    assert b.adhesive_g == pytest.approx(16.0)
     assert b.parchment_g == pytest.approx(2.0)
     assert b.wet_g == pytest.approx(111.1111, rel=1e-6)
     assert b.dry_g == pytest.approx(100.0, rel=1e-4)
@@ -147,7 +147,7 @@ def test_wet_dry_breakdown_custom_overrides():
 def test_required_paper_round_trip_with_defaults():
     target = 250.0
     req = required_paper_g(target)
-    assert req == pytest.approx(target / 0.91 - target * 0.15 - target * 0.015, rel=1e-6)
+    assert req == pytest.approx(target / 0.91 - target * 0.15, rel=1e-6)
 
 
 def test_required_paper_zero_target():
@@ -277,7 +277,8 @@ def test_compute_preview_respects_parchment_toggle():
         parchment_allowed=False,
     )
     assert no_p.tube.parchment_g == 0.0
-    assert no_p.paper_required_g > base.paper_required_g
+    assert no_p.paper_required_g == pytest.approx(base.paper_required_g, rel=1e-6)
+    assert no_p.tube.adhesive_g == pytest.approx(base.tube.adhesive_g + base.tube.parchment_g, rel=1e-6)
 
 
 def test_compute_preview_respects_custom_globals():
@@ -286,7 +287,7 @@ def test_compute_preview_respects_custom_globals():
         mandrel_od_mm=62.0, tube_length_mm=150, papers=papers, target_dry_g=100,
         adhesive_percent=18, parchment_percent=2, moisture_loss_percent=10,
     )
-    assert p.tube.adhesive_g == pytest.approx(18.0, rel=1e-4)
+    assert p.tube.adhesive_g == pytest.approx(16.0, rel=1e-4)
     assert p.tube.parchment_g == pytest.approx(2.0, rel=1e-4)
     assert p.tube.dry_g == pytest.approx(p.tube.wet_g * 0.90, rel=1e-4)
 
@@ -304,11 +305,13 @@ def test_production_recipe_keeps_actual_paper_weights_and_compares_them_with_tar
         target_dry_g=230.0,
     )
 
-    assert p.paper_required_g == pytest.approx(214.7973, abs=1e-4)
+    assert p.paper_required_g == pytest.approx(218.2473, abs=1e-4)
     assert p.tube.paper_g == pytest.approx(224.613, abs=1e-4)
-    assert p.tube.wet_g == pytest.approx(262.563, abs=1e-4)
-    assert p.tube.dry_g == pytest.approx(238.9323, abs=1e-4)
-    assert p.validation.delta_g == pytest.approx(8.9323, abs=1e-4)
+    assert p.tube.adhesive_g == pytest.approx(31.05, abs=1e-4)
+    assert p.tube.parchment_g == pytest.approx(3.45, abs=1e-4)
+    assert p.tube.wet_g == pytest.approx(259.113, abs=1e-4)
+    assert p.tube.dry_g == pytest.approx(235.7928, abs=1e-4)
+    assert p.validation.delta_g == pytest.approx(5.7928, abs=1e-4)
     assert sum(p.target_per_ply_weight_per_mm_g) * 120.0 == pytest.approx(224.613, rel=1e-5)
     assert p.paper_calibration_factor == pytest.approx(1.0)
 

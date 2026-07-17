@@ -180,9 +180,9 @@ def addon_share(
     parchment_percent: float = GLOBAL_PARCHMENT_PERCENT,
     parchment_allowed: bool = True,
 ) -> float:
-    adhesive_share = max(float(adhesive_percent), 0.0) / 100.0
-    parchment_share = max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
-    return adhesive_share + parchment_share
+    # `adhesive_percent` is the legacy storage name for the combined material
+    # allowance. Parchment is a slice of it; adhesive receives the remainder.
+    return max(float(adhesive_percent), 0.0) / 100.0
 
 
 def wet_dry_breakdown(
@@ -199,7 +199,11 @@ def wet_dry_breakdown(
     divisor = dry_divisor(moisture_loss_percent)
     addons = addon_share(adhesive_percent, parchment_percent, parchment_allowed)
     dry_base_g = target_dry if target_dry > 0 else paper_g * divisor / max(1.0 - divisor * addons, 0.0001)
-    adhesive_g = dry_base_g * max(float(adhesive_percent), 0.0) / 100.0
+    adhesive_share = max(
+        float(adhesive_percent) - (max(float(parchment_percent), 0.0) if parchment_allowed else 0.0),
+        0.0,
+    )
+    adhesive_g = dry_base_g * adhesive_share / 100.0
     parchment_g = dry_base_g * max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
     wet_g = paper_g + adhesive_g + parchment_g
     dry_g = wet_g * divisor
@@ -237,9 +241,8 @@ def required_paper_g(
         return 0.0
     target_dry = float(target_dry_g)
     wet_target_g = target_dry / dry_divisor(moisture_loss_percent)
-    adhesive_g = target_dry * max(float(adhesive_percent), 0.0) / 100.0
-    parchment_g = target_dry * max(float(parchment_percent), 0.0) / 100.0 if parchment_allowed else 0.0
-    return round(max(wet_target_g - adhesive_g - parchment_g, 0.0), 4)
+    total_additions_g = target_dry * max(float(adhesive_percent), 0.0) / 100.0
+    return round(max(wet_target_g - total_additions_g, 0.0), 4)
 
 
 # ---------------------------------------------------------------------------
