@@ -1,14 +1,19 @@
 import os
 from datetime import datetime, timedelta
-from jose import jwt, JWTError
+import jwt
+from jwt import InvalidTokenError as JWTError
 from typing import Optional
 from .. import models
 from ..plant_service import resolve_allowed_plant_ids
 
+_INSECURE_DEFAULTS = {"hariom-secret-key-123", "change_me_in_production"}
+_IS_PRODUCTION = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
 SECRET_KEY = os.getenv("JWT_SECRET", "hariom-secret-key-123")
+if _IS_PRODUCTION and SECRET_KEY in _INSECURE_DEFAULTS:
+    raise RuntimeError("JWT_SECRET must be set to a non-default value in production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "1440"))
-LEGACY_SECRETS = ["hariom-secret-key-123", "change_me_in_production"]
+LEGACY_SECRETS = [] if _IS_PRODUCTION else sorted(_INSECURE_DEFAULTS)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
@@ -16,7 +21,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    to_encode.update({"exp": expire, "iat": datetime.utcnow()})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 

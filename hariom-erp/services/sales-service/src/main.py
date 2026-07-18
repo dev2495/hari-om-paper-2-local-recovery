@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from .database import engine, Base
 from .routers import sales_orders
@@ -39,14 +38,6 @@ app = FastAPI(
     title="Hari Om Paper ERP - Sales Service",
     description="Sales order lifecycle and fulfillment tracking",
     version="1.0.0",
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 app.include_router(sales_orders.router)

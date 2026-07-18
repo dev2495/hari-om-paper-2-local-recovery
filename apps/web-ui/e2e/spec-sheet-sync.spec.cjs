@@ -23,7 +23,6 @@ const browserFixture = readJson(fixturePath)
 async function login(page) {
   const email = browserFixture?.auth?.admin_email || "admin@hariom.com"
   const password = browserFixture?.auth?.admin_password || "admin123"
-  const webUrl = runtimeManifest?.urls?.web || "http://127.0.0.1:13000"
   const bffBaseUrl = runtimeManifest?.urls?.bff || browserFixture?.base_urls?.bff || "http://127.0.0.1:14000"
 
   const response = await page.request.post(`${bffBaseUrl}/api/auth/login`, {
@@ -31,24 +30,12 @@ async function login(page) {
   })
   expect(response.ok(), "admin login through BFF should succeed").toBeTruthy()
   const payload = await response.json()
-  expect(payload?.access_token, "admin access token should be present").toBeTruthy()
-
-  await page.context().addCookies([
-    {
-      name: "token",
-      value: payload.access_token,
-      url: webUrl,
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ])
+  expect(payload?.access_token).toBeUndefined()
 
   await page.goto("/login", { waitUntil: "domcontentloaded" })
-  await page.evaluate(({ token, plantId }) => {
-    window.localStorage.setItem("hariom_access_token", token)
+  await page.evaluate(({ plantId }) => {
     window.localStorage.setItem("hariom_active_plant", plantId)
   }, {
-    token: payload.access_token,
     plantId: browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1",
   })
 }

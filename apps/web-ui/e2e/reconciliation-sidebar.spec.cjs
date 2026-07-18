@@ -5,7 +5,6 @@ const { test, expect } = require("@playwright/test")
 const workspaceRoot = path.resolve(__dirname, "..", "..", "..")
 const runtimeManifestPath = path.join(workspaceRoot, "hariom-erp", "runtime", "runtime_manifest.json")
 const runtimeManifest = JSON.parse(fs.readFileSync(runtimeManifestPath, "utf8"))
-const webUrl = runtimeManifest?.urls?.web || "http://127.0.0.1:13000"
 const bffUrl = runtimeManifest?.urls?.bff || "http://127.0.0.1:14000"
 const plantA = "00000000-0000-0000-0000-0000000000a1"
 
@@ -22,22 +21,13 @@ async function loginAsAdmin(page) {
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json()
-  await page.context().addCookies([
-    {
-      name: "token",
-      value: payload.access_token,
-      url: webUrl,
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ])
+  expect(payload?.access_token).toBeUndefined()
   await page.evaluate(
-    ({ token, plant }) => {
-      window.localStorage.setItem("hariom_access_token", token)
+    ({ plant }) => {
       window.localStorage.setItem("hariom_active_plant", plant)
       window.localStorage.setItem("hariom_active_role", "Owner")
     },
-    { token: payload.access_token, plant: plantA },
+    { plant: plantA },
   )
 }
 

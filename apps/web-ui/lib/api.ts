@@ -4,30 +4,7 @@ const isBrowser = typeof window !== "undefined"
 const browserBaseUrl = "/"
 const serverBaseUrl =
   process.env.BFF_INTERNAL_URL || process.env.NEXT_PUBLIC_BFF_URL || "http://127.0.0.1:14000"
-const TOKEN_STORAGE_KEY = "hariom_access_token"
 const PLANT_STORAGE_KEY = "hariom_active_plant"
-
-function getStoredToken() {
-  if (!isBrowser) return null
-  try {
-    return window.localStorage.getItem(TOKEN_STORAGE_KEY)
-  } catch {
-    return null
-  }
-}
-
-export function setStoredToken(token: string | null) {
-  if (!isBrowser) return
-  try {
-    if (!token) {
-      window.localStorage.removeItem(TOKEN_STORAGE_KEY)
-      return
-    }
-    window.localStorage.setItem(TOKEN_STORAGE_KEY, token)
-  } catch {
-    // Ignore storage errors
-  }
-}
 
 export function getStoredPlant() {
   if (!isBrowser) return null
@@ -62,11 +39,6 @@ export const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const headers = (config.headers || {}) as any
-  const token = getStoredToken()
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-
   const plantId = getStoredPlant()
   if (plantId && !headers["X-Plant-ID"]) {
     headers["X-Plant-ID"] = plantId
@@ -84,7 +56,6 @@ api.interceptors.response.use(
     const isAuthRoute = requestUrl.includes("/api/auth/login") || requestUrl.includes("/api/auth/me")
 
     if (status === 401 && !isAuthRoute) {
-      setStoredToken(null)
       if (isBrowser && window.location.pathname !== "/login") {
         window.location.assign("/login")
       }
@@ -96,14 +67,10 @@ api.interceptors.response.use(
 
 export const authApi = {
   login: async (email: string, password: string) => {
-    const response = await api.post("/api/auth/login", { email, password })
-    setStoredToken(response?.data?.access_token || null)
-    return response
+    return api.post("/api/auth/login", { email, password })
   },
   logout: async () => {
-    const response = await api.post("/api/auth/logout")
-    setStoredToken(null)
-    return response
+    return api.post("/api/auth/logout")
   },
   me: () => api.get("/api/auth/me"),
   users: () => api.get("/api/auth/users"),

@@ -277,10 +277,10 @@ def create_or_update_dispatch(
     if request_id:
         idem = (
             db.query(DispatchIdempotency)
-            .filter(
-                DispatchIdempotency.plant_id == plant_uuid,
-                DispatchIdempotency.request_id == request_id,
-            )
+            # request_id has a global unique index. Looking it up by plant as
+            # well would miss another plant's row and turn a valid conflict
+            # into an unhandled unique-constraint 500 during commit.
+            .filter(DispatchIdempotency.request_id == request_id)
             .first()
         )
         if idem:

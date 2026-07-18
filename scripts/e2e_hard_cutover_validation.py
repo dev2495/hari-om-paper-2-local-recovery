@@ -24,6 +24,7 @@ RUNTIME_URLS = RUNTIME_MANIFEST.get("urls") or {}
 RUNTIME_HOST = str(RUNTIME_MANIFEST.get("host") or "127.0.0.1")
 
 BFF_URL = os.getenv("BFF_URL", str(RUNTIME_URLS.get("bff") or f"http://{RUNTIME_HOST}:14000"))
+AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", str(RUNTIME_URLS.get("auth") or f"http://{RUNTIME_HOST}:18001"))
 MASTER_SERVICE_URL = os.getenv("MASTER_SERVICE_URL", str(RUNTIME_URLS.get("master") or f"http://{RUNTIME_HOST}:18002"))
 ADMIN_EMAIL = os.getenv(
     "ADMIN_EMAIL",
@@ -85,6 +86,7 @@ class ValidationRunner:
         self.evidence: dict[str, Any] = {}
         self.flows: list[dict[str, Any]] = []
         self.formula_fixtures: list[dict[str, Any]] = []
+        self.active_plant_id: str | None = None
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.rows.append(CheckRow(name=name, status="PASS" if ok else "FAIL", detail=detail))
@@ -97,6 +99,7 @@ class ValidationRunner:
         token: str | None = None,
         expected: tuple[int, ...] = (200,),
         json_body: Any = None,
+        form_body: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
         extra_headers: dict[str, str] | None = None,
         allow_error: bool = False,
@@ -112,6 +115,7 @@ class ValidationRunner:
             url=url,
             params=params,
             json=json_body,
+            data=form_body,
             headers=headers,
             cookies={},
             timeout=REQUEST_TIMEOUT,
@@ -141,6 +145,9 @@ class ValidationRunner:
         extra_headers: dict[str, str] | None = None,
         allow_error: bool = False,
     ) -> tuple[requests.Response, Any]:
+        request_headers = dict(extra_headers or {})
+        if self.active_plant_id and "X-Plant-ID" not in request_headers:
+            request_headers["X-Plant-ID"] = self.active_plant_id
         return self._request(
             method,
             f"{BFF_URL}{path}",
@@ -148,7 +155,7 @@ class ValidationRunner:
             expected=expected,
             json_body=json_body,
             params=params,
-            extra_headers=extra_headers,
+            extra_headers=request_headers,
             allow_error=allow_error,
         )
 
@@ -310,7 +317,9 @@ def _build_strict_combo_fallback(
         if gsm_value not in paper_map:
             return None
 
-    dry_multiplier = 1.0 + (float(adhesive_percent) / 100.0) + (float(parchment_percent) / 100.0)
+    # adhesive_percent is the combined additions allowance; parchment is a
+    # carve-out inside it and must never be added a second time.
+    dry_multiplier = 1.0 + (float(adhesive_percent) / 100.0)
     target_paper_weight_g = float(target_weight_g) / max(dry_multiplier, 0.0001)
     base_layers: list[int] = []
     base_weight_g = 0.0
@@ -324,7 +333,7 @@ def _build_strict_combo_fallback(
     if not candidate_gsms:
         return base_layers if base_layers else None
 
-    max_total_ply = 36
+    max_total_ply = 25
     remaining_capacity = max(0, max_total_ply - len(base_layers))
     if remaining_capacity == 0:
         predicted_dry = base_weight_g * dry_multiplier
@@ -573,9 +582,9 @@ def ensure_machine(
 
 
 def create_acting_token(runner: ValidationRunner, base_token: str, role_name: str) -> str:
-    _, session_payload = runner.api(
+    _, session_payload = runner._request(
         "POST",
-        "/api/auth/acting-role",
+        f"{AUTH_SERVICE_URL}/auth/acting-role",
         token=base_token,
         json_body={"role_name": role_name},
     )
@@ -600,8 +609,9 @@ def create_acting_token(runner: ValidationRunner, base_token: str, role_name: st
 def login_token(runner: ValidationRunner, email: str, password: str) -> tuple[str, dict[str, Any]]:
     _, payload = runner._request(
         "POST",
-        f"{BFF_URL}/api/auth/login",
-        json_body={"email": email, "password": password},
+        f"{AUTH_SERVICE_URL}/auth/login",
+        extra_headers={"Content-Type": "application/x-www-form-urlencoded"},
+        form_body={"username": email, "password": password},
         expected=(200,),
     )
     token = str(payload.get("access_token") or "")
@@ -1089,66 +1099,19 @@ def create_approved_recipe_for_spec(
     if not paper_map:
         raise RuntimeError(f"No active papers found for spec {spec_id}")
 
-    candidate_payload = {
-        "tube_length_mm": float(tube_length_mm),
-        "tube_od_mm": float(tube_od_mm),
-        "tube_id_mm": float(tube_id_mm),
-        "target_wet_weight_g": float(target_weight_g) / PRE_DRY_DIVISOR,
-        "paper_candidates": [
-            {
-                "id": row["id"],
-                "code": row.get("code"),
-                "variety": row.get("variety"),
-                "category": row.get("category"),
-                "gsm": row.get("gsm"),
-                "bf": row.get("bf"),
-                "thickness_mm": row.get("thickness_mm"),
-                "ply_bond": row.get("ply_bond"),
-            }
-            for row in paper_map.values()
-        ],
-    }
-    _, suggestions = runner.api(
-        "POST",
-        "/api/spec/calculate/suggestions",
-        token=spec_maker_token,
-        json_body=candidate_payload,
-        extra_headers=extra_headers,
+    # The application no longer auto-selects papers to chase target wet weight.
+    # Build a deterministic operator selection from approved masters, then let
+    # the canonical BOM expose its actual-vs-target variance.
+    selected_minimums = mandatory_ply_minimums or {250: 2, 300: 1}
+    layer_papers = _build_strict_combo_fallback(
+        paper_map=paper_map,
+        tube_length_mm=tube_length_mm,
+        tube_od_mm=tube_od_mm,
+        tube_id_mm=tube_id_mm,
+        target_weight_g=target_weight_g,
+        mandatory_ply_minimums=selected_minimums,
     )
-    top = _select_preferred_suggestion(
-        suggestions.get("suggestions") or [],
-        paper_map,
-        mandatory_ply_minimums,
-    )
-    selection_source = "suggestions"
-    layer_papers: list[int] = []
-    if top:
-        for row in top.get("rows", []):
-            gsm = int(
-                round(
-                    float(
-                        next(
-                            (paper["gsm"] for paper in paper_map.values() if str(paper["id"]) == str(row.get("paper_id"))),
-                            0,
-                        )
-                    )
-                )
-            )
-            ply_count = int(row.get("plyCount") or 1)
-            layer_papers.extend([gsm] * ply_count)
-
-    if not layer_papers and mandatory_ply_minimums:
-        fallback_layers = _build_strict_combo_fallback(
-            paper_map=paper_map,
-            tube_length_mm=tube_length_mm,
-            tube_od_mm=tube_od_mm,
-            tube_id_mm=tube_id_mm,
-            target_weight_g=target_weight_g,
-            mandatory_ply_minimums=mandatory_ply_minimums,
-        )
-        if fallback_layers:
-            selection_source = "strict-fallback"
-            layer_papers = fallback_layers
+    selection_source = "operator-fixture"
 
     if not layer_papers:
         raise RuntimeError(
@@ -1316,40 +1279,18 @@ def validate_formula_fixtures(
         required_cs=490.0,
     )
 
-    rm_candidate_gsms = {230, 301, 350, 351, 352, 353, 354, 355, 401}
-    candidate_payload = {
-        "tube_length_mm": 400.0,
-        "tube_od_mm": 90.0,
-        "tube_id_mm": 110.0,
-        "target_wet_weight_g": 350.0 / PRE_DRY_DIVISOR,
-        "paper_candidates": [
-            {
-                "id": p["id"],
-                "code": p.get("code"),
-                "variety": p.get("variety"),
-                "category": p.get("category"),
-                "gsm": p.get("gsm"),
-                "bf": p.get("bf"),
-                "thickness_mm": p.get("thickness_mm"),
-                "ply_bond": p.get("ply_bond"),
-            }
-            for p in paper_map.values()
-            if int(p.get("gsm") or 0) in rm_candidate_gsms
+    # Paper selection is operator-controlled; target weight is a comparison,
+    # not an auto-adjuster. Use a deterministic approved master combination and
+    # validate only the canonical preview/BOM math.
+    top_layers = [250] * 2 + [300] + [351] * 9
+    top = {
+        "title": "Approved deterministic paper combination",
+        "rows": [
+            {"gsm": 250, "plyCount": 2},
+            {"gsm": 300, "plyCount": 1},
+            {"gsm": 351, "plyCount": 9},
         ],
     }
-    _, suggestions = runner.api("POST", "/api/spec/calculate/suggestions", token=spec_maker_token, json_body=candidate_payload)
-    top = (suggestions.get("suggestions") or [None])[0]
-    if not top:
-        raise RuntimeError("No suggestions returned for 110x90x400 fixture")
-
-    top_layers: list[int] = []
-    for row in top.get("rows", []):
-        gsm = int(round(float(next((p["gsm"] for p in paper_map.values() if str(p["id"]) == str(row.get("paper_id"))), 0))))
-        ply_count = int(row.get("plyCount") or 1)
-        top_layers.extend([gsm] * ply_count)
-
-    if not top_layers:
-        raise RuntimeError("Suggested rows did not map to any layers")
 
     recipe_suggested = create_recipe_with_layers(runner, spec_maker_token, spec_110_90_400["id"], top_layers, paper_map)
     _, bom_110_90_400 = runner.api(
@@ -1906,6 +1847,7 @@ def run_sales_flow(
     fg_item_id: str,
     conflict_request_id: str | None = None,
 ) -> dict[str, Any]:
+    runner.active_plant_id = plant_id
     flow: dict[str, Any] = {
         "name": scenario["name"],
         "plant_id": plant_id,
@@ -2177,6 +2119,28 @@ def run_sales_flow(
             "metadata": {"job_card_id": job["id"], "flow": scenario["name"]},
         },
     )
+
+    _, reel_qc = runner.api(
+        "POST",
+        "/api/inventory/quality/inspections",
+        token=qc_token,
+        json_body={
+            "entity_type": "REEL",
+            "entity_id": reel["id"],
+            "material_type": "RAW_PAPER",
+            "source": "INWARD",
+            "status": "PASS",
+            "disposition": "ACCEPT",
+            "readings": {
+                "gsm": 230,
+                "bf": 18,
+                "moisture_pct": 9.0,
+                "clear_for_slitting": "YES",
+            },
+            "notes": "Hard-cutover reel inward acceptance",
+        },
+    )
+    flow["reel_qc_inspection_id"] = reel_qc["id"]
 
     _, issue = runner.api(
         "POST",
@@ -2602,8 +2566,9 @@ def verify_report_json(
     path: str,
     params: dict[str, Any],
     expected_keys: list[str] | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    _, payload = runner.api("GET", path, token=token, params=params)
+    _, payload = runner.api("GET", path, token=token, params=params, extra_headers=extra_headers)
     available_range = payload.get("available_range") or {}
     keys_ok = all(key in payload for key in (expected_keys or []))
     ok = bool(available_range.get("start_date") and available_range.get("end_date") and keys_ok)
@@ -2669,7 +2634,7 @@ def run() -> int:
             {
                 "key": "owner",
                 "email": release_email("owner"),
-                "password": "owner123",
+                "password": "Owner123Aa1!",
                 "name": "Release Owner",
                 "role_names": ["Owner"],
                 "plant_id": str(plant_a["id"]),
@@ -2679,7 +2644,7 @@ def run() -> int:
             {
                 "key": "plant_manager_a",
                 "email": release_email("plantmanager.a"),
-                "password": "managera123",
+                "password": "ManagerA123!",
                 "name": "Release Plant Manager A",
                 "role_names": ["PlantManager"],
                 "plant_id": str(plant_a["id"]),
@@ -2688,7 +2653,7 @@ def run() -> int:
             {
                 "key": "plant_manager_b",
                 "email": release_email("plantmanager.b"),
-                "password": "managerb123",
+                "password": "ManagerB123!",
                 "name": "Release Plant Manager B",
                 "role_names": ["PlantManager"],
                 "plant_id": str(plant_b["id"]),
@@ -2697,7 +2662,7 @@ def run() -> int:
             {
                 "key": "spec_maker_a",
                 "email": release_email("specmaker.a"),
-                "password": "specmakera123",
+                "password": "SpecMakerA123!",
                 "name": "Release Spec Maker A",
                 "role_names": ["SpecMaker"],
                 "plant_id": str(plant_a["id"]),
@@ -2706,7 +2671,7 @@ def run() -> int:
             {
                 "key": "spec_approver_a",
                 "email": release_email("specapprover.a"),
-                "password": "specapprovera123",
+                "password": "SpecApproverA123!",
                 "name": "Release Spec Approver A",
                 "role_names": ["SpecApprover"],
                 "plant_id": str(plant_a["id"]),
@@ -2715,7 +2680,7 @@ def run() -> int:
             {
                 "key": "sales_maker_a",
                 "email": release_email("somaker.a"),
-                "password": "somakera123",
+                "password": "SoMakerA123!",
                 "name": "Release Sales Maker A",
                 "role_names": ["SOMaker"],
                 "plant_id": str(plant_a["id"]),
@@ -2724,7 +2689,7 @@ def run() -> int:
             {
                 "key": "sales_approver_a",
                 "email": release_email("soapprover.a"),
-                "password": "soapprovera123",
+                "password": "SoApproverA123!",
                 "name": "Release Sales Approver A",
                 "role_names": ["SOApprover"],
                 "plant_id": str(plant_a["id"]),
@@ -2733,7 +2698,7 @@ def run() -> int:
             {
                 "key": "planner_a",
                 "email": release_email("planner.a"),
-                "password": "plannera123",
+                "password": "PlannerA123!",
                 "name": "Release Planner A",
                 "role_names": ["Planner"],
                 "plant_id": str(plant_a["id"]),
@@ -2742,7 +2707,7 @@ def run() -> int:
             {
                 "key": "production_a",
                 "email": release_email("production.a"),
-                "password": "productiona123",
+                "password": "ProductionA123!",
                 "name": "Release Production A",
                 "role_names": ["Production"],
                 "plant_id": str(plant_a["id"]),
@@ -2751,7 +2716,7 @@ def run() -> int:
             {
                 "key": "supervisor_a",
                 "email": release_email("supervisor.a"),
-                "password": "supervisora123",
+                "password": "SupervisorA123!",
                 "name": "Release Supervisor A",
                 "role_names": ["SupervisorEntry"],
                 "plant_id": str(plant_a["id"]),
@@ -2760,7 +2725,7 @@ def run() -> int:
             {
                 "key": "operator_a",
                 "email": release_email("operator.a"),
-                "password": "operatora123",
+                "password": "OperatorA123!",
                 "name": "Release Operator A",
                 "role_names": ["Operator"],
                 "plant_id": str(plant_a["id"]),
@@ -2769,7 +2734,7 @@ def run() -> int:
             {
                 "key": "store_a",
                 "email": release_email("store.a"),
-                "password": "storea123",
+                "password": "StoreA123Aa!",
                 "name": "Release Store A",
                 "role_names": ["Store"],
                 "plant_id": str(plant_a["id"]),
@@ -2778,7 +2743,7 @@ def run() -> int:
             {
                 "key": "dispatch_a",
                 "email": release_email("dispatch.a"),
-                "password": "dispatcha123",
+                "password": "DispatchA123!",
                 "name": "Release Dispatch A",
                 "role_names": ["Dispatch"],
                 "plant_id": str(plant_a["id"]),
@@ -2787,7 +2752,7 @@ def run() -> int:
             {
                 "key": "qc_a",
                 "email": release_email("qc.a"),
-                "password": "qca123",
+                "password": "QualityA123!",
                 "name": "Release QC A",
                 "role_names": ["QC"],
                 "plant_id": str(plant_a["id"]),
@@ -2796,7 +2761,7 @@ def run() -> int:
             {
                 "key": "spec_maker_b",
                 "email": release_email("specmaker.b"),
-                "password": "specmakerb123",
+                "password": "SpecMakerB123!",
                 "name": "Release Spec Maker B",
                 "role_names": ["SpecMaker"],
                 "plant_id": str(plant_b["id"]),
@@ -2805,7 +2770,7 @@ def run() -> int:
             {
                 "key": "spec_approver_b",
                 "email": release_email("specapprover.b"),
-                "password": "specapproverb123",
+                "password": "SpecApproverB123!",
                 "name": "Release Spec Approver B",
                 "role_names": ["SpecApprover"],
                 "plant_id": str(plant_b["id"]),
@@ -2814,7 +2779,7 @@ def run() -> int:
             {
                 "key": "sales_maker_b",
                 "email": release_email("somaker.b"),
-                "password": "somakerb123",
+                "password": "SoMakerB123!",
                 "name": "Release Sales Maker B",
                 "role_names": ["SOMaker"],
                 "plant_id": str(plant_b["id"]),
@@ -2823,7 +2788,7 @@ def run() -> int:
             {
                 "key": "sales_approver_b",
                 "email": release_email("soapprover.b"),
-                "password": "soapproverb123",
+                "password": "SoApproverB123!",
                 "name": "Release Sales Approver B",
                 "role_names": ["SOApprover"],
                 "plant_id": str(plant_b["id"]),
@@ -2832,7 +2797,7 @@ def run() -> int:
             {
                 "key": "planner_b",
                 "email": release_email("planner.b"),
-                "password": "plannerb123",
+                "password": "PlannerB123!",
                 "name": "Release Planner B",
                 "role_names": ["Planner"],
                 "plant_id": str(plant_b["id"]),
@@ -2841,7 +2806,7 @@ def run() -> int:
             {
                 "key": "production_b",
                 "email": release_email("production.b"),
-                "password": "productionb123",
+                "password": "ProductionB123!",
                 "name": "Release Production B",
                 "role_names": ["Production"],
                 "plant_id": str(plant_b["id"]),
@@ -2850,7 +2815,7 @@ def run() -> int:
             {
                 "key": "supervisor_b",
                 "email": release_email("supervisor.b"),
-                "password": "supervisorb123",
+                "password": "SupervisorB123!",
                 "name": "Release Supervisor B",
                 "role_names": ["SupervisorEntry"],
                 "plant_id": str(plant_b["id"]),
@@ -2859,7 +2824,7 @@ def run() -> int:
             {
                 "key": "operator_b",
                 "email": release_email("operator.b"),
-                "password": "operatorb123",
+                "password": "OperatorB123!",
                 "name": "Release Operator B",
                 "role_names": ["Operator"],
                 "plant_id": str(plant_b["id"]),
@@ -2868,7 +2833,7 @@ def run() -> int:
             {
                 "key": "store_b",
                 "email": release_email("store.b"),
-                "password": "storeb123",
+                "password": "StoreB123Aa!",
                 "name": "Release Store B",
                 "role_names": ["Store"],
                 "plant_id": str(plant_b["id"]),
@@ -2877,7 +2842,7 @@ def run() -> int:
             {
                 "key": "dispatch_b",
                 "email": release_email("dispatch.b"),
-                "password": "dispatchb123",
+                "password": "DispatchB123!",
                 "name": "Release Dispatch B",
                 "role_names": ["Dispatch"],
                 "plant_id": str(plant_b["id"]),
@@ -2886,7 +2851,7 @@ def run() -> int:
             {
                 "key": "qc_b",
                 "email": release_email("qc.b"),
-                "password": "qcb123",
+                "password": "QualityB123!",
                 "name": "Release QC B",
                 "role_names": ["QC"],
                 "plant_id": str(plant_b["id"]),
@@ -3245,6 +3210,7 @@ def run() -> int:
             f"/api/production/job-cards/{runner.flows[0]['job_card_id']}",
             token=seeded_users["planner_b"]["token"],
             expected=(404,),
+            extra_headers={"X-Plant-ID": str(plant_b["id"])},
         )
         runner.add("Plant B planner cannot read Plant A job card", resp.status_code == 404, str(payload.get("detail") if isinstance(payload, dict) else payload))
         resp, payload = runner.api(
@@ -3252,6 +3218,7 @@ def run() -> int:
             f"/api/production/job-cards/{runner.flows[1]['job_card_id']}",
             token=seeded_users["planner_a"]["token"],
             expected=(404,),
+            extra_headers={"X-Plant-ID": str(plant_a["id"])},
         )
         runner.add("Plant A planner cannot read Plant B job card", resp.status_code == 404, str(payload.get("detail") if isinstance(payload, dict) else payload))
         resp, payload = runner.api(
@@ -3259,6 +3226,7 @@ def run() -> int:
             f"/api/sales/orders/{runner.flows[1]['sales_order_id']}",
             token=seeded_users["sales_maker_a"]["token"],
             expected=(404,),
+            extra_headers={"X-Plant-ID": str(plant_a["id"])},
         )
         runner.add("Plant A sales maker cannot read Plant B sales order", resp.status_code == 404, str(payload.get("detail") if isinstance(payload, dict) else payload))
 
@@ -3416,6 +3384,7 @@ def run() -> int:
             label="Plant compare report",
             path="/api/analytics/reports/plant-compare",
             params=month_params,
+            extra_headers={"X-Plant-ID": "ALL"},
         )
         plant_compare_rows = report_evidence["plant_compare"].get("rows") or []
         runner.add(

@@ -258,3 +258,17 @@ def get_me(request: Request, current_user: models.User = Depends(get_current_use
         if payload.get("permissions"):
             response["permissions"] = sorted({str(permission) for permission in payload.get("permissions", []) if str(permission).strip()})
     return response
+
+
+@router.post("/session/refresh")
+def refresh_session(current_user: models.User = Depends(get_current_user)):
+    """Rotate an active short-lived JWT after the user has shown activity."""
+    payload = dict(getattr(current_user, "token_payload", None) or {})
+    for temporal_claim in ("exp", "iat", "nbf", "jti"):
+        payload.pop(temporal_claim, None)
+    if not payload:
+        payload = jwt_handler.build_user_claims(current_user)
+    return {
+        "access_token": jwt_handler.create_access_token(data=payload),
+        "token_type": "bearer",
+    }

@@ -25,7 +25,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
   const { data: board } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, Boolean(activePlant))
   const { data: jobCards } = usePlanningJobCards()
   const { data: inventoryHealth } = useInventoryHealthSummary()
-  const { data: readyJobs } = useReadyJobs()
+  const { data: readyJobs } = useReadyJobs(activePlant)
 
   const orderRows = Array.isArray(salesOrders) ? salesOrders : []
   const jobCardRows = Array.isArray(jobCards) ? jobCards : []

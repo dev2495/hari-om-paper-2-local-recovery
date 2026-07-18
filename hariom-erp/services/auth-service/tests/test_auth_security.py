@@ -88,7 +88,35 @@ def test_privileged_dependency_rejects_owner_during_dispatch_acting_session():
     assert caught.value.status_code == 403
 
 
+def test_session_refresh_rotates_token_and_preserves_effective_claims(monkeypatch):
+    issued = {}
+
+    def capture_token(data):
+        issued.update(data)
+        return "rotated-token"
+
+    monkeypatch.setattr(auth.jwt_handler, "create_access_token", capture_token)
+    user = SimpleNamespace(
+        token_payload={
+            "sub": "owner@example.com",
+            "roles": ["Dispatch"],
+            "effective_roles": ["Dispatch"],
+            "exp": 1,
+            "iat": 1,
+        }
+    )
+
+    response = auth.refresh_session(current_user=user)
+
+    assert response["access_token"] == "rotated-token"
+    assert issued["effective_roles"] == ["Dispatch"]
+    assert "exp" not in issued
+    assert "iat" not in issued
+
+
 def test_production_app_imports_all_routers():
     from src.main import app
 
-    assert any(route.path == "/plants" for route in app.routes)
+    # FastAPI 0.139/Starlette 1.x may retain included routers as lazy route
+    # groups; the generated contract is the stable assertion surface.
+    assert "/plants" in app.openapi()["paths"]

@@ -126,20 +126,7 @@ async function login(page, key) {
   })
   expect(response.ok(), `Unable to authenticate ${user.email} through BFF login`).toBeTruthy()
   const payload = await response.json()
-  expect(payload?.access_token, `Missing access token for ${user.email}`).toBeTruthy()
-
-  await page.context().addCookies([
-    {
-      name: "token",
-      value: payload.access_token,
-      url: runtimeManifest?.urls?.web || "http://127.0.0.1:13000",
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ])
-  await page.evaluate((token) => {
-    window.localStorage.setItem("hariom_access_token", token)
-  }, payload.access_token)
+  expect(payload?.access_token).toBeUndefined()
 
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
   await expect(page).toHaveURL(/\/dashboard$/)
@@ -221,6 +208,7 @@ test("login page keeps credentials private and contextual guide pages work", asy
   await expect(page.getByTestId("login-email")).toHaveValue("")
   await expect(page.getByTestId("login-password")).toHaveValue("")
   await expect(page.locator("body")).not.toContainText(/devarsh123|yash123|demo admin credentials|prefilled/i)
+  await expect.poll(async () => page.evaluate(() => window.localStorage.getItem("hariom_access_token"))).toBeNull()
 
   await login(page, "admin")
   await page.goto("/help?route=/inventory/production-issue", { waitUntil: "domcontentloaded" })

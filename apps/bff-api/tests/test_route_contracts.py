@@ -62,6 +62,18 @@ class _AuthProxyClient:
                 return httpx.Response(401, json={"detail": "Invalid token"}, request=request)
             roles = ["Owner"] if token == "owner" else ["Sales"]
             return httpx.Response(200, json={"id": "user-1", "roles": roles}, request=request)
+        if url.endswith("/auth/login"):
+            return httpx.Response(
+                200,
+                json={"access_token": "private-jwt", "token_type": "bearer", "user": {"id": "user-1"}},
+                request=request,
+            )
+        if url.endswith("/auth/session/refresh"):
+            if token == "forged":
+                return httpx.Response(401, json={"detail": "Invalid token"}, request=request)
+            return httpx.Response(200, json={"access_token": f"rotated-{token}"}, request=request)
+        if url.endswith("/auth/acting-role"):
+            return httpx.Response(200, json={"access_token": "private-acting-jwt", "acting_role": "Dispatch"}, request=request)
         return httpx.Response(200, json={"ok": True}, request=request)
 
     async def get(self, url, **kwargs):
@@ -131,6 +143,76 @@ def test_owner_can_mutate_plants_after_auth_validation(method, path, monkeypatch
     response, proxy = asyncio.run(_plant_request(method, path, "owner", monkeypatch))
     assert response.status_code == 200
     assert [call[0] for call in proxy.calls] == ["GET", method]
+
+
+def test_login_keeps_jwt_out_of_browser_json_and_sets_idle_cookie(monkeypatch):
+    from src.routes import auth as auth_routes
+
+    proxy = _AuthProxyClient()
+    monkeypatch.setattr(auth_routes, "http_client", proxy)
+    monkeypatch.setattr(auth_routes, "SESSION_IDLE_SECONDS", 900)
+    monkeypatch.setenv("COOKIE_SECURE", "true")
+    app = FastAPI()
+    app.include_router(auth_router, prefix="/api/auth")
+
+    async def request_login():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+            return await client.post("/api/auth/login", json={"email": "owner@example.com", "password": "secret"})
+
+    response = asyncio.run(request_login())
+    assert response.status_code == 200
+    assert "access_token" not in response.json()
+    cookie = response.headers["set-cookie"]
+    assert "token=private-jwt" in cookie
+    assert "HttpOnly" in cookie
+    assert "Secure" in cookie
+    assert "SameSite=lax" in cookie
+    assert "Max-Age=900" in cookie
+    assert response.headers["cache-control"] == "no-store, private"
+
+
+def test_session_touch_revalidates_and_renews_cookie(monkeypatch):
+    from src.routes import auth as auth_routes
+
+    proxy = _AuthProxyClient()
+    monkeypatch.setattr(auth_routes, "http_client", proxy)
+    monkeypatch.setattr(auth_routes, "SESSION_IDLE_SECONDS", 900)
+    app = FastAPI()
+    app.include_router(auth_router, prefix="/api/auth")
+
+    async def touch():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+            return await client.post("/api/auth/session/touch", cookies={"token": "owner"})
+
+    response = asyncio.run(touch())
+    assert response.status_code == 200
+    assert response.json()["idle_timeout_seconds"] == 900
+    assert "Max-Age=900" in response.headers["set-cookie"]
+    assert proxy.calls == [("POST", "http://127.0.0.1:18001/auth/session/refresh")]
+    assert "token=rotated-owner" in response.headers["set-cookie"]
+
+
+def test_acting_role_keeps_jwt_out_of_browser_json(monkeypatch):
+    from src.routes import auth as auth_routes
+
+    proxy = _AuthProxyClient()
+    monkeypatch.setattr(auth_routes, "http_client", proxy)
+    app = FastAPI()
+    app.include_router(auth_router, prefix="/api/auth")
+
+    async def set_role():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://test") as client:
+            client.cookies.set("token", "owner")
+            return await client.post("/api/auth/acting-role", json={"role_name": "Dispatch"})
+
+    response = asyncio.run(set_role())
+    assert response.status_code == 200
+    assert "access_token" not in response.json()
+    assert response.json()["acting_role"] == "Dispatch"
+    assert "acting_token=private-acting-jwt" in response.headers["set-cookie"]
 
 
 def test_tool_inward_uses_active_master_definition_as_authority():

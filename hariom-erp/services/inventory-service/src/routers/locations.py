@@ -28,7 +28,7 @@ class LocationResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
-    plant_id: str
+    plant_id: uuid.UUID
     code: str
     warehouse: str
     zone: str | None = None

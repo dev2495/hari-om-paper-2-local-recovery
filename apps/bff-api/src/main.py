@@ -8,16 +8,28 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from src.middleware.auth import extract_token
 from src.routes import analytics, auth, dispatch, inventory, master, production, purchase, sales, spec, workspace
 from src.services.books_guard import books_guard_status
 from src.services.plant_guard import assert_plant_allowed
 
+_IS_PRODUCTION = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
+_SITE_HOST = os.getenv("SITE_HOST", "").strip()
+
 app = FastAPI(
     title="Hari Om Paper - BFF API",
     description="Backend-for-Frontend API proxy layer",
     version="1.0.0",
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
+    openapi_url=None if _IS_PRODUCTION else "/openapi.json",
+)
+
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=[host for host in ["127.0.0.1", "localhost", "erp-app", _SITE_HOST] if host],
 )
 
 app.add_middleware(
@@ -57,6 +69,32 @@ _BOOKS_GUARD_DETAIL_CODES = frozenset(
         "FUTURE_DATE_NOT_ALLOWED",
     }
 )
+
+
+def _allowed_browser_origins() -> set[str]:
+    configured = os.getenv("PUBLIC_APP_ORIGIN", "").strip().rstrip("/")
+    origins = {
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:23000",
+        "http://127.0.0.1:13000",
+    }
+    if configured:
+        origins.add(configured)
+    return origins
+
+
+@app.middleware("http")
+async def cookie_csrf_guard(request: Request, call_next):
+    """Reject cross-site cookie-authenticated mutations before they reach a service."""
+    if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and (
+        request.cookies.get("token") or request.cookies.get("acting_token")
+    ):
+        fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+        origin = (request.headers.get("origin") or "").strip().rstrip("/")
+        if fetch_site == "cross-site" or (origin and origin not in _allowed_browser_origins()):
+            return JSONResponse(status_code=403, content={"detail": "Cross-site request rejected"})
+    return await call_next(request)
 
 
 @app.middleware("http")

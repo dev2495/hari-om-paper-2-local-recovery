@@ -38,22 +38,11 @@ async function login(page) {
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json()
-  expect(payload?.access_token).toBeTruthy()
-
-  await page.context().addCookies([
-    {
-      name: "token",
-      value: payload.access_token,
-      url: runtimeManifest?.urls?.web || "http://127.0.0.1:13000",
-      httpOnly: false,
-      sameSite: "Lax",
-    },
-  ])
+  expect(payload?.access_token).toBeUndefined()
   const plantA = browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1"
-  await page.evaluate(({ token, plantA }) => {
-    window.localStorage.setItem("hariom_access_token", token)
+  await page.evaluate(({ plantA }) => {
     window.localStorage.setItem("hariom_active_plant", plantA)
-  }, { token: payload.access_token, plantA })
+  }, { plantA })
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
   await expect(
     page.locator(
@@ -77,12 +66,8 @@ async function expectTransition(locator) {
 }
 
 async function expectPlannerMoveHonorsSelectedPlant(page) {
-  const token = await page.evaluate(() => window.localStorage.getItem("hariom_access_token"))
-  expect(token).toBeTruthy()
-
   const bffBaseUrl = runtimeManifest?.urls?.bff || "http://127.0.0.1:14000"
   const headers = {
-    Authorization: `Bearer ${token}`,
     "X-Plant-ID": "PLANT_A",
   }
   const boardResponse = await page.request.get(`${bffBaseUrl}/api/production/planning/board`, {

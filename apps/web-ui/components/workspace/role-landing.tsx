@@ -163,7 +163,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
   const { data: planningBoard } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, Boolean(activePlant))
   const { data: jobCards } = usePlanningJobCards()
   const { data: inventoryHealth } = useInventoryHealthSummary()
-  const { data: readyJobs } = useReadyJobs()
+  const { data: readyJobs } = useReadyJobs(activePlant)
   const { data: notifications } = useNotifications(true)
 
   const orderRows = Array.isArray(salesOrders) ? salesOrders : []

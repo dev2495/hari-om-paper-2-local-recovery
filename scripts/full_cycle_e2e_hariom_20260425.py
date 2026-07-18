@@ -20,17 +20,17 @@ class E2EClient:
     def __init__(self, base_url: str) -> None:
         self.base_url = base_url.rstrip("/")
         self.client = httpx.Client(timeout=30.0, follow_redirects=True)
-        self.token = ""
 
     def login(self, email: str, password: str) -> dict[str, Any]:
         response = self.client.post(f"{self.base_url}/api/auth/login", json={"email": email, "password": password})
         self._raise_for_status(response, "login")
         payload = response.json()
-        self.token = payload["access_token"]
+        if "access_token" in payload:
+            raise RuntimeError("BFF exposed an access token to the automation client")
         return payload
 
     def request(self, method: str, path: str, *, json_body: Any | None = None, params: dict[str, Any] | None = None, plant: str = PLANT_A) -> Any:
-        headers = {"Authorization": f"Bearer {self.token}", "X-Plant-ID": plant}
+        headers = {"X-Plant-ID": plant}
         response = self.client.request(method, f"{self.base_url}{path}", headers=headers, json=json_body, params=params)
         self._raise_for_status(response, f"{method} {path}")
         if response.content:
@@ -112,9 +112,8 @@ def dynamic_fields(recipe_rows: list[dict[str, Any]], sample_name: str, fg_item_
             "field_key": "adhesive_components_json",
             "value": json.dumps(
                 [
-                    {"item_code": "20100-A", "name": "TL4 / Vinsol", "percent": 7.5},
-                    {"item_code": "30100-A", "name": "Alcosol", "percent": 7.5},
-                    {"item_code": "PARCHMENT-A", "name": "Parchment", "percent": 1.5},
+                    {"item_code": "20100-A", "name": "TL4 / Vinsol", "base_percent": 15, "ratio_percent": 50},
+                    {"item_code": "30100-A", "name": "Alcosol", "base_percent": 15, "ratio_percent": 50},
                 ]
             ),
         },
@@ -184,8 +183,8 @@ def create_sample_spec(
         "moisture_min_pct": 7,
         "moisture_max_pct": 11,
         "adhesive_percent": 15,
-        "adhesive_20100_percent": 7.5,
-        "adhesive_30100_percent": 7.5,
+        "adhesive_20100_percent": 6.75,
+        "adhesive_30100_percent": 6.75,
         "parchment_percent": 1.5,
         "moisture_loss_percent": 9,
         "profile": {
@@ -386,7 +385,7 @@ def main() -> int:
     plan_date = date.today().isoformat()
     winder_override = api.client.patch(
         f"{api.base_url}/api/production/planning/board/move",
-        headers={"Authorization": f"Bearer {api.token}", "X-Plant-ID": PLANT_A},
+        headers={"X-Plant-ID": PLANT_A},
         json={
             "job_card_id": first_job_id,
             "stage": "WINDER",
@@ -455,36 +454,56 @@ def main() -> int:
             extra_entry={"packed_boxes": 1, "pcs_per_box": 400},
         ),
     )
-    api.request("POST", f"/api/production/job-cards/{first_job_id}/stage-output", json_body=stage_complete_payload("QC", machine_id=None, input_qty=packing_out, output_qty=packing_out, scrap_qty=0.0, extra_entry={"qc_result": "PASS"}))
+    pre_qc_job = api.request("GET", f"/api/production/job-cards/{first_job_id}")
+    spec_snapshot = dict(pre_qc_job.get("spec_snapshot") or {})
+
+    def midpoint(min_key: str, max_key: str) -> float:
+        return round((float(spec_snapshot[min_key]) + float(spec_snapshot[max_key])) / 2.0, 3)
+
+    qc_payload = stage_complete_payload(
+        "QC",
+        machine_id=None,
+        input_qty=packing_out,
+        output_qty=packing_out,
+        scrap_qty=0.0,
+        extra_entry={"qc_result": "PASS"},
+    )
+    qc_payload["quality_checks"] = {
+        "id": midpoint("id_min_mm", "id_max_mm"),
+        "od": midpoint("od_min_mm", "od_max_mm"),
+        "length": midpoint("length_min_mm", "length_max_mm"),
+        "weight": midpoint("weight_min_g", "weight_max_g"),
+        "cs": midpoint("cs_min_n", "cs_max_n"),
+    }
+    api.request("POST", f"/api/production/job-cards/{first_job_id}/stage-output", json_body=qc_payload)
 
     dispatch_ref = f"DISP-E2E-{stamp}"
-    inventory_dispatch = api.request(
-        "POST",
-        "/api/inventory/dispatch",
-        json_body={"item_id": fg_a["id"], "qty": packing_out, "dispatch_ref": dispatch_ref, "external_ref": f"INV-{dispatch_ref}"},
-    )
     sealed_dispatch = api.request(
         "POST",
         "/api/dispatch",
         json_body={
             "job_card_id": first_job_id,
+            "dispatch_request_id": f"REQ-{dispatch_ref}",
             "dispatch_snapshot": {
                 "dispatch_ref": dispatch_ref,
                 "challan_no": dispatch_ref,
                 "qty": packing_out,
                 "item_id": fg_a["id"],
-                "inventory_transaction_id": inventory_dispatch["transaction_id"],
             },
             "status": "SEALED",
         },
     ) or {"id": f"sealed-{first_job_id}", "empty_response": True}
+    dispatch_snapshot = dict(sealed_dispatch.get("dispatch_snapshot") or {})
+    inventory_dispatch_transaction_id = dispatch_snapshot.get("inventory_dispatch_transaction_id")
+    if not inventory_dispatch_transaction_id:
+        raise RuntimeError(f"Sealed dispatch did not post FG inventory: {sealed_dispatch}")
     completed_job = api.request("GET", f"/api/production/job-cards/{first_job_id}")
     fulfilled_order = api.request("GET", f"/api/sales/orders/{order['id']}")
     report["created"]["executed_job"] = {
         "job_card_id": first_job_id,
         "ledger_id": ledger["id"],
         "dispatch_ref": dispatch_ref,
-        "inventory_dispatch": inventory_dispatch,
+        "inventory_dispatch_transaction_id": inventory_dispatch_transaction_id,
         "sealed_dispatch": sealed_dispatch,
         "job_status": completed_job.get("status"),
         "current_stage": completed_job.get("current_stage"),
@@ -535,7 +554,7 @@ def main() -> int:
     md_path = REPORT_DIR / "full_cycle_e2e_20260425.md"
     json_path.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
     lines = [
-        "# Hari Om Full-Cycle E2E Report - 2026-04-25",
+        f"# Hari Om Full-Cycle E2E Report - {date.today().isoformat()}",
         "",
         f"- Started: {report['started_at']}",
         f"- Finished: {report['finished_at']}",
@@ -556,7 +575,7 @@ def main() -> int:
             f"- Other-winder override warning: `{'; '.join(winder_override_payload.get('warnings') or [])}`",
             f"- Release gate target winder: `{winder_1['name']}` / `{winder_1['id']}`",
             f"- Consumption ledger: `{ledger['id']}` with Vinsol/Alcosol/Parchment transfer snapshot",
-            f"- Inventory dispatch transaction: `{inventory_dispatch['transaction_id']}`",
+            f"- Inventory dispatch transaction: `{inventory_dispatch_transaction_id}`",
             f"- Sealed dispatch id: `{sealed_dispatch['id']}`",
             f"- Reconciliation variance items: `{', '.join(report['created']['reconciliation']['variance_item_codes'])}`",
         ]

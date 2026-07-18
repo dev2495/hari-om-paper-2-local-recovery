@@ -1,5 +1,4 @@
 from fastapi import Depends, FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
 from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts, jobs
 from src.cache import _build_cache_key
@@ -98,14 +97,6 @@ def _aggregate_top_loss_reels(rows, limit=10):
     return response[: max(0, int(limit or 0))]
 
 app = FastAPI(title="Hari Om Paper ERP - Analytics Service", version="1.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.include_router(dashboard.router)
 app.include_router(production.router)

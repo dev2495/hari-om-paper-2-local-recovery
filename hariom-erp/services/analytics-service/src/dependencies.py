@@ -1,13 +1,16 @@
+import os
 from typing import Optional
 from fastapi import Depends, Header, HTTPException, Query
-from jose import JWTError, jwt
+import jwt
+from jwt import InvalidTokenError as JWTError
 from src.config import JWT_SECRET, JWT_ALGORITHM, PLANT_ALIASES, SUPER_ROLES
 
 
-LEGACY_JWT_SECRETS = (
-    "hariom-secret-key-123",
-    "change_me_in_production",
-)
+_INSECURE_DEFAULTS = {"hariom-secret-key-123", "change_me_in_production"}
+_IS_PRODUCTION = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
+if _IS_PRODUCTION and JWT_SECRET in _INSECURE_DEFAULTS:
+    raise RuntimeError("JWT_SECRET must be set to a non-default value in production")
+LEGACY_JWT_SECRETS = () if _IS_PRODUCTION else tuple(sorted(_INSECURE_DEFAULTS))
 
 
 def _to_list(value) -> list[str]:

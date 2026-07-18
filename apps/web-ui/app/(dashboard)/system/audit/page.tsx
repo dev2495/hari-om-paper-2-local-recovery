@@ -81,7 +81,7 @@ const TAB_LIST: Array<{ key: TabKey; label: string; icon: LucideIcon }> = [
 ]
 
 export default function AuditCenterPage() {
-  const { user, activeRole } = useAuth()
+  const { user, activeRole, activePlant } = useAuth()
   const roles = new Set([user?.role, activeRole, ...(user?.roles || [])].filter(Boolean) as string[])
   const canAccess = roles.has("Owner") || roles.has("Admin")
 
@@ -89,7 +89,7 @@ export default function AuditCenterPage() {
   const { data: salesOrders, refetch: refetchSales } = useSalesOrders()
   const { data: jobCards, refetch: refetchJobs } = usePlanningJobCards()
   const { data: transactions, refetch: refetchTxns } = useInventoryTransactions()
-  const { data: readyJobs, refetch: refetchDispatch } = useReadyJobs()
+  const { data: readyJobs, refetch: refetchDispatch } = useReadyJobs(activePlant)
   const { data: notifications, refetch: refetchNotifs } = useNotifications(canAccess)
   const { data: usersData, refetch: refetchUsers } = useUsers()
 

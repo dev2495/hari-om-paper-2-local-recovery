@@ -10,6 +10,7 @@ from src.middleware.auth import extract_base_token, extract_token
 router = APIRouter()
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://127.0.0.1:18001")
 http_client = httpx.AsyncClient(timeout=15.0)
+SESSION_IDLE_SECONDS = int(os.getenv("SESSION_IDLE_SECONDS", "900"))
 
 
 def _secure_cookie() -> bool:
@@ -22,6 +23,24 @@ def _secure_cookie() -> bool:
 class LoginPayload(BaseModel):
     email: str
     password: str
+
+
+def _set_private_no_store(response: JSONResponse) -> None:
+    response.headers["Cache-Control"] = "no-store, private"
+    response.headers["Pragma"] = "no-cache"
+
+
+def _set_session_cookie(response: JSONResponse, key: str, token: str) -> None:
+    response.set_cookie(
+        key=key,
+        value=token,
+        httponly=True,
+        secure=_secure_cookie(),
+        samesite="lax",
+        max_age=SESSION_IDLE_SECONDS,
+        path="/",
+    )
+    _set_private_no_store(response)
 
 
 def _safe_json(response: httpx.Response, default_detail: str) -> Any:
@@ -77,15 +96,11 @@ async def login(payload: LoginPayload):
     if not token:
         return JSONResponse(status_code=502, content={"detail": "Auth service returned no access token"})
 
-    resp = JSONResponse(content=data)
-    resp.set_cookie(
-        key="token",
-        value=token,
-        httponly=True,
-        secure=_secure_cookie(),
-        samesite="lax",
-        max_age=86400,
-    )
+    # Never return the bearer token to browser JavaScript. The BFF owns it in
+    # an HttpOnly cookie whose lifetime is renewed only by explicit activity.
+    public_data = {key: value for key, value in data.items() if key != "access_token"}
+    resp = JSONResponse(content=public_data)
+    _set_session_cookie(resp, "token", token)
     resp.delete_cookie(key="acting_token")
     return resp
 
@@ -95,7 +110,55 @@ async def logout():
     resp = JSONResponse(content={"message": "Logged out"})
     resp.delete_cookie(key="token")
     resp.delete_cookie(key="acting_token")
+    _set_private_no_store(resp)
     return resp
+
+
+@router.post("/session/touch")
+async def touch_session(request: Request):
+    """Rotate JWTs and renew cookies only after explicit browser activity."""
+    token = extract_token(request)
+    base_token = extract_base_token(request)
+    if not token or not base_token:
+        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
+
+    try:
+        base_response = await http_client.post(
+            f"{AUTH_SERVICE_URL}/auth/session/refresh",
+            headers={"Authorization": f"Bearer {base_token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+
+    base_data = _safe_json(base_response, "Unable to refresh session")
+    refreshed_base_token = base_data.get("access_token") if isinstance(base_data, dict) else None
+    if base_response.status_code != 200 or not refreshed_base_token:
+        expired = JSONResponse(status_code=401, content={"detail": "Invalid or expired session"})
+        expired.delete_cookie(key="token")
+        expired.delete_cookie(key="acting_token")
+        _set_private_no_store(expired)
+        return expired
+
+    renewed = JSONResponse(content={"status": "active", "idle_timeout_seconds": SESSION_IDLE_SECONDS})
+    _set_session_cookie(renewed, "token", refreshed_base_token)
+    acting_token = request.cookies.get("acting_token")
+    if acting_token:
+        acting_status = 503
+        try:
+            acting_response = await http_client.post(
+                f"{AUTH_SERVICE_URL}/auth/session/refresh",
+                headers={"Authorization": f"Bearer {acting_token}"},
+            )
+            acting_data = _safe_json(acting_response, "Unable to refresh acting session")
+            refreshed_acting_token = acting_data.get("access_token") if isinstance(acting_data, dict) else None
+            acting_status = acting_response.status_code
+        except httpx.RequestError:
+            refreshed_acting_token = None
+        if acting_status == 200 and refreshed_acting_token:
+            _set_session_cookie(renewed, "acting_token", refreshed_acting_token)
+        else:
+            renewed.delete_cookie(key="acting_token")
+    return renewed
 
 
 @router.post("/acting-role")
@@ -117,17 +180,11 @@ async def set_acting_role(request: Request):
         return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
 
     data = _safe_json(response, "Unable to create acting session")
-    resp = JSONResponse(status_code=response.status_code, content=data)
     acting_token = data.get("access_token")
+    public_data = {key: value for key, value in data.items() if key != "access_token"}
+    resp = JSONResponse(status_code=response.status_code, content=public_data)
     if response.status_code == 200 and acting_token:
-        resp.set_cookie(
-            key="acting_token",
-            value=acting_token,
-            httponly=True,
-            secure=_secure_cookie(),
-            samesite="lax",
-            max_age=28800,
-        )
+        _set_session_cookie(resp, "acting_token", acting_token)
     return resp
 
 
@@ -135,6 +192,7 @@ async def set_acting_role(request: Request):
 async def clear_acting_role():
     resp = JSONResponse(content={"message": "Acting role cleared"})
     resp.delete_cookie(key="acting_token")
+    _set_private_no_store(resp)
     return resp
 
 
@@ -151,10 +209,12 @@ async def get_current_user(request: Request):
         )
     except httpx.RequestError:
         return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
-    return JSONResponse(
+    resp = JSONResponse(
         status_code=response.status_code,
         content=_safe_json(response, "Unable to fetch current user"),
     )
+    _set_private_no_store(resp)
+    return resp
 
 
 @router.get("/users")

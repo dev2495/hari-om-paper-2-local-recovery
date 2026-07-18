@@ -18,14 +18,12 @@ async function loginThroughUi(page) {
   const response = await page.request.post(`${bffBaseUrl}/api/auth/login`, { data: { email, password } })
   expect(response.ok(), "admin login through BFF should succeed").toBeTruthy()
   const payload = await response.json()
-  expect(payload?.access_token, "admin access token should be present").toBeTruthy()
+  expect(payload?.access_token).toBeUndefined()
 
   await page.goto("/login", { waitUntil: "domcontentloaded" })
-  await page.evaluate(({ token, plantId }) => {
-    window.localStorage.setItem("hariom_access_token", token)
+  await page.evaluate(({ plantId }) => {
     window.localStorage.setItem("hariom_active_plant", plantId)
   }, {
-    token: payload.access_token,
     plantId: browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1",
   })
 }

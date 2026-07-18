@@ -1117,9 +1117,11 @@ def record_dispatch_for_line(
     line = (
         db.query(SalesOrderLine)
         .join(SalesOrder)
-        .options(joinedload(SalesOrderLine.sales_order), joinedload(SalesOrderLine.dispatch_logs))
         .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
-        .with_for_update()
+        # Lock only the fulfillment row. Locking a joinedload-generated outer
+        # join also tries to lock nullable dispatch-log rows, which PostgreSQL
+        # rejects and would make every real dispatch fail after inventory posts.
+        .with_for_update(of=SalesOrderLine)
         .first()
     )
     if not line:

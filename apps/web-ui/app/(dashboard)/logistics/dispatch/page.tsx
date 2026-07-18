@@ -2,12 +2,15 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { ClipboardCheck, Factory, Truck } from "lucide-react"
 import { useReadyJobs, useCustomers } from "@/hooks/use-dispatch"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/context/AuthContext"
 import { jobCardRef } from "@/lib/job-card-display"
 
 export default function DispatchSelectionPage() {
-    const { data: readyJobs, isLoading } = useReadyJobs()
+    const { activePlant } = useAuth()
+    const { data: readyJobs, isLoading } = useReadyJobs(activePlant)
     const { data: customers } = useCustomers()
 
     const [filterCustomer, setFilterCustomer] = useState("")
@@ -43,16 +46,23 @@ export default function DispatchSelectionPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-2xl font-semibold tracking-tight">Dispatch Selection</h1>
-                    <p className="text-sm text-slate-500">
-                        Select Job Cards ready for dispatch. Only jobs past the PROCESS/PACKING stages are shown.
-                    </p>
+            <div className="rounded-[1.6rem] border border-white/70 bg-gradient-to-br from-white via-white to-cyan-50/80 p-6 shadow-xl">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">Finished-goods handoff</p>
+                        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Dispatch Selection</h1>
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                            Create, resume, or review challans for packed jobs. Sealing posts FG stock and sales fulfillment together.
+                        </p>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-cyan-100 bg-white/90 px-4 py-3 shadow-sm">
+                        <span className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-950 text-white"><Truck className="h-5 w-5" /></span>
+                        <div><p className="text-2xl font-semibold text-slate-950">{jobs.length}</p><p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">handoffs visible</p></div>
+                    </div>
                 </div>
             </div>
 
-            <div className="erp-panel p-4 shadow-sm flex items-end gap-4 bg-white rounded-lg border border-slate-200">
+            <div className="erp-panel grid gap-4 rounded-[1.25rem] border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
                 <div className="flex-1 space-y-1">
                     <label className="text-xs font-semibold text-slate-600">Customer</label>
                     <input
@@ -106,8 +116,30 @@ export default function DispatchSelectionPage() {
                         <tbody className="divide-y divide-slate-100">
                             {filteredJobs.length === 0 ? (
                                 <tr>
-                                    <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
-                                        No jobs found matching your filters.
+                                    <td colSpan={7} className="p-0">
+                                        <div className="flex min-h-[260px] flex-col items-center justify-center bg-gradient-to-b from-white to-slate-50/80 px-6 py-10 text-center">
+                                            <span className="grid h-14 w-14 place-items-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm">
+                                                {jobs.length === 0 ? <ClipboardCheck className="h-7 w-7" /> : <Truck className="h-7 w-7" />}
+                                            </span>
+                                            <h2 className="mt-4 text-lg font-semibold text-slate-950">
+                                                {jobs.length === 0 ? "No packed handoffs are waiting" : "No dispatches match these filters"}
+                                            </h2>
+                                            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                                                {jobs.length === 0
+                                                    ? "Jobs appear here after packing posts finished-goods inventory. Sealed challans remain visible for review and printing."
+                                                    : "Clear or adjust the customer, job-card, and status filters to restore the matching handoffs."}
+                                            </p>
+                                            <div className="mt-5 flex flex-wrap justify-center gap-2">
+                                                {jobs.length === 0 ? (
+                                                    <>
+                                                        <Button asChild variant="outline"><Link href="/production/job-cards"><Factory className="mr-2 h-4 w-4" />Open job cards</Link></Button>
+                                                        <Button asChild><Link href="/planning/tracker">Open tracker</Link></Button>
+                                                    </>
+                                                ) : (
+                                                    <Button variant="outline" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); }}>Clear all filters</Button>
+                                                )}
+                                            </div>
+                                        </div>
                                     </td>
                                 </tr>
                             ) : (

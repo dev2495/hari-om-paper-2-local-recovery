@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect } from "react"
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react"
 import { getStoredPlant, setStoredPlant } from "@/lib/api"
 import { canonicalPlantScopeValue } from "@/lib/plant-scope"
 
@@ -32,6 +32,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 const ACTIVE_ROLE_STORAGE_KEY = "hariom_active_role"
+const SESSION_IDLE_MS = 15 * 60 * 1000
+const SESSION_HEARTBEAT_MS = 60 * 1000
 
 function normalizeAllowedPlants(user: Partial<User> | null | undefined) {
   const rawValues = [...(user?.allowed_plant_ids || []), ...(user?.allowed_plants || [])]
@@ -82,6 +84,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [activePlant, setActivePlantState] = useState<string | null>(null)
   const [activeRole, setActiveRoleState] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+  const lastActivityAt = useRef(Date.now())
+  const lastSessionTouchAt = useRef(Date.now())
 
   const setActivePlant = (plantId: string) => {
     const canonicalPlant = canonicalPlantScopeValue(plantId)
@@ -100,6 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = async () => {
     try {
+      // One-time cleanup for browsers that used the former JS-readable bearer-token flow.
+      window.localStorage.removeItem("hariom_access_token")
       const storedPlant = getStoredPlant()
       const storedRole = typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_ROLE_STORAGE_KEY) : null
       const response = await fetch("/api/auth/me", {
@@ -162,7 +168,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return normalizedUser
   }
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     await fetch("/api/auth/logout", {
       method: "POST",
       credentials: "include",
@@ -176,11 +182,69 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Ignore storage errors.
     }
-  }
+  }, [])
 
   useEffect(() => {
     checkAuth()
   }, [])
+
+  useEffect(() => {
+    if (!user) return
+
+    const expireIdleSession = async () => {
+      await logout()
+      if (window.location.pathname !== "/login") {
+        window.location.assign("/login?reason=inactive")
+      }
+    }
+
+    const verifyAndRenew = async (renew: boolean) => {
+      const idleFor = Date.now() - lastActivityAt.current
+      if (idleFor >= SESSION_IDLE_MS) {
+        await expireIdleSession()
+        return
+      }
+      if (!renew || document.visibilityState !== "visible") return
+      try {
+        const response = await fetch("/api/auth/session/touch", {
+          method: "POST",
+          credentials: "include",
+          headers: { "X-Requested-With": "HariOmERP" },
+        })
+        if (response.status === 401) await expireIdleSession()
+        else if (response.ok) lastSessionTouchAt.current = Date.now()
+      } catch {
+        // A transient network outage must not erase the session; the server-side
+        // cookie still expires at the hard inactivity boundary.
+      }
+    }
+
+    const recordActivity = () => {
+      const now = Date.now()
+      lastActivityAt.current = now
+      if (now - lastSessionTouchAt.current >= SESSION_HEARTBEAT_MS) void verifyAndRenew(true)
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return
+      const wasIdleFor = Date.now() - lastActivityAt.current
+      if (wasIdleFor >= SESSION_IDLE_MS) void expireIdleSession()
+      else {
+        lastActivityAt.current = Date.now()
+        void verifyAndRenew(true)
+      }
+    }
+    const activityEvents: Array<keyof WindowEventMap> = ["pointerdown", "keydown", "scroll", "touchstart"]
+    activityEvents.forEach((eventName) => window.addEventListener(eventName, recordActivity, { passive: true }))
+    document.addEventListener("visibilitychange", onVisibilityChange)
+    const interval = window.setInterval(() => void verifyAndRenew(false), SESSION_HEARTBEAT_MS)
+
+    return () => {
+      activityEvents.forEach((eventName) => window.removeEventListener(eventName, recordActivity))
+      document.removeEventListener("visibilitychange", onVisibilityChange)
+      window.clearInterval(interval)
+    }
+  }, [user, logout])
 
   return (
     <AuthContext.Provider value={{ user, activePlant, activeRole, isLoading, login, logout, checkAuth, setActivePlant, setActiveRole }}>

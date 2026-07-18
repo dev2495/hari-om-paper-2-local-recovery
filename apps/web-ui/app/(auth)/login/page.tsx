@@ -11,10 +11,16 @@ function landingPathFor(user: { role?: string | null; roles?: string[] }, fallba
   return landingPathForRole(landingRole) || fallback
 }
 
+function safeNextPath(value: string | null) {
+  if (!value || !value.startsWith("/") || value.startsWith("//")) return null
+  return value
+}
+
 function LoginPageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const explicitNextPath = searchParams?.get("next")
+  const explicitNextPath = safeNextPath(searchParams?.get("next") || null)
+  const sessionReason = searchParams?.get("reason")
   const nextPath = explicitNextPath || "/dashboard"
   const { login, user, isLoading } = useAuth()
   const [email, setEmail] = useState("")
@@ -90,6 +96,11 @@ function LoginPageContent() {
             </div>
 
             <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
+              {sessionReason ? (
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+                  Your secure session ended after 15 minutes without activity. Sign in again to continue.
+                </div>
+              ) : null}
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Username</span>
                 <input
