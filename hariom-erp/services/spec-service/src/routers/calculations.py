@@ -25,7 +25,7 @@ class PreviewRecipeRow(BaseModel):
 class PreviewAdhesiveComponent(BaseModel):
     id: Optional[str] = None
     name: str = ""
-    base_percent: float = 15.0
+    base_percent: float = 12.5
     ratio_percent: float = 0.0
 
 

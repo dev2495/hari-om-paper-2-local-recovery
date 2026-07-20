@@ -59,7 +59,7 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text(
                 "ALTER TABLE IF EXISTS specification_sheet "
-                "ADD COLUMN IF NOT EXISTS adhesive_percent DOUBLE PRECISION DEFAULT 15.0"
+                "ADD COLUMN IF NOT EXISTS adhesive_percent DOUBLE PRECISION DEFAULT 12.5"
             )
         )
         connection.execute(
@@ -76,7 +76,7 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text(
-                "UPDATE specification_sheet SET adhesive_percent = 15.0 WHERE adhesive_percent IS NULL"
+                "UPDATE specification_sheet SET adhesive_percent = 12.5 WHERE adhesive_percent IS NULL"
             )
         )
         connection.execute(
@@ -100,7 +100,7 @@ def ensure_runtime_schema() -> None:
                 "CREATE TABLE IF NOT EXISTS global_spec_defaults ("
                 "id UUID PRIMARY KEY,"
                 "plant_id VARCHAR(50) NOT NULL UNIQUE,"
-                "adhesive_percent DOUBLE PRECISION NOT NULL DEFAULT 15.0,"
+                "adhesive_percent DOUBLE PRECISION NOT NULL DEFAULT 12.5,"
                 "parchment_percent DOUBLE PRECISION NOT NULL DEFAULT 1.5,"
                 "moisture_loss_percent DOUBLE PRECISION NOT NULL DEFAULT 9.0,"
                 "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
@@ -110,7 +110,7 @@ def ensure_runtime_schema() -> None:
         connection.execute(
             text(
                 "ALTER TABLE IF EXISTS global_spec_defaults "
-                "ADD COLUMN IF NOT EXISTS adhesive_percent DOUBLE PRECISION DEFAULT 15.0"
+                "ADD COLUMN IF NOT EXISTS adhesive_percent DOUBLE PRECISION DEFAULT 12.5"
             )
         )
         connection.execute(
@@ -123,6 +123,22 @@ def ensure_runtime_schema() -> None:
             text(
                 "ALTER TABLE IF EXISTS global_spec_defaults "
                 "ADD COLUMN IF NOT EXISTS moisture_loss_percent DOUBLE PRECISION DEFAULT 9.0"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS specification_sheet ALTER COLUMN adhesive_percent SET DEFAULT 12.5"
+            )
+        )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS global_spec_defaults ALTER COLUMN adhesive_percent SET DEFAULT 12.5"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE global_spec_defaults SET adhesive_percent = 12.5 "
+                "WHERE adhesive_percent IS NULL OR adhesive_percent = 15.0"
             )
         )
 

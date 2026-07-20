@@ -263,6 +263,8 @@ export const specApi = {
   getSpec: (id: string) => api.get(`/api/spec/specifications/${id}`),
   updateSpec: (id: string, data: any, plantId?: string) =>
     api.put(`/api/spec/specifications/${id}`, data, withPlantHeader(plantId)),
+  submitSpecForReview: (id: string, plantId?: string) =>
+    api.post(`/api/spec/specifications/${id}/submit-review`, {}, withPlantHeader(plantId)),
   approveSpec: (id: string, data: any, plantId?: string) =>
     api.post(`/api/spec/specifications/${id}/approve`, data, withPlantHeader(plantId)),
   obsoleteSpec: (id: string, data?: any, plantId?: string) =>
@@ -274,6 +276,8 @@ export const specApi = {
   createSpecField: (data: any, plantId?: string) => api.post("/api/spec/spec-fields", data, withPlantHeader(plantId)),
   createRecipe: (specId: string, data: any, plantId?: string) =>
     api.post(`/api/spec/recipes/${specId}`, data, withPlantHeader(plantId)),
+  updateRecipe: (recipeId: string, data: any, plantId?: string) =>
+    api.put(`/api/spec/recipes/${recipeId}`, data, withPlantHeader(plantId)),
   getRecipesForSpec: (specId: string) => api.get(`/api/spec/recipes/spec/${specId}`),
   getRecipe: (recipeId: string) => api.get(`/api/spec/recipes/${recipeId}`),
   addRecipeLayer: (recipeId: string, data: any, plantId?: string) =>

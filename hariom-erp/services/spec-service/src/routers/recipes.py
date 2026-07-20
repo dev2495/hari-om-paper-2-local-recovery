@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 import uuid
 from datetime import datetime
 from ..database import get_db
@@ -22,6 +22,11 @@ class LayerCreate(BaseModel):
     gsm_snapshot: int
     bf_snapshot: int
     bulk_snapshot: Optional[float] = None
+
+
+class RecipeReplace(BaseModel):
+    notes: Optional[str] = None
+    layers: List[LayerCreate] = Field(default_factory=list)
 
 class RecipeResponse(BaseModel):
     id: uuid.UUID
@@ -187,6 +192,49 @@ def get_recipe(
     if not recipe:
         raise HTTPException(status_code=404, detail="Recipe not found")
     
+    return recipe
+
+
+@router.put("/{recipe_id}", response_model=RecipeWithLayers)
+def replace_trial_recipe(
+    recipe_id: uuid.UUID,
+    payload: RecipeReplace,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
+):
+    recipe = db.query(RecipeHeader).filter(
+        RecipeHeader.id == recipe_id,
+        RecipeHeader.plant_id == plant_id,
+    ).first()
+    if not recipe:
+        raise HTTPException(status_code=404, detail="Recipe not found")
+    if recipe.status != "trial" or recipe.specification.status != "draft":
+        raise HTTPException(status_code=409, detail="Only the current draft recipe can be edited")
+    if len(payload.layers) > RECIPE_MAX_PLIES:
+        raise HTTPException(status_code=400, detail=f"A recipe can contain at most {RECIPE_MAX_PLIES} plies")
+    ply_numbers = [layer.ply_no for layer in payload.layers]
+    if any(number < 1 or number > RECIPE_MAX_PLIES for number in ply_numbers):
+        raise HTTPException(status_code=400, detail=f"Ply number must be between 1 and {RECIPE_MAX_PLIES}")
+    if len(set(ply_numbers)) != len(ply_numbers):
+        raise HTTPException(status_code=400, detail="Recipe contains duplicate ply numbers")
+
+    recipe.notes = payload.notes
+    recipe.layers.clear()
+    db.flush()
+    for layer in payload.layers:
+        recipe.layers.append(
+            RecipeLayer(
+                plant_id=plant_id,
+                ply_no=layer.ply_no,
+                paper_id=layer.paper_id,
+                gsm_snapshot=layer.gsm_snapshot,
+                bf_snapshot=layer.bf_snapshot,
+                bulk_snapshot=layer.bulk_snapshot,
+            )
+        )
+    db.commit()
+    db.refresh(recipe)
     return recipe
 
 @router.post("/{recipe_id}/approve")

@@ -1687,7 +1687,11 @@ def _derive_thickness(
 def _size_label(spec_snapshot: dict[str, Any]) -> str:
     id_avg = _snapshot_midpoint(spec_snapshot.get("id_min_mm"), spec_snapshot.get("id_max_mm"))
     od_avg = _snapshot_midpoint(spec_snapshot.get("od_min_mm"), spec_snapshot.get("od_max_mm"))
-    length_avg = _snapshot_midpoint(spec_snapshot.get("length_min_mm"), spec_snapshot.get("length_max_mm"))
+    # The optional actual height is a downstream display override only. Recipe,
+    # yield and consumption math continue to use the selected tube master range.
+    length_avg = _snapshot_float(spec_snapshot.get("actual_tube_height_mm"))
+    if length_avg is None or length_avg <= 0:
+        length_avg = _snapshot_midpoint(spec_snapshot.get("length_min_mm"), spec_snapshot.get("length_max_mm"))
     parts = [_format_measure(id_avg), _format_measure(od_avg), _format_measure(length_avg)]
     if not any(parts):
         return "-"
@@ -1763,6 +1767,7 @@ def _merge_spec_snapshot(base_snapshot: dict[str, Any], spec_payload: dict[str, 
             merged[key] = spec_payload.get(key)
 
     flat_dynamic = {
+        "actual_tube_height_mm": dynamic_map.get("actual_tube_height_mm"),
         "notch_type": dynamic_map.get("notch_type"),
         "notch_distance_mm": dynamic_map.get("notch_distance_mm"),
         "notch_depth_mm": dynamic_map.get("notch_depth_mm"),
@@ -1783,10 +1788,16 @@ def _merge_spec_snapshot(base_snapshot: dict[str, Any], spec_payload: dict[str, 
         "packing_pcs": dynamic_map.get("packing_pcs"),
         "box_code": dynamic_map.get("box_code") or dynamic_map.get("box"),
         "box_size": dynamic_map.get("box_size"),
+        "box_unit_weight_kg": dynamic_map.get("box_unit_weight_kg"),
         "plastic_required": _display_bool(dynamic_map.get("plastic_required")),
         "plastic_sku": dynamic_map.get("plastic_sku"),
+        "plastic_size": dynamic_map.get("plastic_size"),
+        "plastic_unit_weight_kg": dynamic_map.get("plastic_unit_weight_kg"),
+        "plastic_weight_per_box_kg": dynamic_map.get("plastic_weight_per_box_kg"),
         "plastic_per_box": dynamic_map.get("plastic_per_box"),
         "fadda_sku": dynamic_map.get("fadda_sku"),
+        "fadda_unit_weight_kg": dynamic_map.get("fadda_unit_weight_kg"),
+        "fadda_weight_per_box_kg": dynamic_map.get("fadda_weight_per_box_kg"),
         "fadda_per_box": dynamic_map.get("fadda_per_box"),
         "bopp_required": _display_bool(dynamic_map.get("bopp_required")),
         "box": dynamic_map.get("box_code") or dynamic_map.get("box"),
@@ -2069,10 +2080,16 @@ def _build_document_snapshot(
             "box_code": spec_snapshot.get("box_code") or spec_snapshot.get("box") or "",
             "box": spec_snapshot.get("box_code") or spec_snapshot.get("box") or "",
             "box_size": spec_snapshot.get("box_size") or "",
+            "box_unit_weight_kg": spec_snapshot.get("box_unit_weight_kg") or "",
             "plastic_required": spec_snapshot.get("plastic_required") or "",
             "plastic_sku": spec_snapshot.get("plastic_sku") or "",
+            "plastic_size": spec_snapshot.get("plastic_size") or "",
+            "plastic_unit_weight_kg": spec_snapshot.get("plastic_unit_weight_kg") or "",
+            "plastic_weight_per_box_kg": spec_snapshot.get("plastic_weight_per_box_kg") or "",
             "plastic_per_box": spec_snapshot.get("plastic_per_box") or "",
             "fadda_sku": spec_snapshot.get("fadda_sku") or "",
+            "fadda_unit_weight_kg": spec_snapshot.get("fadda_unit_weight_kg") or "",
+            "fadda_weight_per_box_kg": spec_snapshot.get("fadda_weight_per_box_kg") or "",
             "fadda_per_box": spec_snapshot.get("fadda_per_box") or "",
             "bopp_required": spec_snapshot.get("bopp_required") or "",
             "special_instructions": spec_snapshot.get("special_instructions") or "",
@@ -2091,7 +2108,7 @@ def _build_document_snapshot(
         "recipe_summary": {
             "rows": recipe_rows,
             "adhesive_components": adhesive_components,
-            "glue_base_percent": _snapshot_float(first_adhesive_component.get("base_percent")) or 15.0,
+            "glue_base_percent": _snapshot_float(first_adhesive_component.get("base_percent")) or 12.5,
             "adhesive_total_g": _snapshot_float(weight_calculation.get("adhesive_total_g")),
             "paper_total_g": _snapshot_float(weight_calculation.get("paper_total_g"))
             or _snapshot_float(weight_bridge.get("paper_required_g")),
@@ -2205,6 +2222,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "od_max_mm": spec.get("od_max_mm"),
         "length_min_mm": spec.get("length_min_mm"),
         "length_max_mm": spec.get("length_max_mm"),
+        "actual_tube_height_mm": dynamic_map.get("actual_tube_height_mm"),
         "weight_min_g": spec.get("weight_min_g"),
         "weight_max_g": spec.get("weight_max_g"),
         "cs_min_n": spec.get("cs_min_n"),
@@ -2247,10 +2265,16 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "packing_pcs": dynamic_map.get("packing_pcs"),
         "box_code": dynamic_map.get("box_code") or dynamic_map.get("box"),
         "box_size": dynamic_map.get("box_size"),
+        "box_unit_weight_kg": dynamic_map.get("box_unit_weight_kg"),
         "plastic_required": _display_bool(dynamic_map.get("plastic_required")),
         "plastic_sku": dynamic_map.get("plastic_sku"),
+        "plastic_size": dynamic_map.get("plastic_size"),
+        "plastic_unit_weight_kg": dynamic_map.get("plastic_unit_weight_kg"),
+        "plastic_weight_per_box_kg": dynamic_map.get("plastic_weight_per_box_kg"),
         "plastic_per_box": dynamic_map.get("plastic_per_box"),
         "fadda_sku": dynamic_map.get("fadda_sku"),
+        "fadda_unit_weight_kg": dynamic_map.get("fadda_unit_weight_kg"),
+        "fadda_weight_per_box_kg": dynamic_map.get("fadda_weight_per_box_kg"),
         "fadda_per_box": dynamic_map.get("fadda_per_box"),
         "bopp_required": _display_bool(dynamic_map.get("bopp_required")),
         "box": dynamic_map.get("box_code") or dynamic_map.get("box"),
@@ -3256,6 +3280,44 @@ def _sync_quality_artifacts(
     return [hold]
 
 
+def _packing_consumption_snapshot(
+    *,
+    packed_qty: float,
+    spec_snapshot: dict[str, Any],
+) -> dict[str, Any]:
+    """Convert floor PCS requirements to their master-weight equivalents.
+
+    Packing is consumed in pieces on the floor while inward stock is measured in
+    kilograms. Keeping both values in the immutable packing snapshot makes the
+    reconciliation explicit without silently changing the stock unit.
+    """
+    qty_per_box = _snapshot_float(spec_snapshot.get("qty_per_box")) or 0.0
+    box_count = int(math.ceil(max(packed_qty, 0.0) / qty_per_box)) if qty_per_box > 0 else 0
+    plastic_per_box = _snapshot_float(spec_snapshot.get("plastic_per_box")) or 0.0
+    fadda_per_box = _snapshot_float(spec_snapshot.get("fadda_per_box")) or 0.0
+    plastic_unit_weight_kg = _snapshot_float(spec_snapshot.get("plastic_unit_weight_kg")) or 0.0
+    fadda_unit_weight_kg = _snapshot_float(spec_snapshot.get("fadda_unit_weight_kg")) or 0.0
+    plastic_pcs = int(round(box_count * plastic_per_box))
+    fadda_pcs = int(round(box_count * fadda_per_box))
+    return {
+        "qty_per_box": qty_per_box,
+        "box_count": box_count,
+        "box_code": spec_snapshot.get("box_code") or spec_snapshot.get("box"),
+        "plastic": {
+            "sku": spec_snapshot.get("plastic_sku"),
+            "consumed_pcs": plastic_pcs,
+            "unit_weight_kg": plastic_unit_weight_kg,
+            "consumed_weight_kg": round(plastic_pcs * plastic_unit_weight_kg, 4),
+        },
+        "fadda": {
+            "sku": spec_snapshot.get("fadda_sku"),
+            "consumed_pcs": fadda_pcs,
+            "unit_weight_kg": fadda_unit_weight_kg,
+            "consumed_weight_kg": round(fadda_pcs * fadda_unit_weight_kg, 4),
+        },
+    }
+
+
 def _sync_packing_record(
     *,
     db: Session,
@@ -3270,6 +3332,10 @@ def _sync_packing_record(
     snapshot.setdefault("completed_at", stage.actual_end.isoformat() if stage.actual_end else None)
     existing = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
     packed_qty = float(stage.output_qty or snapshot.get("total_packed_qty") or 0.0)
+    snapshot["packaging_consumption"] = _packing_consumption_snapshot(
+        packed_qty=packed_qty,
+        spec_snapshot=dict(job_card.spec_snapshot or {}),
+    )
     stock_status = "QC_HOLD" if _job_has_active_hold(db, job_card.id) else str(snapshot.get("stock_status") or "UNRESTRICTED")
     if existing is None:
         existing = PackingRecord(

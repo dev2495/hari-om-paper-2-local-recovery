@@ -53,6 +53,22 @@ async def update_specification(spec_id: str, request: Request, token: str = Depe
     return response
 
 
+@router.post("/specifications/{spec_id}/submit-review")
+async def submit_specification_for_review(spec_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/submit-review", request, token)
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="SPEC_REVIEW_REQUESTED",
+        title=f"Specification ready for Owner review: {spec_id}",
+        message="The draft passed its release checks and is locked for Owner approval.",
+        href=f"/specifications/{spec_id}",
+        recipient_roles=["Owner"],
+        payload={"spec_id": spec_id},
+    )
+    return response
+
+
 @router.post("/specifications/{spec_id}/approve")
 async def approve_specification(spec_id: str, request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/approve", request, token)
@@ -125,6 +141,11 @@ async def update_spec_defaults(request: Request, token: str = Depends(get_token)
 @router.post("/recipes/{spec_id}")
 async def create_recipe(spec_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{spec_id}", request, token)
+
+
+@router.put("/recipes/{recipe_id}")
+async def update_recipe(recipe_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/recipes/{recipe_id}", request, token)
 
 
 @router.get("/recipes/spec/{spec_id}")

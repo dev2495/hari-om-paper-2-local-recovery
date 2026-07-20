@@ -10,7 +10,7 @@
 // Constants (defaults; per-spec overrides allowed in the Validation footer)
 // ---------------------------------------------------------------------------
 
-export const GLOBAL_ADHESIVE_PERCENT = 15.0
+export const GLOBAL_ADHESIVE_PERCENT = 12.5
 export const GLOBAL_PARCHMENT_PERCENT = 1.5
 export const GLOBAL_MOISTURE_LOSS_PERCENT = 9.0
 
@@ -25,7 +25,7 @@ export const RECIPE_MIN_PAPERS = 1
 export const RECIPE_MAX_PAPERS = 10
 export const RECIPE_MAX_PLIES = 25
 
-export const DELTA_ABS_G = 3.0
+export const DELTA_ABS_G = 5.0
 export const DELTA_PCT = 0.0
 
 // ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ const round6 = (n: number) => Math.round(n * 1_000_000) / 1_000_000
 const clamp0 = (n: number | null | undefined) =>
   typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : 0
 const dryDivisor = (moistureLossPercent: number) => Math.max(1 - Math.max(moistureLossPercent, 0) / 100, 0.0001)
-// The configured 15% is the combined wet-material allowance. Parchment is a
+// The configured allowance is the combined wet-material allowance. Parchment is a
 // slice of that allowance; adhesive receives the remainder.
 const addOnShare = (totalAdditionsPercent: number, _parchmentPercent: number, _parchmentAllowed: boolean) =>
   Math.max(totalAdditionsPercent, 0) / 100

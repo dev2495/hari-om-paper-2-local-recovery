@@ -9,7 +9,7 @@ export function PackingCard({ children, forceOpen = false }: PackingCardProps) {
       <summary className="flex cursor-pointer list-none items-start justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Packing</p>
-          <p className="mt-1 text-xs text-slate-600">Compact packing handoff only: box, plastic, fadda, and per-box counts.</p>
+          <p className="mt-1 text-xs text-slate-600">Box, plastic and fadda masters with floor PCS and inward-weight visibility.</p>
         </div>
         <span className="rounded-md border border-[#d7dfdc] bg-[#f8faf9] px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.14em] text-slate-500">
           Expand when needed

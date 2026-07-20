@@ -18,7 +18,7 @@ import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
-import { RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
+import { DELTA_ABS_G, RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
 import {
   useAdhesives,
   useCustomers,
@@ -44,6 +44,7 @@ import {
   useSpecFields,
   useSpecSheetPreview,
   useSpecSheetDocument,
+  useSubmitSpecForReview,
   useUpdateSpecSheet,
 } from "@/hooks/use-specs"
 import {
@@ -205,14 +206,14 @@ function defaultFormState(): FormState {
     adhesive20100: "30",
     adhesive30100: "70",
     adhesiveComponents: [
-      { name: "TL-4 (20100)", base_percent: 15, ratio_percent: 30 },
-      { name: "Vinsol (30100)", base_percent: 15, ratio_percent: 70 },
+      { name: "TL-4 (20100)", base_percent: 12.5, ratio_percent: 30 },
+      { name: "Vinsol (30100)", base_percent: 12.5, ratio_percent: 70 },
     ],
     notes: "",
     recipeRows: [blankRecipeRow(nextRecipeRowSeed())],
     dynamicValues: {
       glue_mode: "standard",
-      glue_base_percent: "15",
+      glue_base_percent: "12.5",
       measured_finished_dry_g: "",
       drying_percent_override: "",
       fill_instructions_version: CANONICAL_VARIANT_KEY,
@@ -256,6 +257,15 @@ function adhesiveMasterLabel(master: any) {
   const name = String(master?.name || master?.variety || "").trim()
   const code = String(master?.internal_code || "").trim()
   return code ? `${name} (${code})` : name
+}
+
+function normalizeRecipeRows(rows: GroupedRecipeRow[]) {
+  return (rows || []).map((row, index) => ({
+    ...row,
+    id: `recipe-row-${nextRecipeRowSeed()}-${index + 1}`,
+    plyCount: Math.max(1, Number(row?.plyCount || 1)),
+    positionsText: String(row?.positionsText || ""),
+  }))
 }
 
 function adhesiveReferenceTokens(value: unknown) {
@@ -639,17 +649,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const isCreate = mode === "create"
   const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean)), [user?.role, user?.roles])
   const canManageSpec = userRoles.has("Owner") || userRoles.has("Admin")
+  const isOwner = userRoles.has("Owner")
   const hasConcreteWritePlant = Boolean(activePlant && activePlant !== "ALL")
   const editBlockReason = !canManageSpec
     ? "Only Owner and Admin can edit specification sheets."
     : !hasConcreteWritePlant
       ? "Pick one plant in the top switcher before creating or editing a specification."
       : null
-  const isEditable = (mode === "create" || mode === "edit") && !editBlockReason
   const isPrint = mode === "print"
 
   const [form, setForm] = useState<FormState>(() => defaultFormState())
-  const [loadedSpecId, setLoadedSpecId] = useState<string | null>(null)
+  const [loadedSpecSignature, setLoadedSpecSignature] = useState<string | null>(null)
   const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
   const [defaultsBootstrappedForPlant, setDefaultsBootstrappedForPlant] = useState<string | null>(null)
   const [todayLabel, setTodayLabel] = useState("--/--/----")
@@ -669,12 +679,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const { data: specDefaults } = useSpecDefaults(hasConcreteWritePlant ? activePlant : null)
   const { data: specFields, isSuccess: specFieldsLoaded } = useSpecFields()
   const { data: specDocument, isLoading: isLoadingDocument } = useSpecSheetDocument(specId || "")
+  const isEditable =
+    (mode === "create" || mode === "edit") &&
+    !editBlockReason &&
+    specDocument?.spec?.status !== "review"
 
   const ensureCatalog = useEnsureSpecSheetCatalog()
   const createSpecSheet = useCreateSpecSheet()
   const updateSpecSheet = useUpdateSpecSheet()
   const logToolUsage = useLogToolUsage()
   const approveSpec = useApproveSpec()
+  const submitSpecForReview = useSubmitSpecForReview()
   const obsoleteSpec = useObsoleteSpec()
   const cloneSpec = useCloneSpecSheet()
 
@@ -743,6 +758,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const packagingBoxMap = useMemo<Map<string, any>>(
     () => new Map<string, any>(activePackagingBoxes.map((item) => [String(item.code || ""), item])),
     [activePackagingBoxes],
+  )
+  const packagingPlasticMap = useMemo<Map<string, any>>(
+    () => new Map<string, any>(activePackagingPlasticSheets.map((item) => [String(item.sku || ""), item])),
+    [activePackagingPlasticSheets],
+  )
+  const packagingFaddaMap = useMemo<Map<string, any>>(
+    () => new Map<string, any>(activePackagingFadda.map((item) => [String(item.sku || ""), item])),
+    [activePackagingFadda],
   )
   const fieldCatalogMap = useMemo<Map<string, any>>(
     () => new Map<string, any>(((specFields || []) as any[]).map((item) => [String(item.key), item])),
@@ -832,6 +855,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const selectedCustomer = customerMap.get(form.customerId)
   const selectedTube = tubeSizeMap.get(form.tubeSizeId)
   const selectedMandrel = mandrelMap.get(form.mandrelId)
+  const selectedPackagingBox = packagingBoxMap.get(optionValue(form.dynamicValues.box_code || form.dynamicValues.box))
+  const selectedPackagingPlastic = packagingPlasticMap.get(optionValue(form.dynamicValues.plastic_sku))
+  const selectedPackagingFadda = packagingFaddaMap.get(optionValue(form.dynamicValues.fadda_sku))
   const filteredTubeSizes = useMemo(
     () => activeTubeSizes.filter((tube) => isTubeWithinMandrelBand(tube, selectedMandrel)),
     [activeTubeSizes, selectedMandrel],
@@ -902,7 +928,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
     const selectedBox = packagingBoxMap.get(boxCode)
     const nextSize = selectedBox?.size_label ? String(selectedBox.size_label) : optionValue(form.dynamicValues.box_size)
-    if (!selectedBox || optionValue(form.dynamicValues.box_size) === nextSize) return
+    const nextWeight = selectedBox?.weight_kg === null || selectedBox?.weight_kg === undefined ? "" : String(selectedBox.weight_kg)
+    if (
+      !selectedBox ||
+      (optionValue(form.dynamicValues.box_size) === nextSize &&
+        optionValue(form.dynamicValues.box_unit_weight_kg) === nextWeight)
+    ) return
 
     setForm((current) => ({
       ...current,
@@ -911,9 +942,56 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         box_code: boxCode,
         box: boxCode,
         box_size: nextSize,
+        box_unit_weight_kg: nextWeight,
       },
     }))
-  }, [form.dynamicValues.box, form.dynamicValues.box_code, form.dynamicValues.box_size, packagingBoxMap])
+  }, [form.dynamicValues.box, form.dynamicValues.box_code, form.dynamicValues.box_size, form.dynamicValues.box_unit_weight_kg, packagingBoxMap])
+
+  useEffect(() => {
+    const sku = optionValue(form.dynamicValues.plastic_sku)
+    const selected = packagingPlasticMap.get(sku)
+    const size = selected?.size_label ? String(selected.size_label) : ""
+    const unitWeight = selected?.weight_kg === null || selected?.weight_kg === undefined ? "" : String(selected.weight_kg)
+    const perBox = Number(form.dynamicValues.plastic_per_box || 0)
+    const perBoxWeight = perBox > 0 && Number(unitWeight) >= 0 ? String(roundValue(perBox * Number(unitWeight), 4)) : ""
+    const plasticRequired = Boolean(sku && perBox > 0)
+    if (
+      optionValue(form.dynamicValues.plastic_size) === size &&
+      optionValue(form.dynamicValues.plastic_unit_weight_kg) === unitWeight &&
+      optionValue(form.dynamicValues.plastic_weight_per_box_kg) === perBoxWeight &&
+      boolFromString(form.dynamicValues.plastic_required) === plasticRequired
+    ) return
+    setForm((current) => ({
+      ...current,
+      dynamicValues: {
+        ...current.dynamicValues,
+        plastic_size: size,
+        plastic_unit_weight_kg: unitWeight,
+        plastic_weight_per_box_kg: perBoxWeight,
+        plastic_required: plasticRequired ? "true" : "false",
+      },
+    }))
+  }, [form.dynamicValues.plastic_per_box, form.dynamicValues.plastic_required, form.dynamicValues.plastic_size, form.dynamicValues.plastic_sku, form.dynamicValues.plastic_unit_weight_kg, form.dynamicValues.plastic_weight_per_box_kg, packagingPlasticMap])
+
+  useEffect(() => {
+    const sku = optionValue(form.dynamicValues.fadda_sku)
+    const selected = packagingFaddaMap.get(sku)
+    const unitWeight = selected?.weight_kg === null || selected?.weight_kg === undefined ? "" : String(selected.weight_kg)
+    const perBox = Number(form.dynamicValues.fadda_per_box || 0)
+    const perBoxWeight = perBox > 0 && Number(unitWeight) >= 0 ? String(roundValue(perBox * Number(unitWeight), 4)) : ""
+    if (
+      optionValue(form.dynamicValues.fadda_unit_weight_kg) === unitWeight &&
+      optionValue(form.dynamicValues.fadda_weight_per_box_kg) === perBoxWeight
+    ) return
+    setForm((current) => ({
+      ...current,
+      dynamicValues: {
+        ...current.dynamicValues,
+        fadda_unit_weight_kg: unitWeight,
+        fadda_weight_per_box_kg: perBoxWeight,
+      },
+    }))
+  }, [form.dynamicValues.fadda_per_box, form.dynamicValues.fadda_sku, form.dynamicValues.fadda_unit_weight_kg, form.dynamicValues.fadda_weight_per_box_kg, packagingFaddaMap])
 
   const clientRanges = useMemo(() => deriveRanges(form.averages, DEFAULT_TOLERANCE_BANDS), [form.averages])
   const clientRows = useMemo(() => buildMatrixRows(form.averages, clientRanges), [form.averages, clientRanges])
@@ -991,7 +1069,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const circumferenceDiameter = Math.max(Number(manufacturingAverages.id || 0) + Number(thicknessAvg || 0), 1)
     const circumference = 3.14 * circumferenceDiameter
     const glueMode = "workbook"
-    const glueBasePct = Number(form.dynamicValues.glue_base_percent || 15)
+    const glueBasePct = Number(form.dynamicValues.glue_base_percent || 12.5)
     const dryingLossPercent = Number(form.shrinkPercent || 9.0)
     const dryingDivisor = Math.max(0.01, 1 - dryingLossPercent / 100)
     const dryingPct = roundValue((1 - dryingDivisor) * 100, 2)
@@ -1121,7 +1199,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const targetDryWeightG = Number(form.averages.weight || 0)
   const dryingPercent = Number(form.shrinkPercent || 9.0)
   const parchmentPercent = Number(form.parchmentPercent || 1.5)
-  const adhesivePercent = Number(form.dynamicValues.glue_base_percent || 15)
+  const adhesivePercent = Number(form.dynamicValues.glue_base_percent || 12.5)
   const previewRecipeRows = useMemo(
     () =>
       form.recipeRows.map((row) => ({
@@ -1352,19 +1430,29 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     setForm((current) => current)
   }, [isCreate, selectedCustomer])
 
+  const specHydrationSignature = useMemo(() => {
+    if (!specDocument?.spec) return null
+    return JSON.stringify({
+      mode,
+      spec: specDocument.spec,
+      latestRecipe: specDocument.latestRecipe,
+      latestApprovedTrial,
+    })
+  }, [latestApprovedTrial, mode, specDocument])
+
   useEffect(() => {
-    if (!specDocument?.spec || loadedSpecId === specDocument.spec.id) return
+    if (!specDocument?.spec || !specHydrationSignature || loadedSpecSignature === specHydrationSignature) return
 
     const spec = specDocument.spec
     const dynamicMap = parseDynamicFields(spec.dynamic_fields as DynamicFieldValue[])
     const parsedAdhesiveComponents = parseAdhesiveComponents(
       dynamicMap.adhesive_components_json,
-      Number(dynamicMap.glue_base_percent || 15),
+      Number(dynamicMap.glue_base_percent || 12.5),
     )
     const fallbackAdhesiveComponents = buildAdhesiveComponentsPayload(parsedAdhesiveComponents, {
       tl4: Number(spec.adhesive_20100_percent ?? 0),
       vinsol: Number(spec.adhesive_30100_percent ?? 0),
-      basePercent: Number(dynamicMap.glue_base_percent || 15),
+      basePercent: Number(dynamicMap.glue_base_percent || 12.5),
     })
     const recipeJson = parseJsonField<{ rows?: GroupedRecipeRow[] }>(dynamicMap.recipe_sheet_json, {})
     const processGuidance = parseJsonField<ProcessGuidanceRow[]>(dynamicMap.process_guidance_json, DEFAULT_PROCESS_GUIDANCE)
@@ -1421,7 +1509,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       adhesive30100: optionValue(spec.adhesive_30100_percent ?? 0),
       adhesiveComponents: fallbackAdhesiveComponents,
       notes: specDocument.latestRecipe?.notes || "",
-      recipeRows: recipeRows.length ? recipeRows : [blankRecipeRow(nextRecipeRowSeed())],
+      recipeRows: recipeRows.length ? normalizeRecipeRows(recipeRows) : [blankRecipeRow(nextRecipeRowSeed())],
       dynamicValues: {
         ...defaultState.dynamicValues,
         ...dynamicMap,
@@ -1448,13 +1536,18 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         approved: Boolean(latestApprovedTrial?.approved),
       },
     })
-    setLoadedSpecId(spec.id)
+    setLoadedSpecSignature(specHydrationSignature)
 
-    if (mode === "edit" && (spec.active === false || spec.status === "obsolete")) {
-      showToast("Inactive specification versions are read-only. Open the active version to create the next revision.", "error")
+    if (mode === "edit" && (spec.active === false || spec.status === "obsolete" || spec.status === "review")) {
+      showToast(
+        spec.status === "review"
+          ? "This specification is locked while the Owner reviews it."
+          : "Inactive specification versions are read-only. Open the active version to create the next revision.",
+        "error",
+      )
       router.replace(`/specifications/${spec.id}`)
     }
-  }, [loadedSpecId, mode, paperMap, router, showToast, specDocument, latestApprovedTrial])
+  }, [loadedSpecSignature, mode, paperMap, router, showToast, specDocument, specHydrationSignature, latestApprovedTrial])
 
   const footerFieldKeys = ["valid_upto", "prepared_by", "prepared_date", "sign_off_note"] as const
   const footerValidation = footerFieldKeys.map((key) => ({
@@ -1484,42 +1577,42 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const recipeStructureValid = recipePaperCountValid && recipePlyCountValid
   const adhesiveRatioTotalValue = adhesiveRatioTotal(form.adhesiveComponents)
   const adhesiveRatioBalanced = isAdhesiveRatioBalanced(form.adhesiveComponents)
-  const materialAllowancePercent = Number(form.dynamicValues.glue_base_percent || 15)
+  const materialAllowancePercent = Number(form.dynamicValues.glue_base_percent || 12.5)
   const parchmentSharePercent = form.parchmentAllowed ? Number(form.parchmentPercent || 0) : 0
   const materialSplitValid = materialAllowancePercent > 0 && parchmentSharePercent <= materialAllowancePercent
   const selectedTubeMatchesMandrel =
     !selectedTube || !selectedMandrel || isTubeWithinMandrelBand(selectedTube, selectedMandrel)
-  const canSubmit = Boolean(
+  const csGateFailed = Boolean(
+    latestApprovedTrial?.approved &&
+      Number(latestApprovedTrial.actual_cs || 0) < Number(form.averages.cs || 0),
+  )
+  const canSaveDraft = Boolean(
     isEditable &&
       form.customerId &&
       form.tubeSizeId &&
       form.mandrelId &&
-      selectedTubeMatchesMandrel &&
-      hasRecipeSelection &&
+      selectedTubeMatchesMandrel,
+  )
+  const canSubmitReview = Boolean(
+    !isCreate &&
+      specDocument?.spec?.status === "draft" &&
+      adhesiveRatioBalanced &&
+      materialSplitValid &&
       recipeStructureValid &&
       notchGeometryValid &&
       notchToolsLinked &&
-      adhesiveRatioBalanced &&
-      materialSplitValid,
+      selectedTubeMatchesMandrel &&
+      effectiveBalance.withinBand &&
+      footerComplete &&
+      !csGateFailed,
   )
   const canApprove =
     !isCreate &&
-    canManageSpec &&
+    isOwner &&
     hasConcreteWritePlant &&
-    specDocument?.spec?.status === "draft" &&
+    specDocument?.spec?.status === "review" &&
     Boolean(specDocument?.latestRecipe?.id) &&
-    adhesiveRatioBalanced &&
-    materialSplitValid &&
-    recipeStructureValid &&
-    notchGeometryValid &&
-    notchToolsLinked &&
-    selectedTubeMatchesMandrel &&
-    Boolean(effectiveBalance.withinBand) &&
-    footerComplete &&
-    (!latestApprovedTrial?.approved ||
-      (Number(latestApprovedTrial.actual_weight || 0) >= weightBand.min &&
-        Number(latestApprovedTrial.actual_weight || 0) <= weightBand.max &&
-        Number(latestApprovedTrial.actual_cs || 0) >= Number(form.averages.cs || 0)))
+    Boolean(effectiveBalance.withinBand)
 
   const selectedGuidance = form.processGuidance[form.selectedGuidanceIndex]
   const weightDeltaG = Number(effectiveBalance.perTubeWeightG || 0) - Number(form.averages.weight || 0)
@@ -1529,16 +1622,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       : Number(effectiveBalance.perTubeWeightG || 0) > Number(weightBand.max || 0)
         ? `Overweight by ${Math.abs(weightDeltaG).toFixed(2)} g`
         : `Balanced within band (${weightBand.min.toFixed(2)} - ${weightBand.max.toFixed(2)} g)`
-  const csGateFailed = Boolean(
-    latestApprovedTrial?.approved &&
-      Number(latestApprovedTrial.actual_cs || 0) < Number(form.averages.cs || 0),
-  )
-
   const headerTitle =
     mode === "create"
       ? "New Specification Sheet"
       : mode === "edit"
-        ? `New Version from Spec v${specDocument?.spec?.version || ""}`
+        ? specDocument?.spec?.status === "draft"
+          ? `Edit Draft v${specDocument?.spec?.version || ""}`
+          : `New Version from Spec v${specDocument?.spec?.version || ""}`
         : mode === "print"
           ? `Print Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
           : `Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
@@ -1560,6 +1650,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const liveWetTube = Number(previewSummary.predicted_wet_tube_g || 0)
   const liveDryDelta = Number(previewSummary.dry_delta_g || 0)
   const targetDryTube = Number(form.averages.weight || 0)
+  const liveIdDeltaMm = Number(manufacturingAverages.id || 0) - Number(form.averages.id || 0)
+  const liveOdDeltaMm = Number(manufacturingAverages.od || 0) - Number(form.averages.od || 0)
+  const wetBambooThicknessMm = thicknessFrom(manufacturingAverages.id, manufacturingAverages.od)
+  const mainPaperGsmGuide = wetBambooThicknessMm > 0 ? wetBambooThicknessMm / 0.142 : 0
   const targetWetTube = Number(bridgeMetrics.preMoistureTargetTubeG || 0)
   const totalMaterialPercent = materialAllowancePercent
   const targetTotalAdditionsWeight = targetDryTube * (totalMaterialPercent / 100)
@@ -1603,7 +1697,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   useEffect(() => {
     if (!isCreate || !specDefaults || defaultsBootstrappedForPlant === activePlant) return
     setForm((current) => {
-      const adhesive = Number(specDefaults.adhesive_percent ?? 15)
+      const adhesive = Number(specDefaults.adhesive_percent ?? 12.5)
       const parchment = Number(specDefaults.parchment_percent ?? 1.5)
       const moisture = Number(specDefaults.moisture_loss_percent ?? 9)
       return {
@@ -1777,7 +1871,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           ...current.adhesiveComponents,
           {
             name: `Adhesive ${current.adhesiveComponents.length + 1}`,
-            base_percent: Number(current.dynamicValues.glue_base_percent || 15),
+            base_percent: Number(current.dynamicValues.glue_base_percent || 12.5),
             ratio_percent: 10,
           },
         ],
@@ -1801,7 +1895,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     const adhesiveComponentsPayload = buildAdhesiveComponentsPayload(form.adhesiveComponents, {
       tl4: Number(form.adhesive20100 || 0),
       vinsol: Number(form.adhesive30100 || 0),
-      basePercent: Number(form.dynamicValues.glue_base_percent || 15),
+      basePercent: Number(form.dynamicValues.glue_base_percent || 12.5),
     })
     const legacyTl4Ratio = adhesiveComponentsPayload
       .filter((component) => {
@@ -1900,10 +1994,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         packing_pcs: safeNumber(form.dynamicValues.packing_pcs || 0) || null,
         box_code: form.dynamicValues.box_code || form.dynamicValues.box || null,
         box_size: form.dynamicValues.box_size || null,
+        box_unit_weight_kg: safeNumber(form.dynamicValues.box_unit_weight_kg || 0) || null,
         plastic_required: boolFromString(form.dynamicValues.plastic_required),
         plastic_sku: form.dynamicValues.plastic_sku || null,
+        plastic_size: form.dynamicValues.plastic_size || null,
+        plastic_unit_weight_kg: safeNumber(form.dynamicValues.plastic_unit_weight_kg || 0) || null,
+        plastic_weight_per_box_kg: safeNumber(form.dynamicValues.plastic_weight_per_box_kg || 0) || null,
         plastic_per_box: safeNumber(form.dynamicValues.plastic_per_box || 0) || null,
         fadda_sku: form.dynamicValues.fadda_sku || null,
+        fadda_unit_weight_kg: safeNumber(form.dynamicValues.fadda_unit_weight_kg || 0) || null,
+        fadda_weight_per_box_kg: safeNumber(form.dynamicValues.fadda_weight_per_box_kg || 0) || null,
         fadda_per_box: safeNumber(form.dynamicValues.fadda_per_box || 0) || null,
         bopp_required: boolFromString(form.dynamicValues.bopp_required),
         box: form.dynamicValues.box_code || form.dynamicValues.box || null,
@@ -1933,7 +2033,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       moisture_max_pct: Number(ranges.moisture_max_pct),
       parchment_percent: Number(form.parchmentPercent || 1.5),
       parchment_allowed: form.parchmentAllowed,
-      adhesive_percent: Number(form.dynamicValues.glue_base_percent || 15),
+      adhesive_percent: Number(form.dynamicValues.glue_base_percent || 12.5),
       moisture_loss_percent: Number(form.shrinkPercent || 9),
       adhesive_20100_percent: Number(legacyTl4Ratio || form.adhesive20100 || 0),
       adhesive_30100_percent: Number(legacyVinsolRatio || form.adhesive30100 || 0),
@@ -2009,38 +2109,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       showToast("Tube size must be within +/- 1 mm of the selected mandrel ID.", "error")
       return
     }
-    if (!adhesiveRatioBalanced) {
-      showToast(`Adhesive ratios must total 100% before saving. Current total is ${adhesiveRatioTotalValue.toFixed(0)}%.`, "error")
-      return
-    }
-    if (!materialSplitValid) {
-      showToast("Parchment percentage cannot exceed the combined material allowance.", "error")
-      return
-    }
-    if (!hasRecipeSelection) {
-      showToast("Add at least one active paper recipe row before saving.", "error")
-      return
-    }
-    if (!recipePaperCountValid) {
-      showToast(
-        `Select ${RECIPE_MIN_PAPERS}-${RECIPE_MAX_PAPERS} distinct papers before saving. Current recipe has ${recipeDistinctPaperCount}.`,
-        "error",
-      )
-      return
-    }
-    if (!recipePlyCountValid) {
-      showToast(`Recipe must contain 1-${RECIPE_MAX_PLIES} plies. Current recipe has ${recipeTotalPlyCount}.`, "error")
-      return
-    }
-    if (!notchToolsLinked) {
-      showToast("Every selected notch, blade, holder, V + Flat, and punch must come from the active Tools master.", "error")
-      return
-    }
-    if (!notchGeometryValid) {
-      showToast("Complete notch direction, distance, and depth. Distance must be within the finished tube length.", "error")
-      return
-    }
-    if (!canSubmit) {
+    if (!canSaveDraft) {
       showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
       return
     }
@@ -2082,12 +2151,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             : "Specification draft created.",
           toolLogFailures ? "error" : "success",
         )
-        router.push(`/specifications/${result.spec.id}/edit`)
+        router.push(`/specifications/${result.spec.id}`)
         return
       }
 
       const result = await updateSpecSheet.mutateAsync({
         specId: specId || "",
+        recipeId: specDocument?.latestRecipe?.id,
         specData,
         recipeData,
         recipeLayers,
@@ -2116,13 +2186,28 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         toolLogFailures
           ? `Specification saved, but ${toolLogFailures} tooling trace entr${toolLogFailures === 1 ? "y" : "ies"} could not be logged. Save once more after checking connectivity.`
           : result.recipe
-            ? `Specification v${result.spec.version || "next"} saved as a new active version with a new recipe.`
-            : `Specification v${result.spec.version || "next"} saved as a new active version.`,
+            ? `Draft v${result.spec.version || 1} saved with its updated recipe.`
+            : `Draft v${result.spec.version || 1} saved.`,
         toolLogFailures ? "error" : "success",
       )
       router.push(`/specifications/${result.spec.id}`)
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to save the specification sheet."
+      showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
+    }
+  }
+
+  const handleSubmitReview = async () => {
+    if (!specId || !canSubmitReview) {
+      showToast("Resolve the visible release blockers before sending this draft to the Owner.", "error")
+      return
+    }
+    try {
+      await submitSpecForReview.mutateAsync({ specId })
+      showToast("Draft submitted for Owner review. It is now locked against edits.", "success")
+      router.refresh()
+    } catch (error: any) {
+      const message = error?.response?.data?.detail || error?.message || "Failed to submit specification for review."
       showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
     }
   }
@@ -2133,13 +2218,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       return
     }
     if (!specId || !canApprove) {
-      showToast("This draft cannot be approved until the recipe is balanced and the current validations pass.", "error")
+      showToast("Only the Owner can approve a specification after it has passed review.", "error")
       return
     }
 
     try {
       await approveSpec.mutateAsync({ specId, data: {} })
-      showToast("Specification approved.", "success")
+      showToast("Specification approved and live for production.", "success")
       router.refresh()
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to approve specification."
@@ -2280,6 +2365,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const currentStatus = specDocument?.spec?.status || (isCreate ? "draft" : "")
   const draftSaved = !isCreate && Boolean(specDocument?.spec?.id)
+  const releaseBlockers = [
+    !form.customerId ? "Customer" : null,
+    !form.mandrelId || !form.tubeSizeId || !selectedTubeMatchesMandrel ? "Tube / mandrel" : null,
+    !recipeStructureValid ? `Paper recipe (${RECIPE_MIN_PAPERS}-${RECIPE_MAX_PAPERS} papers, max ${RECIPE_MAX_PLIES} plies)` : null,
+    !adhesiveRatioBalanced ? `Adhesive split ${adhesiveRatioTotalValue.toFixed(0)}%` : null,
+    !materialSplitValid ? "Additions / parchment" : null,
+    !notchGeometryValid || !notchToolsLinked ? "Notch / tooling" : null,
+    !effectiveBalance.withinBand ? `Weight outside ±${DELTA_ABS_G} g` : null,
+    !footerComplete ? "Release footer" : null,
+    csGateFailed ? "CS trial" : null,
+  ].filter(Boolean) as string[]
   const reviewChecksPass = Boolean(
     draftSaved &&
       adhesiveRatioBalanced &&
@@ -2298,7 +2394,6 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     <SpecSheetWorkspace printMode={isPrint}>
       <SpecSheetPrint enabled={isPrint} />
       <div className="min-w-0 space-y-3" data-testid="spec-sheet-page">
-      <div className="space-y-3">
         <section
           className="scroll-mt-24"
           data-print-hidden="true"
@@ -2315,7 +2410,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <span className="rounded-full border border-[#ead39b] bg-[#fbf1d9] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-[#805a09]">
-                  {currentStatus || "Draft"}
+                  {currentStatus === "approved" ? "Live" : currentStatus || "Draft"}
                 </span>
                 <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${effectiveBalance.withinBand ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
                   {effectiveBalance.withinBand ? "Weight within target band" : "Weight outside target band"}
@@ -2333,25 +2428,35 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <button
                   type="button"
                   onClick={handleSave}
-                  disabled={!canSubmit || createSpecSheet.isPending || updateSpecSheet.isPending}
+                  disabled={!canSaveDraft || createSpecSheet.isPending || updateSpecSheet.isPending}
                   className="rounded-lg bg-[#102832] px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#183946] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {isCreate ? "Save Draft" : "Save as New Version + Recipe"}
+                  Save Draft
                 </button>
               ) : null}
-              {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" ? (
+              {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && !isEditable ? (
                 <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-[#9db7b0]">
-                  Create New Version
+                  {currentStatus === "draft" ? "Edit Draft" : "Create New Version"}
                 </Link>
               ) : null}
-              {!isCreate && currentStatus === "draft" ? (
+              {!isCreate && currentStatus === "draft" && !isEditable ? (
+                <button
+                  type="button"
+                  onClick={handleSubmitReview}
+                  disabled={!canSubmitReview || submitSpecForReview.isPending || isEditable}
+                  className="rounded-lg border border-[#ead39b] bg-[#fbf1d9] px-3.5 py-2 text-sm font-bold text-[#805a09] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Submit for Owner Review
+                </button>
+              ) : null}
+              {!isCreate && currentStatus === "review" && isOwner ? (
                 <button
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
                   className="rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3.5 py-2 text-sm font-bold text-[#166b51] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Approve
+                  Owner Approve &amp; Go Live
                 </button>
               ) : null}
               {!isCreate && currentStatus === "approved" ? (
@@ -2396,7 +2501,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <a href="#sheet-recipe" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">02 Recipe</a>
             <a href="#sheet-manufacturing" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">03 Manufacturing</a>
             {!isCreate ? <a href="#review-approve" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">04 Review</a> : null}
-            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-slate-500 lg:block">Total additions {Number(form.dynamicValues.glue_base_percent || 15).toFixed(1)}% · includes parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
+            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-slate-500 lg:block">Total additions {Number(form.dynamicValues.glue_base_percent || 12.5).toFixed(1)}% · includes parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
           </nav>
 
           {editBlockReason ? (
@@ -2427,7 +2532,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   />
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.35fr_1.1fr_0.75fr_1.15fr_0.72fr_0.72fr]">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.25fr_1fr_0.68fr_1.05fr_0.72fr_0.68fr_0.68fr]">
                   <div className="space-y-1">
                     <FieldLabel>Client / Party Name</FieldLabel>
                     {isEditable ? (
@@ -2493,6 +2598,20 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         ? "Only tube IDs within +/- 1 mm of the selected mandrel are shown."
                         : "Pick mandrel first to narrow tube sizes."}
                     </p>
+                  </div>
+                  <div className="space-y-1">
+                    <FieldLabel>Actual Tube Height</FieldLabel>
+                    <NumericInput
+                      data-testid="spec-sheet-actual-height"
+                      step="0.01"
+                      unit="mm"
+                      value={optionValue(form.dynamicValues.actual_tube_height_mm)}
+                      disabled={!isEditable}
+                      placeholder={selectedTube?.length_mm ? String(selectedTube.length_mm) : "Master length"}
+                      onChange={(event) => updateDynamicValue("actual_tube_height_mm", event.target.value)}
+                      className="h-10 rounded-lg"
+                    />
+                    <p className="text-[10px] leading-4 text-slate-500">Job-card display only; blank uses the tube master.</p>
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Target Dry Weight</FieldLabel>
@@ -2593,7 +2712,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     detail={`Dry target ${targetDryTube.toFixed(2)} g with divisor ${(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}`}
                   />
                   <SummaryMetric
-                    label="15% material allowance"
+                    label={`${totalMaterialPercent.toFixed(1)}% material allowance`}
                     value={`${targetTotalAdditionsWeight.toFixed(2)} g total`}
                     detail={`${targetAdhesiveWeight.toFixed(2)} g adhesive + ${targetParchmentWeight.toFixed(2)} g parchment · ${targetPaperWeight.toFixed(2)} g wet paper target`}
                   />
@@ -2612,7 +2731,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         ? `${liveDryTube.toFixed(2)} g modeled (${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)} g to target)`
                         : "Apply a recipe to compare against the min/max band"
                     }
-                    tone={Math.abs(measuredDryTube > 0 ? measuredDryTube - targetDryTube : liveDryDelta) <= 3 ? "success" : "accent"}
+                    tone={Math.abs(measuredDryTube > 0 ? measuredDryTube - targetDryTube : liveDryDelta) <= DELTA_ABS_G ? "success" : "accent"}
                   />
                 </div>
 
@@ -2820,16 +2939,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-[10px] text-slate-400">Actual selected papers</p>
                     </div>
                     <div className="border-t border-white/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Winding / 9% model dry</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">ID / OD delta</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
-                        {liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g
+                        {liveIdDeltaMm >= 0 ? "+" : ""}{liveIdDeltaMm.toFixed(2)} / {liveOdDeltaMm >= 0 ? "+" : ""}{liveOdDeltaMm.toFixed(2)} mm
                       </p>
-                      <p className="mt-1 text-[10px] text-emerald-300">Process mass / modeled finish · trim excluded</p>
+                      <p className="mt-1 text-[10px] text-emerald-300">Modeled geometry vs client ID / OD</p>
                     </div>
                     <div className="border-t border-white/10 px-4 py-3 xl:border-r xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">15% additions</p>
-                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{targetTotalAdditionsWeight.toFixed(2)} g</p>
-                      <p className="mt-1 text-[10px] leading-4 text-slate-400">{adhesiveComponentSummary || `${targetAdhesiveWeight.toFixed(2)} g adhesive`} · parchment {targetParchmentWeight.toFixed(2)} g</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Main paper GSM helper</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{mainPaperGsmGuide.toFixed(0)} GSM <span className="text-sm text-[#86d2bb]">±50</span></p>
+                      <p className="mt-1 text-[10px] leading-4 text-slate-400">{wetBambooThicknessMm.toFixed(3)} mm ÷ 0.142 · display guide only</p>
                     </div>
                     <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">{measuredDryTube > 0 ? "Measured dry" : "Dry model variance"}</p>
@@ -2837,9 +2956,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1 text-[10px] text-cyan-100/70">{measuredDryTube > 0 ? `Model gap ${measuredDryGap > 0 ? "+" : ""}${measuredDryGap.toFixed(2)} g` : `Target ${targetDryTube.toFixed(2)} g · model ${liveDryTube.toFixed(2)} g`}</p>
                     </div>
                     <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">One bamboo yield</p>
-                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{Number(previewSummary.tubes_per_bamboo || 0)} pcs</p>
-                      <p className="mt-1 text-[10px] text-cyan-100/70">{finishedBambooLengthMm.toFixed(0)} mm finished goods</p>
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Wet / dry model</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</p>
+                      <p className="mt-1 text-[10px] text-cyan-100/70">Winding mass / modeled finished dry</p>
                     </div>
                   </div>
                   {hasRecipeSelection ? <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
@@ -2947,9 +3066,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <div className="grid overflow-hidden rounded-xl border border-[#d7dfdc] bg-white sm:grid-cols-2 xl:grid-cols-5" aria-label="Selected recipe total compared with client target">
                   <SummaryMetric label="Selected paper" value={`${livePaperTotal.toFixed(2)} g`} detail="Actual master + geometry total" />
                   <SummaryMetric label="Combined additions" value={`${targetTotalAdditionsWeight.toFixed(2)} g`} detail={`${targetAdhesiveWeight.toFixed(2)} adhesive + ${targetParchmentWeight.toFixed(2)} parchment`} />
-                  <SummaryMetric label="Winding mass" value={`${liveWetTube.toFixed(2)} g`} detail="Paper + combined 15% allowance" />
+                  <SummaryMetric label="Winding mass" value={`${liveWetTube.toFixed(2)} g`} detail={`Paper + combined ${totalMaterialPercent.toFixed(1)}% allowance`} />
                   <SummaryMetric label="Modeled finished dry" value={`${liveDryTube.toFixed(2)} g`} detail={`${Number(form.shrinkPercent || 9).toFixed(1)}% configured loss · target ${targetDryTube.toFixed(2)} g`} />
-                  <SummaryMetric label={measuredDryTube > 0 ? "Measured dry gap" : "Dry model variance"} value={`${(measuredDryTube > 0 ? measuredDryGap : liveDryDelta) > 0 ? "+" : ""}${(measuredDryTube > 0 ? measuredDryGap : liveDryDelta).toFixed(2)} g`} detail={measuredDryTube > 0 ? `${measuredDryTube.toFixed(2)} measured vs ${liveDryTube.toFixed(2)} model` : `${liveDryTube.toFixed(2)} model vs ${targetDryTube.toFixed(2)} target`} tone={Math.abs(measuredDryTube > 0 ? measuredDryGap : liveDryDelta) <= 3 ? "success" : "accent"} />
+                  <SummaryMetric label={measuredDryTube > 0 ? "Measured dry gap" : "Dry model variance"} value={`${(measuredDryTube > 0 ? measuredDryGap : liveDryDelta) > 0 ? "+" : ""}${(measuredDryTube > 0 ? measuredDryGap : liveDryDelta).toFixed(2)} g`} detail={measuredDryTube > 0 ? `${measuredDryTube.toFixed(2)} measured vs ${liveDryTube.toFixed(2)} model` : `${liveDryTube.toFixed(2)} model vs ${targetDryTube.toFixed(2)} target`} tone={Math.abs(measuredDryTube > 0 ? measuredDryGap : liveDryDelta) <= DELTA_ABS_G ? "success" : "accent"} />
                 </div>
                 {isEditable ? (
                   <div className="flex justify-between gap-3">
@@ -3166,50 +3285,96 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       </NotchingCard>
 
       <PackingCard forceOpen={isPrint}>
-        <SectionLabel title="Packing" subtitle="Primary packing inputs only: box, plastic, fadda, and per-box counts." />
+        <SectionLabel title="Packing" subtitle="Master-backed floor quantities in PCS with inward-weight equivalents." />
         <MasterLinkRow links={[{ href: "/masters/packaging", label: "Packaging master" }]} />
-        <div className="mt-5 grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="grid gap-3 md:grid-cols-2">
-            {renderScalarField("box_code", "Box Code")}
-            {renderScalarField("box_size", "Box Size")}
-            {renderScalarField("qty_per_box", "Qty / Box", "number")}
-            {renderScalarField("plastic_sku", "Plastic SKU")}
-            {renderScalarField("plastic_per_box", "Plastic / Box", "number")}
-            {renderScalarField("fadda_sku", "Fadda SKU")}
-            {renderScalarField("fadda_per_box", "Fadda / Box", "number")}
-            {renderScalarField("bopp_required", "BOPP")}
-          </div>
-          <div className="space-y-4">
-            <div className="rounded-[26px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-700">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Packing handoff</p>
-              <div className="mt-4 grid gap-2">
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                  <span>Box</span>
-                  <span className="font-semibold">{optionValue(form.dynamicValues.box_code || form.dynamicValues.box) || "--"}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                  <span>Box size</span>
-                  <span className="font-semibold">{optionValue(form.dynamicValues.box_size) || "--"}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                  <span>Plastic / box</span>
-                  <span className="font-semibold">{optionValue(form.dynamicValues.plastic_per_box) || "--"}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-3 py-3">
-                  <span>Fadda / box</span>
-                  <span className="font-semibold">{optionValue(form.dynamicValues.fadda_per_box) || "--"}</span>
-                </div>
-              </div>
-            </div>
-            <div className="space-y-1">
-              <FieldLabel>Special Instructions</FieldLabel>
-              <textarea
-                value={optionValue(form.dynamicValues.special_instructions)}
-                onChange={(event) => updateDynamicValue("special_instructions", event.target.value)}
+        <div className="mt-4 grid gap-3 xl:grid-cols-3">
+          <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
+            <FieldLabel>Box Master</FieldLabel>
+            <div className="mt-1">
+              <SmartSelect
+                value={optionValue(form.dynamicValues.box_code || form.dynamicValues.box)}
                 disabled={!isEditable}
-                rows={5}
-                className="w-full rounded-[24px] border border-slate-300 px-4 py-4 text-sm disabled:bg-slate-100"
+                placeholder="Select box"
+                emptyLabel="No active box master is available."
+                options={activePackagingBoxes.map((box) => ({
+                  value: String(box.code || ""),
+                  label: String(box.code || "Unnamed box"),
+                  meta: `${box.size_label || "Size pending"} · ${Number(box.length_mm || 0)} × ${Number(box.width_mm || 0)} × ${Number(box.height_mm || 0)} mm`,
+                }))}
+                onChange={(value) => updateDynamicValue("box_code", value)}
               />
+            </div>
+            <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingBox?.size_label || "Select a box to see its size"}</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              {selectedPackagingBox
+                ? `${Number(selectedPackagingBox.length_mm || 0)} × ${Number(selectedPackagingBox.width_mm || 0)} × ${Number(selectedPackagingBox.height_mm || 0)} mm · ${Number(selectedPackagingBox.weight_kg || 0).toFixed(4)} kg/pc`
+                : "Dimensions and unit weight come from Packaging Master."}
+            </p>
+          </div>
+          <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
+            <FieldLabel>Plastic SKU</FieldLabel>
+            <div className="mt-1">
+              <SmartSelect
+                value={optionValue(form.dynamicValues.plastic_sku)}
+                disabled={!isEditable}
+                placeholder="Select plastic SKU"
+                emptyLabel="No active plastic master is available."
+                options={activePackagingPlasticSheets.map((plastic) => ({
+                  value: String(plastic.sku || ""),
+                  label: String(plastic.sku || "Unnamed plastic"),
+                  meta: `${plastic.size_label || "Size pending"} · ${Number(plastic.weight_kg || 0).toFixed(4)} kg/pc`,
+                }))}
+                onChange={(value) => updateDynamicValue("plastic_sku", value)}
+              />
+            </div>
+            <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingPlastic?.size_label || "Select plastic to see its detail"}</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">{selectedPackagingPlastic ? `${Number(selectedPackagingPlastic.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
+          </div>
+          <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
+            <FieldLabel>Fadda SKU</FieldLabel>
+            <div className="mt-1">
+              <SmartSelect
+                value={optionValue(form.dynamicValues.fadda_sku)}
+                disabled={!isEditable}
+                placeholder="Select fadda SKU"
+                emptyLabel="No active fadda master is available."
+                options={activePackagingFadda.map((fadda) => ({
+                  value: String(fadda.sku || ""),
+                  label: String(fadda.sku || "Unnamed fadda"),
+                  meta: `${Number(fadda.weight_kg || 0).toFixed(4)} kg/pc`,
+                }))}
+                onChange={(value) => updateDynamicValue("fadda_sku", value)}
+              />
+            </div>
+            <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingFadda?.sku || "Select fadda to see its detail"}</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">{selectedPackagingFadda ? `${Number(selectedPackagingFadda.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {renderScalarField("qty_per_box", "Qty / Box", "number")}
+          {renderScalarField("bopp_required", "BOPP Required")}
+          {renderScalarField("plastic_per_box", "Plastic PCS / Box", "number")}
+          {renderScalarField("fadda_per_box", "Fadda PCS / Box", "number")}
+        </div>
+        <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+          <div className="space-y-1">
+            <FieldLabel>Special Instructions</FieldLabel>
+            <textarea
+              value={optionValue(form.dynamicValues.special_instructions)}
+              onChange={(event) => updateDynamicValue("special_instructions", event.target.value)}
+              disabled={!isEditable}
+              rows={2}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
+            />
+          </div>
+          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-[#d7dfdc] bg-white text-xs">
+            <div className="border-r border-[#d7dfdc] px-3 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">Plastic / box</p>
+              <p className="mt-1 font-black text-[#102832]">{Number(form.dynamicValues.plastic_per_box || 0)} pcs · {Number(form.dynamicValues.plastic_weight_per_box_kg || 0).toFixed(4)} kg</p>
+            </div>
+            <div className="px-3 py-2">
+              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">Fadda / box</p>
+              <p className="mt-1 font-black text-[#102832]">{Number(form.dynamicValues.fadda_per_box || 0)} pcs · {Number(form.dynamicValues.fadda_weight_per_box_kg || 0).toFixed(4)} kg</p>
             </div>
           </div>
         </div>
@@ -3222,7 +3387,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           className="scroll-mt-36 rounded-2xl border border-[#b9e4d1] bg-[#f4fbf7] p-4 shadow-[0_12px_35px_rgba(25,51,57,0.06)]"
         >
           <SectionLabel title="04 · Review & Approve" subtitle="One final release gate for the selected plant." />
-          <div className="grid gap-px overflow-hidden rounded-xl border border-[#b9e4d1] bg-[#b9e4d1] lg:grid-cols-[1fr_1.15fr_1fr]">
+          <div className="grid gap-px overflow-hidden rounded-xl border border-[#b9e4d1] bg-[#b9e4d1] lg:grid-cols-[0.85fr_1.3fr_0.95fr_0.85fr]">
             <div className={`min-h-32 p-3.5 ${draftSaved ? "bg-white text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 1 · {draftSaved ? "Complete" : "Pending"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Draft saved</h3>
@@ -3243,21 +3408,33 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               </div>
             </div>
             <div className="min-h-32 bg-white p-3.5 text-slate-700">
-              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#1e765e]">Step 3 · {approvalComplete ? "Complete" : reviewChecksPass ? "Ready" : "Pending"}</p>
-              <h3 className="mt-1 text-sm font-bold text-[#102832]">Approve for {writePlantLabel}</h3>
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#805a09]">Step 3 · {currentStatus === "review" ? "With Owner" : approvalComplete ? "Complete" : reviewChecksPass ? "Ready" : "Pending"}</p>
+              <h3 className="mt-1 text-sm font-bold text-[#102832]">Owner review</h3>
               <p className="mt-1 text-[11px] leading-4 text-slate-600">
                 {approvalComplete
-                  ? "This version is approved and active for downstream planning and job cards."
-                  : "Admin/Owner approval promotes the saved draft after review checks pass."}
+                  ? "Owner approval is complete."
+                  : currentStatus === "review"
+                    ? `Locked and waiting for the Owner in ${writePlantLabel}.`
+                    : "Submit the checked draft to lock it for Owner review."}
               </p>
               {currentStatus === "draft" ? (
                 <button
                   type="button"
+                  onClick={handleSubmitReview}
+                  disabled={!canSubmitReview || submitSpecForReview.isPending || isEditable}
+                  className="mt-2 rounded-lg border border-[#ead39b] bg-[#fbf1d9] px-3 py-2 text-xs font-bold text-[#805a09] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Submit for Review
+                </button>
+              ) : null}
+              {currentStatus === "review" && isOwner ? (
+                <button
+                  type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
-                  className="mt-2 rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3 py-2 text-sm font-bold text-[#166b51] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="mt-2 rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3 py-2 text-xs font-bold text-[#166b51] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Approve Draft
+                  Owner Approve
                 </button>
               ) : null}
               {specDocument?.spec?.active === false || currentStatus === "obsolete" ? (
@@ -3265,6 +3442,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   This version is disabled/read-only. Edit creates a new active version instead of overwriting history.
                 </p>
               ) : null}
+            </div>
+            <div className={`min-h-32 p-3.5 ${approvalComplete ? "bg-[#e4f6ed] text-[#166b51]" : "bg-white text-slate-600"}`}>
+              <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 4 · {approvalComplete ? "Live" : "Pending"}</p>
+              <h3 className="mt-1 text-sm font-bold text-[#102832]">Production release</h3>
+              <p className="mt-1 text-[11px] leading-4">
+                {approvalComplete ? "Live for planning, job cards and floor execution." : "Only Owner approval releases this version downstream."}
+              </p>
             </div>
           </div>
         </section>
@@ -3278,7 +3462,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <input
               type="number"
               step="0.1"
-              value={optionValue(form.dynamicValues.glue_base_percent || "15")}
+              value={optionValue(form.dynamicValues.glue_base_percent || "12.5")}
               onChange={(event) =>
                 setForm((current) => ({
                   ...current,
@@ -3324,10 +3508,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     ...current,
                     parchmentPercent: String(specDefaults?.parchment_percent ?? 1.5),
                     shrinkPercent: String(specDefaults?.moisture_loss_percent ?? 9),
-                    dynamicValues: { ...current.dynamicValues, glue_base_percent: String(specDefaults?.adhesive_percent ?? 15) },
+                    dynamicValues: { ...current.dynamicValues, glue_base_percent: String(specDefaults?.adhesive_percent ?? 12.5) },
                     adhesiveComponents: current.adhesiveComponents.map((component) => ({
                       ...component,
-                      base_percent: Number(specDefaults?.adhesive_percent ?? 15),
+                      base_percent: Number(specDefaults?.adhesive_percent ?? 12.5),
                     })),
                   }))
                 }
@@ -3384,7 +3568,22 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           </div>
         </div>
       </ValidationFooter>
-      </div>
+      {!isPrint ? (
+        <div data-print-hidden="true" className="sticky bottom-3 z-40 mx-auto flex w-[min(100%,1180px)] items-center gap-2 overflow-x-auto rounded-xl border border-[#294953] bg-[#102832]/95 px-2.5 py-2 text-white shadow-[0_16px_45px_rgba(10,34,43,0.28)] backdrop-blur">
+          <span className={`shrink-0 rounded-md px-2 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] ${releaseBlockers.length ? "bg-amber-300/15 text-amber-200" : "bg-emerald-300/15 text-emerald-200"}`}>
+            {releaseBlockers.length ? `${releaseBlockers.length} blocker${releaseBlockers.length === 1 ? "" : "s"}` : "Release ready"}
+          </span>
+          <p className="min-w-[180px] flex-1 truncate text-[10px] text-slate-300">
+            {releaseBlockers.length ? releaseBlockers.join(" · ") : currentStatus === "approved" ? "Owner approved · live for production" : "All business checks pass"}
+          </p>
+          <div className="flex shrink-0 items-center gap-3 border-l border-white/10 pl-3 text-[10px]">
+            <span><span className="text-slate-400">Paper</span> <strong>{livePaperTotal.toFixed(2)} g</strong></span>
+            <span><span className="text-slate-400">Wet / dry</span> <strong>{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</strong></span>
+            <span className={Math.abs(liveDryDelta) <= DELTA_ABS_G ? "text-emerald-300" : "text-rose-300"}><span className="text-slate-400">Variance</span> <strong>{liveDryDelta >= 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g</strong></span>
+            <span className="rounded bg-white/10 px-2 py-1 font-bold">±{DELTA_ABS_G} g</span>
+          </div>
+        </div>
+      ) : null}
     </SpecSheetWorkspace>
 	  )
 	}

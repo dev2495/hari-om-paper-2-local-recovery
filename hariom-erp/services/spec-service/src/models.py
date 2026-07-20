@@ -41,7 +41,7 @@ class SpecificationSheet(Base):
     parchment_allowed = Column(Boolean, default=True)
 
     # Global adhesive & moisture (overridable per spec)
-    adhesive_percent = Column(Float, default=15.0)
+    adhesive_percent = Column(Float, default=12.5)
     moisture_loss_percent = Column(Float, default=9.0)
 
     # Adhesives (ratio split, not weight-based)
@@ -152,7 +152,7 @@ class GlobalSpecDefaults(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(String(50), nullable=False, index=True, unique=True, default="PLANT_A")
-    adhesive_percent = Column(Float, nullable=False, default=15.0)
+    adhesive_percent = Column(Float, nullable=False, default=12.5)
     parchment_percent = Column(Float, nullable=False, default=1.5)
     moisture_loss_percent = Column(Float, nullable=False, default=9.0)
     updated_at = Column(DateTime, default=datetime.utcnow)

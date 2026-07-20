@@ -28,12 +28,10 @@ def test_profile_rejects_more_than_six_adhesives():
     assert "at most 6 adhesive components" in str(exc_info.value.detail)
 
 
-def test_profile_rejects_adhesive_ratio_not_equal_to_one_hundred_percent():
-    with pytest.raises(HTTPException) as exc_info:
-        _validate_recipe_profile_limits(
-            _payload(components=[{"name": "A", "ratio_percent": 60}, {"name": "B", "ratio_percent": 30}])
-        )
-    assert "must total 100%" in str(exc_info.value.detail)
+def test_profile_allows_incomplete_adhesive_ratio_while_saving_draft():
+    _validate_recipe_profile_limits(
+        _payload(components=[{"name": "A", "ratio_percent": 60}, {"name": "B", "ratio_percent": 30}])
+    )
 
 
 def test_profile_rejects_more_than_ten_distinct_papers():

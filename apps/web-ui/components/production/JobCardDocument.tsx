@@ -1881,6 +1881,29 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </span>
         </div>
 
+        <div className="mt-3 grid gap-px overflow-hidden rounded-xl border border-slate-300 bg-slate-300 text-xs md:grid-cols-4">
+          <div className="bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Box / Qty</p>
+            <p className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} pcs/box</p>
+            <p className="mt-0.5 text-slate-500">{documentSnapshot?.setup_tooling?.box_size || "Size pending"}</p>
+          </div>
+          <div className="bg-white px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Plastic</p>
+            <p className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.plastic_sku || "-"} · {documentSnapshot?.setup_tooling?.plastic_per_box || 0} pcs/box</p>
+            <p className="mt-0.5 text-slate-500">{documentSnapshot?.setup_tooling?.plastic_unit_weight_kg || 0} kg/pc · {documentSnapshot?.setup_tooling?.plastic_weight_per_box_kg || 0} kg/box</p>
+          </div>
+          <div className="bg-white px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Fadda</p>
+            <p className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.fadda_sku || "-"} · {documentSnapshot?.setup_tooling?.fadda_per_box || 0} pcs/box</p>
+            <p className="mt-0.5 text-slate-500">{documentSnapshot?.setup_tooling?.fadda_unit_weight_kg || 0} kg/pc · {documentSnapshot?.setup_tooling?.fadda_weight_per_box_kg || 0} kg/box</p>
+          </div>
+          <div className="bg-slate-50 px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">BOPP / Units</p>
+            <p className="mt-1 font-semibold text-slate-900">BOPP {documentSnapshot?.setup_tooling?.bopp_required || "No"}</p>
+            <p className="mt-0.5 text-slate-500">Floor consumption: PCS · inward/reconcile: kg</p>
+          </div>
+        </div>
+
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           {renderSimpleField(stage, "Packing Type", "packing_type")}
           {renderSimpleField(stage, "Qty per Bundle", "qty_per_bundle", "number")}

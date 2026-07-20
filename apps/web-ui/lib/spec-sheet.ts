@@ -212,10 +212,16 @@ export type SpecProfile = {
     packing_pcs?: number | null
     box_code?: string | null
     box_size?: string | null
+    box_unit_weight_kg?: number | null
     plastic_required?: boolean | null
     plastic_sku?: string | null
+    plastic_size?: string | null
+    plastic_unit_weight_kg?: number | null
+    plastic_weight_per_box_kg?: number | null
     plastic_per_box?: number | null
     fadda_sku?: string | null
+    fadda_unit_weight_kg?: number | null
+    fadda_weight_per_box_kg?: number | null
     fadda_per_box?: number | null
     bopp_required?: boolean | null
     box?: string | null
@@ -468,7 +474,7 @@ export const DEFAULT_TOLERANCE_BANDS: ToleranceBands = {
   id: 0.5,
   od: 0.5,
   length: 2,
-  weightG: 3,
+  weightG: 5,
   csPct: 7,
   moisture: 1,
 }
@@ -492,6 +498,7 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "notch_distance_mm", label: "Notch Distance", field_type: "number" },
   { field_key: "notch_depth_mm", label: "Notch Depth", field_type: "number" },
   { field_key: "winder_tool_required", label: "Winder Tool", field_type: "boolean" },
+  { field_key: "actual_tube_height_mm", label: "Actual Tube Height (mm)", field_type: "number" },
   { field_key: "bundle_type", label: "Bundle Type", field_type: "text" },
   { field_key: "bundle_code", label: "Bundle Code", field_type: "text" },
   { field_key: "packing_ply", label: "Packing Ply", field_type: "number" },
@@ -499,10 +506,16 @@ export const DEFAULT_SPEC_FIELD_DEFINITIONS: ScalarDynamicField[] = [
   { field_key: "packing_pcs", label: "Packing Pcs", field_type: "number" },
   { field_key: "box_code", label: "Box Code", field_type: "select" },
   { field_key: "box_size", label: "Box Size", field_type: "text" },
+  { field_key: "box_unit_weight_kg", label: "Box Unit Weight (kg)", field_type: "number" },
   { field_key: "plastic_required", label: "Plastic Required", field_type: "boolean" },
   { field_key: "plastic_sku", label: "Plastic SKU", field_type: "select" },
+  { field_key: "plastic_size", label: "Plastic Size", field_type: "text" },
+  { field_key: "plastic_unit_weight_kg", label: "Plastic Unit Weight (kg)", field_type: "number" },
+  { field_key: "plastic_weight_per_box_kg", label: "Plastic Weight / Box (kg)", field_type: "number" },
   { field_key: "plastic_per_box", label: "Plastic / Box", field_type: "number" },
   { field_key: "fadda_sku", label: "Fadda SKU", field_type: "select" },
+  { field_key: "fadda_unit_weight_kg", label: "Fadda Unit Weight (kg)", field_type: "number" },
+  { field_key: "fadda_weight_per_box_kg", label: "Fadda Weight / Box (kg)", field_type: "number" },
   { field_key: "fadda_per_box", label: "Fadda / Box", field_type: "number" },
   { field_key: "bopp_required", label: "BOPP Required", field_type: "boolean" },
   { field_key: "special_instructions", label: "Packing Instructions", field_type: "text" },

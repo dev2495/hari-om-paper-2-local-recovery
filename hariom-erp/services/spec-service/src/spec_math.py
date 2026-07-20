@@ -16,7 +16,7 @@ from typing import Iterable, List, Optional, Sequence
 # Constants (defaults; per-spec overrides allowed in the Validation footer)
 # ---------------------------------------------------------------------------
 
-GLOBAL_ADHESIVE_PERCENT: float = 15.0
+GLOBAL_ADHESIVE_PERCENT: float = 12.5
 GLOBAL_PARCHMENT_PERCENT: float = 1.5
 GLOBAL_MOISTURE_LOSS_PERCENT: float = 9.0
 
@@ -31,7 +31,7 @@ RECIPE_MIN_PAPERS: int = 1
 RECIPE_MAX_PAPERS: int = 10
 RECIPE_MAX_PLIES: int = 25
 
-DELTA_ABS_G: float = 3.0
+DELTA_ABS_G: float = 5.0
 DELTA_PCT: float = 0.0
 
 

@@ -18,7 +18,7 @@ function getLatestRecipe(recipes: RecipeSummary[]) {
 
 const DEFAULT_DRYING_PERCENT = 9.0
 const DEFAULT_PARCHMENT_PERCENT = 1.5
-const DEFAULT_GLUE_BASE_PERCENT = 15
+const DEFAULT_GLUE_BASE_PERCENT = 12.5
 const BAMBOO_MIN_LENGTH_MM = 1390
 const BAMBOO_MAX_LENGTH_MM = 1560
 const BAMBOO_STEP_MM = 10
@@ -278,6 +278,19 @@ export function useApproveSpec() {
   })
 }
 
+export function useSubmitSpecForReview() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ specId, plantId }: { specId: string; plantId?: string }) =>
+      specApi.submitSpecForReview(specId, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+      queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
+    },
+  })
+}
+
 export function useObsoleteSpec() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -521,6 +534,7 @@ export function useUpdateSpecSheet() {
       specData,
       recipeData,
       recipeLayers,
+      recipeId,
       trialData,
       plantId,
     }: {
@@ -528,6 +542,7 @@ export function useUpdateSpecSheet() {
       specData: any
       recipeData: any
       recipeLayers: RecipeLayer[]
+      recipeId?: string
       trialData?: any
       plantId?: string
     }) => {
@@ -535,8 +550,13 @@ export function useUpdateSpecSheet() {
       const spec = specResponse.data as SpecRecord
       let recipe: RecipeSummary | null = null
 
-      if ((recipeLayers || []).length > 0) {
-        // There is no recipe update API in the backend. A fresh recipe version is the safe additive path.
+      if (spec.id === specId && recipeId) {
+        const recipeResponse = await specApi.updateRecipe(recipeId, {
+          notes: recipeData?.notes || null,
+          layers: recipeLayers || [],
+        }, plantId)
+        recipe = recipeResponse.data as RecipeSummary
+      } else if ((recipeLayers || []).length > 0) {
         const recipeResponse = await specApi.createRecipe(spec.id, recipeData || {}, plantId)
         recipe = recipeResponse.data as RecipeSummary
         for (const layer of recipeLayers || []) {
@@ -552,10 +572,12 @@ export function useUpdateSpecSheet() {
 
       return { spec, recipe, trial }
     },
-    onSuccess: (result) => {
-      queryClient.invalidateQueries({ queryKey: ["specs"] })
-      queryClient.invalidateQueries({ queryKey: ["spec", result.spec.id] })
-      queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", result.spec.id] })
+    onSuccess: async (result) => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["specs"] }),
+        queryClient.invalidateQueries({ queryKey: ["spec", result.spec.id] }),
+        queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", result.spec.id] }),
+      ])
     },
   })
 }

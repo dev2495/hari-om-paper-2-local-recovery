@@ -57,6 +57,7 @@ COMPAT_DYNAMIC_FIELDS: dict[str, dict[str, str]] = {
     "v_flat": {"label": "V + Flat Tool", "field_type": "select"},
     "punch": {"label": "Punch", "field_type": "select"},
     "notch_direction": {"label": "Direction", "field_type": "select"},
+    "actual_tube_height_mm": {"label": "Actual Tube Height (mm)", "field_type": "number"},
     "bundle_type": {"label": "Bundle Type", "field_type": "text"},
     "bundle_code": {"label": "Bundle Code", "field_type": "text"},
     "packing_ply": {"label": "Packing Ply", "field_type": "number"},
@@ -64,10 +65,16 @@ COMPAT_DYNAMIC_FIELDS: dict[str, dict[str, str]] = {
     "packing_pcs": {"label": "Packing PCS", "field_type": "number"},
     "box_code": {"label": "Box Code", "field_type": "text"},
     "box_size": {"label": "Box Size", "field_type": "text"},
+    "box_unit_weight_kg": {"label": "Box Unit Weight (kg)", "field_type": "number"},
     "plastic_required": {"label": "Plastic Required", "field_type": "boolean"},
     "plastic_sku": {"label": "Plastic SKU", "field_type": "text"},
+    "plastic_size": {"label": "Plastic Size", "field_type": "text"},
+    "plastic_unit_weight_kg": {"label": "Plastic Unit Weight (kg)", "field_type": "number"},
+    "plastic_weight_per_box_kg": {"label": "Plastic Weight per Box (kg)", "field_type": "number"},
     "plastic_per_box": {"label": "Plastic per Box", "field_type": "number"},
     "fadda_sku": {"label": "Fadda SKU", "field_type": "text"},
+    "fadda_unit_weight_kg": {"label": "Fadda Unit Weight (kg)", "field_type": "number"},
+    "fadda_weight_per_box_kg": {"label": "Fadda Weight per Box (kg)", "field_type": "number"},
     "fadda_per_box": {"label": "Fadda per Box", "field_type": "number"},
     "bopp_required": {"label": "BOPP Required", "field_type": "boolean"},
     "special_instructions": {"label": "Special Instructions", "field_type": "text"},
@@ -110,7 +117,7 @@ class SpecCreate(BaseModel):
     parchment_percent: Optional[float] = settings.DEFAULT_PARCHMENT_PERCENT
     parchment_color: Optional[str] = None
     parchment_allowed: Optional[bool] = True
-    adhesive_percent: Optional[float] = 15.0
+    adhesive_percent: Optional[float] = spec_math.GLOBAL_ADHESIVE_PERCENT
     moisture_loss_percent: Optional[float] = 9.0
     adhesive_20100_percent: Optional[float] = None
     adhesive_30100_percent: Optional[float] = None
@@ -176,7 +183,7 @@ class SpecResponse(BaseModel):
     parchment_percent: float
     parchment_color: Optional[str]
     parchment_allowed: bool = True
-    adhesive_percent: float = 15.0
+    adhesive_percent: float = spec_math.GLOBAL_ADHESIVE_PERCENT
     moisture_loss_percent: float = 9.0
     adhesive_20100_percent: Optional[float]
     adhesive_30100_percent: Optional[float]
@@ -223,9 +230,6 @@ def _validate_recipe_profile_limits(payload: SpecCreate | SpecUpdate) -> None:
     if isinstance(components, list) and components:
         if len(components) > 6:
             raise HTTPException(status_code=400, detail="A specification allows at most 6 adhesive components")
-        ratio_total = sum(float(component.get("ratio_percent") or 0.0) for component in components if isinstance(component, dict))
-        if abs(ratio_total - 100.0) > 0.01:
-            raise HTTPException(status_code=400, detail=f"Adhesive component ratios must total 100%; found {ratio_total:g}%")
 
     if isinstance(rows, list) and rows:
         distinct_papers = {
@@ -410,10 +414,16 @@ def _profile_from_dynamic_map(dynamic_map: dict[str, Optional[str]]) -> Optional
         "packing_pcs",
         "box_code",
         "box_size",
+        "box_unit_weight_kg",
         "plastic_required",
         "plastic_sku",
+        "plastic_size",
+        "plastic_unit_weight_kg",
+        "plastic_weight_per_box_kg",
         "plastic_per_box",
         "fadda_sku",
+        "fadda_unit_weight_kg",
+        "fadda_weight_per_box_kg",
         "fadda_per_box",
         "bopp_required",
         "special_instructions",
@@ -500,10 +510,16 @@ def _compat_dynamic_values_from_payload(payload: SpecCreate | SpecUpdate) -> dic
             "packing_pcs",
             "box_code",
             "box_size",
+            "box_unit_weight_kg",
             "plastic_required",
             "plastic_sku",
+            "plastic_size",
+            "plastic_unit_weight_kg",
+            "plastic_weight_per_box_kg",
             "plastic_per_box",
             "fadda_sku",
+            "fadda_unit_weight_kg",
+            "fadda_weight_per_box_kg",
             "fadda_per_box",
             "bopp_required",
             "special_instructions",
@@ -557,7 +573,7 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
         "parchment_percent": spec.parchment_percent,
         "parchment_color": spec.parchment_color,
         "parchment_allowed": bool(spec.parchment_allowed) if spec.parchment_allowed is not None else True,
-        "adhesive_percent": float(spec.adhesive_percent) if spec.adhesive_percent is not None else 15.0,
+        "adhesive_percent": float(spec.adhesive_percent) if spec.adhesive_percent is not None else spec_math.GLOBAL_ADHESIVE_PERCENT,
         "moisture_loss_percent": float(spec.moisture_loss_percent) if spec.moisture_loss_percent is not None else 9.0,
         "adhesive_20100_percent": spec.adhesive_20100_percent,
         "adhesive_30100_percent": spec.adhesive_30100_percent,
@@ -734,6 +750,44 @@ def _replacement_spec_from_payload(
     )
 
 
+def _update_draft_in_place(
+    *,
+    spec: SpecificationSheet,
+    payload: SpecUpdate,
+    plant_id: str,
+    db: Session,
+) -> SpecificationSheet:
+    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile"})
+    customer_name = str(
+        updates.get("customer_name")
+        or updates.get("customer_name_snapshot")
+        or spec.customer_name_snapshot
+        or spec.customer_name
+        or ""
+    ).strip()
+    if not customer_name:
+        raise HTTPException(status_code=400, detail="customer_name or customer_name_snapshot is required")
+
+    for field, value in updates.items():
+        if field == "customer_id":
+            value = uuid.UUID(str(value)) if value else None
+        if hasattr(spec, field):
+            setattr(spec, field, value)
+    spec.customer_name = customer_name
+    spec.customer_name_snapshot = updates.get("customer_name_snapshot") or customer_name
+
+    _upsert_dynamic_values(spec.id, payload.dynamic_fields, plant_id, db)
+    _upsert_compat_dynamic_values(
+        spec.id,
+        _compat_dynamic_values_from_payload(payload),
+        plant_id=plant_id,
+        db=db,
+    )
+    db.commit()
+    db.refresh(spec)
+    return spec
+
+
 @router.get("/constants")
 def get_spec_constants(
     current_user: dict = Depends(get_current_user)
@@ -888,6 +942,16 @@ def update_spec(
     if not spec.active:
         raise HTTPException(status_code=400, detail="Inactive specification versions are read-only")
 
+    if spec.status == "draft":
+        return _serialize_spec(
+            _update_draft_in_place(spec=spec, payload=payload, plant_id=plant_id, db=db)
+        )
+    if spec.status == "review":
+        raise HTTPException(
+            status_code=409,
+            detail="Specification is under Owner review. Return it to draft before editing.",
+        )
+
     replacement = _replacement_spec_from_payload(
         previous=spec,
         payload=payload,
@@ -919,6 +983,106 @@ def update_spec(
     return _serialize_spec(replacement)
 
 
+@router.post("/{spec_id}/submit-review")
+def submit_spec_for_review(
+    spec_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
+):
+    spec = db.query(SpecificationSheet).filter(
+        SpecificationSheet.id == spec_id,
+        SpecificationSheet.plant_id == plant_id,
+        SpecificationSheet.active == True,
+    ).first()
+    if not spec:
+        raise HTTPException(status_code=404, detail="Specification not found")
+    if spec.status == "review":
+        return {"spec_id": str(spec.id), "status": "review", "message": "Specification is already under Owner review"}
+    if spec.status != "draft":
+        raise HTTPException(status_code=409, detail="Only a saved draft can be submitted for review")
+
+    recipe = db.query(RecipeHeader).filter(
+        RecipeHeader.spec_id == spec.id,
+        RecipeHeader.plant_id == plant_id,
+        RecipeHeader.status == "trial",
+    ).order_by(RecipeHeader.version.desc()).first()
+    blockers: list[str] = []
+    if not recipe or not recipe.layers:
+        blockers.append("paper recipe is empty")
+    else:
+        distinct_papers = len({str(layer.paper_id) for layer in recipe.layers})
+        if not spec_math.RECIPE_MIN_PAPERS <= distinct_papers <= spec_math.RECIPE_MAX_PAPERS:
+            blockers.append(f"recipe must use {spec_math.RECIPE_MIN_PAPERS}-{spec_math.RECIPE_MAX_PAPERS} distinct papers")
+        if not 1 <= len(recipe.layers) <= spec_math.RECIPE_MAX_PLIES:
+            blockers.append(f"recipe must contain 1-{spec_math.RECIPE_MAX_PLIES} plies")
+
+        if not blockers:
+            tube_length = (
+                (float(spec.length_min_mm) + float(spec.length_max_mm)) / 2.0
+                if spec.length_min_mm is not None and spec.length_max_mm is not None
+                else 0.0
+            )
+            id_mm = (
+                (float(spec.id_min_mm) + float(spec.id_max_mm)) / 2.0
+                if spec.id_min_mm is not None and spec.id_max_mm is not None
+                else 0.0
+            )
+            preview = spec_math.compute_preview(
+                mandrel_od_mm=id_mm,
+                tube_length_mm=tube_length,
+                papers=[
+                    spec_math.RecipePaper(
+                        paper_id=str(layer.paper_id),
+                        gsm=float(layer.gsm_snapshot or 0.0),
+                        bulk=float(layer.bulk_snapshot or 1.0),
+                        ply_count=1,
+                    )
+                    for layer in recipe.layers
+                ],
+                target_dry_g=float(spec.target_tube_weight or 0.0),
+                adhesive_percent=float(spec.adhesive_percent or spec_math.GLOBAL_ADHESIVE_PERCENT),
+                parchment_percent=float(spec.parchment_percent or 0.0),
+                moisture_loss_percent=float(spec.moisture_loss_percent or spec_math.GLOBAL_MOISTURE_LOSS_PERCENT),
+                parchment_allowed=bool(spec.parchment_allowed),
+            )
+            if not preview.validation.delta_ok:
+                blockers.append(
+                    f"modeled dry weight variance {preview.validation.delta_g:+.2f} g exceeds +/-{spec_math.DELTA_ABS_G:.0f} g"
+                )
+
+    dynamic_map = _dynamic_field_map(spec)
+    adhesive_components = _safe_json_loads(dynamic_map.get("adhesive_components_json"), [])
+    if not isinstance(adhesive_components, list) or not adhesive_components:
+        blockers.append("adhesive recipe is empty")
+    else:
+        if len(adhesive_components) > 6:
+            blockers.append("adhesive recipe exceeds 6 components")
+        ratio_total = sum(
+            float(component.get("ratio_percent") or 0.0)
+            for component in adhesive_components
+            if isinstance(component, dict)
+        )
+        if abs(ratio_total - 100.0) > 0.01:
+            blockers.append(f"adhesive component ratios must total 100% (found {ratio_total:g}%)")
+    parchment_share = float(spec.parchment_percent or 0.0) if spec.parchment_allowed else 0.0
+    total_additions = float(spec.adhesive_percent or spec_math.GLOBAL_ADHESIVE_PERCENT)
+    if total_additions <= 0 or parchment_share > total_additions:
+        blockers.append("parchment share cannot exceed total additions")
+    missing_footer = [
+        key for key in ("valid_upto", "prepared_by", "prepared_date", "sign_off_note")
+        if not str(dynamic_map.get(key) or "").strip()
+    ]
+    if missing_footer:
+        blockers.append(f"release footer is incomplete ({', '.join(missing_footer)})")
+    if blockers:
+        raise HTTPException(status_code=409, detail="Review blockers: " + "; ".join(blockers))
+
+    spec.status = "review"
+    db.commit()
+    return {"spec_id": str(spec.id), "status": "review", "message": "Specification submitted for Owner review"}
+
+
 class ApproveSpecPayload(BaseModel):
     recipe_id: Optional[uuid.UUID] = None
 
@@ -928,7 +1092,7 @@ def approve_spec(
     payload: ApproveSpecPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Owner"]))
+    current_user: dict = Depends(require_role(["Owner"]))
 ):
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
@@ -936,6 +1100,8 @@ def approve_spec(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
+    if spec.status != "review":
+        raise HTTPException(status_code=409, detail="Owner approval requires a specification in review status")
 
     duplicate = db.query(SpecificationSheet).filter(
         SpecificationSheet.id != spec.id,

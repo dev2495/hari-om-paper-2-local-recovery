@@ -3,7 +3,12 @@ from types import SimpleNamespace
 import unittest
 import uuid
 
-from src.routers.planning import _build_document_snapshot, _build_spec_snapshot, _merge_spec_snapshot
+from src.routers.planning import (
+    _build_document_snapshot,
+    _build_spec_snapshot,
+    _merge_spec_snapshot,
+    _packing_consumption_snapshot,
+)
 
 
 def _dynamic_field_rows(values: dict[str, str]):
@@ -58,10 +63,16 @@ class SpecSnapshotMappingTests(unittest.TestCase):
                     "packing_pcs": "48",
                     "box_code": "R-150",
                     "box_size": "680X370X460",
+                    "actual_tube_height_mm": "117.25",
                     "plastic_sku": "PL-680",
+                    "plastic_size": "680 × 370",
+                    "plastic_unit_weight_kg": "0.0125",
+                    "plastic_weight_per_box_kg": "0.025",
                     "plastic_per_box": "2",
                     "plastic_required": "true",
                     "fadda_sku": "FAD-01",
+                    "fadda_unit_weight_kg": "0.008",
+                    "fadda_weight_per_box_kg": "0.008",
                     "fadda_per_box": "1",
                     "bopp_required": "true",
                     "special_instructions": "Floor check",
@@ -83,6 +94,8 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(snapshot["box_code"], "R-150")
         self.assertEqual(snapshot["box"], "R-150")
         self.assertEqual(snapshot["plastic_sku"], "PL-680")
+        self.assertEqual(snapshot["actual_tube_height_mm"], "117.25")
+        self.assertEqual(snapshot["plastic_unit_weight_kg"], "0.0125")
         self.assertEqual(snapshot["plastic_required"], "Yes")
         self.assertEqual(snapshot["fadda_sku"], "FAD-01")
         self.assertEqual(snapshot["special_instructions"], "Floor check")
@@ -105,6 +118,7 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             "od_max_mm": 124.5,
             "length_min_mm": 114.0,
             "length_max_mm": 116.0,
+            "actual_tube_height_mm": "117.25",
             "weight_min_g": 220.0,
             "weight_max_g": 240.0,
             "target_tube_weight": 230.0,
@@ -133,8 +147,13 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             "box_size": "560X420X490",
             "plastic_required": "Yes",
             "plastic_sku": "PL-560",
+            "plastic_size": "560 × 420",
+            "plastic_unit_weight_kg": "0.01",
+            "plastic_weight_per_box_kg": "0.02",
             "plastic_per_box": "2",
             "fadda_sku": "FAD-09",
+            "fadda_unit_weight_kg": "0.005",
+            "fadda_weight_per_box_kg": "0.005",
             "fadda_per_box": "1",
             "bopp_required": "Yes",
             "special_instructions": "QC sampling each batch",
@@ -161,6 +180,8 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(setup["box_code"], "G-120")
         self.assertEqual(setup["plastic_required"], "Yes")
         self.assertEqual(setup["plastic_sku"], "PL-560")
+        self.assertEqual(setup["plastic_unit_weight_kg"], "0.01")
+        self.assertEqual(document["header"]["product_size_label"], "110 x 124 x 117.25")
         self.assertEqual(setup["special_instructions"], "QC sampling each batch")
 
     def test_merge_spec_snapshot_preserves_new_fields(self):
@@ -187,6 +208,26 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(merged["box"], "R-150")
         self.assertEqual(merged["box_code"], "R-150")
         self.assertEqual(merged["plastic_sku"], "PL-680")
+
+    def test_packing_consumption_keeps_floor_pcs_and_inward_weight(self):
+        result = _packing_consumption_snapshot(
+            packed_qty=101,
+            spec_snapshot={
+                "qty_per_box": "25",
+                "box_code": "R-150",
+                "plastic_sku": "PL-680",
+                "plastic_per_box": "2",
+                "plastic_unit_weight_kg": "0.0125",
+                "fadda_sku": "FAD-01",
+                "fadda_per_box": "1",
+                "fadda_unit_weight_kg": "0.008",
+            },
+        )
+        self.assertEqual(result["box_count"], 5)
+        self.assertEqual(result["plastic"]["consumed_pcs"], 10)
+        self.assertEqual(result["plastic"]["consumed_weight_kg"], 0.125)
+        self.assertEqual(result["fadda"]["consumed_pcs"], 5)
+        self.assertEqual(result["fadda"]["consumed_weight_kg"], 0.04)
 
 
 if __name__ == "__main__":

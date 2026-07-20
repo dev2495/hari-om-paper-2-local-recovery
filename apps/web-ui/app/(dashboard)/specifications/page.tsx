@@ -13,7 +13,7 @@ import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data
 import { specApi } from "@/lib/api"
 import { cn } from "@/lib/utils"
 
-const STATUS_FILTERS = ["all", "draft", "trial", "approved", "obsolete"] as const
+const STATUS_FILTERS = ["all", "draft", "review", "trial", "approved", "obsolete"] as const
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "Recently updated"
@@ -30,6 +30,8 @@ function statusTone(status: string) {
   switch (String(status || "").toLowerCase()) {
     case "approved":
       return "border-emerald-200 bg-emerald-50 text-emerald-700"
+    case "review":
+      return "border-amber-200 bg-amber-50 text-amber-700"
     case "obsolete":
       return "border-rose-200 bg-rose-50 text-rose-700"
     case "trial":
@@ -207,12 +209,12 @@ export default function SpecificationsIndexPage() {
             <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Active Specs</p>
               <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.all}</p>
-              <p className="mt-1 text-sm text-slate-500">All draft, trial, approved, and obsolete records in the current plant.</p>
+              <p className="mt-1 text-sm text-slate-500">All active draft, Owner review, trial, and live records in the current plant.</p>
             </div>
             <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Trial Queue</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.trial}</p>
-              <p className="mt-1 text-sm text-slate-500">Versions waiting for review, validation, or approval.</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Review Queue</p>
+              <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.review + statusCounts.trial}</p>
+              <p className="mt-1 text-sm text-slate-500">Versions waiting for validation or Owner approval.</p>
             </div>
             <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Approved Live</p>
@@ -328,7 +330,7 @@ export default function SpecificationsIndexPage() {
                         Saved {formatDate(spec.created_at)}
                       </p>
                       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusTone(spec.status)}`}>
-                        {spec.status}
+                        {String(spec.status).toLowerCase() === "approved" ? "live" : spec.status}
                       </span>
                       {spec.active === false ? (
                         <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
@@ -367,7 +369,7 @@ export default function SpecificationsIndexPage() {
                         <p className="mt-2 text-sm font-medium text-slate-900">
                           {spec.profile?.packing?.box_code || spec.profile?.packing_rules?.packing_target?.box_code || "-"}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">Ready for packing handoff and print packet</p>
+                        <p className="mt-1 text-xs text-slate-500">Master-backed packing rules and print packet</p>
                       </div>
                     </div>
                   </div>
@@ -379,7 +381,7 @@ export default function SpecificationsIndexPage() {
                         <ArrowRight className="h-4 w-4" />
                       </Button>
                     </Link>
-                    {canManageSpecs && spec.active !== false && String(spec.status || "").toLowerCase() !== "obsolete" ? (
+                    {canManageSpecs && spec.active !== false && !["obsolete", "review"].includes(String(spec.status || "").toLowerCase()) ? (
                       <Link href={`/specifications/${spec.id}/edit`}>
                         <Button variant="outline">Edit</Button>
                       </Link>
