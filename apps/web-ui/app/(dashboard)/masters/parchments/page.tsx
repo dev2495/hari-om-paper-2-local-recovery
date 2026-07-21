@@ -77,8 +77,8 @@ function CompanyQuickForm({
 }
 
 export default function ParchmentsPage() {
-  const { data: vendors = [], isLoading: vendorsLoading } = useParchmentVendors()
-  const { data: colors = [], isLoading: colorsLoading } = useParchments()
+  const { data: vendors = [], isLoading: vendorsLoading } = useParchmentVendors({ include_inactive: true })
+  const { data: colors = [], isLoading: colorsLoading } = useParchments({ include_inactive: true })
   const createVendor = useCreateParchmentVendor()
   const updateVendor = useUpdateParchmentVendor()
   const deleteVendor = useDeleteParchmentVendor()

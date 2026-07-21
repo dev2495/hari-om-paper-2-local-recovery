@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -81,10 +81,13 @@ def _serialize_paper(model: models.PaperMaster) -> PaperResponse:
 
 @router.get("/", response_model=List[PaperResponse])
 def get_papers(
+    include_inactive: bool = Query(False, description="Include disabled papers for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.PaperMaster).filter(models.PaperMaster.active == True)
+    query = db.query(models.PaperMaster)
+    if not include_inactive:
+        query = query.filter(models.PaperMaster.active == True)
     query = apply_plant_scope(query, models.PaperMaster.plant_id, plant_scope)
     return [_serialize_paper(row) for row in query.order_by(models.PaperMaster.code.asc()).all()]
 

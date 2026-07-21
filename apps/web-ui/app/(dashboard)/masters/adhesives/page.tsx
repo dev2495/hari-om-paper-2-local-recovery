@@ -5,7 +5,7 @@ import { AdhesiveForm } from "@/components/forms/master-forms"
 import { useAdhesives, useCreateAdhesive, useUpdateAdhesive, useDeleteAdhesive } from "@/hooks/use-master-data"
 
 export default function AdhesivesPage() {
-    const { data, isLoading } = useAdhesives()
+    const { data, isLoading } = useAdhesives({ include_inactive: true })
     const createMutation = useCreateAdhesive()
     const updateMutation = useUpdateAdhesive()
     const deleteMutation = useDeleteAdhesive()

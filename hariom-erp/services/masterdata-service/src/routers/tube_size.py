@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
@@ -38,10 +38,13 @@ class TubeSizeResponse(BaseModel):
 
 @router.get("/", response_model=List[TubeSizeResponse])
 def get_tube_sizes(
+    include_inactive: bool = Query(False, description="Include disabled tube sizes for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope)
 ):
-    query = db.query(models.TubeSize).filter(models.TubeSize.active == True)
+    query = db.query(models.TubeSize)
+    if not include_inactive:
+        query = query.filter(models.TubeSize.active == True)
     return apply_plant_scope(query, models.TubeSize.plant_id, plant_scope).all()
 
 @router.get("/{size_id}", response_model=TubeSizeResponse)

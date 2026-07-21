@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -80,10 +80,13 @@ def _serialize_adhesive(model: models.AdhesiveMaster) -> AdhesiveResponse:
 
 @router.get("/", response_model=List[AdhesiveResponse])
 def get_adhesives(
+    include_inactive: bool = Query(False, description="Include disabled adhesives for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.AdhesiveMaster).filter(models.AdhesiveMaster.active == True)
+    query = db.query(models.AdhesiveMaster)
+    if not include_inactive:
+        query = query.filter(models.AdhesiveMaster.active == True)
     query = apply_plant_scope(query, models.AdhesiveMaster.plant_id, plant_scope)
     return [_serialize_adhesive(row) for row in query.order_by(models.AdhesiveMaster.internal_code.asc()).all()]
 

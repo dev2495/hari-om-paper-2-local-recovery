@@ -79,6 +79,8 @@ def require_role(allowed_roles: Iterable[str]) -> Callable[..., models.User]:
         if not allowed:
             return current_user
         user_roles = set(get_session_claims(current_user).get("roles") or [])
+        if user_roles.intersection({"Owner", "Admin"}):
+            return current_user
         if user_roles.intersection(allowed):
             return current_user
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient role")

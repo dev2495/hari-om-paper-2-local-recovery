@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy.orm import Session
 
@@ -240,15 +240,14 @@ def _apply_customer_update(model: models.Customer, update_data: dict) -> None:
 
 @router.get("/", response_model=List[CustomerResponse])
 def get_customers(
-    include_inactive: bool = True,
+    include_inactive: bool = Query(False, description="Include disabled customers for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
     """Return customer rows for the active plant scope.
 
-    Default behaviour is to include inactive rows — the new master cockpit
-    expects to filter client-side. Pass ``include_inactive=false`` to restore
-    the legacy "active-only" behaviour any older callers depended on.
+    Operational callers receive active rows only. Master maintenance screens
+    must explicitly opt in to disabled history.
     """
     query = db.query(models.Customer)
     if not include_inactive:

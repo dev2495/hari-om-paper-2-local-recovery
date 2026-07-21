@@ -5,7 +5,7 @@ import { TubeSizeForm } from "@/components/forms/master-forms"
 import { useTubeSizes, useCreateTubeSize, useUpdateTubeSize, useDeleteTubeSize } from "@/hooks/use-master-data"
 
 export default function TubeSizesPage() {
-    const { data, isLoading } = useTubeSizes()
+    const { data, isLoading } = useTubeSizes({ include_inactive: true })
     const createMutation = useCreateTubeSize()
     const updateMutation = useUpdateTubeSize()
     const deleteMutation = useDeleteTubeSize()

@@ -65,7 +65,7 @@ function matchesSearch(row: Vendor, needle: string) {
 
 export default function VendorsPage() {
   const { showToast } = useApp()
-  const vendorsQuery = useVendors()
+  const vendorsQuery = useVendors({ include_inactive: true })
   const createVendor = useCreateVendor()
   const updateVendor = useUpdateVendor()
   const deleteVendor = useDeleteVendor()

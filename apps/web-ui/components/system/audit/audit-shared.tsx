@@ -359,7 +359,7 @@ export function eventsFromSalesOrders(orders: any[] | undefined | null): AuditEv
           role: "approver",
           entityType: "Sales Order",
           reference: ref,
-          summary: `${customer} — maker-checker approved`,
+          summary: `${customer} — commercially approved`,
           timestamp: asString(o.approved_at),
           severity: "MEDIUM",
           href: `/sales-orders/${id}`,

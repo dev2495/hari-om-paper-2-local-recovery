@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -141,10 +141,13 @@ def _get_fadda_or_404(db: Session, plant_values: list[str], fadda_id: uuid.UUID)
 
 @router.get("/boxes", response_model=List[BoxResponse])
 def get_boxes(
+    include_inactive: bool = Query(False, description="Include disabled boxes for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.PackagingBox).filter(models.PackagingBox.active == True)
+    query = db.query(models.PackagingBox)
+    if not include_inactive:
+        query = query.filter(models.PackagingBox.active == True)
     query = apply_plant_scope(query, models.PackagingBox.plant_id, plant_scope)
     return query.order_by(models.PackagingBox.code.asc()).all()
 
@@ -231,10 +234,13 @@ def delete_box(
 
 @router.get("/plastic-sheets", response_model=List[PlasticSheetResponse])
 def get_plastic_sheets(
+    include_inactive: bool = Query(False, description="Include disabled plastic SKUs for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.PackagingPlasticSheet).filter(models.PackagingPlasticSheet.active == True)
+    query = db.query(models.PackagingPlasticSheet)
+    if not include_inactive:
+        query = query.filter(models.PackagingPlasticSheet.active == True)
     query = apply_plant_scope(query, models.PackagingPlasticSheet.plant_id, plant_scope)
     return query.order_by(models.PackagingPlasticSheet.sku.asc()).all()
 
@@ -318,10 +324,13 @@ def delete_plastic_sheet(
 
 @router.get("/fadda", response_model=List[FaddaResponse])
 def get_fadda(
+    include_inactive: bool = Query(False, description="Include disabled fadda SKUs for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.PackagingFadda).filter(models.PackagingFadda.active == True)
+    query = db.query(models.PackagingFadda)
+    if not include_inactive:
+        query = query.filter(models.PackagingFadda.active == True)
     query = apply_plant_scope(query, models.PackagingFadda.plant_id, plant_scope)
     return query.order_by(models.PackagingFadda.sku.asc()).all()
 

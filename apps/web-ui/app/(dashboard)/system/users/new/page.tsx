@@ -178,7 +178,7 @@ export default function NewUserPage() {
         <div>
           <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-cyan-700">User access matrix</p>
           <h1 className="text-2xl font-semibold text-slate-950">Create user with clean business roles</h1>
-          <p className="text-sm text-slate-500">Only eight roles are shown. Overrides add precise rights without exposing old maker/checker role clutter.</p>
+          <p className="text-sm text-slate-500">Only eight current roles are shown. Overrides add precise rights without exposing retired role clutter.</p>
         </div>
       </div>
 

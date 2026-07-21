@@ -48,7 +48,7 @@ export default function ShiftsWrapper() {
 
 function ShiftsPage() {
   const { showToast } = useApp()
-  const query = useShifts()
+  const query = useShifts({ include_inactive: true })
   const createShift = useCreateShift()
   const updateShift = useUpdateShift()
   const deleteShift = useDeleteShift()

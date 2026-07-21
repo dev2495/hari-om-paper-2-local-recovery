@@ -2785,30 +2785,14 @@ def _move_or_split_segment(
             break
         next_sequence = 1
 
-    if allocations and remaining_qty > 0.0001:
-        last_date, last_shift, last_qty, last_capacity = allocations[-1]
-        allocations[-1] = (
-            last_date,
-            last_shift,
-            round(last_qty + remaining_qty, 2),
-            round(last_capacity + remaining_capacity, 2),
-        )
-        remaining_qty = 0.0
-        remaining_capacity = 0.0
-
     if not allocations:
-        segment.status = "ASSIGNED"
-        _place_stage_segment(
-            db=db,
-            segment=segment,
-            desired_sequence=desired_sequence,
-            machine_id=machine_id,
-            plan_date=normalized_date,
-            shift_code=normalized_shift,
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No compatible capacity is available for this machine in the 30-day planning horizon. "
+                "Choose another machine or add capacity before assigning the segment."
+            ),
         )
-        _sync_stage_row_from_segments(stage_row, _all_stage_segments(db, job_card.id, stage))
-        open_count = len(_open_stage_segments(db, job_card.id, stage))
-        return segment, open_count
 
     first_allocation = allocations[0]
     segment.machine_id = machine_id
@@ -2848,6 +2832,21 @@ def _move_or_split_segment(
             machine_id=machine_id,
             plan_date=slot_date,
             shift_code=slot_shift,
+        )
+
+    if remaining_qty > 0.0001:
+        _append_stage_segment(
+            db=db,
+            job_card=job_card,
+            stage_row=stage_row,
+            machine_id=None,
+            plan_date=normalized_date,
+            shift_code=None,
+            planned_qty=remaining_qty,
+            required_capacity=remaining_capacity,
+            split_source="CAPACITY_OVERFLOW",
+            split_parent_segment_id=segment.id,
+            status="PLANNED",
         )
 
     _sync_stage_row_from_segments(stage_row, _all_stage_segments(db, job_card.id, stage))

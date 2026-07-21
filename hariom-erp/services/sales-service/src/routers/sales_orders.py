@@ -17,7 +17,6 @@ from ..models import (
 )
 from ..utils.auth import (
     apply_plant_scope,
-    enforce_maker_checker,
     get_current_plant,
     get_current_plant_scope,
     get_current_user,
@@ -459,7 +458,7 @@ def get_sales_order_timeline(
                 event_id=f"{order.id}:approved",
                 event_type="SALES_ORDER_APPROVED",
                 title="Sales order approved",
-                message="Maker-checker approval completed.",
+                message="Commercial approval completed.",
                 created_at=order.approved_at,
                 actor=order.approved_by,
                 metadata={"order_no": order.order_no, "status": order.status.value},
@@ -662,7 +661,6 @@ def approve_sales_order(
     if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
         raise HTTPException(status_code=400, detail="Only draft/submitted orders can be approved")
 
-    enforce_maker_checker(current_user, order.created_by)
     order.status = SalesOrderStatus.APPROVED
     order.approved_by = current_user.get("sub")
     order.approved_at = datetime.utcnow()
@@ -706,7 +704,6 @@ def release_sales_order(
     if order.status != SalesOrderStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Only approved orders can be released")
 
-    enforce_maker_checker(current_user, order.created_by)
     order.status = SalesOrderStatus.RELEASED
     order.released_by = current_user.get("sub")
     order.released_at = datetime.utcnow()

@@ -649,7 +649,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const isCreate = mode === "create"
   const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean)), [user?.role, user?.roles])
   const canManageSpec = userRoles.has("Owner") || userRoles.has("Admin")
-  const isOwner = userRoles.has("Owner")
+  const canApproveAsSuperUser = userRoles.has("Owner") || userRoles.has("Admin")
   const hasConcreteWritePlant = Boolean(activePlant && activePlant !== "ALL")
   const editBlockReason = !canManageSpec
     ? "Only Owner and Admin can edit specification sheets."
@@ -1541,7 +1541,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     if (mode === "edit" && (spec.active === false || spec.status === "obsolete" || spec.status === "review")) {
       showToast(
         spec.status === "review"
-          ? "This specification is locked while the Owner reviews it."
+          ? "This specification is locked while an Owner or Admin reviews it."
           : "Inactive specification versions are read-only. Open the active version to create the next revision.",
         "error",
       )
@@ -1608,7 +1608,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   )
   const canApprove =
     !isCreate &&
-    isOwner &&
+    canApproveAsSuperUser &&
     hasConcreteWritePlant &&
     specDocument?.spec?.status === "review" &&
     Boolean(specDocument?.latestRecipe?.id) &&
@@ -2204,7 +2204,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     }
     try {
       await submitSpecForReview.mutateAsync({ specId })
-      showToast("Draft submitted for Owner review. It is now locked against edits.", "success")
+      showToast("Draft submitted for approval review. It is now locked against edits.", "success")
       router.refresh()
     } catch (error: any) {
       const message = error?.response?.data?.detail || error?.message || "Failed to submit specification for review."
@@ -2390,9 +2390,102 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       !csGateFailed,
   )
   const approvalComplete = String(currentStatus || "").toLowerCase() === "approved"
+  if (isPrint) {
+    const printRecipe = form.recipeRows
+      .filter((row) => String(row.paper_id || "").trim())
+      .map((row) => {
+        const previewRow = Array.isArray(previewSummary.ply_details)
+          ? previewSummary.ply_details.find(
+              (item: any) =>
+                item.paper_id === row.paper_id &&
+                Number(item.gsm || 0) === Number(paperMap.get(row.paper_id)?.gsm || row.gsm || 0),
+            )
+          : null
+        return {
+          code: row.code,
+          variety: row.variety,
+          gsm: Number(previewRow?.gsm || row.gsm || 0),
+          bf: Number(row.bfPerPly || 0),
+          thickness: Number(row.thicknessPerPly || 0),
+          weight: Number(previewRow?.weightG || 0),
+          plies: Number(row.plyCount || 0),
+          positions: row.positionsText || encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount)),
+        }
+      })
+    const actualHeight = Number(form.dynamicValues.actual_tube_height_mm || selectedTube?.length_mm || form.averages.length || 0)
+    const printData = {
+      company: "Hari Om Paper",
+      customer: selectedCustomer?.name || specDocument?.spec?.customer_name || "",
+      reference: sheetReference,
+      version: `v${specDocument?.spec?.version || 1}`,
+      status: approvalComplete ? "LIVE / APPROVED" : String(currentStatus || "DRAFT").toUpperCase(),
+      preparedDate: optionValue(form.dynamicValues.prepared_date) || todayLabel,
+      validUntil: optionValue(form.dynamicValues.valid_upto),
+      preparedBy: optionValue(form.dynamicValues.prepared_by),
+      geometry: [
+        { label: "Mandrel / ID", value: `${selectedMandrel?.mandrel_code || ""} · ${Number(form.averages.id || 0).toFixed(2)} mm` },
+        { label: "OD", value: `${Number(form.averages.od || 0).toFixed(2)} mm` },
+        { label: "Wall", value: `${thicknessFrom(Number(form.averages.id || 0), Number(form.averages.od || 0)).toFixed(3)} mm` },
+        { label: "Actual height", value: `${actualHeight.toFixed(2)} mm` },
+        { label: "Dry target", value: `${targetDryTube.toFixed(2)} g` },
+        { label: "Tolerance", value: `±${DELTA_ABS_G.toFixed(0)} g` },
+        { label: "CS", value: `${Number(form.averages.cs || 0).toFixed(2)} kgf` },
+        { label: "Moisture loss", value: `${Number(form.shrinkPercent || 9).toFixed(2)}%` },
+      ],
+      recipe: printRecipe,
+      adhesive: targetAdhesiveComponents.map((component: any) => ({
+        name: String(component?.name || "Adhesive"),
+        ratio: Number(component?.ratio_percent || 0),
+        weight: Number(component?.weight_g || 0),
+      })),
+      totals: {
+        paper: livePaperTotal,
+        adhesive: targetAdhesiveWeight,
+        parchment: targetParchmentWeight,
+        wet: liveWetTube,
+        dry: liveDryTube,
+        targetDry: targetDryTube,
+        variance: measuredDryTube > 0 ? measuredDryTube - targetDryTube : liveDryDelta,
+        idDelta: liveIdDeltaMm,
+        odDelta: liveOdDeltaMm,
+      },
+      process: [
+        { label: "Wet tube target", value: `${targetWetTube.toFixed(2)} g` },
+        { label: "Combined additions", value: `${targetTotalAdditionsWeight.toFixed(2)} g (${totalMaterialPercent.toFixed(2)}%)` },
+        { label: "Wet paper target", value: `${targetPaperWeight.toFixed(2)} g` },
+        { label: "Geometric paper", value: `${livePaperTotal.toFixed(2)} g` },
+        { label: "Bamboo wet / dry", value: `${bambooWetWeightG.toFixed(2)} / ${bambooDryWeightG.toFixed(2)} g` },
+        { label: "Trim wet / dry", value: `${bambooTrimWetWeightG.toFixed(2)} / ${bambooTrimDryWeightG.toFixed(2)} g` },
+        { label: "Whole bamboo wet / dry", value: `${wholeBambooWetWeightG.toFixed(2)} / ${wholeBambooDryWeightG.toFixed(2)} g` },
+        { label: "Tubes / bamboo", value: `${tubesPerBamboo.toFixed(0)} pcs` },
+        { label: "Bamboo / usable", value: `${selectedBambooLengthMm.toFixed(0)} / ${usableBambooLengthMm.toFixed(0)} mm` },
+        { label: "Finished / trim", value: `${finishedBambooLengthMm.toFixed(0)} / ${totalTrimMm.toFixed(0)} mm` },
+        { label: "Main GSM helper", value: `${mainPaperGsmGuide.toFixed(0)} ±50 GSM` },
+        { label: "Measured finished dry", value: measuredDryTube > 0 ? `${measuredDryTube.toFixed(2)} g` : "Not recorded" },
+      ],
+      tooling: [
+        { label: "Notch type", value: optionValue(form.dynamicValues.notch_type) },
+        { label: "Direction", value: optionValue(form.dynamicValues.notch_direction) },
+        { label: "Distance", value: `${computedNotchDiagram.notchDistanceMm.toFixed(2)} mm` },
+        { label: "Depth", value: `${computedNotchDiagram.notchDepthMm.toFixed(2)} mm` },
+        ...selectedNotchToolEntries.map((entry) => ({ label: entry.label, value: entry.tool_name })),
+      ],
+      packing: [
+        { label: "Box", value: `${optionValue(form.dynamicValues.box_code || form.dynamicValues.box)} · ${optionValue(form.dynamicValues.box_size || selectedPackagingBox?.size_label)}` },
+        { label: "Qty / box", value: `${Number(form.dynamicValues.qty_per_box || 0)} pcs` },
+        { label: "Plastic", value: `${optionValue(form.dynamicValues.plastic_sku)} · ${optionValue(form.dynamicValues.plastic_size || selectedPackagingPlastic?.size_label)}` },
+        { label: "Plastic / box", value: `${Number(form.dynamicValues.plastic_per_box || 0)} pcs · ${Number(form.dynamicValues.plastic_weight_per_box_kg || 0).toFixed(4)} kg` },
+        { label: "Fadda", value: `${optionValue(form.dynamicValues.fadda_sku)} · ${Number(form.dynamicValues.fadda_per_box || 0)} pcs` },
+        { label: "BOPP", value: boolFromString(form.dynamicValues.bopp_required) ? "Yes" : "No" },
+      ],
+      blockers: releaseBlockers,
+      notes: form.notes,
+      signOff: optionValue(form.dynamicValues.sign_off_note),
+    }
+    return <SpecSheetPrint enabled data={printData} />
+  }
   return (
     <SpecSheetWorkspace printMode={isPrint}>
-      <SpecSheetPrint enabled={isPrint} />
       <div className="min-w-0 space-y-3" data-testid="spec-sheet-page">
         <section
           className="scroll-mt-24"
@@ -2449,14 +2542,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   Submit for Owner Review
                 </button>
               ) : null}
-              {!isCreate && currentStatus === "review" && isOwner ? (
+              {!isCreate && currentStatus === "review" && canApproveAsSuperUser ? (
                 <button
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
                   className="rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3.5 py-2 text-sm font-bold text-[#166b51] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Owner Approve &amp; Go Live
+                  Approve &amp; Go Live
                 </button>
               ) : null}
               {!isCreate && currentStatus === "approved" ? (
@@ -3409,13 +3502,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             </div>
             <div className="min-h-32 bg-white p-3.5 text-slate-700">
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#805a09]">Step 3 · {currentStatus === "review" ? "With Owner" : approvalComplete ? "Complete" : reviewChecksPass ? "Ready" : "Pending"}</p>
-              <h3 className="mt-1 text-sm font-bold text-[#102832]">Owner review</h3>
+              <h3 className="mt-1 text-sm font-bold text-[#102832]">Owner / Admin review</h3>
               <p className="mt-1 text-[11px] leading-4 text-slate-600">
                 {approvalComplete
                   ? "Owner approval is complete."
                   : currentStatus === "review"
-                    ? `Locked and waiting for the Owner in ${writePlantLabel}.`
-                    : "Submit the checked draft to lock it for Owner review."}
+                    ? `Locked and waiting for an Owner or Admin in ${writePlantLabel}.`
+                    : "Submit the checked draft to lock it for approval review."}
               </p>
               {currentStatus === "draft" ? (
                 <button
@@ -3427,14 +3520,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   Submit for Review
                 </button>
               ) : null}
-              {currentStatus === "review" && isOwner ? (
+              {currentStatus === "review" && canApproveAsSuperUser ? (
                 <button
                   type="button"
                   onClick={handleApprove}
                   disabled={!canApprove || approveSpec.isPending}
                   className="mt-2 rounded-lg border border-[#b9e4d1] bg-[#e4f6ed] px-3 py-2 text-xs font-bold text-[#166b51] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Owner Approve
+                  Approve &amp; Go Live
                 </button>
               ) : null}
               {specDocument?.spec?.active === false || currentStatus === "obsolete" ? (
@@ -3447,7 +3540,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 4 · {approvalComplete ? "Live" : "Pending"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Production release</h3>
               <p className="mt-1 text-[11px] leading-4">
-                {approvalComplete ? "Live for planning, job cards and floor execution." : "Only Owner approval releases this version downstream."}
+                {approvalComplete ? "Live for planning, job cards and floor execution." : "Owner or Admin approval releases this version downstream."}
               </p>
             </div>
           </div>

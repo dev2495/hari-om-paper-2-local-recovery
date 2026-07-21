@@ -2356,7 +2356,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return (
       <div className="job-print-root mx-auto max-w-[210mm] print:max-w-none">
         <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-600">Single-sheet job card for the scheduled release.</div>
+          <div className="text-sm text-slate-600">Controlled two-sided job card for the scheduled release.</div>
           <button
             type="button"
             onClick={() => window.print()}
@@ -2367,7 +2367,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </button>
         </div>
 
-        <section className="job-one-sheet">
+        <section className="job-print-side job-front-side">
           <div className="job-topbar">
             <div>
               <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
@@ -2443,6 +2443,24 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <PrintField label="Reject / Reason" value={`${formatNumber(ovenPrintStage?.scrap_qty, 0)} / ${ovenPrintEntry.rejection_code || "-"}`} />
             </div>
           </section>
+        </section>
+
+        <section className="job-print-side job-back-side">
+          <div className="job-topbar job-back-topbar">
+            <div>
+              <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
+              <div className="job-title">Job Card · Process &amp; Close</div>
+            </div>
+            <div className="job-ref-box">
+              <span>Job Card No.</span>
+              <strong>{jobCardNumber}</strong>
+            </div>
+            <div className="job-ref-box">
+              <span>Release Qty</span>
+              <strong>{formatNumber(releaseQty, 0)} pcs</strong>
+            </div>
+            <QRCodeSVG value={qrValue} size={58} />
+          </div>
 
           <section className="job-band">
             <div className="job-section-title">
@@ -2506,15 +2524,24 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             width: min(100%, 210mm);
           }
 
-          .job-one-sheet {
+          .job-print-side {
             box-sizing: border-box;
             border: 2px solid #0f172a;
             background: #fff;
             padding: 18px;
-            min-height: 297mm;
+            height: 287mm;
+            overflow: hidden;
             display: flex;
             flex-direction: column;
             box-shadow: 0 26px 80px rgba(15, 23, 42, 0.14);
+          }
+
+          .job-print-side + .job-print-side {
+            margin-top: 14px;
+          }
+
+          .job-back-topbar {
+            margin-bottom: 8px;
           }
 
           .job-topbar {
@@ -2694,11 +2721,30 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               max-width: none !important;
             }
 
-            .job-one-sheet {
+            .job-print-side {
+              width: 200mm;
+              height: 287mm;
               min-height: 287mm;
-              break-after: auto;
+              max-height: 287mm;
+              overflow: hidden;
               padding: 6mm 7mm;
               box-shadow: none !important;
+              break-inside: avoid !important;
+              page-break-inside: avoid !important;
+            }
+
+            .job-print-side + .job-print-side {
+              margin-top: 0;
+            }
+
+            .job-front-side {
+              break-after: page !important;
+              page-break-after: always !important;
+            }
+
+            .job-back-side {
+              break-after: auto !important;
+              page-break-after: auto !important;
             }
 
             .job-summary-band {

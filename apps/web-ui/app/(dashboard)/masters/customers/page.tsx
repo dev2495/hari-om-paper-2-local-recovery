@@ -69,7 +69,7 @@ function matchesSearch(row: Customer, needle: string) {
 export default function CustomersPage() {
   const { showToast } = useApp()
   const { activePlant } = useAuth()
-  const customersQuery = useCustomers()
+  const customersQuery = useCustomers({ include_inactive: true })
   const createCustomer = useCreateCustomer()
   const updateCustomer = useUpdateCustomer()
   const deleteCustomer = useDeleteCustomer()

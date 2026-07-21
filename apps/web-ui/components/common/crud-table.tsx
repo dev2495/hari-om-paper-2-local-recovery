@@ -13,7 +13,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from "@/components/ui/dialog"
-import { Pencil, Plus, PowerOff, Search } from "lucide-react"
+import { Pencil, Plus, PowerOff, RotateCcw, Search } from "lucide-react"
 import { useAuth } from "@/context/AuthContext"
 
 interface Column {
@@ -309,15 +309,20 @@ export function CrudTable({
                                 </td>
                             </tr>
                         ) : (
-                            filteredData.map((row, i) => (
-                                <tr key={i} className="border-b border-slate-100 transition-colors hover:bg-cyan-50/35">
+                            filteredData.map((row, i) => {
+                                const rowActive = row?.active !== false && row?.is_active !== false
+                                return (
+                                <tr key={i} className={`border-b border-slate-100 transition-colors hover:bg-cyan-50/35 ${rowActive ? "" : "bg-slate-50/80 text-slate-500"}`}>
                                     {columns.map((col, j) => (
                                         <td key={j} className="p-4 align-middle text-slate-700">
                                             {col.render ? col.render(row[col.accessorKey], row) : row[col.accessorKey]}
                                         </td>
                                     ))}
                                     <td className="p-4 align-middle text-right">
-                                        <div className="flex justify-end gap-2">
+                                        <div className="flex items-center justify-end gap-2">
+                                            <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${rowActive ? "bg-emerald-50 text-emerald-700" : "bg-slate-200 text-slate-600"}`}>
+                                                {rowActive ? "Active" : "Disabled"}
+                                            </span>
                                             {rowActions ? rowActions(row) : null}
                                             {FormComponent && (
                                                 <Button
@@ -332,7 +337,7 @@ export function CrudTable({
                                                     <Pencil className="h-4 w-4" />
                                                 </Button>
                                             )}
-                                            {onDelete && (
+                                            {onDelete && rowActive && (
                                                 <Button
                                             variant="ghost"
                                             size="icon"
@@ -345,10 +350,24 @@ export function CrudTable({
                                                     <PowerOff className="h-4 w-4" />
                                                 </Button>
                                             )}
+                                            {!rowActive && onEdit ? (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    title={`Reactivate ${title}`}
+                                                    aria-label={`Reactivate ${title}`}
+                                                    className="rounded-xl border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+                                                    disabled={writeBlocked}
+                                                    onClick={() => onEdit(row.id, { active: true })}
+                                                >
+                                                    <RotateCcw className="h-4 w-4" />
+                                                </Button>
+                                            ) : null}
                                         </div>
                                     </td>
                                 </tr>
-                            ))
+                                )
+                            })
                         )}
                     </tbody>
                 </table>

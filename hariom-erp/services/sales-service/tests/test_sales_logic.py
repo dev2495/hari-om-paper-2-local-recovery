@@ -5,7 +5,9 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from src.routers.sales_orders import SalesOrderLineInput, _serialize_line, carry_forward_lot_split
+from src.models import SalesOrderStatus
+from src.routers.sales_orders import SalesOrderLineInput, _serialize_line, _sync_release_status, carry_forward_lot_split
+from src.utils.auth import require_role
 
 
 def test_carry_forward_split_conserves_released_quantity():
@@ -67,3 +69,39 @@ def test_sales_line_serializer_exposes_dispatch_lineage_and_correct_balances():
     assert payload["release_remaining_qty"] == 20.0
     assert payload["dispatch_logs"][0]["dispatch_line_ref"] == "DISPATCH-REQUEST:stable-1"
     assert payload["dispatch_logs"][0]["qty"] == 35.0
+
+
+@pytest.mark.parametrize("role", ["Owner", "Admin"])
+def test_owner_and_admin_bypass_operational_role_restrictions(role):
+    user = {"sub": "same-user", "roles": [role]}
+    assert require_role(["Sales"])(user) is user
+    assert require_role(["Planner"])(user) is user
+
+
+def test_partial_release_status_tracks_incremental_lots_until_fully_released():
+    line = SimpleNamespace(
+        qty=100.0,
+        release_lots=[SimpleNamespace(released_qty=35.0, status="released")],
+    )
+    order = SimpleNamespace(status=SalesOrderStatus.APPROVED, lines=[line])
+
+    _sync_release_status(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_RELEASED
+
+    line.release_lots.append(SimpleNamespace(released_qty=65.0, status="released"))
+    _sync_release_status(order)
+    assert order.status == SalesOrderStatus.RELEASED
+
+
+def test_cancelled_release_lots_do_not_reduce_available_release_balance():
+    line = SimpleNamespace(
+        qty=100.0,
+        release_lots=[
+            SimpleNamespace(released_qty=40.0, status="cancelled"),
+            SimpleNamespace(released_qty=25.0, status="released"),
+        ],
+    )
+    order = SimpleNamespace(status=SalesOrderStatus.APPROVED, lines=[line])
+
+    _sync_release_status(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_RELEASED

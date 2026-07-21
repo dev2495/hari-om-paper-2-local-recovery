@@ -45,9 +45,9 @@ type PackingSectionKey = (typeof PACKING_SECTIONS)[number]["key"]
 export default function PackagingMasterPage() {
   const [activeSection, setActiveSection] = useState<PackingSectionKey>("boxes")
 
-  const boxesQuery = usePackagingBoxes()
-  const plasticsQuery = usePackagingPlasticSheets()
-  const faddaQuery = usePackagingFadda()
+  const boxesQuery = usePackagingBoxes({ include_inactive: true })
+  const plasticsQuery = usePackagingPlasticSheets({ include_inactive: true })
+  const faddaQuery = usePackagingFadda({ include_inactive: true })
 
   const createBox = useCreatePackagingBox()
   const updateBox = useUpdatePackagingBox()

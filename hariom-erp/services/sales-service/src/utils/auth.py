@@ -216,7 +216,7 @@ def apply_plant_scope(query, plant_column, plant_scope: dict):
 def require_role(required_roles: list[str]):
     def role_checker(current_user: dict = Depends(get_current_user)):
         user_roles = set(current_user.get("roles", []))
-        if "Admin" in user_roles:
+        if user_roles & SUPER_ROLES:
             return current_user
         if not any(role in user_roles for role in required_roles):
             raise HTTPException(
@@ -226,11 +226,3 @@ def require_role(required_roles: list[str]):
         return current_user
 
     return role_checker
-
-
-def enforce_maker_checker(current_user: dict, created_by: str):
-    if current_user.get("sub") == created_by:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Maker-checker violation: creator cannot approve own record",
-        )

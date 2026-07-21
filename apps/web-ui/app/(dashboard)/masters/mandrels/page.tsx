@@ -5,7 +5,7 @@ import { MandrelForm } from "@/components/forms/master-forms"
 import { useMandrels, useCreateMandrel, useUpdateMandrel, useDeleteMandrel } from "@/hooks/use-master-data"
 
 export default function MandrelsPage() {
-    const { data, isLoading } = useMandrels()
+    const { data, isLoading } = useMandrels({ include_inactive: true })
     const createMutation = useCreateMandrel()
     const updateMutation = useUpdateMandrel()
     const deleteMutation = useDeleteMandrel()

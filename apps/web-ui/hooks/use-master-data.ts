@@ -2,11 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { masterApi } from "@/lib/api"
 
 // Papers
-export function usePapers() {
+export function usePapers(params?: any) {
     return useQuery({
-        queryKey: ["papers"],
+        queryKey: ["papers", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getPapers()
+            const { data } = await masterApi.getPapers(params)
             return data
         },
     })
@@ -43,11 +43,11 @@ export function useDeletePaper() {
 }
 
 // Adhesives
-export function useAdhesives() {
+export function useAdhesives(params?: any) {
     return useQuery({
-        queryKey: ["adhesives"],
+        queryKey: ["adhesives", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getAdhesives()
+            const { data } = await masterApi.getAdhesives(params)
             return data
         },
     })
@@ -84,11 +84,11 @@ export function useDeleteAdhesive() {
 }
 
 // Parchments
-export function useParchments() {
+export function useParchments(params?: any) {
     return useQuery({
-        queryKey: ["parchments"],
+        queryKey: ["parchments", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getParchments()
+            const { data } = await masterApi.getParchments(params)
             return data
         },
     })
@@ -124,11 +124,11 @@ export function useDeleteParchment() {
     })
 }
 
-export function useParchmentVendors() {
+export function useParchmentVendors(params?: any) {
     return useQuery({
-        queryKey: ["parchment-vendors"],
+        queryKey: ["parchment-vendors", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getParchmentVendors()
+            const { data } = await masterApi.getParchmentVendors(params)
             return data
         },
     })
@@ -168,11 +168,11 @@ export function useDeleteParchmentVendor() {
 }
 
 // Tube Sizes
-export function useTubeSizes() {
+export function useTubeSizes(params?: any) {
     return useQuery({
-        queryKey: ["tube-sizes"],
+        queryKey: ["tube-sizes", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getTubeSizes()
+            const { data } = await masterApi.getTubeSizes(params)
             return data
         },
     })
@@ -209,11 +209,11 @@ export function useDeleteTubeSize() {
 }
 
 // Mandrels
-export function useMandrels() {
+export function useMandrels(params?: any) {
     return useQuery({
-        queryKey: ["mandrels"],
+        queryKey: ["mandrels", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getMandrels()
+            const { data } = await masterApi.getMandrels(params)
             return data
         },
     })
@@ -250,11 +250,11 @@ export function useDeleteMandrel() {
 }
 
 // Customers
-export function useCustomers() {
+export function useCustomers(params?: any) {
     return useQuery({
-        queryKey: ["customers"],
+        queryKey: ["customers", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getCustomers()
+            const { data } = await masterApi.getCustomers(params)
             return data
         },
     })
@@ -351,21 +351,21 @@ export function useDeleteCustomerContact() {
 }
 
 // Suppliers
-export function useSuppliers() {
+export function useSuppliers(params?: any) {
     return useQuery({
-        queryKey: ["suppliers"],
+        queryKey: ["suppliers", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getSuppliers()
+            const { data } = await masterApi.getSuppliers(params)
             return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
         },
     })
 }
 
-export function useVendors() {
+export function useVendors(params?: any) {
     return useQuery({
-        queryKey: ["vendors"],
+        queryKey: ["vendors", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getVendors()
+            const { data } = await masterApi.getVendors(params)
             return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
         },
     })
@@ -488,11 +488,11 @@ export function useDeleteVendorContact() {
 }
 
 // Packaging boxes
-export function usePackagingBoxes() {
+export function usePackagingBoxes(params?: any) {
     return useQuery({
-        queryKey: ["packaging-boxes"],
+        queryKey: ["packaging-boxes", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getPackagingBoxes()
+            const { data } = await masterApi.getPackagingBoxes(params)
             return data
         },
     })
@@ -529,11 +529,11 @@ export function useDeletePackagingBox() {
 }
 
 // Packaging plastic sheets
-export function usePackagingPlasticSheets() {
+export function usePackagingPlasticSheets(params?: any) {
     return useQuery({
-        queryKey: ["packaging-plastic-sheets"],
+        queryKey: ["packaging-plastic-sheets", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getPackagingPlasticSheets()
+            const { data } = await masterApi.getPackagingPlasticSheets(params)
             return data
         },
     })
@@ -570,11 +570,11 @@ export function useDeletePackagingPlasticSheet() {
 }
 
 // Packaging fadda
-export function usePackagingFadda() {
+export function usePackagingFadda(params?: any) {
     return useQuery({
-        queryKey: ["packaging-fadda"],
+        queryKey: ["packaging-fadda", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getPackagingFadda()
+            const { data } = await masterApi.getPackagingFadda(params)
             return data
         },
     })
@@ -790,11 +790,11 @@ export function useDeleteMachine() {
 // Shop-floor masters
 // ──────────────────────────────────────────────────────────────────────────
 
-export function useEmployees() {
+export function useEmployees(params?: any) {
     return useQuery({
-        queryKey: ["employees"],
+        queryKey: ["employees", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getEmployees()
+            const { data } = await masterApi.getEmployees(params)
             return Array.isArray(data) ? data : []
         },
     })
@@ -824,11 +824,11 @@ export function useDeleteEmployee() {
     })
 }
 
-export function useShifts() {
+export function useShifts(params?: any) {
     return useQuery({
-        queryKey: ["shifts"],
+        queryKey: ["shifts", params || {}],
         queryFn: async () => {
-            const { data } = await masterApi.getShifts()
+            const { data } = await masterApi.getShifts(params)
             return Array.isArray(data) ? data : []
         },
     })
@@ -892,11 +892,15 @@ export function useDeleteHoliday() {
     })
 }
 
-export function useReasonCodes(category?: string) {
+export function useReasonCodes(category?: string, options?: { includeInactive?: boolean }) {
+    const params = {
+        ...(category ? { category } : {}),
+        ...(options?.includeInactive ? { include_inactive: true } : {}),
+    }
     return useQuery({
-        queryKey: ["reason-codes", category || "all"],
+        queryKey: ["reason-codes", params],
         queryFn: async () => {
-            const { data } = await masterApi.getReasonCodes(category ? { category } : undefined)
+            const { data } = await masterApi.getReasonCodes(params)
             return Array.isArray(data) ? data : []
         },
     })

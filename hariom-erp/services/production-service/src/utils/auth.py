@@ -5,7 +5,8 @@ from typing import Optional
 from ..security import jwt_handler
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
-PLANNER_SCOPE_ROLES = {"Owner", "Admin", "PlantManager", "Planner"}
+SUPER_ROLES = {"Owner", "Admin"}
+PLANNER_SCOPE_ROLES = SUPER_ROLES | {"PlantManager", "Planner"}
 PLANT_ALIASES = {
     "PLANT_A": "00000000-0000-0000-0000-0000000000a1",
     "PLANT-1": "00000000-0000-0000-0000-0000000000a1",
@@ -123,7 +124,7 @@ def get_current_plant_scope(
 def require_role(required_roles: list[str]):
     def role_checker(current_user: dict = Depends(get_current_user)):
         user_roles = set(current_user.get("roles", []))
-        if "Admin" in user_roles:
+        if user_roles & SUPER_ROLES:
             return current_user
         if not any(role in user_roles for role in required_roles):
             raise HTTPException(
@@ -137,7 +138,7 @@ def require_role(required_roles: list[str]):
 def require_permission(required_permissions: list[str]):
     def permission_checker(current_user: dict = Depends(get_current_user)):
         user_roles = set(current_user.get("roles", []))
-        if "Admin" in user_roles:
+        if user_roles & SUPER_ROLES:
             return current_user
         user_permissions = set(current_user.get("permissions", []))
         if not any(permission in user_permissions for permission in required_permissions):

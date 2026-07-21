@@ -64,7 +64,7 @@ function ReasonCodesPage() {
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ACTIVE")
   const [search, setSearch] = useState("")
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  const query = useReasonCodes(categoryFilter === "ALL" ? undefined : categoryFilter)
+  const query = useReasonCodes(categoryFilter === "ALL" ? undefined : categoryFilter, { includeInactive: true })
   const createReason = useCreateReasonCode()
   const updateReason = useUpdateReasonCode()
   const deleteReason = useDeleteReasonCode()

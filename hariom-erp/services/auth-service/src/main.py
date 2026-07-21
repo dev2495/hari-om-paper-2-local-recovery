@@ -72,7 +72,7 @@ def seed_rbac_defaults():
             role = roles_by_name[role_name]
             role.permissions = [perms_by_name[name] for name in permission_list]
 
-        # Existing local databases may still contain the old maker/checker release roles.
+        # Existing local databases may still contain retired release-specific roles.
         # Convert any manually created users to the condensed business role, then remove
         # seeded release-test accounts and role rows so they do not keep reappearing.
         for user in db.query(models.User).all():

@@ -170,7 +170,7 @@ def dashboard_overview(
     closed_orders = [so for so in sales_orders if so.get("status") == "closed"]
     fill_rate = (len(closed_orders) / total_so * 100.0) if total_so else 0.0
 
-    maker_checker_queue = len(
+    approval_queue = len(
         [so for so in sales_orders if so.get("status") in {"draft", "submitted"}]
     )
 
@@ -195,7 +195,7 @@ def dashboard_overview(
             "warning_or_higher": warning_or_higher,
             "critical": critical,
         },
-        "maker_checker_queue": maker_checker_queue,
+        "approval_queue": approval_queue,
     }
 
 
@@ -339,7 +339,7 @@ def dashboard_owner(
             "bamboo_alerts": overview["bamboo_alerts"],
         },
         "actions": {
-            "maker_checker_queue": int(overview["maker_checker_queue"]),
+            "approval_queue": int(overview["approval_queue"]),
             "capacity_alerts": int(overview["bamboo_alerts"]["warning_or_higher"]),
             "critical_alerts": int(overview["bamboo_alerts"]["critical"]),
             "delayed_dispatches": len(delayed_orders),

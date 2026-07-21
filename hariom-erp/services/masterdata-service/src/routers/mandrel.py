@@ -51,10 +51,13 @@ def _generated_mandrel_code(outer_diameter_mm: float, length_mm: float) -> str:
 @router.get("/", response_model=List[MandrelResponse])
 def get_mandrels(
     code: Optional[str] = Query(None, description="Filter by mandrel code"),
+    include_inactive: bool = Query(False, description="Include disabled mandrels for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope)
 ):
-    query = db.query(models.Mandrel).filter(models.Mandrel.active == True)
+    query = db.query(models.Mandrel)
+    if not include_inactive:
+        query = query.filter(models.Mandrel.active == True)
     query = apply_plant_scope(query, models.Mandrel.plant_id, plant_scope)
     if code:
         query = query.filter(models.Mandrel.mandrel_code.ilike(f"%{code}%"))

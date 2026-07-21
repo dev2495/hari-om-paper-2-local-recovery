@@ -949,7 +949,7 @@ def update_spec(
     if spec.status == "review":
         raise HTTPException(
             status_code=409,
-            detail="Specification is under Owner review. Return it to draft before editing.",
+            detail="Specification is under approval review. Return it to draft before editing.",
         )
 
     replacement = _replacement_spec_from_payload(
@@ -998,7 +998,7 @@ def submit_spec_for_review(
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
     if spec.status == "review":
-        return {"spec_id": str(spec.id), "status": "review", "message": "Specification is already under Owner review"}
+        return {"spec_id": str(spec.id), "status": "review", "message": "Specification is already under approval review"}
     if spec.status != "draft":
         raise HTTPException(status_code=409, detail="Only a saved draft can be submitted for review")
 
@@ -1080,7 +1080,7 @@ def submit_spec_for_review(
 
     spec.status = "review"
     db.commit()
-    return {"spec_id": str(spec.id), "status": "review", "message": "Specification submitted for Owner review"}
+    return {"spec_id": str(spec.id), "status": "review", "message": "Specification submitted for approval review"}
 
 
 class ApproveSpecPayload(BaseModel):
@@ -1092,7 +1092,7 @@ def approve_spec(
     payload: ApproveSpecPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Owner"]))
+    current_user: dict = Depends(require_role(["Owner", "Admin"]))
 ):
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,

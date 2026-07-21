@@ -359,6 +359,7 @@ export function isMasterOptionActive(row: any) {
   const blockedStatuses = new Set([
     "ARCHIVED",
     "DELETED",
+    "DISABLED",
     "DISCONTINUED",
     "INACTIVE",
     "MAINTENANCE",
@@ -366,6 +367,7 @@ export function isMasterOptionActive(row: any) {
     "RETIRED",
     "SCRAP",
     "SCRAPPED",
+    "UNAVAILABLE",
   ])
 
   return !(

@@ -260,7 +260,7 @@ def main() -> int:
     sales_checker_api, sales_checker_email = create_sales_actor(api, stamp=stamp, suffix="checker")
     report["checks"].append(
         {
-            "name": "sales maker/checker users",
+            "name": "sales approval users",
             "status": "passed",
             "maker": sales_maker_email,
             "checker": sales_checker_email,

@@ -1,4 +1,6 @@
 import { strict as assert } from "node:assert"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
 import {
   DEFAULT_SPEC_FIELD_DEFINITIONS,
@@ -155,7 +157,21 @@ test("discontinued and inactive master records are hidden from spec dropdowns", 
   assert.equal(isMasterOptionActive({ id: "discontinued", discontinued: true }), false)
   assert.equal(isMasterOptionActive({ id: "scrap", status: "SCRAPPED" }), false)
   assert.equal(isMasterOptionActive({ id: "maintenance", status: "MAINTENANCE" }), false)
+  assert.equal(isMasterOptionActive({ id: "disabled", status: "DISABLED" }), false)
+  assert.equal(isMasterOptionActive({ id: "unavailable", status: "UNAVAILABLE" }), false)
   assert.equal(isMasterOptionActive({ id: "deleted", deleted_at: "2026-07-02T00:00:00Z" }), false)
+})
+
+test("print contracts use one specification page and exactly two job-card sides", () => {
+  const specPrint = readFileSync(resolve(process.cwd(), "components/specs/print/SpecSheetPrint.tsx"), "utf8")
+  const jobCardPrint = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
+
+  assert.equal((specPrint.match(/<article className="spec-print-sheet"/g) || []).length, 1)
+  assert.match(specPrint, /@page\{size:A4 landscape;margin:5mm\}/)
+  assert.match(specPrint, /height:200mm!important/)
+  assert.equal((jobCardPrint.match(/<section className="job-print-side job-[a-z-]+-side">/g) || []).length, 2)
+  assert.match(jobCardPrint, /page-break-after: always !important/)
+  assert.match(jobCardPrint, /page-break-after: auto !important/)
 })
 
 test("tube size dropdown is limited to mandrel id plus or minus one mm", () => {

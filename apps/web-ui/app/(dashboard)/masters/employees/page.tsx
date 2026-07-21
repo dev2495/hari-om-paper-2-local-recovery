@@ -60,7 +60,7 @@ export default function EmployeesWrapper() {
 
 function EmployeesPage() {
   const { showToast } = useApp()
-  const employeesQuery = useEmployees()
+  const employeesQuery = useEmployees({ include_inactive: true })
   const createEmployee = useCreateEmployee()
   const updateEmployee = useUpdateEmployee()
   const deleteEmployee = useDeleteEmployee()

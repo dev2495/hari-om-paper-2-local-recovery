@@ -142,7 +142,7 @@ class EmployeeResponse(BaseModel):
 
 @employee_router.get("/", response_model=List[EmployeeResponse])
 def list_employees(
-    include_inactive: bool = True,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
@@ -359,7 +359,7 @@ class ShiftResponse(BaseModel):
 
 @shift_router.get("/", response_model=List[ShiftResponse])
 def list_shifts(
-    include_inactive: bool = True,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
@@ -744,7 +744,7 @@ class ReasonResponse(BaseModel):
 @reason_router.get("/", response_model=List[ReasonResponse])
 def list_reasons(
     category: Optional[str] = Query(None),
-    include_inactive: bool = True,
+    include_inactive: bool = False,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):

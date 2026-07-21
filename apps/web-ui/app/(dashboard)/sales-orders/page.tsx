@@ -366,7 +366,7 @@ export default function SalesOrdersPage() {
           <MetricCard
             label="Draft Queue"
             value={metrics.draftOrders.length}
-            detail="Needs maker-checker approval in this window"
+            detail="Draft orders awaiting commercial approval"
             icon={CheckCircle2}
             tone="amber"
           />

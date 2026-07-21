@@ -70,7 +70,7 @@ function fallbackTimeline(order: any) {
           id: `${order.id}:approved`,
           event_type: "SALES_ORDER_APPROVED",
           title: "Sales order approved",
-          message: "Maker-checker approval completed.",
+          message: "Commercial approval completed.",
           created_at: order.approved_at,
           actor: order.approved_by || "approver",
         }

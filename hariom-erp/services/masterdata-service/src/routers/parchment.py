@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
@@ -71,10 +71,13 @@ class ColorResponse(BaseModel):
 
 @router.get("/vendors", response_model=List[VendorResponse])
 def get_vendors(
+    include_inactive: bool = Query(False, description="Include disabled parchment vendors for maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.ParchmentVendor).filter(models.ParchmentVendor.active == True)
+    query = db.query(models.ParchmentVendor)
+    if not include_inactive:
+        query = query.filter(models.ParchmentVendor.active == True)
     query = apply_plant_scope(query, models.ParchmentVendor.plant_id, plant_scope)
     return query.order_by(models.ParchmentVendor.name.asc()).all()
 
@@ -185,10 +188,13 @@ def delete_vendor(
 @router.get("/colors", response_model=List[ColorResponse])
 def get_colors(
     vendor_id: Optional[uuid.UUID] = None,
+    include_inactive: bool = Query(False, description="Include disabled parchment colours for maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    query = db.query(models.ParchmentColor).filter(models.ParchmentColor.active == True)
+    query = db.query(models.ParchmentColor)
+    if not include_inactive:
+        query = query.filter(models.ParchmentColor.active == True)
     query = apply_plant_scope(query, models.ParchmentColor.plant_id, plant_scope)
     if vendor_id:
         query = query.filter(models.ParchmentColor.vendor_id == vendor_id)

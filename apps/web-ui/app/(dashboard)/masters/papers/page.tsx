@@ -5,7 +5,7 @@ import { PaperForm } from "@/components/forms/master-forms"
 import { usePapers, useCreatePaper, useUpdatePaper, useDeletePaper } from "@/hooks/use-master-data"
 
 export default function PapersPage() {
-  const { data, isLoading } = usePapers()
+  const { data, isLoading } = usePapers({ include_inactive: true })
   const createMutation = useCreatePaper()
   const updateMutation = useUpdatePaper()
   const deleteMutation = useDeletePaper()

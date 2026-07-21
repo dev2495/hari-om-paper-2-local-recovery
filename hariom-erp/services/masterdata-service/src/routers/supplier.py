@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, EmailStr
 from sqlalchemy.orm import Session
 
@@ -112,12 +112,11 @@ def _clean_code(value: str) -> str:
 
 @router.get("/", response_model=List[SupplierResponse])
 def get_suppliers(
-    include_inactive: bool = True,
+    include_inactive: bool = Query(False, description="Include disabled suppliers for master maintenance"),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
 ):
-    """Return suppliers in scope. Defaults to including inactive rows so the new
-    vendor cockpit can filter client-side."""
+    """Return active suppliers unless a maintenance screen requests history."""
     query = db.query(models.Supplier)
     if not include_inactive:
         query = query.filter(models.Supplier.active == True)

@@ -148,31 +148,31 @@ export const analyticsApi = {
 }
 
 export const masterApi = {
-  getPapers: () => api.get("/api/master/papers"),
+  getPapers: (params?: any) => api.get("/api/master/papers", { params }),
   createPaper: (data: any) => api.post("/api/master/papers", data),
   updatePaper: (id: string, data: any) => api.put(`/api/master/papers/${id}`, data),
   deletePaper: (id: string) => api.delete(`/api/master/papers/${id}`),
 
-  getAdhesives: () => api.get("/api/master/adhesives"),
+  getAdhesives: (params?: any) => api.get("/api/master/adhesives", { params }),
   createAdhesive: (data: any) => api.post("/api/master/adhesives", data),
   updateAdhesive: (id: string, data: any) => api.put(`/api/master/adhesives/${id}`, data),
   deleteAdhesive: (id: string) => api.delete(`/api/master/adhesives/${id}`),
 
-  getParchments: () => api.get("/api/master/parchments"),
+  getParchments: (params?: any) => api.get("/api/master/parchments", { params }),
   createParchment: (data: any) => api.post("/api/master/parchments", data),
   updateParchment: (id: string, data: any) => api.put(`/api/master/parchments/${id}`, data),
   deleteParchment: (id: string) => api.delete(`/api/master/parchments/${id}`),
-  getParchmentVendors: () => api.get("/api/master/parchment/vendors"),
+  getParchmentVendors: (params?: any) => api.get("/api/master/parchment/vendors", { params }),
   createParchmentVendor: (data: any) => api.post("/api/master/parchment/vendors", data),
   updateParchmentVendor: (id: string, data: any) => api.put(`/api/master/parchment/vendors/${id}`, data),
   deleteParchmentVendor: (id: string) => api.delete(`/api/master/parchment/vendors/${id}`),
 
-  getTubeSizes: () => api.get("/api/master/tube-sizes"),
+  getTubeSizes: (params?: any) => api.get("/api/master/tube-sizes", { params }),
   createTubeSize: (data: any) => api.post("/api/master/tube-sizes", data),
   updateTubeSize: (id: string, data: any) => api.put(`/api/master/tube-sizes/${id}`, data),
   deleteTubeSize: (id: string) => api.delete(`/api/master/tube-sizes/${id}`),
 
-  getMandrels: () => api.get("/api/master/mandrels"),
+  getMandrels: (params?: any) => api.get("/api/master/mandrels", { params }),
   createMandrel: (data: any) => api.post("/api/master/mandrels", data),
   updateMandrel: (id: string, data: any) => api.put(`/api/master/mandrels/${id}`, data),
   deleteMandrel: (id: string) => api.delete(`/api/master/mandrels/${id}`),
@@ -182,7 +182,7 @@ export const masterApi = {
   updateMachine: (id: string, data: any) => api.put(`/api/production/machines/${id}`, data),
   deleteMachine: (id: string) => api.delete(`/api/production/machines/${id}`),
 
-  getCustomers: () => api.get("/api/master/customers"),
+  getCustomers: (params?: any) => api.get("/api/master/customers", { params }),
   createCustomer: (data: any) => api.post("/api/master/customers", data),
   updateCustomer: (id: string, data: any) => api.put(`/api/master/customers/${id}`, data),
   deleteCustomer: (id: string) => api.delete(`/api/master/customers/${id}`),
@@ -194,11 +194,11 @@ export const masterApi = {
     api.delete(`/api/master/customers/${customerId}/contacts/${contactId}`),
   getContactDirectory: () => api.get("/api/master/contact-directory"),
 
-  getSuppliers: () => api.get("/api/master/suppliers"),
+  getSuppliers: (params?: any) => api.get("/api/master/suppliers", { params }),
   createSupplier: (data: any) => api.post("/api/master/suppliers", data),
   updateSupplier: (id: string, data: any) => api.put(`/api/master/suppliers/${id}`, data),
   deleteSupplier: (id: string) => api.delete(`/api/master/suppliers/${id}`),
-  getVendors: () => api.get("/api/master/vendors"),
+  getVendors: (params?: any) => api.get("/api/master/vendors", { params }),
   createVendor: (data: any) => api.post("/api/master/vendors", data),
   updateVendor: (id: string, data: any) => api.put(`/api/master/vendors/${id}`, data),
   deleteVendor: (id: string) => api.delete(`/api/master/vendors/${id}`),
@@ -207,11 +207,11 @@ export const masterApi = {
   updateVendorContact: (vendorId: string, contactId: string, data: any) =>
     api.put(`/api/master/vendors/${vendorId}/contacts/${contactId}`, data),
   // Shop-floor masters
-  getEmployees: () => api.get("/api/master/employees"),
+  getEmployees: (params?: any) => api.get("/api/master/employees", { params }),
   createEmployee: (data: any) => api.post("/api/master/employees", data),
   updateEmployee: (id: string, data: any) => api.put(`/api/master/employees/${id}`, data),
   deleteEmployee: (id: string) => api.delete(`/api/master/employees/${id}`),
-  getShifts: () => api.get("/api/master/shifts"),
+  getShifts: (params?: any) => api.get("/api/master/shifts", { params }),
   createShift: (data: any) => api.post("/api/master/shifts", data),
   updateShift: (id: string, data: any) => api.put(`/api/master/shifts/${id}`, data),
   deleteShift: (id: string) => api.delete(`/api/master/shifts/${id}`),
@@ -227,17 +227,17 @@ export const masterApi = {
   deleteVendorContact: (vendorId: string, contactId: string) =>
     api.delete(`/api/master/vendors/${vendorId}/contacts/${contactId}`),
 
-  getPackagingBoxes: () => api.get("/api/master/packaging/boxes"),
+  getPackagingBoxes: (params?: any) => api.get("/api/master/packaging/boxes", { params }),
   createPackagingBox: (data: any) => api.post("/api/master/packaging/boxes", data),
   updatePackagingBox: (id: string, data: any) => api.put(`/api/master/packaging/boxes/${id}`, data),
   deletePackagingBox: (id: string) => api.delete(`/api/master/packaging/boxes/${id}`),
 
-  getPackagingPlasticSheets: () => api.get("/api/master/packaging/plastic-sheets"),
+  getPackagingPlasticSheets: (params?: any) => api.get("/api/master/packaging/plastic-sheets", { params }),
   createPackagingPlasticSheet: (data: any) => api.post("/api/master/packaging/plastic-sheets", data),
   updatePackagingPlasticSheet: (id: string, data: any) => api.put(`/api/master/packaging/plastic-sheets/${id}`, data),
   deletePackagingPlasticSheet: (id: string) => api.delete(`/api/master/packaging/plastic-sheets/${id}`),
 
-  getPackagingFadda: () => api.get("/api/master/packaging/fadda"),
+  getPackagingFadda: (params?: any) => api.get("/api/master/packaging/fadda", { params }),
   createPackagingFadda: (data: any) => api.post("/api/master/packaging/fadda", data),
   updatePackagingFadda: (id: string, data: any) => api.put(`/api/master/packaging/fadda/${id}`, data),
   deletePackagingFadda: (id: string) => api.delete(`/api/master/packaging/fadda/${id}`),
