@@ -33,7 +33,6 @@ import {
 import { useApp } from "@/context/AppContext"
 import { useCustomers } from "@/hooks/use-master-data"
 import {
-  useMachines,
   usePlanningJobCards,
   useReleaseSyncSalesOrder,
 } from "@/hooks/use-production"
@@ -44,6 +43,12 @@ import {
   useSalesOrders,
 } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { productionApi } from "@/lib/api"
+import {
+  describeWinderAvailability,
+  getEligibleReleaseWinders,
+  type ReleaseMachine,
+} from "@/lib/sales-release"
 
 type SyncResultMap = Record<string, string[]>
 
@@ -103,11 +108,6 @@ function orderPlantId(order: any) {
   return value && value.toUpperCase() !== "ALL" ? value : undefined
 }
 
-function machineBelongsToPlant(machine: any, plantId?: string) {
-  if (!plantId) return true
-  return String(machine?.plant_id || machine?.plant || "").trim() === plantId
-}
-
 export default function SalesOrdersPage() {
   const router = useRouter()
   const { showToast } = useApp()
@@ -116,6 +116,8 @@ export default function SalesOrdersPage() {
   const [syncResults, setSyncResults] = useState<SyncResultMap>({})
   const [releaseDialogOrder, setReleaseDialogOrder] = useState<any | null>(null)
   const [releaseDraftRows, setReleaseDraftRows] = useState<ReleaseDraftRow[]>([])
+  const [releaseDialogWinderMachines, setReleaseDialogWinderMachines] = useState<ReleaseMachine[]>([])
+  const [releaseMachinesLoadingOrderId, setReleaseMachinesLoadingOrderId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState("open")
   const [pageSize, setPageSize] = useState(10)
   const [pageIndex, setPageIndex] = useState(0)
@@ -135,7 +137,6 @@ export default function SalesOrdersPage() {
 
   const ordersQuery = useSalesOrders(salesQueryParams)
   const customersQuery = useCustomers()
-  const machinesQuery = useMachines()
   const jobCardsQuery = usePlanningJobCards({ limit: 250 })
 
   const approveOrder = useApproveSalesOrder()
@@ -153,20 +154,6 @@ export default function SalesOrdersPage() {
       ),
     [customersQuery.data],
   )
-
-  const winderMachines = useMemo(
-    () =>
-      ((Array.isArray(machinesQuery.data) ? machinesQuery.data : []) as any[])
-        .filter((machine) => String(machine?.department || "").toUpperCase() === "WINDER")
-        .filter((machine) => String(machine?.status || "UP").toUpperCase() === "UP")
-        .sort((left, right) => String(left?.code || left?.name || "").localeCompare(String(right?.code || right?.name || ""))),
-    [machinesQuery.data],
-  )
-
-  const releaseDialogWinderMachines = useMemo(() => {
-    const plantId = orderPlantId(releaseDialogOrder)
-    return winderMachines.filter((machine) => machineBelongsToPlant(machine, plantId))
-  }, [releaseDialogOrder, winderMachines])
 
   const jobsByOrderId = useMemo(() => {
     const buckets = new Map<string, any[]>()
@@ -222,25 +209,42 @@ export default function SalesOrdersPage() {
     }
   }
 
-  const openReleaseDialog = (order: any) => {
+  const openReleaseDialog = async (order: any) => {
     const selectedLineIds = selectedLines[String(order.id)] || []
     if (selectedLineIds.length === 0) {
       showToast("Select one or more lines before opening the release planner.", "error")
       return
     }
-    const plantWinders = winderMachines.filter((machine) => machineBelongsToPlant(machine, orderPlantId(order)))
-    const defaultMachineId = String(plantWinders[0]?.id || "")
-    if (!defaultMachineId) {
-      showToast("No winder machine is available in this order's plant master data.", "error")
-      return
+
+    const orderId = String(order.id)
+    if (releaseMachinesLoadingOrderId === orderId) return
+
+    setReleaseMachinesLoadingOrderId(orderId)
+    try {
+      const plantId = orderPlantId(order)
+      const response = await productionApi.getMachines({ department: "WINDER" }, plantId)
+      const plantWinders = getEligibleReleaseWinders(response.data)
+      const defaultMachineId = String(plantWinders[0]?.id || "")
+      if (!defaultMachineId) {
+        showToast(describeWinderAvailability(response.data), "error")
+        return
+      }
+
+      setReleaseDialogWinderMachines(plantWinders)
+      setReleaseDialogOrder(order)
+      setReleaseDraftRows(buildReleaseRows(order, selectedLineIds, defaultMachineId))
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Unable to load this plant's winder masters."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    } finally {
+      setReleaseMachinesLoadingOrderId(null)
     }
-    setReleaseDialogOrder(order)
-    setReleaseDraftRows(buildReleaseRows(order, selectedLineIds, defaultMachineId))
   }
 
   const closeReleaseDialog = () => {
     setReleaseDialogOrder(null)
     setReleaseDraftRows([])
+    setReleaseDialogWinderMachines([])
   }
 
   const updateReleaseDraftRow = (lineId: string, patch: Partial<ReleaseDraftRow>) => {
@@ -606,12 +610,15 @@ export default function SalesOrdersPage() {
                             disabled={
                               releaseSync.isPending ||
                               releaseOrder.isPending ||
+                              releaseMachinesLoadingOrderId === String(order.id) ||
                               selectedLineIds.length === 0 ||
                               !["approved", "released", "partially_released", "partially_dispatched"].includes(order.status)
                             }
                             className="w-full rounded-[1.1rem] bg-slate-900 px-4 py-3.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            Release selected lines to planner
+                            {releaseMachinesLoadingOrderId === String(order.id)
+                              ? "Loading this plant's winders..."
+                              : "Release selected lines to planner"}
                           </button>
 
                           {hasSyncedJobs ? (

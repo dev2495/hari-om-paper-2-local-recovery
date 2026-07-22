@@ -404,6 +404,68 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
   await assertCritical()
 })
 
+test("Plant II sales release resolves its active winder masters and creates the planner cut", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+
+  await login(page, "admin")
+  const plantId = browserFixture?.users?.sales_maker_b?.plant_id
+  expect(plantId, "Plant II user fixture must carry a concrete plant id").toBeTruthy()
+  const customerCode = `E2E-B-${Date.now()}`
+  const customerResponse = await page.request.post("/api/master/customers", {
+    headers: { "X-Plant-ID": plantId },
+    data: {
+      customer_code: customerCode,
+      name: `Plant II Release Customer ${customerCode}`,
+      contact_email: null,
+      contact_phone: null,
+    },
+  })
+  expect(customerResponse.ok(), "Plant II release test customer should be created through the master API").toBeTruthy()
+  await logout(page)
+
+  await login(page, "sales_maker_b")
+  await page.goto("/sales-orders/new", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("sales-orders:create-form")).toBeVisible()
+  await pickFirstSelectOption(page, "sales-orders:customer")
+  await pickFirstSelectOption(page, "sales-orders:spec")
+  await page.getByTestId("sales-orders:qty").fill("32")
+  await page.getByTestId("sales-orders:due-date").fill(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
+  await page.getByTestId("sales-orders:notes").fill("Plant II winder lookup regression order")
+  await Promise.all([
+    page.waitForURL(/\/sales-orders\/(?!new$)[^/]+(\/tracking)?$/, { timeout: 20_000 }),
+    page.getByTestId("sales-orders:create-submit").click(),
+  ])
+  const createdOrderId = new URL(page.url()).pathname.split("/")[2]
+  expect(createdOrderId).toBeTruthy()
+
+  await logout(page)
+  await login(page, "sales_approver_b")
+  await page.goto("/sales-orders", { waitUntil: "domcontentloaded" })
+  const orderRow = page.locator(`[data-order-id="${createdOrderId}"]`)
+  await expect(orderRow).toBeVisible({ timeout: 20_000 })
+  await orderRow.getByRole("button", { name: /approve/i }).click()
+  const releaseCheckbox = orderRow.getByRole("checkbox").first()
+  await expect(releaseCheckbox).toBeEnabled({ timeout: 20_000 })
+  await releaseCheckbox.check()
+  await orderRow.getByRole("button", { name: /release selected/i }).click()
+
+  const targetWinder = page.getByTestId("sales-orders:release-winder").first()
+  await expect(targetWinder).toBeVisible({ timeout: 20_000 })
+  const selectedWinderId = await targetWinder.inputValue()
+  expect(selectedWinderId, "Plant II release should default an active winder from its scoped masters").toBeTruthy()
+
+  const confirmRelease = page.getByTestId("sales-orders:confirm-release")
+  await Promise.all([
+    page.waitForResponse(
+      (response) => response.url().includes(`/api/production/sales-orders/${createdOrderId}/release-sync`) && response.status() < 400,
+      { timeout: 60_000 },
+    ),
+    confirmRelease.click(),
+  ])
+  await expect(page).toHaveURL(new RegExp(`/planning/board\\?section=winder&order_id=${createdOrderId}`), { timeout: 20_000 })
+  await assertCritical()
+})
+
 test("real seeded users enforce route separation and role guards", async ({ page }) => {
   const assertCritical = beginCriticalMonitoring(page)
 

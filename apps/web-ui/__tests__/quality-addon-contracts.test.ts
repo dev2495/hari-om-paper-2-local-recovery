@@ -20,6 +20,10 @@ import {
   TOOL_MASTER_POINT_FIELDS,
 } from "../lib/spec-sheet"
 import { allocateAdhesivePlies } from "../lib/spec-print"
+import {
+  describeWinderAvailability,
+  getEligibleReleaseWinders,
+} from "../lib/sales-release"
 
 const passed: string[] = []
 const failed: { name: string; error: unknown }[] = []
@@ -162,6 +166,33 @@ test("discontinued and inactive master records are hidden from spec dropdowns", 
   assert.equal(isMasterOptionActive({ id: "disabled", status: "DISABLED" }), false)
   assert.equal(isMasterOptionActive({ id: "unavailable", status: "UNAVAILABLE" }), false)
   assert.equal(isMasterOptionActive({ id: "deleted", deleted_at: "2026-07-02T00:00:00Z" }), false)
+})
+
+test("sales release offers only active UP winders from the server-scoped plant result", () => {
+  assert.deepEqual(
+    getEligibleReleaseWinders([
+      { id: "w2", code: "W-02", department: "WINDER", status: "UP", is_active: true },
+      { id: "w1", code: "W-01", department: "WINDER", status: "UP", active: true },
+      { id: "maint", code: "W-03", department: "WINDER", status: "MAINT", is_active: true },
+      { id: "inactive", code: "W-04", department: "WINDER", status: "UP", is_active: false },
+      { id: "oven", code: "O-01", department: "OVEN", status: "UP", is_active: true },
+    ]).map((machine) => machine.id),
+    ["w1", "w2"],
+  )
+})
+
+test("sales release explains missing and unavailable winder master states", () => {
+  assert.match(
+    describeWinderAvailability([{ department: "WINDER", status: "DOWN", is_active: true }]),
+    /none is UP/i,
+  )
+  assert.match(describeWinderAvailability([]), /No active WINDER master/i)
+})
+
+test("sales release resolves winders through the order plant instead of browser-side plant equality", () => {
+  const salesPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
+  assert.match(salesPage, /productionApi\.getMachines\(\{ department: "WINDER" \}, plantId\)/)
+  assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
 })
 
 test("print contracts use one specification page and exactly two job-card sides", () => {

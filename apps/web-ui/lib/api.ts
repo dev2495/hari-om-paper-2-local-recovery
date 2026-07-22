@@ -328,7 +328,8 @@ export const productionApi = {
   closeJob: (id: string, data: any) => api.post(`/api/production/jobs/${id}/close`, data),
   addReel: (jobId: string, data: any) => api.post(`/api/production/jobs/${jobId}/reels`, data),
   getReels: (jobId: string) => api.get(`/api/production/jobs/${jobId}/reels`),
-  getMachines: () => api.get("/api/production/machines"),
+  getMachines: (params?: any, plantId?: string) =>
+    api.get("/api/production/machines", { params, ...(withPlantHeader(plantId) || {}) }),
   createPlanningSalesOrder: (data: any) => api.post("/api/production/sales-orders", data),
   releaseSyncSalesOrder: (salesOrderId: string, data: any, plantId?: string) =>
     api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
