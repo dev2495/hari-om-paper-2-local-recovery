@@ -715,6 +715,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         return {
           ...component,
           adhesive_id: String(master.id || "") || undefined,
+          item_code: String(master.internal_code || master.code || component.item_code || "").trim() || undefined,
           name: adhesiveMasterLabel(master),
           solid_content_percent:
             master.solid_content_percent === null || master.solid_content_percent === undefined
@@ -731,6 +732,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       const current = form.adhesiveComponents[index]
       return (
         component.adhesive_id !== current?.adhesive_id ||
+        component.item_code !== current?.item_code ||
         component.name !== current?.name ||
         component.solid_content_percent !== current?.solid_content_percent
       )
@@ -1437,8 +1439,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       spec: specDocument.spec,
       latestRecipe: specDocument.latestRecipe,
       latestApprovedTrial,
+      paperMasterIds: Array.from(paperMap.keys()).sort(),
     })
-  }, [latestApprovedTrial, mode, specDocument])
+  }, [latestApprovedTrial, mode, paperMap, specDocument])
 
   useEffect(() => {
     if (!specDocument?.spec || !specHydrationSignature || loadedSpecSignature === specHydrationSignature) return
@@ -1466,24 +1469,38 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       title: "Reference sketch",
     })
 
-    let recipeRows = recipeJson.rows || []
+    let recipeRows = (recipeJson.rows || []).filter((row) => String(row?.paper_id || "").trim())
     if ((!recipeRows || recipeRows.length === 0) && specDocument.latestRecipe?.layers?.length) {
-      recipeRows = specDocument.latestRecipe.layers.map((layer, index) => {
-        const paper = paperMap.get(layer.paper_id)
+      const groupedLayers = new Map<string, typeof specDocument.latestRecipe.layers>()
+      for (const layer of specDocument.latestRecipe.layers) {
+        const paperId = String(layer.paper_id || "")
+        if (!paperId) continue
+        groupedLayers.set(paperId, [...(groupedLayers.get(paperId) || []), layer])
+      }
+      recipeRows = Array.from(groupedLayers.entries()).map(([paperId, layers], index) => {
+        const firstLayer = layers[0]
+        const paper = paperMap.get(paperId)
         const labels = buildGroupedRowLabel(paper)
-        return {
-          id: `existing-${index}-${layer.ply_no}`,
-          paper_id: layer.paper_id,
+        const masterBackedRow = applyPaperMasterToRecipeRow({
+          id: `existing-${index}-${paperId}`,
+          paper_id: paperId,
           code: labels.code,
           variety: labels.variety,
           category: labels.category,
-          gsm: Number(layer.gsm_snapshot || paper?.gsm || 0),
-          bfPerPly: Number(layer.bf_snapshot || 0),
+          gsm: Number(firstLayer?.gsm_snapshot || paper?.gsm || 0),
+          bfPerPly: Number(firstLayer?.bf_snapshot || 0),
           thicknessPerPly: 0,
-          plyBond: Number(spec.required_cs || 0),
-          plyCount: 1,
+          bulkFactor: Number(firstLayer?.bulk_snapshot || 0),
+          plyBond: Number(paper?.ply_bond || 0),
+          plyCount: layers.length,
           adhesiveLabel: index % 2 === 0 ? "TL-4" : "Vinsol",
-          positionsText: String(layer.ply_no),
+          positionsText: layers.map((layer) => String(layer.ply_no)).join(","),
+        }, paper)
+        return {
+          ...masterBackedRow,
+          gsm: Number(firstLayer?.gsm_snapshot || masterBackedRow.gsm || 0),
+          bfPerPly: Number(firstLayer?.bf_snapshot || masterBackedRow.bfPerPly || 0),
+          bulkFactor: Number(firstLayer?.bulk_snapshot || masterBackedRow.bulkFactor || 0),
         }
       })
     }
@@ -2405,16 +2422,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           code: row.code,
           variety: row.variety,
           gsm: Number(previewRow?.gsm || row.gsm || 0),
-          bf: Number(row.bfPerPly || 0),
-          thickness: Number(row.thicknessPerPly || 0),
+          plyBond: Number(row.plyBond || 0),
+          bulk: Number(row.bulkFactor || 0),
           weight: Number(previewRow?.weightG || 0),
           plies: Number(row.plyCount || 0),
-          positions: row.positionsText || encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount)),
         }
       })
     const actualHeight = Number(form.dynamicValues.actual_tube_height_mm || selectedTube?.length_mm || form.averages.length || 0)
+    const selectedToolValue = (fieldKey: string) =>
+      selectedNotchToolEntries.find((entry) => entry.field_key === fieldKey)?.tool_name || ""
     const printData = {
-      company: "Hari Om Paper",
+      company: "Amigo Industries / Hariom Paper Products",
       customer: selectedCustomer?.name || specDocument?.spec?.customer_name || "",
       reference: sheetReference,
       version: `v${specDocument?.spec?.version || 1}`,
@@ -2425,16 +2443,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       geometry: [
         { label: "Mandrel / ID", value: `${selectedMandrel?.mandrel_code || ""} · ${Number(form.averages.id || 0).toFixed(2)} mm` },
         { label: "OD", value: `${Number(form.averages.od || 0).toFixed(2)} mm` },
-        { label: "Wall", value: `${thicknessFrom(Number(form.averages.id || 0), Number(form.averages.od || 0)).toFixed(3)} mm` },
-        { label: "Actual height", value: `${actualHeight.toFixed(2)} mm` },
-        { label: "Dry target", value: `${targetDryTube.toFixed(2)} g` },
-        { label: "Tolerance", value: `±${DELTA_ABS_G.toFixed(0)} g` },
+        { label: "Length", value: `${actualHeight.toFixed(2)} mm` },
+        { label: "Dry weight", value: `${targetDryTube.toFixed(2)} g` },
         { label: "CS", value: `${Number(form.averages.cs || 0).toFixed(2)} kgf` },
+        { label: "Thickness", value: `${thicknessFrom(Number(form.averages.id || 0), Number(form.averages.od || 0)).toFixed(3)} mm` },
         { label: "Moisture loss", value: `${Number(form.shrinkPercent || 9).toFixed(2)}%` },
+        { label: "Pcs / bamboo", value: `${tubesPerBamboo.toFixed(0)} pcs` },
       ],
       recipe: printRecipe,
       adhesive: targetAdhesiveComponents.map((component: any) => ({
-        name: String(component?.name || "Adhesive"),
+        code: String(component?.item_code || component?.internal_code || component?.name || "Adhesive"),
         ratio: Number(component?.ratio_percent || 0),
         weight: Number(component?.weight_g || 0),
       })),
@@ -2442,33 +2460,41 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         paper: livePaperTotal,
         adhesive: targetAdhesiveWeight,
         parchment: targetParchmentWeight,
-        wet: liveWetTube,
-        dry: liveDryTube,
-        targetDry: targetDryTube,
-        variance: measuredDryTube > 0 ? measuredDryTube - targetDryTube : liveDryDelta,
-        idDelta: liveIdDeltaMm,
-        odDelta: liveOdDeltaMm,
       },
-      process: [
-        { label: "Wet tube target", value: `${targetWetTube.toFixed(2)} g` },
-        { label: "Combined additions", value: `${targetTotalAdditionsWeight.toFixed(2)} g (${totalMaterialPercent.toFixed(2)}%)` },
-        { label: "Wet paper target", value: `${targetPaperWeight.toFixed(2)} g` },
-        { label: "Geometric paper", value: `${livePaperTotal.toFixed(2)} g` },
-        { label: "Bamboo wet / dry", value: `${bambooWetWeightG.toFixed(2)} / ${bambooDryWeightG.toFixed(2)} g` },
-        { label: "Trim wet / dry", value: `${bambooTrimWetWeightG.toFixed(2)} / ${bambooTrimDryWeightG.toFixed(2)} g` },
-        { label: "Whole bamboo wet / dry", value: `${wholeBambooWetWeightG.toFixed(2)} / ${wholeBambooDryWeightG.toFixed(2)} g` },
-        { label: "Tubes / bamboo", value: `${tubesPerBamboo.toFixed(0)} pcs` },
-        { label: "Bamboo / usable", value: `${selectedBambooLengthMm.toFixed(0)} / ${usableBambooLengthMm.toFixed(0)} mm` },
-        { label: "Finished / trim", value: `${finishedBambooLengthMm.toFixed(0)} / ${totalTrimMm.toFixed(0)} mm` },
-        { label: "Main GSM helper", value: `${mainPaperGsmGuide.toFixed(0)} ±50 GSM` },
-        { label: "Measured finished dry", value: measuredDryTube > 0 ? `${measuredDryTube.toFixed(2)} g` : "Not recorded" },
-      ],
+      bamboo: {
+        wet: [
+          { label: "ID", value: `${manufacturingAverages.id.toFixed(2)} mm` },
+          { label: "OD", value: `${manufacturingAverages.od.toFixed(2)} mm` },
+          { label: "Length", value: `${selectedBambooLengthMm.toFixed(0)} mm` },
+          { label: "Weight", value: `${wholeBambooWetWeightG.toFixed(2)} g` },
+          { label: "CS", value: `${Number(form.averages.cs || 0).toFixed(2)} kgf` },
+        ],
+        dry: [
+          { label: "ID", value: `${Number(form.averages.id || 0).toFixed(2)} mm` },
+          { label: "OD", value: `${Number(form.averages.od || 0).toFixed(2)} mm` },
+          { label: "Length", value: `${selectedBambooLengthMm.toFixed(0)} mm` },
+          { label: "Weight", value: `${wholeBambooDryWeightG.toFixed(2)} g` },
+          { label: "CS", value: `${Number(form.averages.cs || 0).toFixed(2)} kgf` },
+        ],
+        allowance: [
+          { label: "Usable length", value: `${usableBambooLengthMm.toFixed(0)} mm` },
+          { label: "Finished length", value: `${finishedBambooLengthMm.toFixed(0)} mm` },
+          { label: "Trim length", value: `${totalTrimMm.toFixed(0)} mm` },
+          { label: "Finished wet", value: `${bambooWetWeightG.toFixed(2)} g` },
+          { label: "Finished dry", value: `${bambooDryWeightG.toFixed(2)} g` },
+          { label: "Trim wet / dry", value: `${bambooTrimWetWeightG.toFixed(2)} / ${bambooTrimDryWeightG.toFixed(2)} g` },
+        ],
+      },
       tooling: [
         { label: "Notch type", value: optionValue(form.dynamicValues.notch_type) },
+        { label: "Blade", value: selectedToolValue("notching_blade") },
+        { label: "Holder", value: selectedToolValue("notching_holder") },
         { label: "Direction", value: optionValue(form.dynamicValues.notch_direction) },
+        { label: "Notch tool", value: selectedToolValue("notch_type") },
         { label: "Distance", value: `${computedNotchDiagram.notchDistanceMm.toFixed(2)} mm` },
         { label: "Depth", value: `${computedNotchDiagram.notchDepthMm.toFixed(2)} mm` },
-        ...selectedNotchToolEntries.map((entry) => ({ label: entry.label, value: entry.tool_name })),
+        { label: "V + flat", value: selectedToolValue("v_flat") },
+        { label: "Punch", value: selectedToolValue("punch") },
       ],
       packing: [
         { label: "Box", value: `${optionValue(form.dynamicValues.box_code || form.dynamicValues.box)} · ${optionValue(form.dynamicValues.box_size || selectedPackagingBox?.size_label)}` },
@@ -2931,6 +2957,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                               updateAdhesiveComponent(index, {
                                 name: nextValue,
                                 adhesive_id: master?.id ? String(master.id) : undefined,
+                                item_code: String(master?.internal_code || master?.code || "").trim() || undefined,
                                 solid_content_percent:
                                   master?.solid_content_percent === null || master?.solid_content_percent === undefined
                                     ? null

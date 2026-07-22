@@ -14,10 +14,12 @@ import {
   NOTCH_DIRECTION_OPTIONS,
   NOTCH_TOOL_FIELD_CATEGORY_MAP,
   NOTCH_TOOL_FIELD_KEYS,
+  parseAdhesiveComponents,
   SPEC_NOTCH_FIELD_KEYS,
   TOOL_CATEGORY_LABELS,
   TOOL_MASTER_POINT_FIELDS,
 } from "../lib/spec-sheet"
+import { allocateAdhesivePlies } from "../lib/spec-print"
 
 const passed: string[] = []
 const failed: { name: string; error: unknown }[] = []
@@ -172,6 +174,24 @@ test("print contracts use one specification page and exactly two job-card sides"
   assert.equal((jobCardPrint.match(/<section className="job-print-side job-[a-z-]+-side">/g) || []).length, 2)
   assert.match(jobCardPrint, /page-break-after: always !important/)
   assert.match(jobCardPrint, /page-break-after: auto !important/)
+})
+
+test("spec print allocates adhesive parts to exact whole plies", () => {
+  assert.deepEqual(
+    allocateAdhesivePlies([{ ratio: 7 }, { ratio: 33 }, { ratio: 60 }], 14),
+    [1, 5, 8],
+  )
+  assert.equal(allocateAdhesivePlies([{ ratio: 30 }, { ratio: 70 }], 25).reduce((sum, value) => sum + value, 0), 25)
+  assert.deepEqual(allocateAdhesivePlies([{ ratio: 0 }], 14), [0])
+})
+
+test("adhesive print identity preserves the saved master item code", () => {
+  const components = parseAdhesiveComponents(
+    JSON.stringify([{ item_code: "20100-A", name: "TL4 / Vinsol", base_percent: 12.5, ratio_percent: 100 }]),
+    12.5,
+  )
+  assert.equal(components[0]?.item_code, "20100-A")
+  assert.equal(components[0]?.name, "TL4 / Vinsol")
 })
 
 test("tube size dropdown is limited to mandrel id plus or minus one mm", () => {

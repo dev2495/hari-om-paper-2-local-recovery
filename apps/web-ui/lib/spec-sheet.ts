@@ -347,6 +347,7 @@ export type GroupedRecipeRow = {
 
 export type AdhesiveComponent = {
   adhesive_id?: string
+  item_code?: string
   name: string
   base_percent: number
   ratio_percent: number
@@ -657,12 +658,14 @@ export function parseAdhesiveComponents(value: string | undefined, fallbackBaseP
         if (!name || !Number.isFinite(base_percent) || !Number.isFinite(ratio_percent)) return null
         if (base_percent <= 0 || ratio_percent <= 0) return null
         const adhesive_id = String(source.adhesive_id || source.id || "").trim() || undefined
+        const item_code = String(source.item_code || source.internal_code || source.code || "").trim() || undefined
         const rawSolids = source.solid_content_percent
         const solid_content_percent = rawSolids === null || rawSolids === undefined || rawSolids === ""
           ? null
           : Number(rawSolids)
         return {
           adhesive_id,
+          item_code,
           name,
           base_percent,
           ratio_percent,
@@ -689,7 +692,7 @@ export function buildAdhesiveComponentsPayload(
   const tl4 = Number(fallback.tl4 ?? 0)
   const vinsol = Number(fallback.vinsol ?? 0)
   const legacy: AdhesiveComponent[] = []
-  if (tl4 > 0) legacy.push({ name: "TL4(Vinsol) / 20100", base_percent: basePercent, ratio_percent: tl4 })
-  if (vinsol > 0) legacy.push({ name: "Alcosol / 30100", base_percent: basePercent, ratio_percent: vinsol })
+  if (tl4 > 0) legacy.push({ item_code: "20100", name: "TL4(Vinsol) / 20100", base_percent: basePercent, ratio_percent: tl4 })
+  if (vinsol > 0) legacy.push({ item_code: "30100", name: "Alcosol / 30100", base_percent: basePercent, ratio_percent: vinsol })
   return legacy
 }

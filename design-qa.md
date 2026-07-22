@@ -1,24 +1,40 @@
-# Specification Sheet Design QA
+# Specification Sheet Print Design QA
 
-Date: 2026-07-17
+Date: 2026-07-22
 
 ## Compared states
 
-- Client reference: `Screenshot 2026-07-17 at 4.04.06 PM.png`
-- Safari implementation capture: `artifacts/design-qa/spec-recipe-safari.jpeg`
-- Combined comparison: `artifacts/design-qa/spec-reference-comparison.jpg`
+- Client markup: `WhatsApp Image 2026-07-22 at 14.06.40.jpeg`
+- Client hand sketch: `WhatsApp Image 2026-07-22 at 14.24.49.jpeg`
+- Browser implementation: `output/audit/spec-print-client-2026-07-22/local-print-sheet-final-font.png`
+- Rendered one-page PDF: `output/pdf/rendered/spec-sheet-client-layout.png`
 
-## Review
+## Client-layout coverage
 
-- Removed the redundant formula strip so the page begins with client requirements.
-- Preserved the existing TubeOS shell, typography, colors, spacing system, cards, and table treatment.
-- Replaced target-reconciled wording with explicit actual paper, actual finished wet, client wet target, and variance labels.
-- Added the selected-recipe comparison directly below the paper table.
-- Increased recipe capacity to 10 distinct paper masters and 25 total plies without increasing page height.
-- Rebuilt the paper picker as a body-level fixed overlay so the menu is not clipped by the recipe table or card overflow.
-- Added searchable, structured picker results with code, variety/category, GSM, active count, and selected state.
-- Updated adhesive guidance for up to six components, an exact 100% split, and live per-component gram weights.
-- Checked the implementation and supplied reference together in one side-by-side visual input at a matched height.
-- No visible overlap, cropped content, broken border, inconsistent radius, or excessive empty section remains in the reviewed specification and recipe viewport.
+- Uses the supplied Amigo Industries / Hariom Paper Products logo asset rather than a placeholder mark.
+- Header is limited to customer, version, status, prepared date, and validity.
+- The requested production strip contains mandrel/ID, OD, length, dry weight, CS, thickness, moisture loss, and pieces per bamboo.
+- Removed the crossed-out calculated KPI strip from the print document.
+- Paper recipe contains code, variety, GSM, plybond, bulk, weight, and number of plies; row count and total plies are visible.
+- Adhesive breakdown contains code, integer ply allocation, percentage part, live weight, total adhesive, and parchment.
+- Wet and dry bamboo targets contain ID, OD, length, weight, and CS.
+- Bamboo allowance shows usable length, finished length, trim length, finished wet/dry, and trim wet/dry.
+- Notch/tooling and packing are compact side-by-side blocks in the exact requested operating order.
+- Prepared-by, production sign-off, notes, release blockers, controlled-document identity, and live status remain visible.
+
+## Visual and print checks
+
+- Browser print sheet measured 1,122.52 px by 755.90 px with `scrollHeight === clientHeight` (754 px); no content overflows the print sheet.
+- A4 landscape PDF inspection reports exactly one page at 841.92 x 595.20 points.
+- The rendered PDF has no cropped tables, overlapping labels, broken borders, split rows, or detached footer.
+- Dense recipe text remains legible while the page preserves the client's compact factory-document hierarchy.
+- Empty recipe/tool/packing capacity stays inside its assigned panel rather than creating extra pages.
+
+## Data and behavior checks
+
+- Approved legacy recipe snapshots now fall back to authoritative recipe layers when old JSON rows do not carry paper IDs, preserving real master data in print.
+- Paper rows retain distinct master identity and group only matching papers; the populated QA record renders six paper rows and fourteen plies.
+- Adhesive percentage splits are converted to whole-number plies with a largest-remainder allocation, and the allocated plies always equal total recipe plies.
+- Paper and adhesive limits remain supported by the production form: ten distinct paper masters, twenty-five total plies, and six adhesive components.
 
 final result: passed
