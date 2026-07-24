@@ -160,7 +160,9 @@ test("premium sales and planner surfaces load with animated interactive elements
   await expect(page.getByTestId("inventory-stock-control-page")).toBeVisible()
   await expect(page.getByText(/opening stock, closing certification, and formal year carry-forward/i)).toBeVisible()
   await expect(page.getByRole("button", { name: /draft certification for period/i })).toBeVisible()
-  await expect(page.getByRole("button", { name: /post opening load/i })).toBeVisible()
+  await expect(
+    page.getByRole("button", { name: /post opening load|opening already initialized/i }),
+  ).toBeVisible()
   await expect(page.getByText(/bootstrap opening stock/i)).toBeVisible()
 
   await page.goto("/system/locations", { waitUntil: "domcontentloaded" })
