@@ -24,6 +24,7 @@ import {
   describeWinderAvailability,
   getEligibleReleaseWinders,
 } from "../lib/sales-release"
+import { resolveSpecSummary } from "../lib/spec-summary"
 
 const passed: string[] = []
 const failed: { name: string; error: unknown }[] = []
@@ -301,6 +302,57 @@ test("applied paper recipe groups repeated papers into a compact ply summary", (
     ]),
     "KRAFT-250-18BF × 2 · KRAFT-300-18BF × 3",
   )
+})
+
+test("spec summaries prefer exact saved averages and entered actual height", () => {
+  const summary = resolveSpecSummary({
+    id_min_mm: 124.5,
+    id_max_mm: 125.5,
+    od_min_mm: 136.5,
+    od_max_mm: 138.5,
+    length_min_mm: 118,
+    length_max_mm: 122,
+    target_tube_weight: 245,
+    required_cs: 350,
+    profile: {
+      dimensions: {
+        id_mm: { avg: 125.55, min: 124.5, max: 125.5 },
+        od_mm: { avg: 137, min: 136.5, max: 138.5 },
+        length_mm: { avg: 120, min: 118, max: 122 },
+      },
+      quality_targets: {
+        tube_weight_g: { avg: 252.75 },
+        cs_n: { avg: 350 },
+      },
+    },
+    dynamic_fields: [{ field_key: "actual_tube_height_mm", value: "119.9" }],
+  })
+
+  assert.equal(summary.idMm, 125.55)
+  assert.equal(summary.odMm, 137)
+  assert.equal(summary.designLengthMm, 120)
+  assert.equal(summary.actualHeightMm, 119.9)
+  assert.equal(summary.actualHeightSource, "entered")
+  assert.equal(summary.targetWeightG, 252.75)
+})
+
+test("spec actual height falls back without changing design length", () => {
+  const summary = resolveSpecSummary(
+    {
+      id_min_mm: 124,
+      id_max_mm: 126,
+      od_min_mm: 136,
+      od_max_mm: 138,
+      length_min_mm: 119,
+      length_max_mm: 121,
+      dynamic_fields: [{ field_key: "actual_tube_height_mm", value: "" }],
+    },
+    { length_mm: 122 },
+  )
+
+  assert.equal(summary.designLengthMm, 120)
+  assert.equal(summary.actualHeightMm, 122)
+  assert.equal(summary.actualHeightSource, "tube-master")
 })
 
 if (failed.length) {

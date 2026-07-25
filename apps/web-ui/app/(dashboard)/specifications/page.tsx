@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data"
 import { specApi } from "@/lib/api"
+import { formatSpecMeasure, resolveSpecSummary } from "@/lib/spec-summary"
 import { cn } from "@/lib/utils"
 
 const STATUS_FILTERS = ["all", "draft", "review", "trial", "approved", "obsolete"] as const
@@ -317,6 +318,7 @@ export default function SpecificationsIndexPage() {
             const mandrel = mandrelMap[String(spec.mandrel_id)]
             const customer = customerMap[String(spec.customer_id)]
             const profileRecipeRows = Array.isArray(spec.profile?.recipe?.recipe_rows) ? spec.profile.recipe.recipe_rows : []
+            const summary = resolveSpecSummary(spec, tubeSize)
 
             return (
               <article
@@ -341,21 +343,28 @@ export default function SpecificationsIndexPage() {
                     <h2 className="mt-3 text-2xl font-semibold text-slate-950">{resolveSpecTitle(spec)}</h2>
                     <p className="mt-2 max-w-3xl text-sm text-slate-600">
                       {(customer?.name || spec.customer_name_snapshot || spec.customer_name || "Customer pending")} ·{" "}
-                      {(tubeSize?.name || tubeSize?.internal_code || "Tube size pending")} ·{" "}
+                      {summary.tubeLabel} ·{" "}
                       {(mandrel?.mandrel_code || mandrel?.name || "Mandrel pending")}
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-4">
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Client Range</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Client Dimensions</p>
                         <p className="mt-2 text-sm font-medium text-slate-900">
-                          ID {spec.id_max_mm || spec.id_min_mm || "-"} / OD {spec.od_max_mm || spec.od_min_mm || "-"}
+                          ID {formatSpecMeasure(summary.idMm)} / OD {formatSpecMeasure(summary.odMm)}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">Length {spec.length_max_mm || spec.length_min_mm || "-"}</p>
+                        <p className="mt-1 text-xs text-slate-500" data-testid={`spec-summary-height-${spec.id}`}>
+                          Actual height {formatSpecMeasure(summary.actualHeightMm)} mm
+                          {summary.actualHeightSource === "entered"
+                            ? " · entered"
+                            : summary.actualHeightSource === "tube-master"
+                              ? " · tube master default"
+                              : " · specification default"}
+                        </p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Strength</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">CS {spec.required_cs || "-"}</p>
-                        <p className="mt-1 text-xs text-slate-500">Target wt. {spec.target_tube_weight || "-"} g</p>
+                        <p className="mt-2 text-sm font-medium text-slate-900">CS {formatSpecMeasure(summary.requiredCs)}</p>
+                        <p className="mt-1 text-xs text-slate-500">Target wt. {formatSpecMeasure(summary.targetWeightG)} g</p>
                       </div>
                       <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Recipe</p>

@@ -18,6 +18,7 @@ import { PaperPicker } from "@/components/specs/shared/PaperPicker"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
+import { resolveSpecSummary } from "@/lib/spec-summary"
 import { DELTA_ABS_G, RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
 import {
   useAdhesives,
@@ -1505,6 +1506,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       })
     }
 
+    const storedSummary = resolveSpecSummary(spec, tubeSizeMap.get(String(spec.tube_size_id)))
+    const storedProfile = spec.profile
+
     setForm({
       customerId: spec.customer_id,
       variantTemplateKey: CANONICAL_VARIANT_KEY,
@@ -1512,12 +1516,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       mandrelId: spec.mandrel_id,
       parchmentAllowed: spec.parchment_allowed ?? true,
       averages: {
-        id: midpoint(spec.id_min_mm, spec.id_max_mm),
-        od: midpoint(spec.od_min_mm, spec.od_max_mm),
-        length: midpoint(spec.length_min_mm, spec.length_max_mm),
-        weight: midpoint(spec.weight_min_g, spec.weight_max_g),
-        cs: midpoint(spec.cs_min_n, spec.cs_max_n),
-        moisture: midpoint(spec.moisture_min_pct, spec.moisture_max_pct),
+        id: storedSummary.idMm ?? midpoint(spec.id_min_mm, spec.id_max_mm),
+        od: storedSummary.odMm ?? midpoint(spec.od_min_mm, spec.od_max_mm),
+        length: storedSummary.designLengthMm ?? midpoint(spec.length_min_mm, spec.length_max_mm),
+        weight: storedSummary.targetWeightG ?? midpoint(spec.weight_min_g, spec.weight_max_g),
+        cs: storedSummary.requiredCs ?? midpoint(spec.cs_min_n, spec.cs_max_n),
+        moisture: Number(storedProfile?.quality_targets?.moisture_pct?.avg ?? midpoint(spec.moisture_min_pct, spec.moisture_max_pct)),
       },
       shrinkPercent: optionValue(spec.moisture_loss_percent ?? spec.shrink_percent ?? 9),
       parchmentPercent: optionValue(spec.parchment_percent ?? 1.5),
@@ -1564,7 +1568,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       )
       router.replace(`/specifications/${spec.id}`)
     }
-  }, [loadedSpecSignature, mode, paperMap, router, showToast, specDocument, specHydrationSignature, latestApprovedTrial])
+  }, [loadedSpecSignature, mode, paperMap, router, showToast, specDocument, specHydrationSignature, latestApprovedTrial, tubeSizeMap])
 
   const footerFieldKeys = ["valid_upto", "prepared_by", "prepared_date", "sign_off_note"] as const
   const footerValidation = footerFieldKeys.map((key) => ({
@@ -1760,11 +1764,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const comboRuleTitle =
     currentRecipeRuleTitle ||
     "Build the live recipe from approved paper, adhesive, and parchment masters."
+  const displayedActualHeightMm = Number(form.dynamicValues.actual_tube_height_mm || selectedTube?.length_mm || form.averages.length || 0)
   const clientSpecRows = [
-    { label: "I.D", values: [`${Number(selectedTube?.inner_diameter_mm || 0).toFixed(2)} mm`] },
-    { label: "O.D", values: [`${Number(selectedTube?.outer_diameter_mm || 0).toFixed(2)} mm`] },
-    { label: "Thickness", values: [`${thicknessFrom(Number(selectedTube?.inner_diameter_mm || 0), Number(selectedTube?.outer_diameter_mm || 0)).toFixed(2)} mm`] },
-    { label: "Length", values: [`${Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm`] },
+    { label: "I.D", values: [`${Number(form.averages.id || selectedTube?.inner_diameter_mm || 0).toFixed(2)} mm`] },
+    { label: "O.D", values: [`${Number(form.averages.od || selectedTube?.outer_diameter_mm || 0).toFixed(2)} mm`] },
+    { label: "Thickness", values: [`${thicknessFrom(Number(form.averages.id || 0), Number(form.averages.od || 0)).toFixed(2)} mm`] },
+    { label: "Actual height", values: [`${displayedActualHeightMm.toFixed(2)} mm`] },
     { label: "Weight", values: [`${Number(form.averages.weight || 0).toFixed(2)} g`] },
     { label: "CS", values: [`${Number(form.averages.cs || 0).toFixed(2)} kgf`] },
   ]

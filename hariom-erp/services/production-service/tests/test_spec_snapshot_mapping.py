@@ -44,6 +44,18 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             "cut_loss_mm": 40,
             "status": "approved",
             "version": 3,
+            "profile": {
+                "dimensions": {
+                    "id_mm": {"avg": 110.25},
+                    "od_mm": {"avg": 123.75},
+                    "length_mm": {"avg": 115.25},
+                },
+                "quality_targets": {
+                    "tube_weight_g": {"avg": 232.5},
+                    "cs_n": {"avg": 455.0},
+                    "moisture_pct": {"avg": 8.25},
+                },
+            },
             "dynamic_fields": _dynamic_field_rows(
                 {
                     "tube_direction": "Opposite of the Notch",
@@ -95,6 +107,12 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(snapshot["box"], "R-150")
         self.assertEqual(snapshot["plastic_sku"], "PL-680")
         self.assertEqual(snapshot["actual_tube_height_mm"], "117.25")
+        self.assertEqual(snapshot["id_avg_mm"], 110.25)
+        self.assertEqual(snapshot["od_avg_mm"], 123.75)
+        self.assertEqual(snapshot["design_length_mm"], 115.25)
+        self.assertEqual(snapshot["weight_avg_g"], 232.5)
+        self.assertEqual(snapshot["cs_avg_n"], 455.0)
+        self.assertEqual(snapshot["moisture_avg_pct"], 8.25)
         self.assertEqual(snapshot["plastic_unit_weight_kg"], "0.0125")
         self.assertEqual(snapshot["plastic_required"], "Yes")
         self.assertEqual(snapshot["fadda_sku"], "FAD-01")
@@ -119,6 +137,12 @@ class SpecSnapshotMappingTests(unittest.TestCase):
             "length_min_mm": 114.0,
             "length_max_mm": 116.0,
             "actual_tube_height_mm": "117.25",
+            "id_avg_mm": 110.25,
+            "od_avg_mm": 123.75,
+            "design_length_mm": 115.25,
+            "weight_avg_g": 232.5,
+            "cs_avg_n": 455.0,
+            "moisture_avg_pct": 8.25,
             "weight_min_g": 220.0,
             "weight_max_g": 240.0,
             "target_tube_weight": 230.0,
@@ -181,7 +205,13 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(setup["plastic_required"], "Yes")
         self.assertEqual(setup["plastic_sku"], "PL-560")
         self.assertEqual(setup["plastic_unit_weight_kg"], "0.01")
-        self.assertEqual(document["header"]["product_size_label"], "110 x 124 x 117.25")
+        self.assertEqual(document["header"]["product_size_label"], "110.25 x 123.75 x 117.25")
+        self.assertEqual(document["client_spec"]["id"]["avg"], 110.25)
+        self.assertEqual(document["client_spec"]["od"]["avg"], 123.75)
+        self.assertEqual(document["client_spec"]["length"]["avg"], 117.25)
+        self.assertEqual(document["client_spec"]["tube_weight"]["avg"], 232.5)
+        self.assertEqual(document["client_spec"]["cs"]["avg"], 455.0)
+        self.assertEqual(document["client_spec"]["moisture"]["avg"], 8.25)
         self.assertEqual(setup["special_instructions"], "QC sampling each batch")
 
     def test_merge_spec_snapshot_preserves_new_fields(self):

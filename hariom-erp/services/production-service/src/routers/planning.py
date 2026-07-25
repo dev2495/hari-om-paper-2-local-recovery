@@ -1685,8 +1685,8 @@ def _derive_thickness(
 
 
 def _size_label(spec_snapshot: dict[str, Any]) -> str:
-    id_avg = _snapshot_midpoint(spec_snapshot.get("id_min_mm"), spec_snapshot.get("id_max_mm"))
-    od_avg = _snapshot_midpoint(spec_snapshot.get("od_min_mm"), spec_snapshot.get("od_max_mm"))
+    id_avg = _snapshot_float(spec_snapshot.get("id_avg_mm")) or _snapshot_midpoint(spec_snapshot.get("id_min_mm"), spec_snapshot.get("id_max_mm"))
+    od_avg = _snapshot_float(spec_snapshot.get("od_avg_mm")) or _snapshot_midpoint(spec_snapshot.get("od_min_mm"), spec_snapshot.get("od_max_mm"))
     # The optional actual height is a downstream display override only. Recipe,
     # yield and consumption math continue to use the selected tube master range.
     length_avg = _snapshot_float(spec_snapshot.get("actual_tube_height_mm"))
@@ -1870,20 +1870,27 @@ def _build_document_snapshot(
     moisture_min = required_value("moisture_min_pct")
     moisture_max = required_value("moisture_max_pct")
 
-    id_avg = _snapshot_midpoint(id_min, id_max)
-    od_avg = _snapshot_midpoint(od_min, od_max)
-    length_avg = _snapshot_midpoint(length_min, length_max)
-    weight_avg = _snapshot_float(spec_snapshot.get("target_tube_weight")) or _snapshot_midpoint(weight_min, weight_max)
+    id_avg = _snapshot_float(spec_snapshot.get("id_avg_mm")) or _snapshot_midpoint(id_min, id_max)
+    od_avg = _snapshot_float(spec_snapshot.get("od_avg_mm")) or _snapshot_midpoint(od_min, od_max)
+    design_length_avg = _snapshot_float(spec_snapshot.get("design_length_mm")) or _snapshot_midpoint(length_min, length_max)
+    actual_height = _snapshot_float(spec_snapshot.get("actual_tube_height_mm"))
+    length_avg = actual_height if actual_height is not None and actual_height > 0 else design_length_avg
+    weight_avg = (
+        _snapshot_float(spec_snapshot.get("weight_avg_g"))
+        or _snapshot_float(spec_snapshot.get("target_tube_weight"))
+        or _snapshot_midpoint(weight_min, weight_max)
+    )
     cs_avg = (
-        _snapshot_float(spec_snapshot.get("approved_cs"))
+        _snapshot_float(spec_snapshot.get("cs_avg_n"))
+        or _snapshot_float(spec_snapshot.get("approved_cs"))
         or _snapshot_float(spec_snapshot.get("required_cs"))
         or _snapshot_midpoint(cs_min, cs_max)
     )
-    moisture_avg = _snapshot_midpoint(moisture_min, moisture_max)
+    moisture_avg = _snapshot_float(spec_snapshot.get("moisture_avg_pct")) or _snapshot_midpoint(moisture_min, moisture_max)
     thickness = _derive_thickness(od_min, od_max, id_min, id_max)
 
     bamboo_plan = _resolve_bamboo_plan_for_length(
-        length_avg,
+        design_length_avg,
         bamboo_min=float(spec_snapshot.get("bamboo_min_length") or 1390.0),
         bamboo_max=float(spec_snapshot.get("bamboo_max_length") or 1560.0),
         bamboo_increment=float(spec_snapshot.get("bamboo_increment_mm") or 10.0),
@@ -2172,7 +2179,24 @@ def _build_document_snapshot(
 
 def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
     dynamic_map = _dynamic_field_map(spec)
-    length_avg = _snapshot_mid(spec.get("length_min_mm"), spec.get("length_max_mm"))
+    profile = spec.get("profile") if isinstance(spec.get("profile"), dict) else {}
+    dimensions = profile.get("dimensions") if isinstance(profile.get("dimensions"), dict) else {}
+    quality = profile.get("quality_targets") if isinstance(profile.get("quality_targets"), dict) else {}
+
+    def profile_average(section: dict[str, Any], key: str, fallback: Any) -> Optional[float]:
+        band = section.get(key) if isinstance(section.get(key), dict) else {}
+        return _snapshot_float(band.get("avg")) or _snapshot_float(fallback)
+
+    id_avg = profile_average(dimensions, "id_mm", _snapshot_mid(spec.get("id_min_mm"), spec.get("id_max_mm")))
+    od_avg = profile_average(dimensions, "od_mm", _snapshot_mid(spec.get("od_min_mm"), spec.get("od_max_mm")))
+    length_avg = profile_average(dimensions, "length_mm", _snapshot_mid(spec.get("length_min_mm"), spec.get("length_max_mm")))
+    weight_avg = profile_average(quality, "tube_weight_g", spec.get("target_tube_weight"))
+    cs_avg = profile_average(quality, "cs_n", spec.get("approved_cs") or spec.get("required_cs"))
+    moisture_avg = profile_average(
+        quality,
+        "moisture_pct",
+        _snapshot_mid(spec.get("moisture_min_pct"), spec.get("moisture_max_pct")),
+    )
     bamboo_plan = _resolve_bamboo_plan_for_length(
         length_avg,
         bamboo_min=float(spec.get("bamboo_min_length") or 1390.0),
@@ -2222,7 +2246,13 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "od_max_mm": spec.get("od_max_mm"),
         "length_min_mm": spec.get("length_min_mm"),
         "length_max_mm": spec.get("length_max_mm"),
+        "id_avg_mm": id_avg,
+        "od_avg_mm": od_avg,
+        "design_length_mm": length_avg,
         "actual_tube_height_mm": dynamic_map.get("actual_tube_height_mm"),
+        "weight_avg_g": weight_avg,
+        "cs_avg_n": cs_avg,
+        "moisture_avg_pct": moisture_avg,
         "weight_min_g": spec.get("weight_min_g"),
         "weight_max_g": spec.get("weight_max_g"),
         "cs_min_n": spec.get("cs_min_n"),
