@@ -295,6 +295,9 @@ def _sync_release_status(order: SalesOrder):
     released_qty = sum(_released_qty(line) for line in order.lines)
     if total_qty <= 0 or released_qty <= 0:
         return
+    # A later partial release must not erase real dispatch progress already recorded on the order.
+    if order.status == SalesOrderStatus.PARTIALLY_DISPATCHED:
+        return
     if released_qty < total_qty:
         order.status = SalesOrderStatus.PARTIALLY_RELEASED
     elif order.status not in [SalesOrderStatus.PARTIALLY_DISPATCHED, SalesOrderStatus.CLOSED]:
@@ -693,7 +696,7 @@ def release_sales_order(
     order_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Sales", "Planner"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
     order = db.query(SalesOrder).filter(
         SalesOrder.id == order_id, SalesOrder.plant_id == plant_id
@@ -758,7 +761,7 @@ def release_sales_order_line(
     payload: SalesOrderLineReleasePayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Sales", "Planner"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
     line = (
         db.query(SalesOrderLine)
@@ -787,6 +790,15 @@ def release_sales_order_line(
     if existing_lot:
         if existing_lot.sales_order_line_id != line.id:
             raise HTTPException(status_code=409, detail="Release lot id already belongs to another line")
+        if abs(float(existing_lot.released_qty or 0.0) - float(payload.release_qty)) > 0.0001:
+            raise HTTPException(status_code=409, detail="An existing release lot quantity cannot be changed")
+        if existing_lot.job_card_id and existing_lot.winder_machine_id != payload.winder_machine_id:
+            raise HTTPException(status_code=409, detail="A planner-linked release lot cannot change its winder")
+        if not existing_lot.job_card_id:
+            existing_lot.winder_machine_id = payload.winder_machine_id
+            existing_lot.product_code = (payload.product_code or line.product_code or "").strip() or None
+            db.commit()
+            db.refresh(existing_lot)
         return {
             "id": existing_lot.id,
             "order_id": order.id,
@@ -848,7 +860,7 @@ def sync_release_lot_job_card(
     payload: ReleaseLotJobCardSyncPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Sales", "Planner", "PlantManager"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner", "PlantManager"])),
 ):
     lot = (
         db.query(SalesOrderReleaseLot)

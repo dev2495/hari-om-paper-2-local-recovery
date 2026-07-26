@@ -71,6 +71,18 @@ def test_sales_line_serializer_exposes_dispatch_lineage_and_correct_balances():
     assert payload["dispatch_logs"][0]["qty"] == 35.0
 
 
+def test_later_release_preserves_partial_dispatch_status():
+    line = SimpleNamespace(
+        qty=100.0,
+        release_lots=[SimpleNamespace(released_qty=75.0, status="released")],
+    )
+    order = SimpleNamespace(status=SalesOrderStatus.PARTIALLY_DISPATCHED, lines=[line])
+
+    _sync_release_status(order)
+
+    assert order.status == SalesOrderStatus.PARTIALLY_DISPATCHED
+
+
 @pytest.mark.parametrize("role", ["Owner", "Admin"])
 def test_owner_and_admin_bypass_operational_role_restrictions(role):
     user = {"sub": "same-user", "roles": [role]}

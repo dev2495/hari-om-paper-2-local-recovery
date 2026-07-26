@@ -537,6 +537,40 @@ class ReleaseSyncLineResult(BaseModel):
     queue_created: bool
 
 
+class ReleasePreflightRowPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sales_order_line_id: UUID
+    release_qty: float = Field(gt=0)
+    winder_machine_id: Optional[UUID] = None
+    release_lot_id: Optional[UUID] = None
+
+
+class ReleasePreflightPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    release_rows: list[ReleasePreflightRowPayload] = Field(min_length=1)
+
+
+class ReleasePreflightLineResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sales_order_line_id: UUID
+    release_lot_id: Optional[UUID] = None
+    release_qty: float
+    compatible_winders: list[dict[str, Any]] = Field(default_factory=list)
+    selected_winder_compatible: bool
+    blocker: Optional[str] = None
+
+
+class ReleasePreflightResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    order_id: UUID
+    ready: bool
+    line_results: list[ReleasePreflightLineResult]
+
+
 class ReleaseSyncRowPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -331,6 +331,13 @@ export function useReleaseSyncSalesOrder() {
   })
 }
 
+export function usePreflightSalesOrderRelease() {
+  return useMutation({
+    mutationFn: ({ salesOrderId, data, plantId }: { salesOrderId: string; data: any; plantId?: string }) =>
+      productionApi.preflightSalesOrderRelease(salesOrderId, data, plantId),
+  })
+}
+
 export function useCreatePlanningJobCard() {
   const queryClient = useQueryClient()
   return useMutation({

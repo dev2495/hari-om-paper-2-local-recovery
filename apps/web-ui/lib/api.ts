@@ -331,6 +331,8 @@ export const productionApi = {
   getMachines: (params?: any, plantId?: string) =>
     api.get("/api/production/machines", { params, ...(withPlantHeader(plantId) || {}) }),
   createPlanningSalesOrder: (data: any) => api.post("/api/production/sales-orders", data),
+  preflightSalesOrderRelease: (salesOrderId: string, data: any, plantId?: string) =>
+    api.post(`/api/production/sales-orders/${salesOrderId}/release-preflight`, data, withPlantHeader(plantId)),
   releaseSyncSalesOrder: (salesOrderId: string, data: any, plantId?: string) =>
     api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),

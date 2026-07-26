@@ -44,6 +44,12 @@ def test_production_bff_routes_do_not_register_duplicate_method_paths():
     assert _duplicates(production_router) == {}
 
 
+def test_production_bff_exposes_safe_release_preflight_contract():
+    route_keys = set(_route_keys(production_router))
+    assert ("POST", "/sales-orders/{sales_order_id}/release-preflight") in route_keys
+    assert ("POST", "/sales-orders/{sales_order_id}/release-sync") in route_keys
+
+
 def test_auth_and_inventory_bff_routes_do_not_register_duplicate_method_paths():
     assert _duplicates(auth_router) == {}
     assert _duplicates(inventory_router) == {}

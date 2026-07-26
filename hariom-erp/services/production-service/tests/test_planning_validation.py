@@ -17,8 +17,9 @@ from src.routers.planning import (
     _quality_failures_for_stage,
     _routing_stages_from_snapshot,
     _validate_machine_compatibility,
+    preflight_sales_order_release,
 )
-from src.schemas.planning import AssignMachinePayload, SalesOrderCreate, StageOutputPayload
+from src.schemas.planning import AssignMachinePayload, ReleasePreflightPayload, SalesOrderCreate, StageOutputPayload
 
 
 def _snapshot():
@@ -78,6 +79,83 @@ class _FakeSession:
 
 
 class PlanningValidationTests(unittest.TestCase):
+    @patch("src.routers.planning._fetch_spec")
+    @patch("src.routers.planning._fetch_stage_machines")
+    @patch("src.routers.planning._fetch_sales_order")
+    def test_release_preflight_returns_only_compatible_winders(self, fetch_order, fetch_machines, fetch_spec):
+        order_id = UUID("00000000-0000-0000-0000-000000000701")
+        line_id = UUID("00000000-0000-0000-0000-000000000702")
+        compatible = {**_machine(), "id": "00000000-0000-0000-0000-000000000703", "code": "W-OK", "status": "UP"}
+        incompatible = {**_machine(), "id": "00000000-0000-0000-0000-000000000704", "code": "W-SHORT", "status": "UP", "length_max_mm": 140}
+        fetch_order.return_value = {
+            "id": str(order_id),
+            "status": "approved",
+            "priority": "NORMAL",
+            "lines": [{
+                "id": str(line_id),
+                "line_no": 1,
+                "approved_spec_id": "00000000-0000-0000-0000-000000000705",
+                "release_remaining_qty": 100,
+                "release_lots": [],
+            }],
+        }
+        fetch_machines.return_value = [incompatible, compatible]
+        fetch_spec.return_value = {**_snapshot(), "id": "00000000-0000-0000-0000-000000000705", "status": "approved", "active": True}
+        payload = ReleasePreflightPayload(release_rows=[{
+            "sales_order_line_id": str(line_id),
+            "release_qty": 25,
+            "winder_machine_id": compatible["id"],
+        }])
+
+        result = preflight_sales_order_release(
+            order_id,
+            payload,
+            plant_id="00000000-0000-0000-0000-0000000000a1",
+            current_user={"token": "test"},
+        )
+
+        self.assertTrue(result.ready)
+        self.assertEqual([row["code"] for row in result.line_results[0].compatible_winders], ["W-OK"])
+        self.assertTrue(result.line_results[0].selected_winder_compatible)
+
+    @patch("src.routers.planning._fetch_spec")
+    @patch("src.routers.planning._fetch_stage_machines")
+    @patch("src.routers.planning._fetch_sales_order")
+    def test_release_preflight_blocks_incompatible_selected_winder(self, fetch_order, fetch_machines, fetch_spec):
+        order_id = UUID("00000000-0000-0000-0000-000000000711")
+        line_id = UUID("00000000-0000-0000-0000-000000000712")
+        incompatible = {**_machine(), "id": "00000000-0000-0000-0000-000000000713", "code": "W-SHORT", "status": "UP", "length_max_mm": 140}
+        fetch_order.return_value = {
+            "id": str(order_id),
+            "status": "released",
+            "priority": "NORMAL",
+            "lines": [{
+                "id": str(line_id),
+                "line_no": 4,
+                "approved_spec_id": "00000000-0000-0000-0000-000000000715",
+                "release_remaining_qty": 50,
+                "release_lots": [],
+            }],
+        }
+        fetch_machines.return_value = [incompatible]
+        fetch_spec.return_value = {**_snapshot(), "id": "00000000-0000-0000-0000-000000000715", "status": "approved", "active": True}
+        payload = ReleasePreflightPayload(release_rows=[{
+            "sales_order_line_id": str(line_id),
+            "release_qty": 20,
+            "winder_machine_id": incompatible["id"],
+        }])
+
+        result = preflight_sales_order_release(
+            order_id,
+            payload,
+            plant_id="00000000-0000-0000-0000-0000000000a1",
+            current_user={"token": "test"},
+        )
+
+        self.assertFalse(result.ready)
+        self.assertEqual(result.line_results[0].compatible_winders, [])
+        self.assertIn("no active winder", str(result.line_results[0].blocker).lower())
+
     def test_planner_gate_context_blocks_unscheduled_stage(self):
         context = _planner_gate_context(
             current_stage="WINDER",

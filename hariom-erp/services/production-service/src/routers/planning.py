@@ -57,6 +57,9 @@ from ..schemas.planning import (
     QueueJobCardItem,
     QueueMachineBucket,
     ReorderQueuePayload,
+    ReleasePreflightLineResult,
+    ReleasePreflightPayload,
+    ReleasePreflightResponse,
     ReleaseSyncLineResult,
     ReleaseSyncPayload,
     ReleaseSyncResponse,
@@ -4448,13 +4451,128 @@ def create_job_card(
     return _serialize_job_card_response(job_card)
 
 
+def _release_machine_summary(machine: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": machine.get("id"),
+        "code": machine.get("code"),
+        "name": machine.get("name"),
+        "status": machine.get("status"),
+        "capacity_value": machine.get("capacity_value"),
+        "capacity_unit": machine.get("capacity_unit") or machine.get("capacity_type"),
+        "id_min_mm": machine.get("id_min_mm"),
+        "id_max_mm": machine.get("id_max_mm"),
+        "od_min_mm": machine.get("od_min_mm"),
+        "od_max_mm": machine.get("od_max_mm"),
+        "length_min_mm": machine.get("length_min_mm"),
+        "length_max_mm": machine.get("length_max_mm"),
+    }
+
+
+@router.post(
+    "/sales-orders/{sales_order_id}/release-preflight",
+    response_model=ReleasePreflightResponse,
+)
+def preflight_sales_order_release(
+    sales_order_id: uuid.UUID,
+    payload: ReleasePreflightPayload,
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "PlantManager", "Planner"])),
+):
+    token = current_user.get("token", "")
+    live_order = _fetch_sales_order(sales_order_id, token, plant_id)
+    order_status = _normalize_sales_status(live_order.get("status"))
+    if order_status not in {"approved", "partially_released", "released", "partially_dispatched"}:
+        raise HTTPException(status_code=400, detail="Sales order must be approved before release")
+
+    line_map = {str(line.get("id")): line for line in (live_order.get("lines") or [])}
+    plant_winders = _fetch_stage_machines("WINDER", token, plant_id)
+    results: list[ReleasePreflightLineResult] = []
+
+    for requested_row in payload.release_rows:
+        line = line_map.get(str(requested_row.sales_order_line_id))
+        if line is None:
+            raise HTTPException(status_code=400, detail="sales_order_line_id does not belong to sales_order_id")
+
+        line_label = f"Line {line.get('line_no') or '-'}"
+        release_lot = None
+        if requested_row.release_lot_id:
+            release_lot = next(
+                (
+                    lot
+                    for lot in (line.get("release_lots") or [])
+                    if str(lot.get("release_lot_id") or lot.get("id")) == str(requested_row.release_lot_id)
+                ),
+                None,
+            )
+            if release_lot is None:
+                raise HTTPException(status_code=400, detail=f"{line_label}: pending release lot was not found")
+            if release_lot.get("job_card_id"):
+                raise HTTPException(status_code=409, detail=f"{line_label}: release lot is already linked to planning")
+            persisted_qty = float(release_lot.get("release_qty") or 0.0)
+            if abs(persisted_qty - float(requested_row.release_qty)) > 0.0001:
+                raise HTTPException(status_code=409, detail=f"{line_label}: pending release quantity cannot be changed")
+        else:
+            available_qty = float(line.get("release_remaining_qty") or 0.0)
+            if float(requested_row.release_qty) > available_qty + 0.0001:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{line_label}: release quantity exceeds available balance ({available_qty:.2f})",
+                )
+
+        approved_spec_id = line.get("approved_spec_id")
+        if not approved_spec_id:
+            raise HTTPException(status_code=400, detail=f"{line_label}: approved specification is missing")
+        spec = _fetch_spec(_to_uuid(str(approved_spec_id), field="approved_spec_id"), token, plant_id)
+        spec_snapshot = _build_spec_snapshot(spec, str(live_order.get("priority") or "NORMAL").upper())
+
+        compatible_winders: list[dict[str, Any]] = []
+        incompatibility_by_id: dict[str, str] = {}
+        for machine in plant_winders:
+            machine_id = str(machine.get("id") or "")
+            try:
+                _validate_machine_compatibility(machine, "WINDER", spec_snapshot, plant_id)
+            except HTTPException as exc:
+                incompatibility_by_id[machine_id] = str(exc.detail)
+                continue
+            compatible_winders.append(_release_machine_summary(machine))
+
+        selected_machine_id = str(requested_row.winder_machine_id or "")
+        selected_is_compatible = bool(selected_machine_id) and any(
+            str(machine.get("id")) == selected_machine_id for machine in compatible_winders
+        )
+        blocker = None
+        if not compatible_winders:
+            blocker = f"{line_label}: no active winder covers this specification's ID, OD, length and mandrel range"
+        elif selected_machine_id and not selected_is_compatible:
+            blocker = f"{line_label}: {incompatibility_by_id.get(selected_machine_id, 'selected winder is unavailable or incompatible')}"
+        elif not selected_machine_id:
+            blocker = f"{line_label}: select a compatible winder"
+
+        results.append(
+            ReleasePreflightLineResult(
+                sales_order_line_id=requested_row.sales_order_line_id,
+                release_lot_id=requested_row.release_lot_id,
+                release_qty=float(requested_row.release_qty),
+                compatible_winders=compatible_winders,
+                selected_winder_compatible=selected_is_compatible,
+                blocker=blocker,
+            )
+        )
+
+    return ReleasePreflightResponse(
+        order_id=sales_order_id,
+        ready=all(not row.blocker for row in results),
+        line_results=results,
+    )
+
+
 @router.post("/sales-orders/{sales_order_id}/release-sync", response_model=ReleaseSyncResponse)
 def sync_released_sales_order(
     sales_order_id: uuid.UUID,
     payload: Optional[ReleaseSyncPayload] = None,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "Sales", "PlantManager", "Planner"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "PlantManager", "Planner"])),
 ):
     plant_uuid = _to_uuid(plant_id)
     token = current_user.get("token", "")
@@ -4471,37 +4589,44 @@ def sync_released_sales_order(
         raise HTTPException(status_code=400, detail="release_rows payload is required for release sync")
 
     line_map = {str(line.get("id")): line for line in (live_order.get("lines") or [])}
-    for requested_row in requested_release_rows:
-        line = line_map.get(str(requested_row.sales_order_line_id))
-        if line is None:
-            raise HTTPException(status_code=400, detail="sales_order_line_id does not belong to sales_order_id")
-        priority = str(live_order.get("priority") or "NORMAL").upper()
-        job_card, queue_created = _create_or_sync_job_card_for_line(
-            db=db,
-            plant_uuid=plant_uuid,
-            live_order=live_order,
-            line=line,
-            release_lot_id=requested_row.release_lot_id,
-            winder_machine_id=requested_row.winder_machine_id,
-            planned_qty=float(requested_row.release_qty or 0.0),
-            priority=priority,
-            product_code=requested_row.product_code or line.get("product_code"),
-            token=token,
-            plant_id=plant_id,
-            current_user=current_user,
-        )
-        _sync_sales_release_lot_job_card(requested_row.release_lot_id, job_card.id, token, plant_id)
-        line_results.append(
-            ReleaseSyncLineResult(
-                sales_order_line_id=job_card.sales_order_line_id,
+    try:
+        for requested_row in requested_release_rows:
+            line = line_map.get(str(requested_row.sales_order_line_id))
+            if line is None:
+                raise HTTPException(status_code=400, detail="sales_order_line_id does not belong to sales_order_id")
+            priority = str(live_order.get("priority") or "NORMAL").upper()
+            job_card, queue_created = _create_or_sync_job_card_for_line(
+                db=db,
+                plant_uuid=plant_uuid,
+                live_order=live_order,
+                line=line,
                 release_lot_id=requested_row.release_lot_id,
-                job_card_id=job_card.id,
-                first_stage=str((job_card.routing_snapshot or {}).get("first_stage") or job_card.current_stage),
-                queue_created=queue_created,
+                winder_machine_id=requested_row.winder_machine_id,
+                planned_qty=float(requested_row.release_qty or 0.0),
+                priority=priority,
+                product_code=requested_row.product_code or line.get("product_code"),
+                token=token,
+                plant_id=plant_id,
+                current_user=current_user,
             )
-        )
+            line_results.append(
+                ReleaseSyncLineResult(
+                    sales_order_line_id=job_card.sales_order_line_id,
+                    release_lot_id=requested_row.release_lot_id,
+                    job_card_id=job_card.id,
+                    first_stage=str((job_card.routing_snapshot or {}).get("first_stage") or job_card.current_stage),
+                    queue_created=queue_created,
+                )
+            )
+        # The production transaction is durable before any cross-service link is written.
+        # If sales linking fails, retrying the same release lot safely repairs the handoff.
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
-    db.commit()
+    for row in line_results:
+        _sync_sales_release_lot_job_card(row.release_lot_id, row.job_card_id, token, plant_id)
     return ReleaseSyncResponse(
         order_id=sales_order_id,
         order_status=str(live_order.get("status") or "").upper(),

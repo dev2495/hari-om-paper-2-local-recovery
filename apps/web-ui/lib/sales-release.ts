@@ -9,6 +9,12 @@ export type ReleaseMachine = {
   capacity_value?: number
   capacity_unit?: string
   capacity_type?: string
+  id_min_mm?: number
+  id_max_mm?: number
+  od_min_mm?: number
+  od_max_mm?: number
+  length_min_mm?: number
+  length_max_mm?: number
 }
 
 function isActiveMachine(machine: ReleaseMachine) {

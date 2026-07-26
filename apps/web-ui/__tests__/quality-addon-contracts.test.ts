@@ -192,7 +192,9 @@ test("sales release explains missing and unavailable winder master states", () =
 
 test("sales release resolves winders through the order plant instead of browser-side plant equality", () => {
   const salesPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
-  assert.match(salesPage, /productionApi\.getMachines\(\{ department: "WINDER" \}, plantId\)/)
+  assert.match(salesPage, /releasePreflight\.mutateAsync\(\{[\s\S]*?plantId,/)
+  assert.match(salesPage, /compatible_winders/)
+  assert.match(salesPage, /if \(releasedPlantId\) setActivePlant\(releasedPlantId\)/)
   assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
 })
 

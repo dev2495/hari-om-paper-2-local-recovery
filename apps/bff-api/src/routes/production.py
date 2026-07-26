@@ -125,6 +125,11 @@ async def release_sync_sales_order(sales_order_id: str, request: Request, token:
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/sales-orders/{sales_order_id}/release-sync", request, token)
 
 
+@router.post("/sales-orders/{sales_order_id}/release-preflight")
+async def preflight_sales_order_release(sales_order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/sales-orders/{sales_order_id}/release-preflight", request, token)
+
+
 @router.get("/job-cards")
 async def list_planning_job_cards(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)

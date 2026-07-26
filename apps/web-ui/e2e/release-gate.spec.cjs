@@ -350,6 +350,8 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
   await releaseButton.click()
   const targetWinder = page.getByTestId("sales-orders:release-winder").first()
   await expect(targetWinder).toBeVisible({ timeout: 20_000 })
+  const releaseDialogBox = await page.getByTestId("sales-orders:release-dialog").boundingBox()
+  expect(releaseDialogBox?.width || 0, "Release dialog must use the available desktop width").toBeGreaterThan(900)
   const winderOptions = await targetWinder.locator("option").evaluateAll((nodes) =>
     nodes.map((node) => ({ value: node.value, text: node.textContent || "" })).filter((entry) => entry.value),
   )
