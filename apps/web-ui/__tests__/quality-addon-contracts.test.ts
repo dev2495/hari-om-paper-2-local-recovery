@@ -203,8 +203,16 @@ test("print contracts use one specification page and exactly two job-card sides"
   const jobCardPrint = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
 
   assert.equal((specPrint.match(/<article className="spec-print-sheet"/g) || []).length, 1)
-  assert.match(specPrint, /@page\{size:A4 landscape;margin:5mm\}/)
-  assert.match(specPrint, /height:200mm!important/)
+  assert.match(specPrint, /@page\s*\{\s*size:\s*A4 landscape;\s*margin:\s*5mm;/)
+  assert.match(specPrint, /height:\s*200mm\s*!important/)
+  assert.equal((specPrint.match(/data-print-section=/g) || []).length, 4)
+  for (const section of ["recipe", "adhesive", "bamboo-release", "operations"]) {
+    assert.match(specPrint, new RegExp(`data-print-section="${section}"`))
+  }
+  for (const label of ["Wet bamboo", "Dry bamboo", "Bamboo allowance", "Notch & tooling", "Packing", "Production sign-off"]) {
+    assert.match(specPrint, new RegExp(label, "i"))
+  }
+  assert.doesNotMatch(specPrint, /oven/i)
   assert.equal((jobCardPrint.match(/<section className="job-print-side job-[a-z-]+-side">/g) || []).length, 2)
   assert.match(jobCardPrint, /page-break-after: always !important/)
   assert.match(jobCardPrint, /page-break-after: auto !important/)

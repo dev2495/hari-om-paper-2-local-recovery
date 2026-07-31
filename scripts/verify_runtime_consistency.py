@@ -30,6 +30,7 @@ class RuntimeConsistencyVerifier:
         self.manifest = manifest
         self.rows: list[CheckRow] = []
         self.evidence: dict[str, Any] = {"pages": {}, "bff": {}, "services": {}}
+        self.session = requests.Session()
 
     def add(self, name: str, ok: bool, detail: str) -> None:
         self.rows.append(CheckRow(name=name, status="PASS" if ok else "FAIL", detail=detail))
@@ -43,7 +44,7 @@ class RuntimeConsistencyVerifier:
         json_body: Any = None,
         headers: dict[str, str] | None = None,
     ) -> tuple[requests.Response, Any]:
-        response = requests.request(
+        response = self.session.request(
             method,
             url,
             json=json_body,
@@ -57,6 +58,19 @@ class RuntimeConsistencyVerifier:
         if response.status_code not in expected:
             raise RuntimeError(f"{method} {url} expected {expected} got {response.status_code}: {str(payload)[:400]}")
         return response, payload
+
+    def _session_cookie_headers(self) -> dict[str, str]:
+        cookies = [
+            f"{cookie.name}={cookie.value}"
+            for cookie in self.session.cookies
+            if cookie.name in {"token", "acting_token"}
+        ]
+        if not any(cookie.startswith("token=") for cookie in cookies):
+            raise RuntimeError("BFF login succeeded but did not set the private session cookie")
+        # Production cookies are Secure, while the runtime verifier talks to
+        # the BFF over loopback HTTP. Send the captured private cookie header
+        # explicitly so the same verifier works in development and production.
+        return {"Cookie": "; ".join(cookies)}
 
     def verify_service_health(self) -> str:
         urls = self.manifest["urls"]
@@ -91,23 +105,26 @@ class RuntimeConsistencyVerifier:
             expected=(200,),
             json_body={"email": admin_email, "password": admin_password},
         )
-        token = str(login_payload.get("access_token") or "")
-        if not token:
-            raise RuntimeError("BFF login succeeded but returned no access token")
+        if login_payload.get("access_token") is not None:
+            raise RuntimeError("BFF login exposed an access token in the JSON response")
+        auth_headers = self._session_cookie_headers()
         self.evidence["bff"]["login"] = {
             "status": login_response.status_code,
             "user_email": login_payload.get("user", {}).get("email") or admin_email,
+            "private_session_cookie": True,
         }
-        self.add("BFF route /api/auth/login", True, f"user={admin_email}")
+        self.add("BFF route /api/auth/login", True, f"user={admin_email}; HttpOnly session cookie set")
 
-        self._request("GET", f"{bff}/api/auth/me", expected=(401,))
+        unauth_response = requests.get(f"{bff}/api/auth/me", timeout=REQUEST_TIMEOUT)
+        if unauth_response.status_code != 401:
+            raise RuntimeError(f"GET {bff}/api/auth/me without a session expected 401 got {unauth_response.status_code}")
         self.add("BFF route /api/auth/me unauth", True, "401 without token")
 
         me_response, me_payload = self._request(
             "GET",
             f"{bff}/api/auth/me",
             expected=(200,),
-            headers={"Authorization": f"Bearer {token}"},
+            headers=auth_headers,
         )
         self.evidence["bff"]["me"] = me_payload
         self.add("BFF route /api/auth/me auth", True, f"email={me_payload.get('email') or me_payload.get('user', {}).get('email')}")
@@ -116,7 +133,7 @@ class RuntimeConsistencyVerifier:
             "POST",
             f"{bff}/api/auth/acting-role",
             expected=(200,),
-            headers={"Authorization": f"Bearer {token}"},
+            headers=auth_headers,
             json_body={"role_name": "Owner"},
         )
         self.evidence["bff"]["acting_role"] = {
@@ -134,7 +151,12 @@ class RuntimeConsistencyVerifier:
             params = None
             if "owner-pack" in url:
                 params = {"start_date": datetime.now().date().isoformat(), "end_date": datetime.now().date().isoformat(), "granularity": "day"}
-            response = requests.get(url, params=params, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT)
+            response = self.session.get(
+                url,
+                params=params,
+                headers=self._session_cookie_headers(),
+                timeout=REQUEST_TIMEOUT,
+            )
             if response.status_code not in (200, 204):
                 raise RuntimeError(f"{label} route check failed with {response.status_code}: {response.text[:200]}")
             self.add(f"BFF route {label}", True, f"status={response.status_code}")
