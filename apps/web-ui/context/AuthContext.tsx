@@ -35,6 +35,17 @@ const ACTIVE_ROLE_STORAGE_KEY = "hariom_active_role"
 const SESSION_IDLE_MS = 15 * 60 * 1000
 const SESSION_HEARTBEAT_MS = 60 * 1000
 
+async function sessionFetch(url: string, init: RequestInit = {}) {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 20000)
+  try {
+    return await fetch(url, { ...init, signal: controller.signal })
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("Connection timed out. Check your internet and try again.")
+    throw new Error("Cannot reach the ERP. Check your connection and try again.")
+  } finally { window.clearTimeout(timeout) }
+}
+
 function normalizeAllowedPlants(user: Partial<User> | null | undefined) {
   const rawValues = [...(user?.allowed_plant_ids || []), ...(user?.allowed_plants || [])]
   return Array.from(new Set(rawValues.map((value) => String(value || "").trim()).filter(Boolean)))
@@ -64,7 +75,8 @@ function resolveActivePlant(user: User, preferredPlant: string | null) {
     if (canonicalPreferredPlant.toUpperCase() === "ALL") {
       return userCanUseGlobalPlant(user) ? "ALL" : user.plant_id || null
     }
-    return canonicalPreferredPlant
+    const permitted = normalizeAllowedPlants(user).map(canonicalPlantScopeValue)
+    if (permitted.includes(canonicalPreferredPlant)) return canonicalPreferredPlant
   }
   if (userCanUseGlobalPlant(user)) {
     return "ALL"
@@ -86,6 +98,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const lastActivityAt = useRef(Date.now())
   const lastSessionTouchAt = useRef(Date.now())
+  const touchInFlight = useRef(false)
+  const resetActivity = () => { lastActivityAt.current = Date.now(); lastSessionTouchAt.current = Date.now() }
 
   const setActivePlant = (plantId: string) => {
     const canonicalPlant = canonicalPlantScopeValue(plantId)
@@ -105,10 +119,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const checkAuth = async () => {
     try {
       // One-time cleanup for browsers that used the former JS-readable bearer-token flow.
-      window.localStorage.removeItem("hariom_access_token")
+      try { window.localStorage.removeItem("hariom_access_token") } catch { /* Optional legacy cleanup. */ }
       const storedPlant = getStoredPlant()
-      const storedRole = typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_ROLE_STORAGE_KEY) : null
-      const response = await fetch("/api/auth/me", {
+      let storedRole: string | null = null
+      try { storedRole = window.localStorage.getItem(ACTIVE_ROLE_STORAGE_KEY) } catch { /* Optional preference. */ }
+      const response = await sessionFetch("/api/auth/me", {
         cache: "no-store",
         credentials: "include",
         headers: storedPlant ? { "X-Plant-ID": storedPlant } : undefined,
@@ -118,6 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const nextPlant = resolveActivePlant(data, storedPlant)
         const availableRoles = [data.role, ...(data.roles || [])].filter(Boolean).map((role) => String(role))
         const nextRole = storedRole && availableRoles.includes(storedRole) ? storedRole : availableRoles[0] || null
+        resetActivity()
         setUser(data)
         setActivePlantState(nextPlant)
         setActiveRoleState(nextRole)
@@ -138,29 +154,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const login = async (email: string, password: string) => {
-    const response = await fetch("/api/auth/login", {
+    const response = await sessionFetch("/api/auth/login", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
     })
 
     if (!response.ok) {
       let detail = "Login failed"
       try {
         const payload = await response.json()
-        detail = payload?.detail || detail
+        detail = typeof payload?.detail === "string" ? payload.detail : detail
       } catch {
         // Keep fallback detail.
       }
       throw new Error(detail)
     }
 
-    const data = await response.json()
-    const normalizedUser = normalizeUser(data.user)
+    // Verify the browser actually accepted the HttpOnly cookie before entering ERP.
+    const verified = await sessionFetch("/api/auth/me", { credentials: "include", cache: "no-store" })
+    if (!verified.ok) throw new Error(verified.status === 401
+      ? "Sign-in could not be saved by this browser. Allow cookies for this ERP site and try again."
+      : "Sign-in succeeded but access could not be verified. Please retry.")
+    const normalizedUser = normalizeUser(await verified.json())
     const nextPlant = resolveActivePlant(normalizedUser, null)
     const availableRoles = [normalizedUser.role, ...(normalizedUser.roles || [])].filter(Boolean).map((role) => String(role))
     const nextRole = availableRoles[0] || null
+    resetActivity()
     setUser(normalizedUser)
     setActivePlantState(nextPlant)
     setActiveRoleState(nextRole)
@@ -169,10 +190,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const logout = useCallback(async () => {
-    await fetch("/api/auth/logout", {
-      method: "POST",
-      credentials: "include",
-    })
+    try {
+      await sessionFetch("/api/auth/logout", { method: "POST", credentials: "include" })
+    } catch { /* Clear local state even while offline; server cookie retains its short expiry. */ }
     setUser(null)
     setActivePlantState(null)
     setActiveRoleState(null)
@@ -204,9 +224,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await expireIdleSession()
         return
       }
-      if (!renew || document.visibilityState !== "visible") return
+      if (!renew || document.visibilityState !== "visible" || touchInFlight.current) return
+      touchInFlight.current = true
       try {
-        const response = await fetch("/api/auth/session/touch", {
+        const response = await sessionFetch("/api/auth/session/touch", {
           method: "POST",
           credentials: "include",
           headers: { "X-Requested-With": "HariOmERP" },
@@ -216,7 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } catch {
         // A transient network outage must not erase the session; the server-side
         // cookie still expires at the hard inactivity boundary.
-      }
+      } finally { touchInFlight.current = false }
     }
 
     const recordActivity = () => {

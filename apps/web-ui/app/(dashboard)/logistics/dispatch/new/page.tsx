@@ -17,7 +17,7 @@ function NewDispatchForm() {
     const jobCardId = searchParams?.get("job_card_id")
 
     const { data: jobCard, isLoading: loadingJob } = usePlanningJobCard(jobCardId || "")
-    const { data: existingDispatch, isLoading: loadingDispatch } = useDispatchByJobCard(jobCardId || "")
+    const { data: existingDispatch, isLoading: loadingDispatch } = useDispatchByJobCard(jobCardId || "", true)
     const { data: customers, isLoading: loadingCustomers } = useCustomers()
     const { data: plants = [], isLoading: loadingPlants } = usePlants()
     const { activePlant } = useAuth()
@@ -44,8 +44,10 @@ function NewDispatchForm() {
         const processStage = jobCard.stages?.find((s: any) => s.stage_type === "PROCESS")
         const latestStage = packingStage || processStage || {}
 
-        const totalPcs = packingStage?.output_qty || packingStage?.entry_snapshot?.total_packed_qty || 0
-        const netWeight = packingStage?.entry_snapshot?.net_weight || packingStage?.entry_snapshot?.total_weight_kg || 0
+        const packedPcs = packingStage?.output_qty || packingStage?.entry_snapshot?.total_packed_qty || 0
+        const remaining = Number(searchParams?.get("remaining_qty") ?? packedPcs)
+        const totalPcs = Number.isFinite(remaining) ? Math.max(0, Math.min(packedPcs, remaining)) : packedPcs
+        const netWeight = totalPcs === packedPcs ? (packingStage?.entry_snapshot?.net_weight || packingStage?.entry_snapshot?.total_weight_kg || 0) : 0
         const pcsPerUnit = packingStage?.entry_snapshot?.pcs_per_bundle || totalPcs
         const _qtyUnits = pcsPerUnit ? Math.ceil(totalPcs / pcsPerUnit) : 1
 
@@ -85,7 +87,7 @@ function NewDispatchForm() {
         }
 
         setDispatchData(initialData)
-    }, [jobCard, customers, existingDispatch, loadingDispatch, loadingPlants, plants, activePlant])
+    }, [jobCard, customers, existingDispatch, loadingDispatch, loadingPlants, plants, activePlant, searchParams])
 
     if (!jobCardId) {
         return <div className="p-6">No Job Card selected.</div>

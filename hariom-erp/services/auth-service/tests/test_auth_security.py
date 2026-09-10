@@ -35,8 +35,14 @@ class _NoUserQuery:
     def first(self):
         return None
 
+    def count(self):
+        return 0
+
 
 class _NoUserDb:
+    def execute(self, *args): pass
+    def add(self, row): pass
+    def commit(self): pass
     def query(self, *_args):
         return _NoUserQuery()
 
@@ -97,10 +103,13 @@ def test_session_refresh_rotates_token_and_preserves_effective_claims(monkeypatc
 
     monkeypatch.setattr(auth.jwt_handler, "create_access_token", capture_token)
     user = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000001", email="owner@example.com", roles=[SimpleNamespace(name="Dispatch", permissions=[])],
+        plant_id=None, allowed_plants=[], is_owner_all_plants=False, is_active=True, hashed_password="test-credential",
         token_payload={
             "sub": "owner@example.com",
             "roles": ["Dispatch"],
             "effective_roles": ["Dispatch"],
+            "acting_role": "Dispatch", "is_acting_session": True,
             "exp": 1,
             "iat": 1,
         }

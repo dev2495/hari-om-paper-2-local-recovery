@@ -440,7 +440,7 @@ class Dispatch(Base):
     __tablename__ = "dispatch"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, unique=True, index=True)
+    job_card_id = Column(UUID(as_uuid=True), ForeignKey("job_cards.id"), nullable=False, index=True)
     dispatch_snapshot = Column(JSONB, nullable=False, default=dict)
     status = Column(String(20), nullable=False, default="DRAFT")
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useMemo, useState, useRef } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   AlertTriangle,
@@ -125,6 +125,7 @@ export default function PurchaseFlowPage() {
     test_report_terms: "Attach test report with delivery challan copy for PB/GSM/RCT/COBB.",
     special_instruction: "FOR AMIGO INDUSTRIES UNIT-2",
   })
+  const grnRequestId = useRef<string | null>(null)
   const [grnForm, setGrnForm] = useState({
     purchase_order_id: "",
     po_line_id: "",
@@ -245,9 +246,11 @@ export default function PurchaseFlowPage() {
       return
     }
     try {
+      grnRequestId.current ||= crypto.randomUUID()
       await createGrn.mutateAsync({
         purchase_order_id: grnForm.purchase_order_id || undefined,
         body: {
+          request_id: grnRequestId.current,
           received_date: grnForm.grn_date,
           lines: [
             {
@@ -258,6 +261,7 @@ export default function PurchaseFlowPage() {
           ],
         },
       })
+      grnRequestId.current = null
       setGrnForm((current) => ({ ...current, qty: "", batch_no: "" }))
       setMessage({ tone: "success", text: "GRN posted into stock with vendor, batch cost, and incoming QC status." })
     } catch (error: any) {

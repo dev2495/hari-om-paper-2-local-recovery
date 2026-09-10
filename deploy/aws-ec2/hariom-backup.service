@@ -6,5 +6,5 @@ After=docker.service network-online.target
 [Service]
 Type=oneshot
 User=root
-ExecStart=/opt/hariom/app/deploy/aws-ec2/backup_databases.sh
+ExecStart=/bin/bash /opt/hariom/app/deploy/aws-ec2/backup_databases.sh
 

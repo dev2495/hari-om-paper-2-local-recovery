@@ -85,11 +85,38 @@ def _allowed_browser_origins() -> set[str]:
 
 
 @app.middleware("http")
+async def live_session_guard(request: Request, call_next):
+    """Validate current database access before every protected public API call.
+
+    Services run on the private container network; this is their public ingress.
+    No cache means role changes, disablement and password resets revoke access
+    on the next request, including requests without a plant header.
+    """
+    public = {"/api/auth/login", "/api/auth/logout", "/api/auth/register"}
+    if request.url.path.startswith("/api/") and request.url.path.rstrip("/") not in public:
+        token = extract_token(request)
+        if not token:
+            return JSONResponse(status_code=401, content={"detail": "Not authenticated"})
+        try:
+            validation = await auth.http_client.get(
+                f"{auth.AUTH_SERVICE_URL}/auth/me",
+                headers={"Authorization": f"Bearer {token}"}, timeout=5.0,
+            )
+        except httpx.RequestError:
+            return JSONResponse(status_code=503, content={"detail": "Unable to verify access. Please retry."})
+        if validation.status_code != 200:
+            code = 401 if validation.status_code in {401, 403} else 503
+            return JSONResponse(status_code=code, content={"detail": "Your session expired or access changed. Sign in again." if code == 401 else "Unable to verify access. Please retry."})
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, private"
+    return response
+
+
+@app.middleware("http")
 async def cookie_csrf_guard(request: Request, call_next):
     """Reject cross-site cookie-authenticated mutations before they reach a service."""
-    if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"} and (
-        request.cookies.get("token") or request.cookies.get("acting_token")
-    ):
+    if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
         fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
         origin = (request.headers.get("origin") or "").strip().rstrip("/")
         if fetch_site == "cross-site" or (origin and origin not in _allowed_browser_origins()):

@@ -593,6 +593,4 @@ def delete_job(
     if not db_job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    db.delete(db_job)
-    db.commit()
-    return {"message": "Job deleted successfully"}
+    raise HTTPException(status_code=409, detail="Production history cannot be deleted. Use the governed cancellation workflow.")

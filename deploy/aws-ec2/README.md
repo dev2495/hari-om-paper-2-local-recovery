@@ -19,8 +19,8 @@ Production data migration is deliberately whitelist-based. It imports active use
 
 - `https://<SITE_HOST>/healthz` returns success only when the BFF and every required backend dependency are ready.
 - `hariom-health-metrics.timer` publishes disk, memory, and critical-route health every five minutes.
-- `hariom-backup.timer` uploads checksum-verified custom-format database dumps to the private S3 bucket every day.
-- `hariom-restore-drill.timer` restores the latest archive into a temporary PostgreSQL 16 container every week and verifies that each database contains public tables.
+- `hariom-backup.timer` briefly stops the application to take a coordinated seven-database snapshot, restarts it even on failure, and uploads checksum-verified custom-format database dumps and row-count manifests to the private S3 bucket every day.
+- `hariom-restore-drill.timer` restores the latest archive into a temporary PostgreSQL 16 container every week and verifies every table row count against the backup manifest and confirms at least one active Owner/Admin.
 - `install_cloudwatch_agent.sh` sends Docker JSON logs and syslog to `/hariom/erp/production-v2`, retained for 14 days.
 - CloudWatch alarms cover EC2 status, CPU, disk, memory, readiness, backup freshness, and restore-drill freshness.
 
@@ -49,7 +49,7 @@ deploy/aws-ec2/restore_latest_backup.sh
 docker compose --env-file deploy/aws-ec2/.env --project-directory deploy/aws-ec2 up -d
 ```
 
-`bootstrap_runtime.sh` refuses to overwrite an existing `.env`. `restore_latest_backup.sh` verifies every dump checksum, recreates all seven databases, restores them without ownership/privilege drift, and verifies that each database contains public tables.
+`bootstrap_runtime.sh` refuses to overwrite an existing `.env`. `restore_latest_backup.sh` verifies every dump checksum, recreates all seven databases, restores them without ownership/privilege drift, and verifies every table row count against the backup manifest and confirms at least one active Owner/Admin.
 
 ## Release procedure
 

@@ -14,7 +14,14 @@ class _FakeQuery:
         self._result = result
 
     def filter(self, *args, **kwargs):
+        for condition in args:
+            if getattr(getattr(condition, "left", None), "key", None) == "status":
+                value = getattr(getattr(condition, "right", None), "value", None)
+                if getattr(self._result, "status", None) != value: self._result = None
         return self
+
+    def all(self):
+        return [self._result] if self._result is not None else []
 
     def first(self):
         return self._result

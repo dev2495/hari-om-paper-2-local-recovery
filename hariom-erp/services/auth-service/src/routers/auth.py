@@ -1,6 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from sqlalchemy import func, text
+from datetime import datetime, timedelta
 from typing import List
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 import os
@@ -21,7 +23,7 @@ _login_attempts: dict[str, list[float]] = {}
 _login_attempts_lock = threading.Lock()
 
 class UserCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=160)
     email: EmailStr
     password: str = Field(..., min_length=12, max_length=128)
     plant_id: str = "PLANT_A"
@@ -29,9 +31,23 @@ class UserCreate(BaseModel):
     allowed_plant_ids: List[uuid.UUID] = []
     is_owner_all_plants: bool = False
 
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Name is required")
+        return value.strip()
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def clean_email(cls, value: str) -> str:
+        return value.strip().lower()
+
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, value: str) -> str:
+        if len(value.encode("utf-8")) > 72:
+            raise ValueError("password must be at most 72 UTF-8 bytes")
         if not any(char.islower() for char in value):
             raise ValueError("password must contain a lowercase letter")
         if not any(char.isupper() for char in value):
@@ -48,6 +64,7 @@ class UserResponse(BaseModel):
     email: str
     plant_id: str
     is_active: bool
+    created_at: datetime | None = None
     role: str | None = None
     roles: List[str]
     permissions: List[str]
@@ -91,6 +108,7 @@ def serialize_user(user: models.User) -> dict:
         "email": user.email,
         "plant_id": str(user.plant_id) if user.plant_id else (allowed_plants[0] if allowed_plants else "PLANT_A"),
         "is_active": user.is_active,
+        "created_at": getattr(user, "created_at", None),
         "role": canonical_roles[0] if canonical_roles else None,
         "roles": canonical_roles,
         "permissions": permissions,
@@ -109,7 +127,7 @@ def _assign_roles(user: models.User, role_names: List[str], db: Session) -> None
         raise HTTPException(status_code=400, detail=f"Unknown roles: {', '.join(unknown)}")
     normalized = sorted({canonical_role_name(role) for role in incoming if canonical_role_name(role)})
     if not normalized:
-        return
+        raise HTTPException(status_code=400, detail="Select at least one role")
     roles = db.query(models.Role).filter(models.Role.name.in_(normalized)).all()
     resolved = {role.name for role in roles}
     missing = [name for name in normalized if name not in resolved]
@@ -119,7 +137,7 @@ def _assign_roles(user: models.User, role_names: List[str], db: Session) -> None
 
 
 def create_user_record(user_in: UserCreate, db: Session) -> models.User:
-    db_user = db.query(models.User).filter(models.User.email == user_in.email).first()
+    db_user = db.query(models.User).filter(func.lower(func.trim(models.User.email)) == str(user_in.email).strip().lower()).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -160,7 +178,7 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 def _login_key(request: Request, email: str) -> str:
     forwarded = (request.headers.get("x-forwarded-for") or "").split(",", 1)[0].strip()
     remote = forwarded or (request.client.host if request.client else "unknown")
-    return f"{remote}:{email.strip().lower()}"
+    return f"{remote}|{email.strip().lower()}"
 
 
 def _active_login_attempts(key: str, now: float) -> list[float]:
@@ -173,26 +191,48 @@ def _active_login_attempts(key: str, now: float) -> list[float]:
         return active
 
 
+def _record_login(db, request, username, success, user=None):
+    db.add(models.AuditEvent(
+        event_type="LOGIN_SUCCEEDED" if success else "LOGIN_FAILED",
+        actor_user_id=user.id if user else None, actor_email=username,
+        actor_role=",".join(r.name for r in user.roles) if success and user else None,
+        entity_type="Session", source_service="auth-service",
+        summary="Sign-in succeeded" if success else "Sign-in rejected",
+        ip=_login_key(request, username).split("|", 1)[0],
+        user_agent=(request.headers.get("user-agent") or "")[:255],
+    ))
+    db.commit()
+
+
 @router.post("/login")
 def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     key = _login_key(request, form_data.username)
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": "login:" + key})
     now = time.monotonic()
-    if len(_active_login_attempts(key, now)) >= LOGIN_MAX_ATTEMPTS:
+    persistent_failures = db.query(models.AuditEvent).filter(
+        models.AuditEvent.event_type == "LOGIN_FAILED",
+        models.AuditEvent.actor_email == form_data.username.strip().lower(),
+        models.AuditEvent.ip == key.split("|", 1)[0],
+        models.AuditEvent.occurred_at >= datetime.utcnow() - timedelta(seconds=LOGIN_WINDOW_SECONDS),
+    ).count()
+    if max(persistent_failures, len(_active_login_attempts(key, now))) >= LOGIN_MAX_ATTEMPTS:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail=f"Too many failed login attempts. Retry after {LOGIN_WINDOW_SECONDS // 60} minutes.",
         )
-    user = db.query(models.User).filter(models.User.email == form_data.username).first()
+    user = db.query(models.User).filter(func.lower(func.trim(models.User.email)) == form_data.username.strip().lower()).first()
     if not user or not hashing.verify_password(form_data.password, user.hashed_password):
         with _login_attempts_lock:
             _login_attempts.setdefault(key, []).append(now)
+        _record_login(db, request, form_data.username.strip().lower(), False)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password",
+            detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
     if not user.is_active:
+        _record_login(db, request, form_data.username.strip().lower(), False, user)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive"
@@ -203,6 +243,7 @@ def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends(), db
 
     claims = jwt_handler.build_user_claims(user)
     access_token = jwt_handler.create_access_token(data=claims)
+    _record_login(db, request, user.email, True, user)
     return {"access_token": access_token, "token_type": "bearer", "user": serialize_user(user)}
 
 
@@ -264,10 +305,17 @@ def get_me(request: Request, current_user: models.User = Depends(get_current_use
 def refresh_session(current_user: models.User = Depends(get_current_user)):
     """Rotate an active short-lived JWT after the user has shown activity."""
     payload = dict(getattr(current_user, "token_payload", None) or {})
-    for temporal_claim in ("exp", "iat", "nbf", "jti"):
-        payload.pop(temporal_claim, None)
-    if not payload:
-        payload = jwt_handler.build_user_claims(current_user)
+    previous = payload
+    payload = jwt_handler.build_user_claims(current_user)
+    acting_role = previous.get("acting_role")
+    if previous.get("is_acting_session"):
+        role = next((role for role in current_user.roles if role.name == acting_role), None)
+        if role is None:
+            raise HTTPException(status_code=401, detail="Acting role is no longer assigned")
+        payload.update(actual_sub=payload["sub"], actual_user_id=payload["user_id"],
+                       actual_roles=payload["roles"], acting_role=acting_role,
+                       effective_roles=[acting_role], roles=[acting_role], role=acting_role,
+                       permissions=sorted({p.name for p in role.permissions}), is_acting_session=True)
     return {
         "access_token": jwt_handler.create_access_token(data=payload),
         "token_type": "bearer",

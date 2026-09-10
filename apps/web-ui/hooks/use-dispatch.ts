@@ -39,12 +39,12 @@ export function useDispatch(id: string | null) {
   })
 }
 
-export function useDispatchByJobCard(jobCardId: string | null) {
+export function useDispatchByJobCard(jobCardId: string | null, draftsOnly = false) {
   return useQuery({
-    queryKey: ["dispatch-by-job", jobCardId],
+    queryKey: ["dispatch-by-job", jobCardId, draftsOnly],
     queryFn: async () => {
       if (!jobCardId) return null
-      const { data } = await dispatchApi.getDispatchByJob(jobCardId)
+      const { data } = await dispatchApi.getDispatchByJob(jobCardId, draftsOnly)
       return data
     },
     enabled: !!jobCardId,
@@ -56,6 +56,7 @@ export function useCreateOrUpdateDispatch() {
   return useMutation({
     mutationFn: (data: any) => dispatchApi.createOrUpdateDispatch(data),
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["dispatch-by-job"] })
       queryClient.invalidateQueries({ queryKey: ["ready-jobs"] })
       queryClient.invalidateQueries({ queryKey: ["dispatch"] })
     },
@@ -68,6 +69,7 @@ export function useCreateDispatch(plantId?: string | null) {
     mutationFn: (data: any) => inventoryApi.createDispatch(data, plantId || undefined),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["dispatches"] })
+      queryClient.invalidateQueries({ queryKey: ["dispatch-by-job"] })
       queryClient.invalidateQueries({ queryKey: ["ready-jobs"] })
       queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
     },

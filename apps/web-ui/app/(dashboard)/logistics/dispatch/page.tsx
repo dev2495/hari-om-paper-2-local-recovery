@@ -171,8 +171,9 @@ export default function DispatchSelectionPage() {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3 text-right">
+                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-teal-800 underline">Shipment {index + 1}: {shipment.qty} pcs</Link>)}
                                                 <Button asChild size="sm" variant={job.dispatch_status === "SEALED" ? "outline" : "default"}>
-                                                    <Link href={`/logistics/dispatch/new?job_card_id=${job.id}`}>
+                                                    <Link href={job.dispatch_status === "SEALED" ? `/logistics/dispatch/${job.id}/print?dispatch_id=${job.dispatch_id}` : `/logistics/dispatch/new?job_card_id=${job.id}&remaining_qty=${job.remaining_qty ?? job.planned_qty}`}>
                                                         {job.dispatch_status === "SEALED" ? "View Challan" : job.dispatch_status === "DRAFT" ? "Edit Draft" : "Create Dispatch"}
                                                     </Link>
                                                 </Button>

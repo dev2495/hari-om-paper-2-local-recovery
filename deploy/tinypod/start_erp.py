@@ -179,6 +179,13 @@ PROCESSES = [
         extra_env={"DATABASE_URL": database_url("analyticsdb")},
     ),
     ManagedProcess(
+        name="audit-relay",
+        cwd=ROOT / "hariom-erp/shared",
+        command=[PYTHON, "audit_relay.py"],
+        health_url=None,
+        extra_env={},
+    ),
+    ManagedProcess(
         name="bff-api",
         cwd=ROOT / "apps/bff-api",
         command=[PYTHON, "-m", "uvicorn", "src.main:app", "--host", BFF_BIND_HOST, "--port", BFF_PORT],

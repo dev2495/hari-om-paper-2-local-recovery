@@ -12,30 +12,17 @@ def inventory_valuation(
     token: str = Depends(get_token),
     plant_scope: dict = Depends(get_plant_scope),
 ):
-    items: List[Dict[str, Any]] = []
+    items = []
     for scoped_plant_id in scope_plant_ids(plant_scope):
-        balances = service_get(f"{INVENTORY_SERVICE_URL}/all-balances", token, plant_id=scoped_plant_id) or {}
-        items.extend(balances.get("items", []))
-
-    total_qty = sum(float(item.get("available_qty", 0.0)) for item in items)
-    breakdown = [
-        {
-            "type": item.get("type"),
-            "item_code": item.get("item_code"),
-            "name": item.get("name"),
-            "available_qty": round(float(item.get("available_qty", 0.0)), 2),
-        }
-        for item in items
-    ]
-
+        valuation = service_get(f"{INVENTORY_SERVICE_URL}/inventory/valuation/summary", token, plant_id=scoped_plant_id, required=True)
+        items.extend(valuation.get("rows", []))
     grouped = defaultdict(float)
-    for row in breakdown:
-        grouped[row["type"]] += row["available_qty"]
-
+    for row in items:
+        grouped[row.get("type") or "UNKNOWN"] += float(row.get("inventory_value") or 0)
     return {
-        "total_value": round(total_qty, 2),
+        "total_value": round(sum(float(row.get("inventory_value") or 0) for row in items), 2),
         "breakdown": [{"type": key, "value": round(value, 2)} for key, value in grouped.items()],
-        "items": breakdown,
+        "items": items,
     }
 
 

@@ -8,16 +8,15 @@ const PLANT_STORAGE_KEY = "hariom_active_plant"
 
 export function getStoredPlant() {
   if (!isBrowser) return null
-  return window.localStorage.getItem(PLANT_STORAGE_KEY)
+  try { return window.localStorage.getItem(PLANT_STORAGE_KEY) } catch { return null }
 }
 
 export function setStoredPlant(plantId: string | null) {
   if (!isBrowser) return
-  if (!plantId) {
-    window.localStorage.removeItem(PLANT_STORAGE_KEY)
-  } else {
-    window.localStorage.setItem(PLANT_STORAGE_KEY, plantId)
-  }
+  try {
+    if (!plantId) window.localStorage.removeItem(PLANT_STORAGE_KEY)
+    else window.localStorage.setItem(PLANT_STORAGE_KEY, plantId)
+  } catch { /* Storage is an optional preference, never an authentication dependency. */ }
 }
 
 function withPlantHeader(plantId?: string) {
@@ -32,6 +31,7 @@ function withPlantHeader(plantId?: string) {
 export const api = axios.create({
   baseURL: isBrowser ? browserBaseUrl : serverBaseUrl,
   withCredentials: true,
+  timeout: 30000,
   headers: {
     "Content-Type": "application/json",
   },
@@ -50,14 +50,26 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const status = error?.response?.status
     const requestUrl = String(error?.config?.url || "")
     const isAuthRoute = requestUrl.includes("/api/auth/login") || requestUrl.includes("/api/auth/me")
 
     if (status === 401 && !isAuthRoute) {
       if (isBrowser && window.location.pathname !== "/login") {
-        window.location.assign("/login")
+        // A downstream rejection must not bounce a still-valid session forever.
+        const controller = new AbortController()
+        const timer = window.setTimeout(() => controller.abort(), 10000)
+        try {
+          const session = await fetch("/api/auth/me", { credentials: "include", cache: "no-store", signal: controller.signal })
+          if (session.status === 401) {
+            await fetch("/api/auth/logout", { method: "POST", credentials: "include", signal: controller.signal })
+            window.location.assign("/login?reason=access_changed")
+          } else if (session.ok && error.response) {
+            error.response.data = { detail: "This service could not verify your access. Your sign-in is still valid. Refresh or contact Owner/Admin." }
+          }
+        } catch { /* A network outage must not become a redirect loop. */ }
+        finally { window.clearTimeout(timer) }
       }
     }
 
@@ -74,6 +86,7 @@ export const authApi = {
   },
   me: () => api.get("/api/auth/me"),
   users: () => api.get("/api/auth/users"),
+  user: (id: string) => api.get(`/api/auth/users/${id}`),
   createUser: (data: any) => api.post("/api/auth/users", data),
   updateUser: (id: string, data: any) => api.put(`/api/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/api/auth/users/${id}`),
@@ -516,6 +529,6 @@ export const purchaseApi = {
 export const dispatchApi = {
   getReadyJobs: (plantId?: string) => api.get("/api/dispatch/ready-jobs", withPlantHeader(plantId)),
   getDispatch: (id: string) => api.get(`/api/dispatch/${id}`),
-  getDispatchByJob: (jobCardId: string) => api.get(`/api/dispatch/by-job/${jobCardId}`),
+  getDispatchByJob: (jobCardId: string, draftsOnly = false) => api.get(`/api/dispatch/by-job/${jobCardId}`, { params: { include_sealed: !draftsOnly } }),
   createOrUpdateDispatch: (data: any) => api.post("/api/dispatch", data),
 }

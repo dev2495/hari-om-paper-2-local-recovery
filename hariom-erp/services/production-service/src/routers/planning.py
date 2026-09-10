@@ -5417,7 +5417,8 @@ def get_job_card_genealogy(
         .order_by(QualityHold.created_at.asc())
         .all()
     )
-    dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id).first()
+    shipments = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id).order_by(Dispatch.created_at.desc()).all()
+    dispatch = shipments[0] if shipments else None
     recent_shift_ledgers = (
         db.query(ShiftMaterialLedger)
         .filter(ShiftMaterialLedger.plant_id == job_card.plant_id)
@@ -5694,6 +5695,7 @@ def get_job_card_genealogy(
             "batch_ledger": _payload_list(fg_batch_ledger),
             "dispatch_ledger": _payload_list(dispatch_ledger),
         },
+        "dispatches": [{"id": str(shipment.id), "status": shipment.status, "dispatch_snapshot": dict(shipment.dispatch_snapshot or {}), "created_at": shipment.created_at} for shipment in shipments],
         "dispatch": (
             {
                 "id": str(dispatch.id),

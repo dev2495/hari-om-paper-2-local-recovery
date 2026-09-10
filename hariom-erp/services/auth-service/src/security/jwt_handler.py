@@ -1,4 +1,7 @@
 import os
+import hashlib
+import hmac
+import json
 from datetime import datetime, timedelta
 import jwt
 from jwt import InvalidTokenError as JWTError
@@ -39,9 +42,9 @@ def build_user_claims(user: models.User) -> dict:
     """Build normalized claims for cross-service RBAC checks."""
     roles = sorted([role.name for role in user.roles])
     permissions = sorted({permission.name for role in user.roles for permission in role.permissions})
-    allowed_plants = resolve_allowed_plant_ids(None, user)
+    allowed_plants = sorted(resolve_allowed_plant_ids(None, user))
     resolved_plant = str(user.plant_id) if user.plant_id else (allowed_plants[0] if allowed_plants else None)
-    return {
+    claims = {
         "sub": user.email,
         "user_id": str(user.id),
         "role": roles[0] if roles else "",
@@ -51,3 +54,9 @@ def build_user_claims(user: models.User) -> dict:
         "allowed_plants": allowed_plants,
         "is_owner_all_plants": bool(getattr(user, "is_owner_all_plants", False)),
     }
+
+    # A keyed revision changes with access or password changes. No password hash
+    # or secret is disclosed in the JWT. Existing sessions then fail immediately.
+    revision = {**claims, "active": user.is_active, "credential": user.hashed_password}
+    claims["authz_version"] = hmac.new(SECRET_KEY.encode(), json.dumps(revision, sort_keys=True).encode(), hashlib.sha256).hexdigest()
+    return claims

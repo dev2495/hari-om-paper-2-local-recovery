@@ -72,15 +72,16 @@ async def register(request: Request):
 
 
 @router.post("/login")
-async def login(payload: LoginPayload):
+async def login(payload: LoginPayload, request: Request):
     form_data = {
-        "username": payload.email,
+        "username": payload.email.strip().lower(),
         "password": payload.password,
     }
     try:
         response = await http_client.post(
             f"{AUTH_SERVICE_URL}/auth/login",
             data=form_data,
+            headers={"X-Forwarded-For": request.headers.get("X-ERP-Client-IP") or (request.client.host if request.client else "unknown")},
         )
     except httpx.RequestError:
         return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
@@ -157,7 +158,8 @@ async def touch_session(request: Request):
         if acting_status == 200 and refreshed_acting_token:
             _set_session_cookie(renewed, "acting_token", refreshed_acting_token)
         else:
-            renewed.delete_cookie(key="acting_token")
+            # Never silently restore the broader base role on renewal failure.
+            return JSONResponse(status_code=401 if acting_status in {401, 403} else 503, content={"detail": "Acting session could not be renewed. Sign in again."})
     return renewed
 
 
@@ -252,6 +254,15 @@ async def create_user(request: Request):
         status_code=response.status_code,
         content=_safe_json(response, "Unable to create user"),
     )
+
+
+@router.get("/users/{user_id}")
+async def get_user(user_id: str, request: Request):
+    try:
+        response = await http_client.get(f"{AUTH_SERVICE_URL}/users/{user_id}", headers={"Authorization": f"Bearer {extract_token(request)}"})
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to load user"))
 
 
 @router.put("/users/{user_id}")
@@ -510,19 +521,4 @@ async def list_audit_events(request: Request):
 
 @router.post("/audit-events")
 async def post_audit_event(request: Request):
-    token = extract_token(request)
-    if not token:
-        return JSONResponse(content={"detail": "Not authenticated"}, status_code=401)
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        response = await http_client.post(
-            f"{AUTH_SERVICE_URL}/audit-events/",
-            json=body,
-            headers={"Authorization": f"Bearer {token}"},
-        )
-    except httpx.RequestError:
-        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
-    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to post audit event"))
+    return JSONResponse(status_code=403, content={"detail": "Audit events are written by trusted services only"})

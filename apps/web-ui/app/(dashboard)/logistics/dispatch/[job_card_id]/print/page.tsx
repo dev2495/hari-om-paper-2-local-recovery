@@ -1,8 +1,8 @@
 "use client"
 
 import { useEffect } from "react"
-import { useParams, useRouter } from "next/navigation"
-import { useDispatchByJobCard } from "@/hooks/use-dispatch"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useDispatchByJobCard, useDispatch } from "@/hooks/use-dispatch"
 import { DispatchDocument } from "@/components/dispatch/dispatch-document"
 import { Button } from "@/components/ui/button"
 
@@ -11,7 +11,11 @@ export default function PrintDispatchPage() {
     const router = useRouter()
     const jobCardId = params?.job_card_id as string
 
-    const { data: dispatchRecord, isLoading } = useDispatchByJobCard(jobCardId)
+    const searchParams = useSearchParams()
+    const dispatchId = searchParams?.get("dispatch_id") || null
+    const byId = useDispatch(dispatchId)
+    const byJob = useDispatchByJobCard(dispatchId ? null : jobCardId)
+    const { data: dispatchRecord, isLoading } = dispatchId ? byId : byJob
 
     useEffect(() => {
         // Optional auto-print trigger

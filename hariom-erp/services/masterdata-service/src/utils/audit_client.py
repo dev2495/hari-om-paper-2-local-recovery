@@ -54,7 +54,7 @@ def emit_audit_event(
         r = requests.post(
             f"{AUTH_SERVICE_URL}/audit-events/",
             json=body,
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {token}", "X-Internal-Token": os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events")},
             timeout=2.0,
         )
         return r.status_code < 300

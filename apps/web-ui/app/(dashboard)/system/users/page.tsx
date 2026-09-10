@@ -17,7 +17,7 @@ function formatCreated(value: string | undefined | null) {
 
 export default function UsersPage() {
   const { user, activePlant } = useAuth()
-  const { data: users = [], isLoading: usersLoading } = useUsers()
+  const { data: users = [], isLoading: usersLoading, error: usersError } = useUsers()
   const { data: plants = [] } = usePlants()
   const [search, setSearch] = useState("")
   const [roleFilter, setRoleFilter] = useState("ALL")
@@ -82,8 +82,11 @@ export default function UsersPage() {
       ? "All visible plants"
       : plantMap.get(String(activePlant || "")) || displayPlantScope(activePlant || user?.plant_id, "Global")
 
+  if (![user?.role, ...(user?.roles || [])].some(role => role === "Owner" || role === "Admin")) return <p role="alert">Only Owner and Admin can manage users.</p>
+
   return (
     <div className="space-y-6">
+      {usersError && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">Could not load users. Refresh to retry.</p>}
       <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl shadow-slate-900/15">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
@@ -225,7 +228,7 @@ export default function UsersPage() {
                             <UserIcon className="h-5 w-5" />
                           </div>
                           <div>
-                            <p className="text-sm font-semibold text-slate-950">{entry.name || entry.email}</p>
+                            <p className="text-sm font-semibold text-slate-950"><Link href={`/system/users/${entry.id}`} className="underline decoration-teal-600 underline-offset-4">{entry.name || entry.email} · Edit</Link></p>
                             <p className="text-xs text-slate-500">{entry.email}</p>
                           </div>
                         </div>

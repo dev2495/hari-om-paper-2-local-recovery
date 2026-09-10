@@ -10,10 +10,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 
 from .. import models
 from ..database import get_db
-from ..utils.deps import get_current_user
+from ..utils.deps import get_current_user, get_session_claims, require_internal_event_request
 
 router = APIRouter(prefix="/audit-events", tags=["audit-events"])
 
@@ -74,6 +75,36 @@ def _serialize(row: models.AuditEvent) -> dict[str, Any]:
     }
 
 
+class IngestEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: uuid.UUID
+    occurred_at: datetime
+    event_type: str = Field(max_length=120)
+    source_service: str = Field(max_length=60)
+    entity_type: str | None = None
+    entity_id: str | None = None
+    plant_id: str | None = None
+    actor_user_id: uuid.UUID | None = None
+    actor_email: str | None = None
+    actor_role: str | None = None
+    request_path: str | None = None
+    summary: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+@router.post("/ingest")
+def ingest_event(payload: IngestEvent, request: Request, db: Session = Depends(get_db)):
+    require_internal_event_request(request)
+    values = payload.model_dump(exclude={"request_path"})
+    # A deleted historical actor must not prevent durable operational history.
+    if values["actor_user_id"] and not db.get(models.User, values["actor_user_id"]):
+        values["actor_user_id"] = None
+    values["payload"] = json.dumps({**payload.payload, "request_path": payload.request_path})
+    db.execute(insert(models.AuditEvent).values(**values).on_conflict_do_nothing(index_elements=["id"]))
+    db.commit()
+    return {"id": str(payload.id), "recorded": True}
+
+
 @router.post("/")
 def post_audit_event(
     payload: AuditEventCreate,
@@ -84,18 +115,19 @@ def post_audit_event(
     """Write a single audit event. Open to any authenticated caller — the
     actor is always overridden to the JWT subject.
     """
+    require_internal_event_request(request)
     row = models.AuditEvent(
         plant_id=payload.plant_id,
         actor_user_id=current_user.id,
-        actor_email=payload.actor_email or current_user.email,
-        actor_role=payload.actor_role,
+        actor_email=current_user.email,
+        actor_role=",".join(get_session_claims(current_user)["roles"]),
         event_type=payload.event_type,
         entity_type=payload.entity_type,
         entity_id=payload.entity_id,
         summary=payload.summary,
         payload=json.dumps(payload.payload) if payload.payload else None,
-        ip=payload.ip or (request.client.host if request.client else None),
-        user_agent=payload.user_agent or request.headers.get("User-Agent"),
+        ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
         source_service=payload.source_service,
     )
     db.add(row)
@@ -120,7 +152,7 @@ def list_audit_events(
     """List audit events with filters. Owners/Admins see everything;
     other roles see their own actions only.
     """
-    role_names = {r.name for r in current_user.roles}
+    role_names = set(get_session_claims(current_user)["roles"])
     is_owner_admin = "Owner" in role_names or "Admin" in role_names
 
     since = datetime.utcnow() - timedelta(hours=since_hours)

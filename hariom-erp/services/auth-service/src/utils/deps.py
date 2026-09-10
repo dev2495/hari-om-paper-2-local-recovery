@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 
 from .. import models
 from ..database import get_db
-from ..security.jwt_handler import decode_access_token
+from ..security.jwt_handler import decode_access_token, build_user_claims
+import hmac
 
 
 def _extract_token(request: Request) -> str | None:
@@ -44,6 +45,10 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> models.
 
     if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found or inactive")
+
+    expected_version = build_user_claims(user)["authz_version"]
+    if not hmac.compare_digest(str(payload.get("authz_version", "")), expected_version):
+        raise HTTPException(status_code=401, detail="Your access changed. Sign in again.")
 
     setattr(user, "token", token)
     setattr(user, "token_payload", payload)

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
+import { PasswordInput } from "@/components/auth/password-input"
 import { useAuth } from "@/context/AuthContext"
 import { landingPathForRole, resolveLandingRole } from "@/lib/workspace"
 
@@ -12,7 +13,7 @@ function landingPathFor(user: { role?: string | null; roles?: string[] }, fallba
 }
 
 function safeNextPath(value: string | null) {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return null
+  if (!value || !value.startsWith("/") || value.startsWith("//") || /[\\\s]/.test(value)) return null
   return value
 }
 
@@ -39,7 +40,7 @@ function LoginPageContent() {
     setSubmitting(true)
     setError(null)
     try {
-      const loggedInUser = await login(email.trim(), password)
+      const loggedInUser = await login(email.trim().toLowerCase(), password)
       router.replace(explicitNextPath || landingPathFor(loggedInUser, nextPath))
     } catch (err: any) {
       setError(err?.response?.data?.detail || err?.message || "Login failed")
@@ -70,7 +71,7 @@ function LoginPageContent() {
               TubeOS control room for paper-tube manufacturing.
             </h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">
-              Sales, planning, production, reconciliation, and dispatch now run from one verified workspace. Sign in to test the live end-to-end flow.
+              Sales, planning, production, reconciliation, and dispatch in one workspace.
             </p>
             <div className="mt-10 grid gap-4 sm:grid-cols-3">
               {[
@@ -96,7 +97,8 @@ function LoginPageContent() {
             </div>
 
             <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
-              {sessionReason ? (
+              {sessionReason === "access_changed" && !error && !submitting ? <p role="status" className="rounded-xl bg-amber-50 p-4 text-amber-900">Your session expired or your access was updated. Please sign in again.</p> : null}
+              {sessionReason === "inactive" && !error && !submitting ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
                   Your secure session ended after 15 minutes without activity. Sign in again to continue.
                 </div>
@@ -106,6 +108,8 @@ function LoginPageContent() {
                 <input
                   data-testid="login-email"
                   autoComplete="username"
+                  autoCapitalize="none"
+                  spellCheck={false}
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:bg-white"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -116,7 +120,7 @@ function LoginPageContent() {
 
               <label className="block">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
-                <input
+                <PasswordInput
                   data-testid="login-password"
                   autoComplete="current-password"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:bg-white"
@@ -128,7 +132,7 @@ function LoginPageContent() {
               </label>
 
               {error ? (
-                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+                <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
               ) : null}
 
               <button

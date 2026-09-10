@@ -289,7 +289,7 @@ def create_or_update_dispatch(
             if idem.request_hash != request_hash:
                 raise HTTPException(status_code=409, detail="dispatch_request_id was already used with a different payload")
             if idem.status == "SUCCESS":
-                completed = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id).first()
+                completed = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id, Dispatch.dispatch_snapshot["dispatch_request_id"].astext == request_id).first()
                 if completed:
                     response_snapshot = {
                         **dispatch_snapshot,
@@ -320,9 +320,12 @@ def create_or_update_dispatch(
                     )
 
     # Check if a dispatch already exists
-    dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id).first()
+    dispatch = db.query(Dispatch).filter(Dispatch.job_card_id == payload.job_card_id, Dispatch.status == "DRAFT").first()
 
     if dispatch:
+        previous = dispatch.dispatch_snapshot or {}
+        if previous.get("orchestration_state") in {"PENDING", "FAILED"} and previous.get("dispatch_request_id") != request_id:
+            raise HTTPException(status_code=409, detail="Finish the existing dispatch using its original request ID before starting another shipment")
         if dispatch.status == "SEALED":
             raise HTTPException(status_code=400, detail="Cannot edit a SEALED dispatch")
         dispatch_snapshot = {**dict(dispatch.dispatch_snapshot or {}), **dispatch_snapshot}
@@ -355,8 +358,11 @@ def create_or_update_dispatch(
     if dispatch_qty <= 0:
         raise HTTPException(status_code=400, detail="Dispatch quantity must be positive before sealing")
     packed_qty = float(packing_record.total_packed_qty or 0.0)
-    if dispatch_qty > packed_qty + 0.0001:
-        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed packed qty {packed_qty:g}")
+    sealed = db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id, Dispatch.status == "SEALED").all()
+    previously_shipped = sum(float((row.dispatch_snapshot or {}).get("dispatch_qty") or (row.dispatch_snapshot or {}).get("qty") or 0) for row in sealed)
+    remaining_qty = max(0, packed_qty - previously_shipped)
+    if dispatch_qty > remaining_qty + 0.0001:
+        raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed remaining packed qty {remaining_qty:g}")
 
     dispatch_ref = _dispatch_ref(dispatch_snapshot, dispatch.id, request_id)
     dispatch_snapshot.update(
@@ -430,8 +436,9 @@ def create_or_update_dispatch(
         dispatch.dispatch_snapshot = dict(dispatch_snapshot)
         _safe_flag_modified(dispatch, "dispatch_snapshot")
         dispatch.status = "SEALED"
-        job_card.status = "COMPLETED"
-        job_card.current_stage = "DONE"
+        if previously_shipped + dispatch_qty >= packed_qty - 0.0001:
+            job_card.status = "COMPLETED"
+            job_card.current_stage = "DONE"
         idem.status = "SUCCESS"
         idem.error_message = None
         idem.response_snapshot = dict(dispatch_snapshot)
@@ -468,16 +475,16 @@ def get_dispatch(
 @router.get("/by-job/{job_card_id}", response_model=Optional[DispatchResponse])
 def get_dispatch_by_job_card(
     job_card_id: uuid.UUID,
+    include_sealed: bool = True,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(DISPATCH_ACCESS_ROLES))
 ):
-    dispatch = (
-        db.query(Dispatch)
-        .join(JobCard, JobCard.id == Dispatch.job_card_id)
-        .filter(Dispatch.job_card_id == job_card_id, JobCard.plant_id == _plant_uuid(plant_id))
-        .first()
-    )
+    query = db.query(Dispatch).join(JobCard, JobCard.id == Dispatch.job_card_id).filter(
+        Dispatch.job_card_id == job_card_id, JobCard.plant_id == _plant_uuid(plant_id))
+    if not include_sealed:
+        query = query.filter(Dispatch.status == "DRAFT")
+    dispatch = query.order_by(Dispatch.created_at.desc()).first()
     return dispatch
 
 @router.get("/ready-jobs/", response_model=list[dict])
@@ -502,18 +509,21 @@ def get_ready_jobs_for_dispatch(
         .all()
     )
 
-    valid_jobs = []
+    grouped = {}
     for jc, so, dispatch in results:
-        valid_jobs.append({
-            "id": jc.id,
-            "status": jc.status,
-            "current_stage": jc.current_stage,
-            "spec_snapshot": jc.spec_snapshot,
-            "planned_qty": jc.planned_qty,
-            "customer_id": so.customer_id,
-            "dispatch_status": dispatch.status if dispatch else None,
-            "dispatch_id": dispatch.id if dispatch else None,
-            "created_at": jc.created_at
-        })
-
-    return valid_jobs
+        entry = grouped.setdefault(jc.id, {"id": jc.id, "status": jc.status,
+            "current_stage": jc.current_stage, "spec_snapshot": jc.spec_snapshot,
+            "planned_qty": jc.planned_qty, "customer_id": so.customer_id,
+            "created_at": jc.created_at, "shipments": [], "draft": None})
+        if dispatch and dispatch.status == "SEALED":
+            entry["shipments"].append({"id": str(dispatch.id), "qty": float((dispatch.dispatch_snapshot or {}).get("dispatch_qty") or (dispatch.dispatch_snapshot or {}).get("qty") or 0), "created_at": dispatch.created_at})
+        elif dispatch:
+            entry["draft"] = str(dispatch.id)
+    packing = {p.job_card_id: float(p.total_packed_qty or 0) for p in db.query(PackingRecord).filter(PackingRecord.job_card_id.in_(list(grouped))).all()} if grouped else {}
+    for key, entry in grouped.items():
+        entry["shipments"].sort(key=lambda row: row["created_at"], reverse=True)
+        entry["dispatched_qty"] = sum(row["qty"] for row in entry["shipments"])
+        entry["remaining_qty"] = max(0, packing.get(key, 0) - entry["dispatched_qty"])
+        entry["dispatch_id"] = entry["draft"] or (entry["shipments"][0]["id"] if entry["shipments"] else None)
+        entry["dispatch_status"] = "DRAFT" if entry.pop("draft") else ("SEALED" if entry["shipments"] and entry["remaining_qty"] <= 0.0001 else None)
+    return list(grouped.values())

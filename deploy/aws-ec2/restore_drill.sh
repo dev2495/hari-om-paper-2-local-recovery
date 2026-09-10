@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/hariom/app/deploy/aws-ec2}"
 ENV_FILE="${ENV_FILE:-${DEPLOY_DIR}/.env}"
@@ -70,13 +71,23 @@ for db_name in authdb masterdb specdb salesdb productiondb inventorydb analytics
     -U postgres \
     -d "${db_name}" \
     --no-owner \
+    --exit-on-error \
     --no-privileges < "${dump_path}"
   table_count="$(docker exec "${container_name}" psql -U postgres -d "${db_name}" -Atc \
     "SELECT count(*) FROM pg_catalog.pg_tables WHERE schemaname = 'public';")"
+  if [[ -f "${work_dir}/${db_name}.counts" ]]; then
+    docker exec -i "${container_name}" psql -U postgres -d "${db_name}" -At -v ON_ERROR_STOP=1       < "${DEPLOY_DIR}/backup_row_counts.sql" > "${work_dir}/${db_name}.restored-counts"
+    diff -u "${work_dir}/${db_name}.counts" "${work_dir}/${db_name}.restored-counts"
+  else
+    echo "Archive has no row-count evidence for ${db_name}; create a new backup before release acceptance" >&2
+    exit 1
+  fi
   if [[ "${table_count}" -lt 1 ]]; then
     echo "Restore drill produced no public tables for ${db_name}" >&2
     exit 1
   fi
 done
 
-echo "Restore drill passed for ${latest_key}"
+admin_count="$(docker exec "${container_name}" psql -U postgres -d authdb -Atc "SELECT count(DISTINCT u.id) FROM users u JOIN user_roles ur ON ur.user_id=u.id JOIN roles r ON r.id=ur.role_id WHERE u.is_active AND r.name IN ('Owner','Admin');")"
+[[ "$admin_count" -gt 0 ]] || { echo "No recoverable active administrator" >&2; exit 1; }
+echo "Restore drill passed: all seven databases, exact table row counts, active administrator; ${latest_key}"

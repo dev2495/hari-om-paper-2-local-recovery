@@ -599,12 +599,13 @@ def update_sales_order(
         raise HTTPException(status_code=404, detail="Sales order not found")
 
     if order.status in [
+        SalesOrderStatus.APPROVED,
         SalesOrderStatus.RELEASED,
         SalesOrderStatus.PARTIALLY_RELEASED,
         SalesOrderStatus.PARTIALLY_DISPATCHED,
         SalesOrderStatus.CLOSED,
     ]:
-        raise HTTPException(status_code=400, detail="Released/dispatched orders cannot be edited")
+        raise HTTPException(status_code=400, detail="Only draft/submitted orders can be edited; approved commercial terms are locked")
 
     if payload.customer_id is not None:
         order.customer_id = payload.customer_id
@@ -664,8 +665,11 @@ def approve_sales_order(
     if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
         raise HTTPException(status_code=400, detail="Only draft/submitted orders can be approved")
 
+    actor = str(current_user.get("actual_sub") or current_user.get("sub") or "").strip().lower()
+    if str(order.created_by or "").strip().lower() == actor:
+        raise HTTPException(status_code=403, detail="A different authorized person must approve this sales order")
     order.status = SalesOrderStatus.APPROVED
-    order.approved_by = current_user.get("sub")
+    order.approved_by = actor
     order.approved_at = datetime.utcnow()
     db.commit()
 

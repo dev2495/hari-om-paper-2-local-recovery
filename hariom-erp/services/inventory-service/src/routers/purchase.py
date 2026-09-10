@@ -1,4 +1,6 @@
 from __future__ import annotations
+import hashlib
+import json
 
 import logging
 from datetime import date, datetime
@@ -70,6 +72,9 @@ def _receipt_status(qc_statuses: list[str]) -> str:
 
 
 def _next_doc_no(db: Session, model, plant_id: str, field_name: str, prefix: str) -> str:
+    # Transaction-scoped lock avoids count/check races across orders in a plant.
+    from sqlalchemy import text
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"document:{plant_id}:{prefix}"})
     date_part = datetime.utcnow().strftime("%y%m%d")
     base = f"{prefix}-{date_part}"
     for seq in range(1, 10000):
@@ -84,7 +89,7 @@ def _next_doc_no(db: Session, model, plant_id: str, field_name: str, prefix: str
 
 
 class PurchaseOrderLineCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     item_id: uuid.UUID
     qty_ordered: float = Field(gt=0)
@@ -101,7 +106,7 @@ class PurchaseOrderLineCreate(BaseModel):
 
 
 class PurchaseOrderCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     po_no: Optional[str] = Field(default=None, max_length=80)
     po_date: Optional[date] = None
@@ -153,7 +158,7 @@ class PurchaseOrderResponse(BaseModel):
 
 
 class GrnLineCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     po_line_id: uuid.UUID
     qty_received: float = Field(gt=0)
@@ -162,15 +167,16 @@ class GrnLineCreate(BaseModel):
 
 
 class GrnCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     grn_no: Optional[str] = Field(default=None, max_length=80)
+    request_id: Optional[uuid.UUID] = None
     received_date: date
     lines: list[GrnLineCreate] = Field(min_length=1)
 
 
 class ReceiptQcPayload(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     status: str = "PASS"
     notes: Optional[str] = Field(default=None, max_length=500)
@@ -345,8 +351,12 @@ def approve_purchase_order(
     ).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    if order.status == "CANCELLED":
-        raise HTTPException(status_code=400, detail="Cancelled purchase order cannot be approved")
+    if order.status == "APPROVED":
+        return _serialize_order(order)
+    if order.status not in {"DRAFT", "SUBMITTED"}:
+        raise HTTPException(status_code=409, detail="Only draft/submitted purchase orders can be approved")
+    if str(order.created_by or "").strip().lower() == _actor(current_user).strip().lower():
+        raise HTTPException(status_code=403, detail="A different authorized person must approve this purchase order")
     order.status = "APPROVED"
     order.approved_by = _actor(current_user)
     order.approved_at = datetime.utcnow()
@@ -388,10 +398,26 @@ def post_grn(
     ).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+    grn_no = (payload.grn_no or "").strip().upper() or (f"GRN-{payload.request_id.hex}" if payload.request_id else "")
+    if not grn_no:
+        raise HTTPException(status_code=422, detail="A stable request_id or GRN number is required; refresh the purchasing page")
+    fingerprint = hashlib.sha256(json.dumps(payload.model_dump(mode="json", exclude={"request_id", "grn_no"}), sort_keys=True).encode()).hexdigest()
+    from sqlalchemy import text
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"receipt:{plant_id}:{grn_no}"})
+    existing = db.query(PurchaseReceipt).filter(PurchaseReceipt.plant_id == plant_id, PurchaseReceipt.grn_no == grn_no).first()
+    if existing:
+        movement = db.query(StockTransaction).filter(StockTransaction.external_ref == f"GRN:{existing.id}:1").first()
+        if existing.purchase_order_id != order.id or not movement or (movement.movement_metadata or {}).get("request_fingerprint") != fingerprint:
+            raise HTTPException(status_code=409, detail="This receipt reference already exists with different details. Review GRNs before retrying.")
+        return {"id": str(existing.id), "purchase_order_id": str(order.id), "po_no": order.po_no,
+                "grn_no": existing.grn_no, "received_date": existing.received_date.isoformat(),
+                "status": existing.status, "order_status": order.status, "idempotent": True,
+                "lines": [{"po_line_id": str(line.purchase_order_line_id), "batch_id": str(line.batch_id),
+                           "batch_no": line.batch.batch_no if line.batch else None,
+                           "qty_received": line.qty_received, "qc_status": line.qc_status} for line in existing.lines]}
     if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=400, detail="Only approved purchase orders can receive GRN")
 
-    grn_no = (payload.grn_no or "").strip().upper() or _next_doc_no(db, PurchaseReceipt, plant_id, "grn_no", "GRN")
     receipt = PurchaseReceipt(
         plant_id=plant_id,
         purchase_order_id=order.id,
@@ -444,6 +470,7 @@ def post_grn(
                 item_id=po_line.item_id,
                 batch_id=batch.id,
                 transaction_type=TransactionType.INWARD,
+                effective_date=payload.received_date,
                 qty_change=line_payload.qty_received,
                 reference_type=ReferenceType.PURCHASE,
                 reference_id=order.id,
@@ -452,6 +479,7 @@ def post_grn(
                 stock_status=stock_status,
                 movement_metadata={
                     "source_document_type": "GRN",
+                    "request_fingerprint": fingerprint,
                     "purchase_order_id": str(order.id),
                     "purchase_order_no": order.po_no,
                     "purchase_order_line_id": str(po_line.id),
@@ -462,7 +490,7 @@ def post_grn(
                     "qc_status": "PENDING" if po_line.incoming_qc_required else "PASS",
                     "po_line_metadata": po_line.metadata_json or {},
                 },
-                external_ref=f"GRN:{grn_no}:{idx}",
+                external_ref=f"GRN:{receipt.id}:{idx}",
             )
         )
         qc_status = "PENDING" if po_line.incoming_qc_required else "PASS"

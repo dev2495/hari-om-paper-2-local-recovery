@@ -12,6 +12,7 @@ if [[ ! -x "$PYTEST" ]]; then
 fi
 
 echo "== Full backend regression suites =="
+env PYTHONPATH=hariom-erp/shared "$PYTEST" hariom-erp/shared/tests
 env PYTHONPATH=apps/bff-api "$PYTEST" apps/bff-api/tests
 env PYTHONPATH=hariom-erp/services/auth-service "$PYTEST" hariom-erp/services/auth-service/tests
 env PYTHONPATH=hariom-erp/services/masterdata-service "$PYTEST" hariom-erp/services/masterdata-service/tests

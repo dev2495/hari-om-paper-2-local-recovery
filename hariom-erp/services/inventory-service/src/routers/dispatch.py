@@ -79,6 +79,14 @@ def _existing_dispatch_response(transaction: StockTransaction, dispatch: Dispatc
     if transaction.transaction_type != TransactionType.DISPATCH:
         raise HTTPException(status_code=409, detail="Existing transaction is not a dispatch transaction")
 
+    import math
+    if not math.isclose(abs(float(transaction.qty_change)), float(dispatch.qty), rel_tol=0, abs_tol=1e-9):
+        raise HTTPException(status_code=409, detail="Dispatch reference was already used for a different quantity")
+    metadata = transaction.movement_metadata or {}
+    for key in ("production_job_id", "sales_order_id", "sales_order_line_id"):
+        requested = getattr(dispatch, key, None)
+        if requested and metadata.get(key) and str(requested) != str(metadata[key]):
+            raise HTTPException(status_code=409, detail=f"Dispatch reference has different {key}")
     _backfill_dispatch_lineage(transaction, dispatch)
 
     return DispatchResponse(

@@ -14,8 +14,8 @@ async function getSafeData<T = any>(fn: () => Promise<{ data: T }>, fallback: T)
   try {
     const { data } = await fn()
     return data ?? fallback
-  } catch {
-    return fallback
+  } catch (error) {
+    throw error
   }
 }
 
