@@ -138,7 +138,49 @@ def _ensure_schema_compatibility():
         )
 
 
+def backfill_order_number_counters() -> dict[str, int]:
+    """Keep the atomic SO counter at or above existing ``order_no`` values.
+
+    Pre-counter rows (and any inserts that raced a stale counter) can leave
+    ``sales_order_number_counters.last_seq`` behind ``MAX(order_no)``. The next
+    increment then 500s on ``sales_orders_order_no_key``. Idempotent: only
+    raises last_seq, never rewrites order numbers.
+    """
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS sales_order_number_counters (
+                    date_key VARCHAR(8) PRIMARY KEY,
+                    last_seq INTEGER NOT NULL DEFAULT 0
+                )
+                """
+            )
+        )
+        result = connection.execute(
+            text(
+                """
+                INSERT INTO sales_order_number_counters (date_key, last_seq)
+                SELECT substring(order_no FROM 4 FOR 8) AS date_key,
+                       MAX(CAST(substring(order_no FROM 13) AS INTEGER)) AS last_seq
+                FROM sales_orders
+                WHERE order_no ~ '^SO-[0-9]{8}-[0-9]{4}$'
+                GROUP BY 1
+                ON CONFLICT (date_key) DO UPDATE
+                SET last_seq = GREATEST(
+                    sales_order_number_counters.last_seq,
+                    EXCLUDED.last_seq
+                )
+                """
+            )
+        )
+        updated = int(result.rowcount or 0)
+    print(f"[schema-compat] sales order number counter backfill rows={updated}")
+    return {"counter_rows": updated}
+
+
 _ensure_schema_compatibility()
+backfill_order_number_counters()
 
 app = FastAPI(
     title="Hari Om Paper ERP - Sales Service",

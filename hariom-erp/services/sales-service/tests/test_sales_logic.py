@@ -6,7 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from src.models import SalesOrderStatus
-from src.routers.sales_orders import SalesOrderLineInput, _serialize_line, _sync_release_status, carry_forward_lot_split
+from src.routers.sales_orders import (
+    SalesOrderLineInput,
+    _serialize_line,
+    _sync_release_status,
+    carry_forward_lot_split,
+    next_counter_seq,
+)
 from src.utils.auth import require_role
 
 
@@ -15,6 +21,13 @@ def test_carry_forward_split_conserves_released_quantity():
     assert original == 824.75
     assert carry == 175.25
     assert original + carry == 1000
+
+
+def test_order_number_counter_jumps_past_preexisting_max():
+    assert next_counter_seq(None, 0) == 1
+    assert next_counter_seq(48, 51) == 52
+    assert next_counter_seq(60, 51) == 61
+    assert next_counter_seq(0, 0) == 1
 
 
 def test_sales_line_rejects_nonpositive_qty_and_negative_rate():

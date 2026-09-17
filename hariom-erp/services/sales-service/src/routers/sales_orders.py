@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_
+from sqlalchemy import func, literal, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
@@ -348,21 +348,44 @@ def _serialize_order(order: SalesOrder) -> dict:
     }
 
 
+def existing_order_seq_max(db: Session, date_part: str) -> int:
+    """Highest ``NNNN`` already persisted for ``SO-{date_part}-NNNN``."""
+    value = db.execute(
+        text(
+            "SELECT COALESCE(MAX(CAST(substring(order_no FROM 13) AS INTEGER)), 0) "
+            "FROM sales_orders "
+            "WHERE order_no LIKE :pfx"
+        ),
+        {"pfx": f"SO-{date_part}-%"},
+    ).scalar()
+    return int(value or 0)
+
+
+def next_counter_seq(current_last_seq: int | None, max_existing: int) -> int:
+    """Jump the allocator past both the counter and any pre-counter rows."""
+    base = int(current_last_seq or 0)
+    return max(base, int(max_existing or 0)) + 1
+
+
 def _next_order_no(db: Session) -> str:
     """Allocate the next ``SO-YYYYMMDD-NNNN`` reference atomically.
 
     A single counter row per date key is incremented with an atomic upsert that
     returns the new value, so concurrent creates can never collide on the same
-    sequence number. The reference format is unchanged from the count-based
-    allocator it replaces.
+    sequence number. The upsert also jumps past any ``sales_orders.order_no``
+    values minted before the counter existed, otherwise UniqueViolation 500s
+    appear once the counter lags the live table.
     """
     date_part = datetime.utcnow().strftime("%Y%m%d")
+    max_existing = existing_order_seq_max(db, date_part)
     stmt = (
         pg_insert(SalesOrderNumberCounter)
-        .values(date_key=date_part, last_seq=1)
+        .values(date_key=date_part, last_seq=next_counter_seq(None, max_existing))
         .on_conflict_do_update(
             index_elements=[SalesOrderNumberCounter.date_key],
-            set_={"last_seq": SalesOrderNumberCounter.last_seq + 1},
+            set_={
+                "last_seq": func.greatest(SalesOrderNumberCounter.last_seq, literal(max_existing)) + 1
+            },
         )
         .returning(SalesOrderNumberCounter.last_seq)
     )
