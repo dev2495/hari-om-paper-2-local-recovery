@@ -52,7 +52,7 @@ export default function JobCardsPage() {
   )
 
   const jobCards = useMemo(() => (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []), [jobCardsQuery.data])
-  const aggregates = aggregatesQuery.data || {}
+  const aggregates = useMemo(() => aggregatesQuery.data || {}, [aggregatesQuery.data])
   const machineLabelMap = useMemo(
     () =>
       new Map(
