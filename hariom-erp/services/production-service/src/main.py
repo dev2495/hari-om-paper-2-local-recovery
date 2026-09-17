@@ -87,6 +87,9 @@ def _ensure_schema_compatibility():
         "DROP INDEX IF EXISTS uq_short_close_job_card",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_short_close_job_card_stage "
         "ON job_card_short_close (job_card_id, stage_type)",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS reasons JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS evaluation JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS sample_id VARCHAR(80)",
     ]
     for _statement in _short_close_downtime_migrations:
         try:

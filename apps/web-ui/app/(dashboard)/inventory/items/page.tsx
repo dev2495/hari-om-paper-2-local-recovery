@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Boxes, PencilLine, Plus, Save } from "lucide-react"
 
-import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem } from "@/hooks/use-inventory"
+import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem, useUpsertItemQualityProfile } from "@/hooks/use-inventory"
+import { ItemQualityProfileForm } from "@/components/qc/ItemQualityProfileForm"
 
 const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
@@ -18,6 +19,7 @@ export default function InventoryItemsPage() {
   const { data: balances = [] } = useInventoryBalances()
   const createItem = useCreateItem()
   const updateItem = useUpdateItem()
+  const upsertQualityProfile = useUpsertItemQualityProfile()
   const deleteItem = useDeleteItem()
   const [selectedItemId, setSelectedItemId] = useState("")
   const [form, setForm] = useState({
@@ -208,6 +210,24 @@ export default function InventoryItemsPage() {
             <div className="mt-4 rounded-2xl border border-dashed border-cyan-200 bg-white/70 p-5 text-sm text-slate-500">Select an item from the catalog to govern alerts.</div>
           )}
         </form>
+        {selectedItem ? (
+          <div className="mt-5 rounded-2xl border border-cyan-100 bg-white p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-800/70">Incoming QC profile</p>
+            <p className="mt-1 text-xs text-slate-600">Owned item rules used by incoming QC. No invented thresholds.</p>
+            <div className="mt-3">
+              <ItemQualityProfileForm
+                item={selectedItem}
+                saving={upsertQualityProfile.isPending}
+                onSave={async (profile) => {
+                  await upsertQualityProfile.mutateAsync({
+                    id: String(selectedItem.id),
+                    data: { quality_profile: profile, setup_status: profile.setup_status || profile.status },
+                  })
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
         </div>
 
         <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">

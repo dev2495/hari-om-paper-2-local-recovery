@@ -72,6 +72,11 @@ async def update_item(item_id: str, request: Request, token: str = Depends(get_t
     return response
 
 
+@router.put("/items/{item_id}/quality-profile")
+async def upsert_item_quality_profile(item_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile", request, token)
+
+
 @router.delete("/items/{item_id}")
 async def delete_item(item_id: str, request: Request, token: str = Depends(get_token)):
     """Soft-delete an item. Historical transactions remain intact."""

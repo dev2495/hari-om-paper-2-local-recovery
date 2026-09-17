@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data"
 import { specApi } from "@/lib/api"
+import { qcActionLabel, qcSetupStatus } from "@/lib/qc-measurement"
 import { formatSpecMeasure, resolveSpecSummary } from "@/lib/spec-summary"
 import { cn } from "@/lib/utils"
 
@@ -383,13 +384,24 @@ export default function SpecificationsIndexPage() {
                     </div>
                   </div>
 
-                  <div className="flex shrink-0 flex-wrap gap-3 xl:max-w-[320px] xl:justify-end">
+                  <div className="flex shrink-0 flex-wrap gap-3 xl:max-w-[360px] xl:justify-end">
                     <Link href={`/specifications/${spec.id}`}>
                       <Button className="gap-2">
                         Open Record
                         <ArrowRight className="h-4 w-4" />
                       </Button>
                     </Link>
+                    {(() => {
+                      const qcStatus = qcSetupStatus(spec.qc_profile)
+                      const href = qcStatus === "approved" || (qcStatus !== "missing" && qcStatus !== "draft" && spec.active === false)
+                        ? `/specifications/${spec.id}`
+                        : `/specifications/${spec.id}/edit`
+                      return (
+                        <Link href={href} data-testid={`spec-qc-action-${spec.id}`}>
+                          <Button variant="outline">{qcActionLabel(qcStatus)}</Button>
+                        </Link>
+                      )
+                    })()}
                     {canManageSpecs && spec.active !== false && !["obsolete", "review"].includes(String(spec.status || "").toLowerCase()) ? (
                       <Link href={`/specifications/${spec.id}/edit`}>
                         <Button variant="outline">Edit</Button>

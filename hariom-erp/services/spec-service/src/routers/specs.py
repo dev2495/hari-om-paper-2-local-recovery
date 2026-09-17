@@ -25,6 +25,7 @@ from ..utils.auth import (
     require_role,
 )
 from ..config import get_settings
+from ..qc_profile import normalize_qc_profile, profile_status
 
 router = APIRouter(prefix="/specs", tags=["specifications"])
 settings = get_settings()
@@ -123,6 +124,7 @@ class SpecCreate(BaseModel):
     adhesive_30100_percent: Optional[float] = None
     shrink_percent: Optional[float] = settings.DEFAULT_SHRINK_PERCENT
     profile: Optional[Dict[str, Any]] = None
+    qc_profile: Optional[Dict[str, Any]] = None
     dynamic_fields: Optional[List[DynamicFieldValueInput]] = None
 
 
@@ -155,6 +157,7 @@ class SpecUpdate(BaseModel):
     adhesive_30100_percent: Optional[float] = None
     shrink_percent: Optional[float] = None
     profile: Optional[Dict[str, Any]] = None
+    qc_profile: Optional[Dict[str, Any]] = None
     dynamic_fields: Optional[List[DynamicFieldValueInput]] = None
 
 
@@ -200,6 +203,8 @@ class SpecResponse(BaseModel):
     recipe_sheet_json: Optional[str] = None
     adhesive_components_json: Optional[str] = None
     profile: Optional[Dict[str, Any]] = None
+    qc_profile: Optional[Dict[str, Any]] = None
+    qc_setup_status: Optional[str] = None
     dynamic_fields: List[DynamicFieldValueResponse]
 
 
@@ -590,6 +595,8 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
         "recipe_sheet_json": recipe_sheet_json,
         "adhesive_components_json": adhesive_components_json,
         "profile": _profile_from_dynamic_map(dynamic_map),
+        "qc_profile": spec.qc_profile if isinstance(spec.qc_profile, dict) else None,
+        "qc_setup_status": profile_status(spec.qc_profile if isinstance(spec.qc_profile, dict) else None),
         "dynamic_fields": sorted(dynamic_values, key=lambda x: x["field_key"]),
     }
 
@@ -747,6 +754,10 @@ def _replacement_spec_from_payload(
         active=True,
         created_by=current_user.get("sub"),
         plant_id=plant_id,
+        qc_profile=normalize_qc_profile(
+            updates.get("qc_profile") if "qc_profile" in updates else previous.qc_profile,
+            previous=previous.qc_profile if isinstance(previous.qc_profile, dict) else None,
+        ),
     )
 
 
@@ -771,6 +782,8 @@ def _update_draft_in_place(
     for field, value in updates.items():
         if field == "customer_id":
             value = uuid.UUID(str(value)) if value else None
+        if field == "qc_profile":
+            value = normalize_qc_profile(value, previous=spec.qc_profile if isinstance(spec.qc_profile, dict) else None)
         if hasattr(spec, field):
             setattr(spec, field, value)
     spec.customer_name = customer_name
@@ -870,6 +883,7 @@ def create_spec(
         cut_loss_mm=settings.CUT_LOSS_MM,
         created_by=current_user.get("sub"),
         plant_id=plant_id,
+        qc_profile=normalize_qc_profile(spec.qc_profile) if spec.qc_profile is not None else None,
     )
     db.add(model)
     db.flush()
@@ -885,6 +899,21 @@ def create_spec(
     db.commit()
     db.refresh(model)
     return _serialize_spec(model)
+
+
+@router.get("/qc-parameter-dictionary")
+def get_qc_parameter_dictionary(
+    current_user: dict = Depends(get_current_user),
+):
+    from ..qc_profile import STAGE_PARAMETER_DEFS, empty_qc_profile
+
+    return {
+        "stages": {
+            stage: [dict(item) for item in rows]
+            for stage, rows in STAGE_PARAMETER_DEFS.items()
+        },
+        "empty_profile": empty_qc_profile(),
+    }
 
 
 @router.get("/", response_model=List[SpecResponse])
@@ -981,6 +1010,41 @@ def update_spec(
     db.commit()
     db.refresh(replacement)
     return _serialize_spec(replacement)
+
+
+class QcProfileUpdate(BaseModel):
+    qc_profile: Dict[str, Any]
+    status: Optional[str] = None
+
+
+@router.put("/{spec_id}/qc-profile", response_model=SpecResponse)
+def upsert_spec_qc_profile(
+    spec_id: uuid.UUID,
+    payload: QcProfileUpdate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+):
+    spec = db.query(SpecificationSheet).filter(
+        SpecificationSheet.id == spec_id,
+        SpecificationSheet.plant_id == plant_id,
+    ).first()
+    if not spec:
+        raise HTTPException(status_code=404, detail="Specification not found")
+    if not spec.active:
+        raise HTTPException(status_code=400, detail="Inactive specification versions are read-only")
+    if spec.status == "review":
+        raise HTTPException(
+            status_code=409,
+            detail="Specification is under approval review. Return it to draft before editing quality parameters.",
+        )
+    normalized = normalize_qc_profile(payload.qc_profile, previous=spec.qc_profile if isinstance(spec.qc_profile, dict) else None)
+    if payload.status in {"draft", "complete", "pending_review", "approved"}:
+        normalized["status"] = payload.status
+    spec.qc_profile = normalized
+    db.commit()
+    db.refresh(spec)
+    return _serialize_spec(spec)
 
 
 @router.post("/{spec_id}/submit-review")

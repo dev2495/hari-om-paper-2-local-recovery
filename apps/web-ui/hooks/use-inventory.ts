@@ -194,6 +194,17 @@ export function useUpdateItem() {
   })
 }
 
+export function useUpsertItemQualityProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) => inventoryApi.upsertItemQualityProfile(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-items"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-quality-pending"] })
+    },
+  })
+}
+
 export function useDeleteItem() {
   const queryClient = useQueryClient()
   return useMutation({

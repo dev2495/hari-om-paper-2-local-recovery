@@ -235,6 +235,21 @@ export function useQualityHolds(params?: any, enabled = true) {
   })
 }
 
+export function useJobQcTemplate(jobCardId?: string, stageType?: string, plantId?: string) {
+  return useQuery({
+    queryKey: ["job-qc-template", jobCardId || "", stageType || "", plantId || ""],
+    queryFn: async () => {
+      const { data } = await productionApi.getJobQcTemplate(
+        String(jobCardId),
+        stageType ? { stage_type: stageType } : undefined,
+        plantId,
+      )
+      return data
+    },
+    enabled: Boolean(jobCardId),
+  })
+}
+
 export function useCreateQualityInspection() {
   const queryClient = useQueryClient()
   return useMutation({

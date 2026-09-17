@@ -264,6 +264,8 @@ export type SpecRecord = {
   adhesive_30100_percent?: number | null
   variant_template_key?: string | null
   profile?: SpecProfile
+  qc_profile?: Record<string, any> | null
+  qc_setup_status?: string | null
   status: string
   version: number
   active: boolean

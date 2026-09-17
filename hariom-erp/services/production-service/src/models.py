@@ -319,6 +319,9 @@ class QualityInspection(Base):
     status = Column(String(20), nullable=False)
     readings = Column(JSONB, nullable=False, default=dict)
     failures = Column(JSONB, nullable=False, default=list)
+    reasons = Column(JSONB, nullable=False, default=dict)
+    evaluation = Column(JSONB, nullable=False, default=dict)
+    sample_id = Column(String(80), nullable=True)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

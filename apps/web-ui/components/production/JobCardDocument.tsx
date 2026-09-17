@@ -16,6 +16,8 @@ import {
   usePlanningJobCard,
   useSaveStageDraft,
 } from "@/hooks/use-production"
+import { StageQcFields } from "@/components/qc/StageQcFields"
+import { collectStageQualityChecks, frozenStageRules, type QcStageKey } from "@/lib/qc-measurement"
 
 type DocumentMode = "view" | "print" | "supervisor"
 type StageName = "SLITTING" | "WINDER" | "OVEN" | "PROCESS" | "PACKING" | "QC" | "DISPATCH"
@@ -95,12 +97,15 @@ function blankWinderEntry() {
     reject_bamboo_count: "",
     reject_reason_code: "",
     dimension_readings: Array.from({ length: 4 }, () => ({
-      length: "",
+      height: "",
       id: "",
       od: "",
       weight: "",
       cs: "",
     })),
+    qc_readings: {},
+    qc_reasons: {},
+    qc_sample_id: "",
   }
 }
 
@@ -137,6 +142,13 @@ function blankOvenEntry() {
     post_oven_weight_kg: "",
     moisture_before: "",
     moisture_after: "",
+    pre_weight: "",
+    post_weight: "",
+    pre_moisture: "",
+    post_moisture: "",
+    qc_readings: {},
+    qc_reasons: {},
+    qc_sample_id: "",
   }
 }
 
@@ -156,12 +168,16 @@ function blankProcessEntry() {
     final_measurements: {
       id: "",
       od: "",
-      length: "",
+      height: "",
       weight: "",
       cs: "",
       notch_distance: "",
       notch_depth: "",
+      moisture: "",
     },
+    qc_readings: {},
+    qc_reasons: {},
+    qc_sample_id: "",
   }
 }
 
@@ -211,23 +227,42 @@ function normalizeStageEntry(stage: StageName, entry: any) {
     return {
       ...base,
       ...source,
-      dimension_readings: Array.from({ length: Math.max(4, rows.length || 0) }, (_, index) => ({
-        ...base.dimension_readings[0],
-        ...(rows[index] || {}),
-      })),
+      dimension_readings: Array.from({ length: Math.max(4, rows.length || 0) }, (_, index) => {
+        const row = rows[index] || {}
+        return {
+          ...base.dimension_readings[0],
+          ...row,
+          height: row.height ?? row.length ?? "",
+        }
+      }),
+      qc_readings: source.qc_readings || {},
+      qc_reasons: source.qc_reasons || {},
     }
   }
   if (stage === "OVEN") {
-    return { ...blankOvenEntry(), ...source }
+    return {
+      ...blankOvenEntry(),
+      ...source,
+      pre_weight: source.pre_weight || source.pre_oven_weight_kg || "",
+      post_weight: source.post_weight || source.post_oven_weight_kg || "",
+      pre_moisture: source.pre_moisture || source.moisture_before || "",
+      post_moisture: source.post_moisture || source.moisture_after || "",
+      qc_readings: source.qc_readings || {},
+      qc_reasons: source.qc_reasons || {},
+    }
   }
   if (stage === "PROCESS") {
+    const measurements = source.final_measurements || {}
     return {
       ...blankProcessEntry(),
       ...source,
       final_measurements: {
         ...blankProcessEntry().final_measurements,
-        ...(source.final_measurements || {}),
+        ...measurements,
+        height: measurements.height ?? measurements.length ?? "",
       },
+      qc_readings: source.qc_readings || {},
+      qc_reasons: source.qc_reasons || {},
     }
   }
   if (stage === "QC") {
@@ -738,6 +773,33 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return true
   }
 
+  function renderStageQc(stage: QcStageKey) {
+    const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
+    const profile = card?.spec_snapshot?.qc_profile || documentSnapshot?.qc_profile || {}
+    const rules = frozenStageRules(profile, stage)
+    return (
+      <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/50 p-3" data-testid={`stage-qc-${stage.toLowerCase()}`}>
+        <div className="text-xs font-semibold uppercase tracking-wide text-cyan-900">Stage QC · frozen approved ranges</div>
+        <p className="mt-1 text-[11px] text-slate-600">
+          Allowed bands come from the job-card spec snapshot. The server computes PASS/FAIL. A reason never creates PASS.
+        </p>
+        <div className="mt-3">
+          <StageQcFields
+            rules={rules}
+            readings={entry.qc_readings || {}}
+            reasons={entry.qc_reasons || {}}
+            sampleId={entry.qc_sample_id}
+            paired={stage === "OVEN"}
+            editable={stageEditable(stage)}
+            onReadingChange={(code, value) => updateNestedSnapshotField(stage, "qc_readings", code, value)}
+            onReasonChange={(code, value) => updateNestedSnapshotField(stage, "qc_reasons", code, value)}
+            onSampleIdChange={(value) => updateSnapshotField(stage, "qc_sample_id", value)}
+          />
+        </div>
+      </div>
+    )
+  }
+
   function draftPayload(stage: StageName) {
     const form = stageForms[stage] || {
       remarks: "",
@@ -745,10 +807,30 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       reel_issue_ids: [],
       entry_snapshot: normalizeStageEntry(stage, {}),
     }
-    const entry =
+    let entry =
       stage === "WINDER"
         ? normalizeWinderEntryForSubmit({ ...(form.entry_snapshot || {}), winder_no: (form.entry_snapshot || {}).winder_no || lineMachineLabel })
         : form.entry_snapshot || {}
+    if (stage === "OVEN") {
+      const checks = collectStageQualityChecks("OVEN", entry)
+      entry = {
+        ...entry,
+        pre_weight: checks.readings.pre_weight ?? entry.pre_weight,
+        post_weight: checks.readings.post_weight ?? entry.post_weight,
+        pre_moisture: checks.readings.pre_moisture ?? entry.pre_moisture,
+        post_moisture: checks.readings.post_moisture ?? entry.post_moisture,
+      }
+    }
+    if (stage === "PROCESS") {
+      const checks = collectStageQualityChecks("PROCESS", entry)
+      entry = {
+        ...entry,
+        final_measurements: {
+          ...(entry.final_measurements || {}),
+          ...checks.readings,
+        },
+      }
+    }
     const stageMeta = stageRow(stage)
     const payload: Record<string, any> = {
       stage,
@@ -792,25 +874,31 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       }
     }
     if (stage === "WINDER") {
+      const checks = collectStageQualityChecks("WINDER", entry)
       return {
         ...base,
         input_qty: entry.bamboo_count_produced !== "" ? Number(entry.bamboo_count_produced) : base.input_qty,
         output_qty: entry.accepted_bamboo_count !== "" ? Number(entry.accepted_bamboo_count) : 0,
         scrap_qty: entry.reject_bamboo_count !== "" ? Number(entry.reject_bamboo_count) : 0,
+        ...(checks.hasReadings ? { quality_checks: { ...checks.readings, reasons: checks.reasons, sample_id: checks.sample_id } } : {}),
       }
     }
     if (stage === "OVEN") {
+      const checks = collectStageQualityChecks("OVEN", entry)
       return {
         ...base,
         input_qty: entry.bamboo_count_in !== "" ? Number(entry.bamboo_count_in) : base.input_qty,
         output_qty: entry.bamboo_count_out !== "" ? Number(entry.bamboo_count_out) : 0,
+        ...(checks.hasReadings ? { quality_checks: { ...checks.readings, reasons: checks.reasons, sample_id: checks.sample_id } } : {}),
       }
     }
     if (stage === "PROCESS") {
+      const checks = collectStageQualityChecks("PROCESS", entry)
       return {
         ...base,
         output_qty: entry.process_qty !== "" ? Number(entry.process_qty) : 0,
         scrap_qty: entry.reject_qty !== "" ? Number(entry.reject_qty) : 0,
+        ...(checks.hasReadings ? { quality_checks: { ...checks.readings, reasons: checks.reasons, sample_id: checks.sample_id } } : {}),
       }
     }
     if (stage === "QC") {
@@ -1636,15 +1724,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           Bamboo equivalent: produced {formatNumber(metersToBamboo(entry.winding_meters_produced, entry.bamboo_count_produced), 2)} · accepted {formatNumber(metersToBamboo(entry.accepted_winding_meters, entry.accepted_bamboo_count), 2)} · reject {formatNumber(metersToBamboo(entry.reject_winding_meters, entry.reject_bamboo_count), 2)}
         </div>
 
-        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Dimension Readings</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Dimension Readings (Height, not Length)</div>
         <table className="mt-1 w-full border-collapse text-sm">
           <thead>
             <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Length</th>
-              <th className="border border-slate-300 px-2 py-2">ID</th>
-              <th className="border border-slate-300 px-2 py-2">OD</th>
+              <th className="border border-slate-300 px-2 py-2">Height</th>
+              <th className="border border-slate-300 px-2 py-2">I.D.</th>
+              <th className="border border-slate-300 px-2 py-2">O.D.</th>
               <th className="border border-slate-300 px-2 py-2">Weight</th>
-              <th className="border border-slate-300 px-2 py-2">CS</th>
+              <th className="border border-slate-300 px-2 py-2">C.S.</th>
             </tr>
           </thead>
           <tbody>
@@ -1652,7 +1740,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <tr key={`winder-row-${index}`}>
                 {stageEditable(stage) ? (
                   <>
-                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.length} onChange={(next) => updateDimensionReading(index, "length", next)} /></td>
+                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.height ?? row.length} onChange={(next) => updateDimensionReading(index, "height", next)} /></td>
                     <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.id} onChange={(next) => updateDimensionReading(index, "id", next)} /></td>
                     <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.od} onChange={(next) => updateDimensionReading(index, "od", next)} /></td>
                     <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.weight} onChange={(next) => updateDimensionReading(index, "weight", next)} /></td>
@@ -1660,7 +1748,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   </>
                 ) : (
                   <>
-                    <td className="border border-slate-300 px-2 py-2">{row.length || ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.height || row.length || ""}</td>
                     <td className="border border-slate-300 px-2 py-2">{row.id || ""}</td>
                     <td className="border border-slate-300 px-2 py-2">{row.od || ""}</td>
                     <td className="border border-slate-300 px-2 py-2">{row.weight || ""}</td>
@@ -1671,6 +1759,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             ))}
           </tbody>
         </table>
+        {renderStageQc("WINDER")}
 
         {mode === "supervisor" && (
           <div className="mt-3 border border-slate-300 px-3 py-2 no-print">
@@ -1740,10 +1829,6 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <tr className="bg-slate-100 text-left">
               <th className="border border-slate-300 px-2 py-2">Bamboo Count In</th>
               <th className="border border-slate-300 px-2 py-2">Bamboo Count Out</th>
-              <th className="border border-slate-300 px-2 py-2">Pre-Oven Weight (kg)</th>
-              <th className="border border-slate-300 px-2 py-2">Post-Oven Weight (kg)</th>
-              <th className="border border-slate-300 px-2 py-2">Moisture Before</th>
-              <th className="border border-slate-300 px-2 py-2">Moisture After</th>
             </tr>
           </thead>
           <tbody>
@@ -1752,24 +1837,17 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <>
                   <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.bamboo_count_in} onChange={(next) => updateSnapshotField(stage, "bamboo_count_in", next)} /></td>
                   <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.bamboo_count_out} onChange={(next) => updateSnapshotField(stage, "bamboo_count_out", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.pre_oven_weight_kg} onChange={(next) => updateSnapshotField(stage, "pre_oven_weight_kg", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.post_oven_weight_kg} onChange={(next) => updateSnapshotField(stage, "post_oven_weight_kg", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.moisture_before} onChange={(next) => updateSnapshotField(stage, "moisture_before", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.moisture_after} onChange={(next) => updateSnapshotField(stage, "moisture_after", next)} /></td>
                 </>
               ) : (
                 <>
                   <td className="border border-slate-300 px-2 py-2">{entry.bamboo_count_in || ""}</td>
                   <td className="border border-slate-300 px-2 py-2">{entry.bamboo_count_out || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.pre_oven_weight_kg || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.post_oven_weight_kg || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.moisture_before || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.moisture_after || ""}</td>
                 </>
               )}
             </tr>
           </tbody>
         </table>
+        {renderStageQc("OVEN")}
 
         {renderNotes(stage)}
         {renderAssignmentWarning(stage)}
@@ -1832,30 +1910,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </tbody>
         </table>
 
-        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Final Measurements</div>
-        <div className="mt-1 grid gap-2 md:grid-cols-4">
-          {stageEditable(stage) ? (
-            <>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">ID</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.id} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "id", next)} /></div></div>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">OD</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.od} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "od", next)} /></div></div>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Length</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.length} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "length", next)} /></div></div>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Weight</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.weight} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "weight", next)} /></div></div>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">CS</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.cs} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "cs", next)} /></div></div>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Notch Distance</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.notch_distance} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "notch_distance", next)} /></div></div>
-              <div className="border border-slate-300 px-2 py-2"><div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Notch Depth</div><div className="mt-1"><TextInput type="number" value={entry.final_measurements?.notch_depth} onChange={(next) => updateNestedSnapshotField(stage, "final_measurements", "notch_depth", next)} /></div></div>
-            </>
-          ) : (
-            <>
-              <LabeledValue label="ID" value={entry.final_measurements?.id || ""} />
-              <LabeledValue label="OD" value={entry.final_measurements?.od || ""} />
-              <LabeledValue label="Length" value={entry.final_measurements?.length || ""} />
-              <LabeledValue label="Weight" value={entry.final_measurements?.weight || ""} />
-              <LabeledValue label="CS" value={entry.final_measurements?.cs || ""} />
-              <LabeledValue label="Notch Distance" value={entry.final_measurements?.notch_distance || ""} />
-              <LabeledValue label="Notch Depth" value={entry.final_measurements?.notch_depth || ""} />
-            </>
-          )}
-        </div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Process QC measurements</div>
+        {renderStageQc("PROCESS")}
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
           {renderToolAssignment(stage)}
@@ -2089,7 +2145,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="bg-slate-50 text-left">
-                  <th className="border border-slate-300 px-2 py-2">Length</th>
+                  <th className="border border-slate-300 px-2 py-2">Height</th>
                   <th className="border border-slate-300 px-2 py-2">I.D</th>
                   <th className="border border-slate-300 px-2 py-2">O.D</th>
                   <th className="border border-slate-300 px-2 py-2">Weight</th>
@@ -2099,7 +2155,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <tbody>
                 {(Array.isArray(winderPrintEntry.dimension_readings) ? winderPrintEntry.dimension_readings : []).slice(0, 4).map((row: any, index: number) => (
                   <tr key={`winder-print-${index}`}>
-                    <td className="border border-slate-300 px-2 py-2">{row.length || ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.height || row.length || ""}</td>
                     <td className="border border-slate-300 px-2 py-2">{row.id || ""}</td>
                     <td className="border border-slate-300 px-2 py-2">{row.od || ""}</td>
                     <td className="border border-slate-300 px-2 py-2">{row.weight || ""}</td>
@@ -2145,11 +2201,12 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 </tr>
               </tbody>
             </table>
-            <div className="grid gap-0 text-sm md:grid-cols-4">
-              <LabeledValue label="Pre Weight" value={ovenPrintEntry.pre_oven_weight_kg} />
-              <LabeledValue label="Post Weight" value={ovenPrintEntry.post_oven_weight_kg} />
-              <LabeledValue label="Pre Moisture" value={ovenPrintEntry.moisture_before} />
-              <LabeledValue label="Post Moisture" value={ovenPrintEntry.moisture_after} />
+            <div className="grid gap-0 text-sm md:grid-cols-5">
+              <LabeledValue label="Sample / pair ID" value={ovenPrintEntry.qc_sample_id || ovenPrintEntry.sample_id} />
+              <LabeledValue label="Pre-weight" value={ovenPrintEntry.pre_weight || ovenPrintEntry.qc_readings?.pre_weight || ovenPrintEntry.pre_oven_weight_kg} />
+              <LabeledValue label="Post-weight" value={ovenPrintEntry.post_weight || ovenPrintEntry.qc_readings?.post_weight || ovenPrintEntry.post_oven_weight_kg} />
+              <LabeledValue label="Pre-moisture" value={ovenPrintEntry.pre_moisture || ovenPrintEntry.qc_readings?.pre_moisture || ovenPrintEntry.moisture_before} />
+              <LabeledValue label="Post-moisture" value={ovenPrintEntry.post_moisture || ovenPrintEntry.qc_readings?.post_moisture || ovenPrintEntry.moisture_after} />
             </div>
           </div>
         </section>
@@ -2197,24 +2254,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           <table className="mt-3 w-full border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 text-left">
-                <th className="border border-slate-300 px-2 py-2">Length</th>
-                <th className="border border-slate-300 px-2 py-2">I.D</th>
-                <th className="border border-slate-300 px-2 py-2">O.D</th>
+                <th className="border border-slate-300 px-2 py-2">Height</th>
                 <th className="border border-slate-300 px-2 py-2">Weight</th>
                 <th className="border border-slate-300 px-2 py-2">C.S</th>
                 <th className="border border-slate-300 px-2 py-2">Notch Distance</th>
                 <th className="border border-slate-300 px-2 py-2">Notch Depth</th>
+                <th className="border border-slate-300 px-2 py-2">Moisture</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.length || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.id || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.od || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.weight || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.cs || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.notch_distance || documentSnapshot?.setup_tooling?.notch_distance || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.final_measurements?.notch_depth || documentSnapshot?.setup_tooling?.notch_depth || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.height || processPrintEntry.final_measurements?.height || processPrintEntry.final_measurements?.length || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.weight || processPrintEntry.final_measurements?.weight || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.cs || processPrintEntry.final_measurements?.cs || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_distance || processPrintEntry.final_measurements?.notch_distance || documentSnapshot?.setup_tooling?.notch_distance || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_depth || processPrintEntry.final_measurements?.notch_depth || documentSnapshot?.setup_tooling?.notch_depth || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.moisture || processPrintEntry.final_measurements?.moisture || ""}</td>
               </tr>
             </tbody>
           </table>
@@ -2293,13 +2348,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const ovenMachineLabel = ovenPrintEntry.oven_no || ovenPlan.machineLabel
     const processMachineLabel = processPrintEntry.process_line_no || processPlan.machineLabel
     const targetMeasure = {
-      length: formatNumber(clientSpec?.length?.avg ?? documentSnapshot?.header?.tube_length_mm),
+      height: formatNumber(clientSpec?.length?.avg ?? documentSnapshot?.header?.tube_length_mm),
       id: formatNumber(clientSpec?.id?.avg),
       od: formatNumber(clientSpec?.od?.avg),
       weight: formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg),
       cs: formatNumber(requiredCs),
       notch_distance: setup.notch_distance || "",
       notch_depth: setup.notch_depth || "",
+      moisture: "",
     }
     const winderReadings = Array.isArray(winderPrintEntry.dimension_readings)
       ? winderPrintEntry.dimension_readings.filter((row: any) => Object.values(row || {}).some(Boolean))
@@ -2340,16 +2396,25 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="job-print-label">{label}</div>
       </div>
     )
-    const measuredDimensionRows = (rows: any[]) =>
+    const measuredDimensionRows = (rows: any[], kind: "winder" | "process") =>
       rows.map((row, index) => (
-        <tr key={`dimension-row-${index}`}>
-          <td>{row.length || ""}</td>
-          <td>{row.id || ""}</td>
-          <td>{row.od || ""}</td>
+        <tr key={`dimension-row-${kind}-${index}`}>
+          <td>{row.height || row.length || ""}</td>
+          {kind === "winder" ? (
+            <>
+              <td>{row.id || ""}</td>
+              <td>{row.od || ""}</td>
+            </>
+          ) : null}
           <td>{row.weight || ""}</td>
           <td>{row.cs || ""}</td>
-          <td>{row.notch_distance || ""}</td>
-          <td>{row.notch_depth || ""}</td>
+          {kind === "process" ? (
+            <>
+              <td>{row.notch_distance || ""}</td>
+              <td>{row.notch_depth || ""}</td>
+              <td>{row.moisture || ""}</td>
+            </>
+          ) : null}
         </tr>
       ))
 
@@ -2414,16 +2479,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <table className="job-print-table job-dimension-table">
               <thead>
                 <tr>
-                  <th>Length</th>
+                  <th>Height</th>
                   <th>I.D</th>
                   <th>O.D</th>
                   <th>Weight</th>
                   <th>C.S</th>
-                  <th>Notch Dist.</th>
-                  <th>Notch Depth</th>
                 </tr>
               </thead>
-              <tbody>{measuredDimensionRows(winderRows)}</tbody>
+              <tbody>{measuredDimensionRows(winderRows, "winder")}</tbody>
             </table>
           </section>
 
@@ -2438,7 +2501,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <PrintField label="Operator" value={ovenPrintEntry.operator_name} />
               <PrintField label="Bamboo In / Out" value={`${ovenPrintEntry.bamboo_count_in || formatNumber(ovenPrintStage?.input_qty || effectiveTargetBamboo, 0)} / ${ovenPrintEntry.bamboo_count_out || formatNumber(ovenPrintStage?.output_qty, 0)}`} />
               <PrintField label="Wet / Dry Bamboo" value={`${formatNumber(bambooWetWeightG)} / ${formatNumber(bambooDryWeightG)} g`} />
-              <PrintField label="Pre / Post Moisture" value={`${ovenPrintEntry.moisture_before || "-"} / ${ovenPrintEntry.moisture_after || "-"}`} />
+              <PrintField label="Pre / Post Moisture" value={`${ovenPrintEntry.pre_moisture || ovenPrintEntry.qc_readings?.pre_moisture || ovenPrintEntry.moisture_before || "-"} / ${ovenPrintEntry.post_moisture || ovenPrintEntry.qc_readings?.post_moisture || ovenPrintEntry.moisture_after || "-"}`} />
               <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
               <PrintField label="Reject / Reason" value={`${formatNumber(ovenPrintStage?.scrap_qty, 0)} / ${ovenPrintEntry.rejection_code || "-"}`} />
             </div>
@@ -2480,16 +2543,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <table className="job-print-table job-dimension-table">
               <thead>
                 <tr>
-                  <th>Length</th>
-                  <th>I.D</th>
-                  <th>O.D</th>
+                  <th>Height</th>
                   <th>Weight</th>
                   <th>C.S</th>
                   <th>Notch Dist.</th>
                   <th>Notch Depth</th>
+                  <th>Moisture</th>
                 </tr>
               </thead>
-              <tbody>{measuredDimensionRows(processRows)}</tbody>
+              <tbody>{measuredDimensionRows(processRows, "process")}</tbody>
             </table>
           </section>
 

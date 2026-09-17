@@ -92,10 +92,10 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/logistics/dispatch", label: "Dispatch Ready", detail: "Confirm finished jobs ready for handoff." },
   ],
   QC: [
-    { href: "/quality", label: "Quality Desk", detail: "Enter inspections, create holds, and propose dispositions." },
+    { href: "/quality", label: "Quality Desk", detail: "Incoming, stage, and results/holds desks." },
+    { href: "/quality/stage", label: "Stage QC", detail: "Enter winding, oven, and process readings against frozen ranges." },
+    { href: "/reports/quality", label: "Quality Reports", detail: "Run permitted quality reports for this plant." },
     { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Read authorized job and spec context." },
-    { href: "/analytics/quality", label: "Quality Reports", detail: "Run permitted quality reports for this plant." },
-    { href: "/inventory/raw-material-inward", label: "Inward Context", detail: "Read receipt lots waiting for inspection." },
   ],
   Planner: [
     { href: "/sales-orders", label: "Sales Queue", detail: "Review approvals and pending releases." },

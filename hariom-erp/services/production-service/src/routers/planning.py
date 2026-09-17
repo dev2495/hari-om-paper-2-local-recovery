@@ -37,6 +37,7 @@ from ..models import (
     ShiftMaterialLedger,
     StageQueueOrder,
 )
+from ..quality_eval import evaluate_job_stage, submission_error
 from ..schemas.planning import (
     AssignMachinePayload,
     BoardMovePayload,
@@ -2315,6 +2316,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "packing_instructions": _packing_instructions(dynamic_map),
         "adhesive_components_json": dynamic_map.get("adhesive_components_json"),
         "recipe_sheet_json": dynamic_map.get("recipe_sheet_json"),
+        "qc_profile": spec.get("qc_profile") if isinstance(spec.get("qc_profile"), dict) else {},
     }
 
 
@@ -3089,34 +3091,15 @@ def _create_or_sync_job_card_for_line(
 
 
 def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], quality_checks: dict[str, Any]) -> list[dict[str, Any]]:
-    checks = dict(quality_checks or {})
-    failures: list[dict[str, Any]] = []
-    stage_type = stage_type.upper()
-
-    def _number(value: Any) -> Optional[float]:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _check_range(label: str, key: str, min_key: str, max_key: str) -> None:
-        value = _number(checks.get(key))
-        minimum = _number(spec_snapshot.get(min_key))
-        maximum = _number(spec_snapshot.get(max_key))
-        if value is None or minimum is None or maximum is None:
-            return
-        if value < minimum or value > maximum:
-            failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
-
-    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
-        _check_range("ID", "id", "id_min_mm", "id_max_mm")
-        _check_range("OD", "od", "od_min_mm", "od_max_mm")
-        _check_range("Length", "length", "length_min_mm", "length_max_mm")
-        _check_range("Weight", "weight", "weight_min_g", "weight_max_g")
-        _check_range("CS", "cs", "cs_min_n", "cs_max_n")
-    if stage_type == "OVEN":
-        _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
-    return failures
+    evaluation = evaluate_job_stage(
+        stage=stage_type,
+        spec_snapshot=spec_snapshot or {},
+        readings=quality_checks or {},
+        reasons=(quality_checks or {}).get("reasons") if isinstance(quality_checks, dict) else None,
+        sample_id=(quality_checks or {}).get("sample_id") if isinstance(quality_checks, dict) else None,
+        require_reasons_on_fail=False,
+    )
+    return list(evaluation.failures)
 
 
 def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
@@ -3282,26 +3265,40 @@ def _sync_quality_artifacts(
     quality_payload = dict(stage.quality_checks or {})
     if not quality_payload:
         return []
-    failures = _quality_failures_for_stage(selected_stage, job_card.spec_snapshot or {}, quality_payload)
+    readings = {key: value for key, value in quality_payload.items() if key not in {"reasons", "sample_id"}}
+    evaluation = evaluate_job_stage(
+        stage=selected_stage,
+        spec_snapshot=job_card.spec_snapshot or {},
+        readings=readings,
+        reasons=quality_payload.get("reasons"),
+        sample_id=quality_payload.get("sample_id"),
+        require_reasons_on_fail=True,
+    )
+    error = submission_error(evaluation)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
     inspection = QualityInspection(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        status="FAIL" if failures else "PASS",
-        readings=quality_payload,
-        failures=failures,
+        status=evaluation.verdict,
+        readings=readings,
+        failures=list(evaluation.failures),
+        reasons=quality_payload.get("reasons") or {},
+        evaluation=evaluation.as_dict(),
+        sample_id=str(quality_payload.get("sample_id") or "").strip() or None,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
     db.flush()
-    if not failures:
+    if evaluation.verdict != "FAIL":
         return []
     hold = QualityHold(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
         reason="; ".join(
-            f"{item['label']} out of range ({item['value']} not in {item['min']}..{item['max']})" for item in failures
+            str(item.get("message") or item.get("label") or "out of range") for item in evaluation.failures
         ),
         status="HOLD",
         source_inspection_id=inspection.id,
