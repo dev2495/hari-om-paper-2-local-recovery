@@ -282,6 +282,9 @@ export const specApi = {
     api.post(`/api/spec/specifications/${id}/approve`, data, withPlantHeader(plantId)),
   obsoleteSpec: (id: string, data?: any, plantId?: string) =>
     api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}, withPlantHeader(plantId)),
+  upsertSpecQcProfile: (id: string, data: any, plantId?: string) =>
+    api.put(`/api/spec/specifications/${id}/qc-profile`, data, withPlantHeader(plantId)),
+  getQcParameterDictionary: () => api.get("/api/spec/qc-parameter-dictionary"),
   getConstants: () => api.get("/api/spec/constants"),
   getDefaults: (plantId?: string) => api.get("/api/spec/defaults", withPlantHeader(plantId)),
   updateDefaults: (data: any, plantId?: string) => api.put("/api/spec/defaults", data, withPlantHeader(plantId)),

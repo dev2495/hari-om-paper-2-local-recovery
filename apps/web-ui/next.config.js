@@ -36,6 +36,11 @@ const nextConfig = {
         permanent: true,
       },
       {
+        source: "/production/eod-entry",
+        destination: "/production/supervisor-entry",
+        permanent: true,
+      },
+      {
         source: "/dispatch",
         destination: "/logistics/dispatch",
         permanent: true,
