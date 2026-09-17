@@ -12,6 +12,12 @@ import { usePlanningJobCards } from "@/hooks/use-production"
 import { useSalesOrder } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
+import {
+  isInternalOrigin,
+  parchmentLineLabel,
+  salesOrderOriginLabel,
+  salesOrderReferenceLabel,
+} from "@/lib/sales-order-entry"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -74,14 +80,19 @@ export default function SalesOrderDetailPage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.sales}
         badge="Sales Tracking"
-        title={order.po_number || order.order_no || `Sales order ${orderId}`}
-        description="One PO, many release moments. Use this page to read commercial truth, line posture, and current planner handoff together."
+        title={salesOrderReferenceLabel(order)}
+        description={`${salesOrderOriginLabel(order.origin)} for ${customerLabel}. Created ${formatDate(order.created_at)}.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
               <ArrowLeft className="h-4 w-4" />
               Back to queue
             </Link>
+            {order.status === "draft" || order.status === "submitted" ? (
+              <Link href={`/sales-orders/${order.id}/edit`} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
+                Edit order
+              </Link>
+            ) : null}
             <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
@@ -119,18 +130,23 @@ export default function SalesOrderDetailPage() {
               <p className="mt-2 font-semibold text-slate-950">{customerLabel}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">PO Context</p>
-              <p className="mt-2 font-semibold text-slate-950">{order.po_number || order.order_no || "-"}</p>
-              <p className="mt-1 text-slate-600">PO Date {formatDate(order.po_date)}</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Order source</p>
+              <p className="mt-2 font-semibold text-slate-950">{salesOrderOriginLabel(order.origin)}</p>
+              <p className="mt-1 text-slate-600">{salesOrderReferenceLabel(order)}</p>
+              {isInternalOrigin(order.origin) ? (
+                <p className="mt-1 text-slate-600">Internal order date {formatDate(order.internal_order_date)}</p>
+              ) : (
+                <p className="mt-1 text-slate-600">Customer PO Date {formatDate(order.po_date)}</p>
+              )}
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Commercial Notes</p>
               <p className="mt-2 text-slate-700">{order.notes || "No commercial notes recorded."}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Earliest Due</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Earliest Delivery Date</p>
               <p className="mt-2 text-slate-700">{formatDate(earliestDue)}</p>
-              <p className="mt-1 text-xs text-slate-500">Use this to prioritize release planning.</p>
+              <p className="mt-1 text-xs text-slate-500">Customer commitment date for the earliest line.</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Approved</p>
@@ -226,7 +242,7 @@ export default function SalesOrderDetailPage() {
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line {line.line_no || index + 1}</p>
                   <h3 className="mt-2 text-lg font-semibold text-slate-950">{line.product_code || "No product code"}</h3>
                   <p className="mt-1 text-sm text-slate-600">
-                    Spec {String(line.approved_spec_id || "-").slice(0, 8)} · Parchment {line.parchment_color || "-"} · Due {formatDate(line.due_date)}
+                    Spec {String(line.approved_spec_id || "-").slice(0, 8)} · {parchmentLineLabel(line)} · Delivery {formatDate(line.due_date)}
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

@@ -31,6 +31,11 @@ async def create_order(request: Request, token: str = Depends(get_token)):
     return response
 
 
+@router.post("/orders/import")
+async def import_orders(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/import", request, token)
+
+
 @router.get("/orders/{order_id}")
 async def get_order(order_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}", request, token)
