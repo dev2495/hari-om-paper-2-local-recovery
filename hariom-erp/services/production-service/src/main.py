@@ -68,6 +68,20 @@ def _ensure_schema_compatibility():
                 "ON machine_downtime (machine_id, started_at)"
             )
         )
+        connection.execute(text("ALTER TABLE job_cards DROP CONSTRAINT IF EXISTS ck_job_cards_current_stage"))
+        connection.execute(
+            text(
+                "ALTER TABLE job_cards ADD CONSTRAINT ck_job_cards_current_stage "
+                "CHECK (current_stage IN ('SLITTING','WINDER','OVEN','PROCESS','PACKING','QC','DISPATCH','DONE'))"
+            )
+        )
+        connection.execute(text("ALTER TABLE job_card_stages DROP CONSTRAINT IF EXISTS ck_job_card_stages_type"))
+        connection.execute(
+            text(
+                "ALTER TABLE job_card_stages ADD CONSTRAINT ck_job_card_stages_type "
+                "CHECK (stage_type IN ('SLITTING','WINDER','OVEN','PROCESS','PACKING','QC','DISPATCH'))"
+            )
+        )
 
     # Carry-forward / process-level short-close + HOLD follow-up + downtime
     # reschedule columns. Each statement runs in its own transaction and is

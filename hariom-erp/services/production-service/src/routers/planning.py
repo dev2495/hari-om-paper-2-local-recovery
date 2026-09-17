@@ -4943,6 +4943,8 @@ def list_planning_job_cards(
         if stage_filter not in [*STAGE_SEQUENCE, "DONE"]:
             raise HTTPException(status_code=400, detail="Invalid current_stage filter")
         query = query.filter(JobCard.current_stage == stage_filter)
+        if not status:
+            query = query.filter(~JobCard.status.in_(["COMPLETED", "CANCELLED"]))
 
     due_risk_value = (due_risk or "").strip().upper() or None
     if due_risk_value:
