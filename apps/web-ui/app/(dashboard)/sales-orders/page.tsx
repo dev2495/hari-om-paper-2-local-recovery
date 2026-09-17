@@ -13,13 +13,13 @@ import {
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react"
 
 import {
-  EmptyState,
   ExecutiveHero,
   MetricCard,
   MetricRail,
   Panel,
   StatusBadge,
 } from "@/components/erp/shell"
+import { QuerySwitch } from "@/components/workspace/query-state"
 import {
   Dialog,
   DialogContent,
@@ -560,10 +560,21 @@ export default function SalesOrdersPage() {
               {ordersQuery.isFetching ? "Refreshing..." : hasNextPage ? "More rows available" : "End of current window"}
             </span>
           </div>
-          {ordersQuery.isLoading ? (
-            <EmptyState label="Loading live sales orders..." />
-          ) : orders.length === 0 ? (
-            <EmptyState label="No sales orders matched this queue yet." />
+          {ordersQuery.isLoading || ordersQuery.isError || orders.length === 0 ? (
+            <QuerySwitch
+              isLoading={ordersQuery.isLoading}
+              isError={ordersQuery.isError}
+              isEmpty={orders.length === 0}
+              loadingLabel="Loading live sales orders..."
+              emptyTitle="No sales orders matched this queue yet."
+              emptyMessage="Adjust the status filter or create a new sales order."
+              errorMessage="Sales orders could not be loaded. This is not an empty queue — refresh to retry."
+              onRetry={() => {
+                void ordersQuery.refetch()
+              }}
+            >
+              {null}
+            </QuerySwitch>
           ) : (
             <div className="space-y-5">
               {orders.map((order: any) => {

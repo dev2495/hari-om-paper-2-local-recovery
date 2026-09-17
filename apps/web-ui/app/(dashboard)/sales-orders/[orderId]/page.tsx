@@ -7,6 +7,7 @@ import { useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
 import { DeliverySchedulePanel } from "@/components/sales/delivery-schedule-panel"
 import { useApp } from "@/context/AppContext"
@@ -100,7 +101,19 @@ export default function SalesOrderDetailPage() {
   }
 
   if (orderQuery.isLoading) {
-    return <EmptyState label="Loading sales order..." />
+    return <LoadingState label="Loading sales order..." />
+  }
+
+  if (orderQuery.isError) {
+    return (
+      <ErrorState
+        title="Sales order could not be loaded"
+        message="Refresh to retry. This is not a missing order."
+        onRetry={() => {
+          void orderQuery.refetch()
+        }}
+      />
+    )
   }
 
   if (!order) {

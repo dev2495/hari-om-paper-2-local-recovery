@@ -7,6 +7,9 @@ import { Building2, ChevronRight, Factory, Plus, Search, Shield, User as UserIco
 import { useAuth } from "@/context/AuthContext"
 import { usePlants, useUsers } from "@/hooks/use-system"
 import { PLANT_SCOPE_LABELS, displayPlantScope } from "@/lib/plant-scope"
+import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/workspace/page-header"
+import { ErrorState, LoadingState, EmptyQueryState } from "@/components/workspace/query-state"
 
 function formatCreated(value: string | undefined | null) {
   if (!value) return "Legacy user"
@@ -86,39 +89,38 @@ export default function UsersPage() {
 
   return (
     <div className="space-y-6">
-      {usersError && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">Could not load users. Refresh to retry.</p>}
-      <section className="overflow-hidden rounded-[2rem] border border-white/70 bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl shadow-slate-900/15">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
-          <div className="max-w-3xl">
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">System Admin</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-[-0.05em] md:text-4xl">Users, plants, and machine governance</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-cyan-50/78">
-              Resolve user access, plant scope, and machine setup from one workspace. This surface now reads the actual auth payload instead of legacy placeholders.
-            </p>
+      {usersError ? (
+        <ErrorState
+          message="Could not load users. Refresh to retry."
+          onRetry={() => undefined}
+        />
+      ) : null}
+      <PageHeader
+        eyebrow="System Admin"
+        title="Users, plants, and machine governance"
+        description="Resolve user access, plant scope, and machine setup from one workspace. This surface now reads the actual auth payload instead of legacy placeholders."
+        actions={
+          <Button asChild className="rounded-full">
+            <Link href="/system/users/new">
+              <Plus className="mr-2 h-4 w-4" />
+              Add New User
+            </Link>
+          </Button>
+        }
+      />
+      <div className="grid gap-3 md:grid-cols-3">
+        {[
+          { label: "Visible users", value: `${scopedUsers.length}`, note: "Current plant scope" },
+          { label: "Global access", value: `${globalUsers}`, note: "Users spanning all plants" },
+          { label: "Current scope", value: scopeLabel, note: "Top plant switcher governs this list" },
+        ].map((item) => (
+          <div key={item.label} className="erp-panel rounded-[1.4rem] p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{item.label}</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">{item.value}</p>
+            <p className="mt-1 text-xs text-slate-500">{item.note}</p>
           </div>
-          <Link
-            href="/system/users/new"
-            className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-50"
-          >
-            <Plus className="h-4 w-4" />
-            Add New User
-          </Link>
-        </div>
-
-        <div className="mt-6 grid gap-3 md:grid-cols-3">
-          {[
-            { label: "Visible users", value: `${scopedUsers.length}`, note: "Current plant scope" },
-            { label: "Global access", value: `${globalUsers}`, note: "Users spanning all plants" },
-            { label: "Current scope", value: scopeLabel, note: "Top plant switcher governs this list" },
-          ].map((item) => (
-            <div key={item.label} className="rounded-3xl border border-white/15 bg-white/10 p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-100/70">{item.label}</p>
-              <p className="mt-2 text-lg font-semibold">{item.value}</p>
-              <p className="mt-1 text-xs text-cyan-50/65">{item.note}</p>
-            </div>
-          ))}
-        </div>
-      </section>
+        ))}
+      </div>
 
       <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
         {[
@@ -151,6 +153,7 @@ export default function UsersPage() {
             <div className="flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
               <Search className="h-4 w-4 text-slate-400" />
               <input
+                aria-label="Search users"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search users, email, role..."
@@ -195,17 +198,15 @@ export default function UsersPage() {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {usersLoading ? (
-                [...Array(5)].map((_, index) => (
-                  <tr key={index} className="animate-pulse">
-                    <td colSpan={5} className="px-6 py-5">
-                      <div className="h-12 rounded-2xl bg-slate-100" />
-                    </td>
-                  </tr>
-                ))
+                <tr>
+                  <td colSpan={5} className="px-6 py-6">
+                    <LoadingState label="Loading users…" />
+                  </td>
+                </tr>
               ) : visibleUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-12 text-center text-sm text-slate-500">
-                    No users matched this scope/filter.
+                  <td colSpan={5} className="px-6 py-6">
+                    <EmptyQueryState title="No users matched this scope/filter." message="Try another role or plant scope." />
                   </td>
                 </tr>
               ) : (

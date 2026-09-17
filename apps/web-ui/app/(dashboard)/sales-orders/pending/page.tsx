@@ -6,7 +6,8 @@ import dayjs from "dayjs"
 import { ArrowRight, ClipboardList, Download, Factory, Search, TimerReset } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { PaginationBar, QuerySwitch } from "@/components/workspace/query-state"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePendingJobCardsByOrder } from "@/hooks/use-production"
 import { usePendingSalesOrders } from "@/hooks/use-sales"
@@ -156,7 +157,13 @@ export default function PendingOrdersWorkspacePage() {
           >
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 text-slate-400" />
-              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search SO, PO, product" className="w-64 bg-transparent text-sm outline-none" />
+              <input
+                aria-label="Search pending orders"
+                value={searchDraft}
+                onChange={(event) => setSearchDraft(event.target.value)}
+                placeholder="Search SO, PO, product"
+                className="w-64 bg-transparent text-sm outline-none"
+              />
             </div>
             <select value={source} onChange={(event) => replaceQuery({ source: event.target.value || null })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
               <option value="">All sources</option>
@@ -186,10 +193,21 @@ export default function PendingOrdersWorkspacePage() {
           </form>
         }
       >
-        {pendingQuery.isLoading ? (
-          <EmptyState label="Loading pending orders from the server..." />
-        ) : items.length === 0 ? (
-          <EmptyState label="No pending orders matched these server filters." />
+        {pendingQuery.isLoading || pendingQuery.isError || items.length === 0 ? (
+          <QuerySwitch
+            isLoading={pendingQuery.isLoading}
+            isError={pendingQuery.isError}
+            isEmpty={items.length === 0}
+            loadingLabel="Loading pending orders from the server..."
+            emptyTitle="No pending orders matched these server filters."
+            emptyMessage="Clear filters or wait for new commercial demand."
+            errorMessage="Pending orders could not be loaded. Totals on this page must not be treated as zero."
+            onRetry={() => {
+              void pendingQuery.refetch()
+            }}
+          >
+            {null}
+          </QuerySwitch>
         ) : (
           <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
             <table className="min-w-full">
@@ -259,16 +277,15 @@ export default function PendingOrdersWorkspacePage() {
             </table>
           </div>
         )}
-        <div className="mt-4 flex items-center justify-between text-sm text-slate-600">
-          <span data-testid="pending-orders:total-count">Server total {totalCount}</span>
-          <div className="flex gap-2">
-            <button type="button" disabled={page === 0} onClick={() => replaceQuery({ page: page > 1 ? String(page - 1) : null })} className="rounded-xl border border-slate-200 px-3 py-2 disabled:opacity-40">
-              Previous
-            </button>
-            <button type="button" disabled={!hasMore} onClick={() => replaceQuery({ page: String(page + 1) })} className="rounded-xl border border-slate-200 px-3 py-2 disabled:opacity-40">
-              Next
-            </button>
-          </div>
+        <div data-testid="pending-orders:total-count">
+          <PaginationBar
+            page={page + 1}
+            hasPrevious={page > 0}
+            hasNext={hasMore}
+            onPrevious={() => replaceQuery({ page: page > 1 ? String(page - 1) : null })}
+            onNext={() => replaceQuery({ page: String(page + 1) })}
+            label={`Server total ${totalCount}`}
+          />
         </div>
       </Panel>
     </div>

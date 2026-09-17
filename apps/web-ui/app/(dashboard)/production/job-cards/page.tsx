@@ -6,7 +6,8 @@ import dayjs from "dayjs"
 import { ArrowRight, ClipboardCheck, Factory, PackageCheck, Search, ShieldCheck, TimerReset, Truck } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 
-import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { QuerySwitch } from "@/components/workspace/query-state"
 import { useMachines, useJobCardAggregates, usePlanningJobCards } from "@/hooks/use-production"
 import { productionApi } from "@/lib/api"
 import { dueRiskLabel, overdueLabel } from "@/lib/due-risk"
@@ -203,6 +204,7 @@ export default function JobCardsPage() {
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 text-slate-400" />
               <input
+                aria-label="Search job cards"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search job cards..."
@@ -223,10 +225,21 @@ export default function JobCardsPage() {
           </div>
         }
       >
-        {jobCardsQuery.isLoading ? (
-          <EmptyState label="Loading recovered job cards..." />
-        ) : jobCards.length === 0 ? (
-          <EmptyState label="No job cards matched this filter." />
+        {jobCardsQuery.isLoading || jobCardsQuery.isError || jobCards.length === 0 ? (
+          <QuerySwitch
+            isLoading={jobCardsQuery.isLoading}
+            isError={jobCardsQuery.isError}
+            isEmpty={jobCards.length === 0}
+            loadingLabel="Loading recovered job cards..."
+            emptyTitle="No job cards matched this filter."
+            emptyMessage="Clear the stage or due-risk filter, or wait for a sales release."
+            errorMessage="Job cards could not be loaded. Counts on this page must not be treated as zero."
+            onRetry={() => {
+              void jobCardsQuery.refetch()
+            }}
+          >
+            {null}
+          </QuerySwitch>
         ) : (
           <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
             <table className="min-w-full">
@@ -296,6 +309,7 @@ export default function JobCardsPage() {
             </table>
           </div>
         )}
+        <p className="mt-3 text-xs text-slate-500">Showing the loaded job-card window (up to 250). Stage tiles use the server aggregate, not this page size.</p>
       </Panel>
     </div>
   )

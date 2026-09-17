@@ -15,6 +15,8 @@ import {
 } from "lucide-react"
 
 import { EmptyState, Panel, StatusBadge } from "@/components/erp/shell"
+import { PageHeader } from "@/components/workspace/page-header"
+import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/AuthContext"
 import { useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
@@ -375,25 +377,22 @@ export default function PurchaseFlowPage() {
 
   return (
     <div className="min-w-0 space-y-5 overflow-x-hidden" data-testid="purchase-flow-page">
-      <section className="rounded-[1.6rem] border border-slate-200 bg-slate-950 p-5 text-white shadow-xl shadow-slate-900/10">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-100/80">Purchase to GRN control</p>
-            <h1 className="mt-2 text-2xl font-semibold">Purchase orders, GRN stock posting, and supplier schedules.</h1>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">
-              Create vendor-linked purchase orders, approve buying, then post GRN into priced inventory batches. Incoming QC verdicts stay with QC/inventory; this desk cannot set PASS or UNRESTRICTED.
-            </p>
-          </div>
+      <PageHeader
+        variant="hero"
+        eyebrow="Purchase to GRN control"
+        title="Purchase orders, GRN stock posting, and supplier schedules."
+        description="Create vendor-linked purchase orders, approve buying, then post GRN into priced inventory batches. Incoming QC verdicts stay with QC/inventory; this desk cannot set PASS or UNRESTRICTED."
+        actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/inventory/raw-material-inward" className="rounded-xl bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-950">
-              Direct bulk GRN
-            </Link>
-            <Link href="/inventory/reels/inward" className="rounded-xl border border-white/20 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-white/10">
-              Reel GRN
-            </Link>
+            <Button asChild className="rounded-xl bg-white text-slate-950 hover:bg-slate-100">
+              <Link href="/inventory/raw-material-inward">Direct bulk GRN</Link>
+            </Button>
+            <Button asChild variant="outline" className="rounded-xl border-white/20 bg-transparent text-white hover:bg-white/10">
+              <Link href="/inventory/reels/inward">Reel GRN</Link>
+            </Button>
           </div>
-        </div>
-      </section>
+        }
+      />
 
       <section className="flex flex-wrap gap-2">
         <EndpointChip label="Purchase orders" state={ordersQuery.data} />
