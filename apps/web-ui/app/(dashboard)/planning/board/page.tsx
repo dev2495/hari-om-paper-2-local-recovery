@@ -21,6 +21,7 @@ import {
 
 import { KeyboardScheduleForm } from "@/components/planning/keyboard-schedule-form"
 import { EmptyState, StatusBadge } from "@/components/erp/shell"
+import { LoadingState, ErrorState } from "@/components/workspace/query-state"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import {
   Dialog,
@@ -463,6 +464,7 @@ export default function PlanningBoardPage() {
     [scheduledDays],
   )
   const loading = board0.isLoading || board1.isLoading || board2.isLoading || jobsQuery.isLoading
+  const loadFailed = board0.isError || board1.isError || board2.isError || jobsQuery.isError
   const requiresExplicitPlant = boards.some((entry) => entry.response?.requires_explicit_plant)
 
   const tabs = useMemo(
@@ -1081,7 +1083,24 @@ export default function PlanningBoardPage() {
   if (loading) {
     return (
       <div data-testid="planner-page">
-        <EmptyState label="Loading planner workspace..." />
+        <LoadingState label="Loading planner workspace..." />
+      </div>
+    )
+  }
+
+  if (loadFailed) {
+    return (
+      <div data-testid="planner-page">
+        <ErrorState
+          title="Planner workspace could not be loaded"
+          message="Machine queues and calendar slots are unavailable. This is not an empty board."
+          onRetry={() => {
+            void board0.refetch()
+            void board1.refetch()
+            void board2.refetch()
+            void jobsQuery.refetch()
+          }}
+        />
       </div>
     )
   }

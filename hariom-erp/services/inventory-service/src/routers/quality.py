@@ -10,10 +10,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..quality_pin import approved_profile_payload, pin_quality_profile_metadata
+from ..concession_partition import (
+    ConcessionPartitionError,
+    lot_quantity,
+    remaining_hold_quantity,
+    split_batch_identity,
+    split_reel_code,
+    validate_concession_quantity,
+)
 from ..models import (
     CustomerRejection,
     InventoryLocation,
     InventoryQualityConcession,
+    InventoryQualityHold,
     InventoryQualityInspection,
     InventoryQualityTemplate,
     ItemMaster,
@@ -63,6 +73,30 @@ VALID_DISPOSITIONS = {"ACCEPT", "REWORK", "REHEAT", "SEGREGATE", "SCRAP", "BLOCK
 CONCESSION_PERMISSION = "qc:disposition:approve"
 CONCESSION_ROLES = {"Owner", "Admin"}
 CONCESSION_ELIGIBILITY = "RELEASED_BY_CONCESSION"
+
+
+def _pin_quality_profile(item: Optional[ItemMaster], entity: Any) -> Optional[dict[str, Any]]:
+    """Freeze the approved profile onto the receipt/lot. Later master edits are not retroactive."""
+    live = getattr(item, "quality_profile", None) if item is not None else None
+    if entity is not None and hasattr(entity, "inward_metadata"):
+        metadata = pin_quality_profile_metadata(getattr(entity, "inward_metadata", None), live)
+        entity.inward_metadata = metadata
+        pinned = metadata.get("quality_profile")
+        return pinned if isinstance(pinned, dict) else None
+    return approved_profile_payload(live) or (live if isinstance(live, dict) else None)
+
+
+def _open_entity_holds(db: Session, *, plant_id: str, entity_type: str, entity_id) -> list[InventoryQualityHold]:
+    return (
+        db.query(InventoryQualityHold)
+        .filter(
+            InventoryQualityHold.plant_id == plant_id,
+            InventoryQualityHold.entity_type == entity_type,
+            InventoryQualityHold.entity_id == entity_id,
+            InventoryQualityHold.status == "HOLD",
+        )
+        .all()
+    )
 
 
 def require_concession_authority(current_user: dict, *, inspector_id: Optional[str]) -> None:
@@ -685,27 +719,33 @@ def create_quality_inspection(
     elif rejection is not None:
         item = rejection.item
 
-    profile = getattr(item, "quality_profile", None) if item is not None else None
+    pin_entity = batch or reel or rejection
+    profile = _pin_quality_profile(item, pin_entity)
     evaluation_payload: dict[str, Any] = {}
     computed_failures: list[dict[str, Any]] = []
     reasons = payload.reasons or {}
+    reason_pending = False
 
     if profile:
-        # Frozen item-profile ranges (qc-measurement). Client status is ignored.
+        # Pinned receipt/item-profile ranges. Client status is ignored.
+        # Persist the observation even when the explanation is still pending.
         evaluation = evaluate_incoming(
             profile=profile,
             readings=payload.readings or {},
             reasons=reasons,
             require_reasons_on_fail=True,
         )
-        error = submission_error(evaluation)
-        if error:
-            raise HTTPException(status_code=400, detail=error)
         status = evaluation.verdict
         if status == "NOT_REQUIRED":
             status = "SKIPPED"
         computed_failures = list(evaluation.failures)
         evaluation_payload = evaluation.as_dict()
+        if evaluation.missing_reasons:
+            reason_pending = True
+            evaluation_payload["workflow_status"] = "REASON_PENDING"
+            evaluation_payload["reason_pending"] = True
+        evaluation_payload["profile_revision"] = (profile or {}).get("revision")
+        evaluation_payload["profile_pinned"] = True
     else:
         # Fallback: template-based incoming verdict (p0 Q04). Client status is
         # ignored except that missing/invalid evidence cannot unlock stock.
@@ -770,6 +810,25 @@ def create_quality_inspection(
             )
         stock_status = rejection.status
 
+    if status in held_statuses:
+        hold_qty = lot_quantity(batch=batch, reel=reel, rejection=rejection)
+        db.add(
+            InventoryQualityHold(
+                plant_id=plant_id,
+                entity_type=payload.entity_type,
+                entity_id=payload.entity_id,
+                source_inspection_id=inspection.id,
+                quantity=hold_qty,
+                reason=evaluation_payload.get("issue_summary")
+                or (computed_failures[0].get("detail") if computed_failures else f"{status} incoming inspection"),
+                status="HOLD",
+                hold_kind="INSPECTION",
+                created_by=current_user.get("sub"),
+            )
+        )
+        if reason_pending:
+            evaluation_payload["workflow_status"] = "REASON_PENDING"
+
     db.commit()
     db.refresh(inspection)
     response = _inspection_response(inspection, stock_status=stock_status)
@@ -784,6 +843,7 @@ class QualityConcessionCreate(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
     quantity: Optional[float] = Field(default=None, ge=0)
     release_stock: bool = False
+    operation_id: Optional[str] = Field(default=None, max_length=120)
 
 
 class QualityConcessionResponse(BaseModel):
@@ -799,6 +859,10 @@ class QualityConcessionResponse(BaseModel):
     inspector_id: Optional[str] = None
     reason: str
     quantity: Optional[float] = None
+    residual_qty: Optional[float] = None
+    released_entity_id: Optional[uuid.UUID] = None
+    independent_holds_remaining: float = 0
+    replayed: bool = False
 
 
 @router.post("/concessions", response_model=QualityConcessionResponse)
@@ -819,24 +883,91 @@ def create_quality_concession(
         raise HTTPException(status_code=400, detail="Concession applies only to measured FAIL inspections")
     require_concession_authority(current_user, inspector_id=inspection.created_by)
 
+    replay_query = db.query(InventoryQualityConcession).filter(
+        InventoryQualityConcession.inspection_id == inspection.id,
+        InventoryQualityConcession.plant_id == plant_id,
+    )
+    if payload.operation_id:
+        replay_query = replay_query.filter(InventoryQualityConcession.operation_id == payload.operation_id)
+    existing = replay_query.order_by(InventoryQualityConcession.created_at.desc()).first()
+    if existing and (
+        payload.operation_id
+        or (
+            existing.quantity is not None
+            and payload.quantity is not None
+            and abs(float(existing.quantity) - float(payload.quantity)) < 1e-9
+        )
+    ):
+        return QualityConcessionResponse(
+            inspection_id=inspection.id,
+            measured_status="FAIL",
+            eligibility_status=CONCESSION_ELIGIBILITY,
+            disposition=inspection.disposition or "ACCEPT",
+            stock_status=existing.stock_status_after,
+            hold_released=bool(existing.hold_released),
+            approved_by=existing.approved_by,
+            inspector_id=existing.inspector_id,
+            reason=existing.reason,
+            quantity=existing.quantity,
+            residual_qty=None,
+            released_entity_id=existing.released_entity_id,
+            independent_holds_remaining=remaining_hold_quantity(
+                _open_entity_holds(db, plant_id=plant_id, entity_type=inspection.entity_type, entity_id=inspection.entity_id)
+            ),
+            replayed=True,
+        )
+
     stock_status: Optional[str] = None
     stock_status_before: Optional[str] = None
     hold_released = False
+    released_entity_id = None
+    residual_qty = None
     batch = None
     reel = None
     rejection = None
     if inspection.entity_type == "BATCH":
-        batch = db.query(StockBatch).filter(StockBatch.id == inspection.entity_id, StockBatch.plant_id == plant_id).first()
+        batch = (
+            db.query(StockBatch)
+            .filter(StockBatch.id == inspection.entity_id, StockBatch.plant_id == plant_id)
+            .with_for_update()
+            .first()
+        )
         stock_status_before = batch.stock_status if batch else None
         stock_status = stock_status_before
     elif inspection.entity_type == "REEL":
         reel = _paper_reel_for_plant(db, plant_id, inspection.entity_id)
+        if reel is not None:
+            reel = (
+                db.query(PaperReel)
+                .filter(PaperReel.id == reel.id)
+                .with_for_update()
+                .first()
+            )
         stock_status_before = reel.stock_status if reel else None
         stock_status = stock_status_before
     elif inspection.entity_type == "CUSTOMER_REJECTION":
-        rejection = db.query(CustomerRejection).filter(CustomerRejection.id == inspection.entity_id, CustomerRejection.plant_id == plant_id).first()
+        rejection = (
+            db.query(CustomerRejection)
+            .filter(CustomerRejection.id == inspection.entity_id, CustomerRejection.plant_id == plant_id)
+            .with_for_update()
+            .first()
+        )
         stock_status_before = rejection.status if rejection else None
         stock_status = stock_status_before
+
+    open_holds = _open_entity_holds(
+        db, plant_id=plant_id, entity_type=inspection.entity_type, entity_id=inspection.entity_id
+    )
+    independent_qty = remaining_hold_quantity(open_holds, excluding_inspection_id=str(inspection.id))
+    lot_qty = lot_quantity(batch=batch, reel=reel, rejection=rejection)
+    try:
+        release_qty, residual_qty = validate_concession_quantity(
+            payload.quantity,
+            lot_qty,
+            independent_hold_qty=independent_qty,
+        )
+    except ConcessionPartitionError as exc:
+        raise HTTPException(status_code=400, detail=exc.as_dict()) from exc
 
     inspection.status = "FAIL"
     inspection.disposition = inspection.disposition or "ACCEPT"
@@ -844,24 +975,116 @@ def create_quality_concession(
     inspection.concession_reason = payload.reason
     inspection.concession_approved_by = current_user.get("sub")
     inspection.concession_approved_at = datetime.utcnow()
+
     if payload.release_stock:
-        # Explicit stock release is still a concession of FAIL, never a rewritten PASS.
+        suffix = str(uuid.uuid4())[:8]
         if batch:
-            batch.stock_status = "UNRESTRICTED"
-            stock_status = batch.stock_status
-            hold_released = True
+            if residual_qty <= 1e-9 and independent_qty <= 1e-9:
+                batch.stock_status = "UNRESTRICTED"
+                stock_status = batch.stock_status
+                hold_released = True
+                released_entity_id = batch.id
+            else:
+                child = StockBatch(
+                    item_id=batch.item_id,
+                    batch_no=split_batch_identity(batch.batch_no, suffix),
+                    received_qty=release_qty,
+                    location=batch.location,
+                    location_id=batch.location_id,
+                    stock_status="UNRESTRICTED",
+                    unit_cost=batch.unit_cost,
+                    cost_source=batch.cost_source,
+                    supplier_id=batch.supplier_id,
+                    supplier_name_snapshot=batch.supplier_name_snapshot,
+                    plant_id=batch.plant_id,
+                    spec_id=batch.spec_id,
+                    inward_metadata={
+                        **(batch.inward_metadata or {}),
+                        "parent_batch_id": str(batch.id),
+                        "concession_partition": True,
+                        "concession_inspection_id": str(inspection.id),
+                    },
+                )
+                db.add(child)
+                db.flush()
+                batch.received_qty = residual_qty
+                batch.stock_status = "QC_HOLD" if residual_qty > 1e-9 or independent_qty > 1e-9 else "UNRESTRICTED"
+                stock_status = batch.stock_status
+                hold_released = True
+                released_entity_id = child.id
         elif reel:
-            reel.stock_status = "UNRESTRICTED"
-            stock_status = reel.stock_status
-            hold_released = True
+            if residual_qty <= 1e-9 and independent_qty <= 1e-9:
+                reel.stock_status = "UNRESTRICTED"
+                stock_status = reel.stock_status
+                hold_released = True
+                released_entity_id = reel.id
+            else:
+                child = PaperReel(
+                    plant_id=reel.plant_id,
+                    reel_code=split_reel_code(reel.reel_code, suffix),
+                    paper_id=reel.paper_id,
+                    gsm=reel.gsm,
+                    bf=reel.bf,
+                    supplier_name=reel.supplier_name,
+                    supplier_id=reel.supplier_id,
+                    supplier_name_snapshot=reel.supplier_name_snapshot,
+                    inward_weight_kg=release_qty,
+                    current_weight_kg=release_qty,
+                    unit_cost=reel.unit_cost,
+                    cost_source=reel.cost_source,
+                    status=reel.status,
+                    stock_status="UNRESTRICTED",
+                    location_id=reel.location_id,
+                    parent_reel_id=reel.id,
+                    genealogy_metadata={"concession_partition": True, "parent_reel_id": str(reel.id)},
+                    inward_metadata={
+                        **(reel.inward_metadata or {}),
+                        "concession_inspection_id": str(inspection.id),
+                    },
+                    inward_date=reel.inward_date,
+                )
+                db.add(child)
+                db.flush()
+                reel.current_weight_kg = residual_qty
+                reel.inward_weight_kg = max(float(reel.inward_weight_kg or 0.0), residual_qty)
+                reel.stock_status = "QC_HOLD" if residual_qty > 1e-9 or independent_qty > 1e-9 else "UNRESTRICTED"
+                stock_status = reel.stock_status
+                hold_released = True
+                released_entity_id = child.id
         elif rejection:
-            rejection.status = "UNRESTRICTED"
-            stock_status = rejection.status
-            hold_released = True
-            if rejection.batch_id:
-                linked = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).first()
-                if linked:
-                    linked.stock_status = "UNRESTRICTED"
+            if residual_qty <= 1e-9 and independent_qty <= 1e-9:
+                rejection.status = "UNRESTRICTED"
+                stock_status = rejection.status
+                hold_released = True
+                released_entity_id = rejection.id
+                if rejection.batch_id:
+                    linked = (
+                        db.query(StockBatch)
+                        .filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id)
+                        .with_for_update()
+                        .first()
+                    )
+                    if linked and independent_qty <= 1e-9:
+                        linked.stock_status = "UNRESTRICTED"
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "PARTIAL_REJECTION_UNSUPPORTED",
+                        "message": "Partial concession of a customer-rejection lot requires an identified batch/reel partition.",
+                    },
+                )
+
+        for hold in open_holds:
+            if str(hold.source_inspection_id or "") == str(inspection.id):
+                remaining = round(float(hold.quantity or 0.0) - release_qty, 6)
+                if remaining <= 1e-9:
+                    hold.status = "RELEASED"
+                    hold.released_by = current_user.get("sub")
+                    hold.released_at = datetime.utcnow()
+                    hold.quantity = 0
+                else:
+                    hold.quantity = remaining
 
     concession = InventoryQualityConcession(
         plant_id=plant_id,
@@ -875,9 +1098,12 @@ def create_quality_concession(
         stock_status_after=stock_status,
         hold_released=hold_released,
         reason=payload.reason,
-        quantity=payload.quantity,
+        quantity=release_qty,
         inspector_id=inspection.created_by,
         approved_by=current_user.get("sub"),
+        released_entity_id=released_entity_id,
+        residual_entity_id=inspection.entity_id if residual_qty and residual_qty > 1e-9 else None,
+        operation_id=payload.operation_id,
     )
     db.add(concession)
     db.commit()
@@ -892,7 +1118,13 @@ def create_quality_concession(
         approved_by=current_user.get("sub"),
         inspector_id=inspection.created_by,
         reason=payload.reason,
-        quantity=payload.quantity,
+        quantity=release_qty,
+        residual_qty=residual_qty,
+        released_entity_id=released_entity_id,
+        independent_holds_remaining=remaining_hold_quantity(
+            _open_entity_holds(db, plant_id=plant_id, entity_type=inspection.entity_type, entity_id=inspection.entity_id)
+        ),
+        replayed=False,
     )
 
 

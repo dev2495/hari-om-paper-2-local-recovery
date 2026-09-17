@@ -474,6 +474,40 @@ def ensure_runtime_schema() -> None:
       )
     )
     connection.execute(text('ALTER TABLE IF EXISTS purchase_line_schedules DROP COLUMN IF EXISTS "current_date"'))
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_concessions ADD COLUMN IF NOT EXISTS released_entity_id UUID")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_concessions ADD COLUMN IF NOT EXISTS residual_entity_id UUID")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_concessions ADD COLUMN IF NOT EXISTS operation_id VARCHAR(120)")
+    )
+    connection.execute(
+      text("CREATE INDEX IF NOT EXISTS ix_inventory_quality_concessions_operation ON inventory_quality_concessions (operation_id)")
+    )
+    connection.execute(
+      text(
+        "CREATE TABLE IF NOT EXISTS inventory_quality_holds ("
+        "id UUID PRIMARY KEY, "
+        "plant_id VARCHAR(50) NOT NULL, "
+        "entity_type VARCHAR(40) NOT NULL, "
+        "entity_id UUID NOT NULL, "
+        "source_inspection_id UUID, "
+        "quantity DOUBLE PRECISION NOT NULL DEFAULT 0, "
+        "reason TEXT NOT NULL, "
+        "status VARCHAR(20) NOT NULL DEFAULT 'HOLD', "
+        "hold_kind VARCHAR(40) NOT NULL DEFAULT 'INSPECTION', "
+        "created_by VARCHAR(200), "
+        "released_by VARCHAR(200), "
+        "created_at TIMESTAMP, "
+        "released_at TIMESTAMP"
+        ")"
+      )
+    )
+    connection.execute(
+      text("CREATE INDEX IF NOT EXISTS ix_inventory_quality_holds_entity ON inventory_quality_holds (entity_type, entity_id, status)")
+    )
 
 
 ensure_runtime_schema()

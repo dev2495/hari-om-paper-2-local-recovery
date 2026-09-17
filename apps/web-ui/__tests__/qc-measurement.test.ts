@@ -47,6 +47,29 @@ test("job-card winding collect uses height and does not copy length as the offic
   assert.equal(checks.hasReadings, true)
 })
 
+test("every winding sample is collected independently", () => {
+  const checks = collectStageQualityChecks("WINDER", {
+    dimension_readings: [
+      { height: "120", id: "77", od: "91", weight: "250", cs: "320" },
+      { height: "150", id: "77", od: "91", weight: "250", cs: "320" },
+      { height: "", id: "", od: "", weight: "", cs: "" },
+    ],
+  })
+  assert.equal(checks.samples.length, 2)
+  assert.equal(checks.samples[0].readings.height, 120)
+  assert.equal(checks.samples[1].readings.height, 150)
+})
+
+test("whitespace is missing and kg batch values are not copied into g specimen fields", () => {
+  const blank = collectStageQualityChecks("WINDER", { qc_readings: { height: "   " } })
+  assert.equal(blank.readings.height, undefined)
+  const oven = collectStageQualityChecks("OVEN", { pre_oven_weight_kg: "1.2", pre_weight: "" })
+  assert.equal(oven.readings.pre_weight, undefined)
+  assert.equal(oven.unit_conflicts[0].source_unit, "kg")
+  const zero = collectStageQualityChecks("PROCESS", { final_measurements: { moisture: "0" } })
+  assert.equal(zero.readings.moisture, 0)
+})
+
 test("job card, spec dialog, and quality desks keep stage-specific fields", () => {
   const jobCard = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
   const qualityStage = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")
@@ -67,6 +90,18 @@ test("job card, spec dialog, and quality desks keep stage-specific fields", () =
   assert.match(nextConfig, /destination: "\/production\/supervisor-entry"/)
   assert.doesNotMatch(incoming, /Pass and release/)
   assert.match(incoming, /Client status/)
+})
+
+test("spec dialog and remaining shells keep product context and shared headers", () => {
+  const dialog = readFileSync(resolve(process.cwd(), "components/qc/SpecQcToleranceDialog.tsx"), "utf8")
+  const inventory = readFileSync(resolve(process.cwd(), "app/(dashboard)/inventory/page.tsx"), "utf8")
+  const logistics = readFileSync(resolve(process.cwd(), "app/(dashboard)/logistics/dispatch/page.tsx"), "utf8")
+  const specs = readFileSync(resolve(process.cwd(), "app/(dashboard)/specifications/page.tsx"), "utf8")
+  assert.match(dialog, /targetWeight/)
+  assert.match(dialog, /role="dialog"/)
+  assert.match(inventory, /PageHeader/)
+  assert.match(logistics, /PageHeader/)
+  assert.match(specs, /PageHeader/)
 })
 
 test("frozen stage rules expose allowed display fields", () => {

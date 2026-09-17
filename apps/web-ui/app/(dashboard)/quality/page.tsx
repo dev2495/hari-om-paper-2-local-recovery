@@ -4,9 +4,10 @@ import Link from "next/link"
 import { CheckCircle2, ClipboardCheck, FlaskConical, LockKeyhole, ShieldCheck } from "lucide-react"
 import { useMemo } from "react"
 
-import { ExecutiveHero, MetricCard, MetricRail, Panel } from "@/components/erp/shell"
+import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel } from "@/components/erp/shell"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useAuth } from "@/context/AuthContext"
 import { usePendingInventoryQuality } from "@/hooks/use-inventory"
 import { useQualityHolds, useQualityInspections, useQualitySummary } from "@/hooks/use-production"
@@ -52,6 +53,18 @@ export default function QualityDeskHubPage() {
           }
         />
         <QualityDeskNav />
+        {inspectionsQuery.isLoading ? <LoadingState label="Loading quality desk…" /> : null}
+        {inspectionsQuery.isError ? (
+          <ErrorState
+            message="Quality inspections could not be loaded. Pass rate must not be treated as 100% or zero."
+            onRetry={() => {
+              void inspectionsQuery.refetch()
+            }}
+          />
+        ) : null}
+        {!inspectionsQuery.isLoading && !inspectionsQuery.isError && inspectionCount <= 0 ? (
+          <EmptyState label="No inspections in this plant scope yet." />
+        ) : null}
         <MetricRail>
           <MetricCard label="Active Holds" value={activeHolds.length} detail="Dispatch-blocking quality decisions" icon={LockKeyhole} tone={activeHolds.length ? "rose" : "emerald"} />
           <MetricCard label="Pass Rate" value={passRateDisplay} detail={inspectionCount ? "Latest inspection window" : "No inspections in plant scope"} icon={CheckCircle2} tone="cyan" />

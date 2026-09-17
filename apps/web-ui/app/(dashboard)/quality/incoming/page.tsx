@@ -6,6 +6,7 @@ import { EmptyState, ExecutiveHero, Panel, StatusBadge } from "@/components/erp/
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useCreateInventoryQualityInspection, usePendingInventoryQuality } from "@/hooks/use-inventory"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -83,7 +84,14 @@ export default function IncomingQualityPage() {
         <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
           <Panel title="Held inward material" subtitle="Select a lot. Parameters come from that item's quality profile.">
             {pendingQualityQuery.isLoading ? (
-              <EmptyState label="Loading held material..." />
+              <LoadingState label="Loading held material..." />
+            ) : pendingQualityQuery.isError ? (
+              <ErrorState
+                message="Held inward material could not be loaded. This is not an empty QC queue."
+                onRetry={() => {
+                  void pendingQualityQuery.refetch()
+                }}
+              />
             ) : pendingQuality.length === 0 ? (
               <EmptyState label="No inward material is waiting for QC." />
             ) : (

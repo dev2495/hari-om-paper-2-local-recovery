@@ -129,7 +129,71 @@ def test_schedule_entire_po_does_not_touch_release_lot_quantities():
     assert lot.job_card_id is not None
 
 
-def test_allocation_sums_are_bounded_by_both_parents_and_reject_duplicates():
+def test_schedule_entire_po_appends_remaining_without_replacing_committed():
+    existing_id = uuid.uuid4()
+    existing = [
+        SimpleNamespace(
+            id=existing_id,
+            sales_order_line_id=uuid.uuid4(),
+            quantity=40,
+            status="committed",
+            delivery_date=date(2026, 9, 20),
+            revision=1,
+            plant_id="PLANT-1",
+        )
+    ]
+    line = _line(qty=100, delivery_schedules=existing)
+    remaining = propose_entire_po_rows([line], default_date=date(2026, 9, 30))
+    merged = merge_line_schedules(line=line, existing=existing, proposed=remaining, mode="append")
+    assert remaining[0]["quantity"] == 60
+    assert active_schedule_qty(merged) == 100
+    kept = next(row for row in merged if str(row.get("id")) == str(existing_id))
+    assert kept["quantity"] == 40
+    assert kept["delivery_date"] == date(2026, 9, 20)
+    assert any(row.get("quantity") == 60 and not row.get("id") for row in merged)
+
+
+def test_repeat_entire_po_after_commitment_does_not_duplicate():
+    existing = [SimpleNamespace(id=uuid.uuid4(), quantity=100, status="committed", delivery_date=date(2026, 9, 20), revision=1, plant_id="PLANT-1", sales_order_line_id=uuid.uuid4())]
+    line = _line(qty=100, delivery_schedules=existing)
+    proposed = propose_entire_po_rows([line], default_date=date(2026, 9, 30))
+    assert proposed == []
+    merged = merge_line_schedules(line=line, existing=existing, proposed=proposed, mode="append")
+    assert active_schedule_qty(merged) == 100
+    assert len(merged) == 1
+
+
+def test_remaining_to_schedule_subtracts_unscheduled_fulfillment():
+    line = _line(qty=100, fulfilled_qty=40)
+    assert remaining_to_schedule(line, []) == 60
+
+
+def test_new_schedule_row_cannot_be_created_as_delivered():
+    line = _line(qty=100)
+    with pytest.raises(SchedulePolicyError) as exc:
+        merge_line_schedules(
+            line=line,
+            existing=[],
+            proposed=[{"delivery_date": date(2026, 9, 30), "quantity": 40, "status": "delivered"}],
+        )
+    assert exc.value.code == "INVALID_STATUS"
+
+
+def test_fulfilled_without_calloff_cannot_overpromise():
+    line = _line(qty=100, fulfilled_qty=40)
+    with pytest.raises(SchedulePolicyError) as exc:
+        merge_line_schedules(
+            line=line,
+            existing=[],
+            proposed=[{"delivery_date": date(2026, 9, 30), "quantity": 100, "status": "committed"}],
+        )
+    assert exc.value.code == "OVER_ALLOCATED"
+    merged = merge_line_schedules(
+        line=line,
+        existing=[],
+        proposed=[{"delivery_date": date(2026, 9, 30), "quantity": 60, "status": "committed"}],
+    )
+    assert active_schedule_qty(merged) == 60
     schedule_id = str(uuid.uuid4())
     lot_id = str(uuid.uuid4())
     validate_schedule_to_release_allocations(

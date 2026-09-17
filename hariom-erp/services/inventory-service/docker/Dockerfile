@@ -13,8 +13,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY alembic/ ./alembic/
 COPY alembic.ini .
+COPY shared ./shared
 
-ENV PYTHONPATH=/app
+ENV PYTHONPATH=/app:/app/shared
 ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8005

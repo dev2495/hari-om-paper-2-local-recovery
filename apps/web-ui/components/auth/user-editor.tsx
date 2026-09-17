@@ -7,6 +7,14 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useAuth } from "@/context/AuthContext"
 import { authApi } from "@/lib/api"
 import { PasswordInput } from "./password-input"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { PageHeader } from "@/components/workspace/page-header"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
+import { RoleGate } from "@/components/workspace/role-gate"
 
 const inputClass = "mt-2 h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-slate-950"
 
@@ -20,6 +28,7 @@ const FRIENDLY_ROLE_LABELS: Record<string, string> = {
   Dispatch: "Dispatch",
   Sales: "Sales",
   Operator: "Operator",
+  QC: "Quality Control",
 }
 
 type RoleMeta = { label: string; summary: string; permissions: string[] }
@@ -230,27 +239,28 @@ export function UserEditor({ userId }: { userId?: string }) {
     }
   }
 
-  if (!canManage) return <p role="alert" className="p-8">Only Owner and Admin can manage users and access.</p>
+  if (!canManage) {
+    return (
+      <RoleGate allow={["Owner", "Admin"]}>
+        <p role="alert">Only Owner and Admin can manage users and access.</p>
+      </RoleGate>
+    )
+  }
 
   const submitDisabled = saving || !form.role_names.length || !plants.length
 
   return (
-    <main className="mx-auto max-w-4xl space-y-6 p-4">
-      <Link href="/system/users" className="text-teal-800 underline">
-        ← Back to users
-      </Link>
-      <header>
-        <h1 className="text-3xl font-semibold">{userId ? "Edit user and access" : "Create user"}</h1>
-        <p className="mt-2 text-slate-600">
-          Owner and Admin control roles, plant access, activation, and password resets.{" "}
-          {userId ? "Saving replaces this user's roles with the selection below. " : ""}Access changes sign the
-          affected user out.
-        </p>
-      </header>
+    <main className="mx-auto max-w-4xl space-y-6">
+      <Button asChild variant="outline" className="rounded-xl">
+        <Link href="/system/users">← Back to users</Link>
+      </Button>
+      <PageHeader
+        eyebrow="System admin"
+        title={userId ? "Edit user and access" : "Create user"}
+        description={`Owner and Admin control roles, plant access, activation, and password resets. ${userId ? "Saving replaces this user's roles with the selection below. " : ""}Access changes sign the affected user out.`}
+      />
       {loadError && (
-        <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-rose-900">
-          {loadError}
-        </p>
+        <ErrorState title="Could not load user access settings" message={loadError} />
       )}
       {error && (
         <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-rose-900">
@@ -268,23 +278,27 @@ export function UserEditor({ userId }: { userId?: string }) {
         </p>
       )}
       {loading ? (
-        <p>Loading access settings…</p>
+        <LoadingState label="Loading access settings…" />
       ) : (
-        <form onSubmit={save} className="space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <Card className="rounded-[1.6rem] border-slate-200 shadow-sm">
+          <CardContent className="p-6">
+        <form onSubmit={save} className="space-y-6">
           <div className="grid gap-5 md:grid-cols-2">
-            <label>
-              Full name
-              <input
+            <div>
+              <Label htmlFor="user-full-name">Full name</Label>
+              <Input
+                id="user-full-name"
                 className={inputClass}
                 required
                 maxLength={160}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
-            </label>
-            <label>
-              {userId ? "Username / email" : "Email / login username"}
-              <input
+            </div>
+            <div>
+              <Label htmlFor="user-email">{userId ? "Username / email" : "Email / login username"}</Label>
+              <Input
+                id="user-email"
                 className={inputClass}
                 type={userId ? "text" : "email"}
                 required
@@ -293,11 +307,12 @@ export function UserEditor({ userId }: { userId?: string }) {
                 value={form.email}
                 onChange={(e) => setForm({ ...form, email: e.target.value })}
               />
-            </label>
+            </div>
           </div>
-          <label className="block">
-            {userId ? "Reset password (leave empty to keep current password)" : "Password"}
+          <div>
+            <Label htmlFor="user-password">{userId ? "Reset password (leave empty to keep current password)" : "Password"}</Label>
             <PasswordInput
+              id="user-password"
               className={inputClass}
               autoComplete="new-password"
               required={!userId}
@@ -309,25 +324,17 @@ export function UserEditor({ userId }: { userId?: string }) {
             <span className="mt-2 block text-sm text-slate-500">
               At least 12 characters, with uppercase, lowercase, a number, and a symbol.
             </span>
-          </label>
+          </div>
           <fieldset>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <legend className="font-semibold">Assigned roles</legend>
               <div className="flex items-center gap-2 text-sm">
-                <button
-                  type="button"
-                  onClick={selectAllRoles}
-                  className="rounded-lg border border-slate-300 px-3 py-1 font-medium text-slate-700 hover:bg-slate-50"
-                >
+                <Button type="button" variant="outline" className="h-8 rounded-lg" onClick={selectAllRoles}>
                   Select all
-                </button>
-                <button
-                  type="button"
-                  onClick={clearRoles}
-                  className="rounded-lg border border-slate-300 px-3 py-1 font-medium text-slate-700 hover:bg-slate-50"
-                >
+                </Button>
+                <Button type="button" variant="outline" className="h-8 rounded-lg" onClick={clearRoles}>
                   Clear
-                </button>
+                </Button>
               </div>
             </div>
             <p className="my-2 text-sm text-slate-600">
@@ -343,7 +350,7 @@ export function UserEditor({ userId }: { userId?: string }) {
                     key={role}
                     title={roleMeta[role]?.summary || undefined}
                     className={`flex items-start gap-3 rounded-xl border p-3 transition ${
-                      active ? "border-teal-500 bg-teal-50/60" : "border-slate-200"
+                      active ? "border-cyan-500 bg-cyan-50/60" : "border-slate-200"
                     }`}
                   >
                     <input type="checkbox" className="mt-1" checked={active} onChange={() => toggleRole(role)} />
@@ -351,9 +358,7 @@ export function UserEditor({ userId }: { userId?: string }) {
                       <span className="flex items-center gap-2 font-medium text-slate-900">
                         {roleLabel(role)}
                         {rolePrivileged && (
-                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800">
-                            Admin
-                          </span>
+                          <Badge variant="warning">Admin</Badge>
                         )}
                       </span>
                       {roleMeta[role]?.summary && (
@@ -380,12 +385,9 @@ export function UserEditor({ userId }: { userId?: string }) {
                 {effectivePermissions.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {effectivePermissions.map((permission) => (
-                      <span
-                        key={permission}
-                        className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-700"
-                      >
+                      <Badge key={permission} variant="outline">
                         {permission}
-                      </span>
+                      </Badge>
                     ))}
                   </div>
                 )}
@@ -402,9 +404,10 @@ export function UserEditor({ userId }: { userId?: string }) {
               Allow all plants
             </label>
           )}
-          <label className="block">
-            Primary plant
+          <div>
+            <Label htmlFor="user-primary-plant">Primary plant</Label>
             <select
+              id="user-primary-plant"
               className={inputClass}
               required
               value={form.plant_id}
@@ -423,7 +426,7 @@ export function UserEditor({ userId }: { userId?: string }) {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
           {!form.is_owner_all_plants && (
             <fieldset>
               <legend className="font-semibold">Allowed plants</legend>
@@ -463,14 +466,16 @@ export function UserEditor({ userId }: { userId?: string }) {
               </span>
             </label>
           )}
-          <button
+          <Button
             type="submit"
             disabled={submitDisabled}
-            className="rounded-xl bg-slate-950 px-6 py-3 font-semibold text-white disabled:opacity-40"
+            className="h-12 rounded-xl bg-slate-950 px-6 font-semibold text-white disabled:opacity-40"
           >
             {saving ? "Saving…" : userId ? "Save changes" : "Create user"}
-          </button>
+          </Button>
         </form>
+          </CardContent>
+        </Card>
       )}
     </main>
   )

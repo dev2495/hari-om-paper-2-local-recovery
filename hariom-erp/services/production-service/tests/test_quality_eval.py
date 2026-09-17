@@ -127,6 +127,55 @@ def test_oven_requires_paired_sample_for_post_readings():
     assert paired.verdict == "PASS"
 
 
+def test_oven_pre_only_checkpoint_does_not_require_post():
+    evaluation = evaluate_job_stage(
+        stage="OVEN",
+        spec_snapshot=_winder_snapshot(),
+        readings={"pre_weight": 240, "pre_moisture": 10, "oven_checkpoint": "PRE", "pre_specimen_id": "S1"},
+        sample_id="S1",
+        require_reasons_on_fail=False,
+    )
+    assert evaluation.verdict == "PASS"
+    post_codes = {row.code: row.verdict for row in evaluation.parameter_results}
+    assert post_codes["post_weight"] == "NOT_APPLICABLE"
+
+
+def test_oven_pair_mismatch_fails():
+    evaluation = evaluate_job_stage(
+        stage="OVEN",
+        spec_snapshot=_winder_snapshot(),
+        readings={
+            "pre_weight": 240,
+            "post_weight": 220,
+            "pre_moisture": 10,
+            "post_moisture": 6,
+            "pre_specimen_id": "S1",
+            "post_specimen_id": "S2",
+        },
+        sample_id="S2",
+        require_reasons_on_fail=False,
+    )
+    assert evaluation.verdict == "FAIL"
+    assert any(row.code == "oven_pair" for row in evaluation.parameter_results)
+
+
+def test_categorical_fail_uses_approved_outcomes():
+    from src.quality_eval import evaluate_parameter, ParameterRule
+
+    rule = ParameterRule(
+        code="color_bleeding",
+        label="Color Bleeding",
+        unit="",
+        input_type="select",
+        options=["PASS", "FAIL"],
+        required=True,
+    )
+    failed = evaluate_parameter(rule, "BLEED")
+    passed = evaluate_parameter(rule, "PASS")
+    assert failed.verdict == "FAIL"
+    assert passed.verdict == "PASS"
+
+
 def test_process_notch_conditional_and_moisture():
     snapshot = _winder_snapshot()
     snapshot["notch_capability_required"] = False
@@ -147,6 +196,60 @@ def test_missing_frozen_profile_cannot_pass():
         readings={"id": 77, "od": 91, "height": 120, "weight": 250, "cs": 320},
     )
     assert evaluation.verdict == "INCOMPLETE"
+
+
+def test_inverted_bounds_are_invalid_not_pass():
+    snapshot = _winder_snapshot()
+    snapshot["qc_profile"]["stages"]["WINDER"]["parameters"][2] = {
+        "code": "height",
+        "label": "Height",
+        "unit": "mm",
+        "min": 122,
+        "max": 118,
+    }
+    evaluation = evaluate_job_stage(
+        stage="WINDER",
+        spec_snapshot=snapshot,
+        readings={"id": 77, "od": 91, "height": 120, "weight": 250, "cs": 320},
+        require_reasons_on_fail=False,
+    )
+    height = next(row for row in evaluation.parameter_results if row.code == "height")
+    assert height.verdict == "INVALID"
+    assert evaluation.verdict == "INVALID"
+
+
+def test_kg_batch_weight_is_not_an_alias_for_g_specimen():
+    evaluation = evaluate_job_stage(
+        stage="OVEN",
+        spec_snapshot=_winder_snapshot(),
+        readings={"pre_oven_weight_kg": 1.2, "pre_moisture": 10, "oven_checkpoint": "PRE", "pre_specimen_id": "S1"},
+        sample_id="S1",
+        require_reasons_on_fail=False,
+    )
+    pre = next(row for row in evaluation.parameter_results if row.code == "pre_weight")
+    assert pre.verdict == "INCOMPLETE"
+    assert evaluation.verdict == "INCOMPLETE"
+
+
+def test_fail_without_reason_is_measured_fail_not_rejected_evidence():
+    evaluation = evaluate_job_stage(
+        stage="WINDER",
+        spec_snapshot=_winder_snapshot(),
+        readings={"id": 77, "od": 91, "height": 150, "weight": 250, "cs": 320},
+        reasons={},
+        require_reasons_on_fail=True,
+    )
+    assert evaluation.verdict == "FAIL"
+    assert evaluation.status == "FAIL"
+    assert submission_error(evaluation)
+
+
+def test_rr04_client_hold_flag_is_ignored_in_router():
+    from pathlib import Path
+
+    text = Path(__file__).resolve().parents[1].joinpath("src/routers/quality.py").read_text()
+    assert "The client create_hold_on_fail flag is ignored" in text
+    assert "if evaluation.status in {\"FAIL\", \"INVALID\"}:" in text
 
 
 def test_incoming_uses_item_profile_and_ignores_reason_pass():

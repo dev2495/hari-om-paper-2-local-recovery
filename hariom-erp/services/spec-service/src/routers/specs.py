@@ -25,7 +25,7 @@ from ..utils.auth import (
     require_role,
 )
 from ..config import get_settings
-from ..qc_profile import normalize_qc_profile, profile_status
+from ..qc_profile import QcProfileError, normalize_qc_profile, profile_status
 
 router = APIRouter(prefix="/specs", tags=["specifications"])
 settings = get_settings()
@@ -757,6 +757,7 @@ def _replacement_spec_from_payload(
         qc_profile=normalize_qc_profile(
             updates.get("qc_profile") if "qc_profile" in updates else previous.qc_profile,
             previous=previous.qc_profile if isinstance(previous.qc_profile, dict) else None,
+            mutating=True,
         ),
     )
 
@@ -783,7 +784,11 @@ def _update_draft_in_place(
         if field == "customer_id":
             value = uuid.UUID(str(value)) if value else None
         if field == "qc_profile":
-            value = normalize_qc_profile(value, previous=spec.qc_profile if isinstance(spec.qc_profile, dict) else None)
+            value = normalize_qc_profile(
+                value,
+                previous=spec.qc_profile if isinstance(spec.qc_profile, dict) else None,
+                mutating=True,
+            )
         if hasattr(spec, field):
             setattr(spec, field, value)
     spec.customer_name = customer_name
@@ -1038,9 +1043,63 @@ def upsert_spec_qc_profile(
             status_code=409,
             detail="Specification is under approval review. Return it to draft before editing quality parameters.",
         )
-    normalized = normalize_qc_profile(payload.qc_profile, previous=spec.qc_profile if isinstance(spec.qc_profile, dict) else None)
-    if payload.status in {"draft", "complete", "pending_review", "approved"}:
+    try:
+        normalized = normalize_qc_profile(
+            payload.qc_profile,
+            previous=spec.qc_profile if isinstance(spec.qc_profile, dict) else None,
+            mutating=True,
+        )
+    except QcProfileError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+    if payload.status == "approved":
+        raise HTTPException(
+            status_code=403,
+            detail="Approved QC status requires the dedicated approve command. JSON save cannot self-approve.",
+        )
+    if payload.status in {"draft", "complete", "pending_review"}:
         normalized["status"] = payload.status
+    spec.qc_profile = normalized
+    db.commit()
+    db.refresh(spec)
+    return _serialize_spec(spec)
+
+
+class QcProfileApprovePayload(BaseModel):
+    expected_revision: int
+
+
+@router.post("/{spec_id}/qc-profile/approve", response_model=SpecResponse)
+def approve_spec_qc_profile(
+    spec_id: uuid.UUID,
+    payload: QcProfileApprovePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
+):
+    spec = db.query(SpecificationSheet).filter(
+        SpecificationSheet.id == spec_id,
+        SpecificationSheet.plant_id == plant_id,
+    ).first()
+    if not spec:
+        raise HTTPException(status_code=404, detail="Specification not found")
+    current = spec.qc_profile if isinstance(spec.qc_profile, dict) else {}
+    current_revision = int(current.get("revision") or 1)
+    if int(payload.expected_revision) != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "STALE_REVISION", "message": "QC profile revision changed since preview.", "current_revision": current_revision},
+        )
+    try:
+        normalized = normalize_qc_profile(current, previous=current, mutating=True, allow_approved=True)
+    except QcProfileError as exc:
+        raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+    computed = profile_status({**normalized, "status": "complete"})
+    if computed not in {"complete", "approved"}:
+        raise HTTPException(status_code=400, detail="QC profile is incomplete and cannot be approved.")
+    normalized["status"] = "approved"
+    normalized["approved_by"] = current_user.get("sub")
+    normalized["approved_at"] = datetime.utcnow().isoformat()
+    normalized["approved_snapshot"] = dict(normalized)
     spec.qc_profile = normalized
     db.commit()
     db.refresh(spec)

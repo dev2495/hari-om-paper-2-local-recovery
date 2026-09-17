@@ -5,6 +5,7 @@ import { FormEvent, useMemo, useState } from "react"
 import { EmptyState, ExecutiveHero, Panel, StatusBadge } from "@/components/erp/shell"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import {
@@ -132,9 +133,21 @@ export default function QualityResultsPage() {
           description="This desk does not author a measured PASS. Release and customer dispositions are separate from incoming and stage readings."
         />
         <QualityDeskNav />
+        {inspectionsQuery.isLoading || holdsQuery.isLoading ? <LoadingState label="Loading quality results…" /> : null}
+        {inspectionsQuery.isError || holdsQuery.isError ? (
+          <ErrorState
+            message="Quality results could not be loaded. Empty lists here are not proof that holds are clear."
+            onRetry={() => {
+              void inspectionsQuery.refetch()
+              void holdsQuery.refetch()
+            }}
+          />
+        ) : null}
         <div className="grid gap-5 xl:grid-cols-2">
           <Panel title="Latest inspections" subtitle="Server verdicts from stage and incoming measurements.">
-            {inspections.length === 0 ? (
+            {inspectionsQuery.isLoading ? (
+              <LoadingState label="Loading inspections…" />
+            ) : inspections.length === 0 ? (
               <EmptyState label="No inspections recorded." />
             ) : (
               inspections.slice(0, 12).map((row: any) => (

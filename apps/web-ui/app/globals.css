@@ -250,6 +250,39 @@
     box-shadow: var(--shadow-premium);
   }
 
+  .erp-btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    border-radius: 0.85rem;
+    border: 1px solid rgb(226 232 240);
+    background: white;
+    padding: 0 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgb(51 65 85);
+  }
+
+  .erp-btn-secondary:focus-visible,
+  .erp-btn-primary:focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
+
+  .erp-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 2.5rem;
+    border-radius: 0.85rem;
+    background: rgb(15 23 42);
+    padding: 0 0.9rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: white;
+  }
+
   .erp-sidebar-scroll::-webkit-scrollbar {
     width: 6px;
   }

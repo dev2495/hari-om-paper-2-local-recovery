@@ -93,12 +93,21 @@ def allocatable_line_qty(line: Any) -> float:
     return _qty(getattr(line, "qty", 0))
 
 
+PATCHABLE_STATUSES = frozenset({"planned", "committed", "cancelled"})
+MERGE_MODES = frozenset({"append", "replace"})
+
+
 def validate_active_sum(line: Any, schedules: Iterable[Any]) -> None:
+    """Ordered qty must cover active call-offs plus unrepresented fulfillment."""
     total = active_schedule_qty(schedules)
+    extra_fulfilled = fulfilled_unscheduled_qty(line, schedules)
     cap = allocatable_line_qty(line)
-    if total - cap > 1e-9:
+    if total + extra_fulfilled - cap > 1e-9:
         raise SchedulePolicyError(
-            f"Active delivery allocations {total} exceed allocatable line quantity {cap}.",
+            (
+                f"Active delivery allocations {total} plus unscheduled fulfillment "
+                f"{extra_fulfilled} exceed allocatable line quantity {cap}."
+            ),
             code="OVER_ALLOCATED",
             field="quantity",
             line_id=str(getattr(line, "id", "") or ""),
@@ -121,45 +130,68 @@ def assert_row_mutable(existing: Any) -> None:
         )
 
 
+def _serialize_existing_row(row: Any, line: Any, *, immutable: bool) -> dict[str, Any]:
+    row_id = str(getattr(row, "id", "") or "")
+    if isinstance(row, dict):
+        row_id = str(row.get("id") or "")
+        return {
+            "id": row_id,
+            "line_id": str(row.get("line_id") or getattr(line, "id", "")),
+            "delivery_date": row.get("delivery_date"),
+            "quantity": _row_qty(row),
+            "status": _row_status(row),
+            "revision": int(row.get("revision") or 1),
+            "plant_id": str(row.get("plant_id") or ""),
+            "immutable": immutable,
+            "kept": True,
+        }
+    return {
+        "id": row_id,
+        "line_id": str(getattr(row, "sales_order_line_id", getattr(line, "id", ""))),
+        "delivery_date": getattr(row, "delivery_date", None),
+        "quantity": _row_qty(row),
+        "status": _row_status(row),
+        "revision": int(getattr(row, "revision", 1) or 1),
+        "plant_id": str(getattr(row, "plant_id", "") or ""),
+        "immutable": immutable,
+        "kept": True,
+    }
+
+
 def merge_line_schedules(
     *,
     line: Any,
     existing: list[Any],
     proposed: list[dict[str, Any]],
     default_status: str = "committed",
+    mode: str = "replace",
 ) -> list[dict[str, Any]]:
-    """Replace editable rows, keep immutable ones, validate the resulting set."""
-    immutable = []
-    editable_ids = set()
+    """Append remainder or replace editable rows. Immutable rows are always kept."""
+    merge_mode = str(mode or "replace").strip().lower()
+    if merge_mode not in MERGE_MODES:
+        raise SchedulePolicyError(
+            f"Unsupported schedule merge mode '{mode}'.",
+            code="INVALID_MERGE_MODE",
+        )
+    kept = []
     for row in existing:
         status = _row_status(row)
-        row_id = str(getattr(row, "id", "") or "")
         if status == CANCELLED_STATUS:
             continue
-        if is_immutable_status(status):
-            immutable.append(
-                {
-                    "id": row_id,
-                    "line_id": str(getattr(row, "sales_order_line_id", getattr(line, "id", ""))),
-                    "delivery_date": getattr(row, "delivery_date", None),
-                    "quantity": _row_qty(row),
-                    "status": status,
-                    "revision": int(getattr(row, "revision", 1) or 1),
-                    "plant_id": str(getattr(row, "plant_id", "") or ""),
-                    "immutable": True,
-                }
-            )
-        elif is_active_status(status):
-            editable_ids.add(row_id)
+        if is_immutable_status(status) or merge_mode == "append":
+            kept.append(_serialize_existing_row(row, line, immutable=is_immutable_status(status)))
 
-    merged = list(immutable)
+    merged = list(kept)
+    existing_ids = {str(item.get("id") or "") for item in merged if item.get("id")}
     for item in proposed:
         row_id = str(item.get("id") or "").strip()
         status = _status(item.get("status") or default_status)
         if status == CANCELLED_STATUS:
             continue
+        if merge_mode == "append" and row_id and row_id in existing_ids:
+            continue
         if row_id:
-            existing_row = next((row for row in existing if str(getattr(row, "id", "")) == row_id), None)
+            existing_row = next((row for row in existing if str(getattr(row, "id", "") if not isinstance(row, dict) else row.get("id")) == row_id), None)
             if existing_row is not None:
                 assert_row_mutable(existing_row)
         qty = _qty(item.get("quantity"))
@@ -199,8 +231,9 @@ def merge_line_schedules(
                 "delivery_date": delivery_date,
                 "quantity": qty,
                 "status": status,
-                "replace_editable": True,
+                "replace_editable": merge_mode == "replace",
                 "immutable": False,
+                "kept": False,
             }
         )
 

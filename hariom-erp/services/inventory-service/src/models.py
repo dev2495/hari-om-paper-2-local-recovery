@@ -386,6 +386,27 @@ class InventoryQualityConcession(Base):
     inspector_id = Column(String(200), nullable=True)
     approved_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    released_entity_id = Column(UUID(as_uuid=True), nullable=True)
+    residual_entity_id = Column(UUID(as_uuid=True), nullable=True)
+    operation_id = Column(String(120), nullable=True, index=True)
+
+
+class InventoryQualityHold(Base):
+    __tablename__ = "inventory_quality_holds"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    source_inspection_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    quantity = Column(Float, nullable=False, default=0.0)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="HOLD")
+    hold_kind = Column(String(40), nullable=False, default="INSPECTION")
+    created_by = Column(String(200), nullable=True)
+    released_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    released_at = Column(DateTime, nullable=True)
 
 
 class CustomerRejection(Base):

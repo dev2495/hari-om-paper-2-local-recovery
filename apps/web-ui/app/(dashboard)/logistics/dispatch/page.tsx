@@ -6,6 +6,8 @@ import { ClipboardCheck, Factory, Truck } from "lucide-react"
 import { useReadyJobs, useCustomers } from "@/hooks/use-dispatch"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/context/AuthContext"
+import { PageHeader } from "@/components/workspace/page-header"
+import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
 
 export default function DispatchSelectionPage() {
@@ -46,21 +48,19 @@ export default function DispatchSelectionPage() {
 
     return (
         <div className="space-y-6">
-            <div className="rounded-[1.6rem] border border-white/70 bg-gradient-to-br from-white via-white to-cyan-50/80 p-6 shadow-xl">
-                <div className="flex flex-wrap items-start justify-between gap-4">
+            <PageHeader
+                variant="hero"
+                appearance={MODULE_APPEARANCES.dispatch}
+                badge="Finished-goods handoff"
+                title="Dispatch Selection"
+                description="Create, resume, or review challans for packed jobs. Sealing posts FG stock and sales fulfillment together."
+                aside={
                     <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700">Finished-goods handoff</p>
-                        <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">Dispatch Selection</h1>
-                        <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                            Create, resume, or review challans for packed jobs. Sealing posts FG stock and sales fulfillment together.
-                        </p>
+                        <p className="text-2xl font-semibold text-white">{jobs.length}</p>
+                        <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-300">handoffs visible</p>
                     </div>
-                    <div className="flex items-center gap-3 rounded-2xl border border-cyan-100 bg-white/90 px-4 py-3 shadow-sm">
-                        <span className="grid h-10 w-10 place-items-center rounded-xl bg-cyan-950 text-white"><Truck className="h-5 w-5" /></span>
-                        <div><p className="text-2xl font-semibold text-slate-950">{jobs.length}</p><p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-500">handoffs visible</p></div>
-                    </div>
-                </div>
-            </div>
+                }
+            />
 
             <div className="erp-panel grid gap-4 rounded-[1.25rem] border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
                 <div className="flex-1 space-y-1">

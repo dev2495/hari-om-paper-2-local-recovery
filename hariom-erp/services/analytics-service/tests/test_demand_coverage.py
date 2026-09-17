@@ -120,4 +120,61 @@ def test_coverage_keeps_demand_available_and_reorder_separate():
     assert row["supply_due_qty"] == 2.0
     assert row["first_shortage_bucket"] == "2026-W39"
     assert len(row["contributing_lines"]) == 3
-    assert result["completeness"] in {"OK", "PARTIAL"}
+    assert result["completeness"] == "ESTIMATE"
+    assert result["measure_set"]["calculation_mode"] == "GROSS_ESTIMATE"
+
+
+def test_uom_mismatch_is_unknown_not_usable_coverage():
+    paper_id = "paper-1"
+    result = build_coverage(
+        demand_payload={
+            "coverage": "all_open_lines",
+            "lines": [
+                {
+                    "order_id": "o1",
+                    "line_id": "l1",
+                    "approved_spec_id": "spec-1",
+                    "remaining_qty": 10,
+                    "due_date": "2026-09-17",
+                    "product_code": "TUBE-A",
+                }
+            ],
+        },
+        boms_by_spec={
+            "spec-1": {
+                "completeness": "OK",
+                "bom": {
+                    "expected_output": {"tubes_per_bamboo": 5},
+                    "raw_materials": {
+                        "papers": [{"paper_id": paper_id, "gsm": 351, "bf": 18, "weight_kg": 1.0}],
+                        "adhesives": {"components": []},
+                        "parchment": {},
+                    },
+                },
+            }
+        },
+        balances=[
+            {
+                "item_id": "item-1",
+                "item_code": "KRAFT-351",
+                "name": "Kraft 351",
+                "uom": "PCS",
+                "usable_qty": 100.0,
+                "balance": 100.0,
+                "qc_held_qty": 0.0,
+            }
+        ],
+        papers=[{"id": paper_id, "code": "KRAFT-351"}],
+        open_purchase_lines=[{"item_id": "item-1", "qty_ordered": 9, "qty_received": 0, "qc_status": "QC_HOLD"}],
+    )
+    row = result["materials"][0]
+    assert row["mapping_state"] == "UNKNOWN"
+    assert row["usable_qty"] == 0.0
+    assert result["unknown_line_count"] == 0
+    assert expand_bom_for_qty(
+        {
+            "expected_output": {"tubes_per_bamboo": 10},
+            "raw_materials": {"papers": [], "adhesives": {"components": []}, "parchment": {}},
+        },
+        20,
+    ) == []

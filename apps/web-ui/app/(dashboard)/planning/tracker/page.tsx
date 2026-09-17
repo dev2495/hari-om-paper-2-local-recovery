@@ -6,7 +6,8 @@ import dayjs from "dayjs"
 import { AlertTriangle, ClipboardList, Factory, Search, TimerReset, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
 
-import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { PaginationBar, QuerySwitch } from "@/components/workspace/query-state"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePendingJobCardsByOrder } from "@/hooks/use-production"
 import { usePendingSalesOrders } from "@/hooks/use-sales"
@@ -145,10 +146,21 @@ export default function PlanningTrackerPage() {
           </form>
         }
       >
-        {pendingQuery.isLoading || productionQuery.isLoading ? (
-          <EmptyState label="Loading sales-order tracker..." />
-        ) : rows.length === 0 ? (
-          <EmptyState label="No sales orders matched this tracker filter." />
+        {pendingQuery.isLoading || productionQuery.isLoading || pendingQuery.isError || rows.length === 0 ? (
+          <QuerySwitch
+            isLoading={pendingQuery.isLoading || productionQuery.isLoading}
+            isError={pendingQuery.isError}
+            isEmpty={rows.length === 0}
+            loadingLabel="Loading sales-order tracker..."
+            emptyTitle="No sales orders matched this tracker filter."
+            emptyMessage="Try another flow state or search term."
+            errorMessage="The tracker could not be loaded. Counts must not be treated as zero."
+            onRetry={() => {
+              void pendingQuery.refetch()
+            }}
+          >
+            {null}
+          </QuerySwitch>
         ) : (
           <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
             <table className="min-w-full">
@@ -229,10 +241,13 @@ export default function PlanningTrackerPage() {
             </table>
           </div>
         )}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" disabled={page === 0} onClick={() => replaceQuery({ page: page > 1 ? String(page - 1) : null })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:opacity-40">Previous</button>
-          <button type="button" disabled={!payload.has_more} onClick={() => replaceQuery({ page: String(page + 1) })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:opacity-40">Next</button>
-        </div>
+        <PaginationBar
+          page={page + 1}
+          hasPrevious={page > 0}
+          hasNext={Boolean(payload.has_more)}
+          onPrevious={() => replaceQuery({ page: page > 1 ? String(page - 1) : null })}
+          onNext={() => replaceQuery({ page: String(page + 1) })}
+        />
       </Panel>
     </div>
   )

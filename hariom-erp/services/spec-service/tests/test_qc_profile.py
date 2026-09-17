@@ -1,3 +1,5 @@
+import pytest
+
 from src.qc_profile import normalize_qc_profile, profile_status
 
 
@@ -58,3 +60,43 @@ def test_complete_status_requires_all_required_bounds():
     }
     profile = normalize_qc_profile(raw)
     assert profile_status(profile) == "complete"
+
+
+def test_inverted_and_malformed_bounds_are_rejected():
+    from src.qc_profile import QcProfileError
+
+    with pytest.raises(QcProfileError) as inverted:
+        normalize_qc_profile(
+            {
+                "stages": {
+                    "WINDER": {"parameters": [{"code": "height", "min": 122, "max": 118, "unit": "mm"}]}
+                }
+            },
+            mutating=True,
+        )
+    assert inverted.value.code == "INVERTED_BOUNDS"
+    with pytest.raises(QcProfileError) as malformed:
+        normalize_qc_profile(
+            {
+                "stages": {
+                    "WINDER": {"parameters": [{"code": "height", "min": "abc", "unit": "mm"}]}
+                }
+            },
+            mutating=True,
+        )
+    assert malformed.value.code == "MALFORMED_BOUNDS"
+
+
+def test_client_approved_status_is_ignored_on_save():
+    profile = normalize_qc_profile(
+        {
+            "status": "approved",
+            "revision": 99,
+            "stages": {
+                "WINDER": {"parameters": [{"code": "height", "min": 118, "max": 122, "unit": "mm"}]}
+            },
+        },
+        mutating=True,
+    )
+    assert profile["status"] != "approved"
+    assert profile["revision"] == 1

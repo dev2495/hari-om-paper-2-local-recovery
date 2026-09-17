@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { ShieldAlert } from "lucide-react"
 
+import { Button } from "@/components/ui/button"
+import { LoadingState } from "@/components/workspace/query-state"
 import { useAuth } from "@/context/AuthContext"
 
 /**
@@ -34,11 +36,7 @@ export function RoleGate({
   const { user, activeRole, isLoading } = useAuth()
 
   if (isLoading) {
-    return (
-      <div className="grid place-items-center py-20">
-        <div className="text-sm font-semibold text-slate-500">Checking access…</div>
-      </div>
-    )
+    return <LoadingState label="Checking access…" />
   }
 
   const roles = new Set(
@@ -51,10 +49,10 @@ export function RoleGate({
   if (allowed) return <>{children}</>
 
   return (
-    <div className="max-w-2xl space-y-6 animate-enter-up">
+    <div className="max-w-2xl space-y-6 animate-enter-up" data-testid="role-gate-denied" role="alert">
       <section className="rounded-[2rem] border border-amber-200 bg-amber-50 p-8 shadow-premium">
         <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
-          <ShieldAlert className="h-3.5 w-3.5" />
+          <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
           Restricted
         </div>
         <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{fallbackTitle}</h1>
@@ -66,12 +64,9 @@ export function RoleGate({
           </strong>
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-          >
-            Back to dashboard
-          </Link>
+          <Button asChild className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+            <Link href="/dashboard">Back to dashboard</Link>
+          </Button>
         </div>
       </section>
     </div>

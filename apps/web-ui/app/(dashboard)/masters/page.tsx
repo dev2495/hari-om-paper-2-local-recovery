@@ -3,6 +3,8 @@
 import Link from "next/link"
 import { ArrowRight, Layers, ShieldCheck } from "lucide-react"
 
+import { PageHeader } from "@/components/workspace/page-header"
+
 const workspaceGroups = [
   {
     title: "Master Data",
@@ -62,13 +64,11 @@ const workspaceGroups = [
 export default function MasterOverviewPage() {
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-7 shadow-premium">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">Foundation Workspace</p>
-        <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">Master and system setup</h1>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-          Use this as the clean switchboard for master truth and system setup. The goal is no dead routes, no hidden setup pages, and no need to bounce back through the sidebar just to move between papers, plants, or machines.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow="Foundation Workspace"
+        title="Master and system setup"
+        description="Use this as the clean switchboard for master truth and system setup. The goal is no dead routes, no hidden setup pages, and no need to bounce back through the sidebar just to move between papers, plants, or machines."
+      />
 
       {workspaceGroups.map((group) => {
         const Icon = group.icon

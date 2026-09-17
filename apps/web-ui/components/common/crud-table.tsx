@@ -5,6 +5,8 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { LoadingState, EmptyQueryState } from "@/components/workspace/query-state"
 import {
     Dialog,
     DialogContent,
@@ -266,8 +268,10 @@ export function CrudTable({
             <section className="rounded-[2rem] border border-slate-200 bg-white/90 px-5 py-5 shadow-premium">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="relative w-full max-w-xl">
-                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <Label htmlFor={`search-${lowercaseTitle}`} className="sr-only">Search {title}</Label>
+                        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
                         <Input
+                            id={`search-${lowercaseTitle}`}
                             placeholder={`Search ${title.toLowerCase()}...`}
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
@@ -298,14 +302,17 @@ export function CrudTable({
                     <tbody className="[&_tr:last-child]:border-0">
                         {isLoading ? (
                             <tr>
-                                <td colSpan={columns.length + 1} className="h-28 text-center text-slate-500">
-                                    Loading...
+                                <td colSpan={columns.length + 1} className="p-4">
+                                    <LoadingState label={`Loading ${title.toLowerCase()}…`} />
                                 </td>
                             </tr>
                         ) : filteredData.length === 0 ? (
                             <tr>
-                                <td colSpan={columns.length + 1} className="h-28 text-center text-slate-500">
-                                    No rows matched this search.
+                                <td colSpan={columns.length + 1} className="p-4">
+                                    <EmptyQueryState
+                                        title={`No ${title.toLowerCase()} matched this search.`}
+                                        message="Clear the search box or add a new record."
+                                    />
                                 </td>
                             </tr>
                         ) : (

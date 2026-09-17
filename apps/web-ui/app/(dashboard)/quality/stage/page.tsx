@@ -6,6 +6,7 @@ import { EmptyState, ExecutiveHero, Panel } from "@/components/erp/shell"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
@@ -111,6 +112,15 @@ export default function StageQualityPage() {
           description="Winding uses Height, not Length. Oven pre/post pairs share one sample ID. Process notch fields appear only when applicable. Verdicts are never taken from the client."
         />
         <QualityDeskNav />
+        {jobCardsQuery.isLoading ? <LoadingState label="Loading job cards for stage QC…" /> : null}
+        {jobCardsQuery.isError ? (
+          <ErrorState
+            message="Job cards for stage QC could not be loaded."
+            onRetry={() => {
+              void jobCardsQuery.refetch()
+            }}
+          />
+        ) : null}
         <Panel title="Job-card stage inspection" subtitle="Frozen ranges come from the job's spec snapshot QC profile.">
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="grid gap-3 md:grid-cols-3">

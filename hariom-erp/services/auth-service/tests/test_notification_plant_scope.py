@@ -60,7 +60,12 @@ def test_event_plant_resolves_from_payload_alias():
     assert resolve_event_plant_id(plant_id=None, payload={"plant_id": "PLANT_A"}) == PLANT_A
 
 
-def test_allowed_plants_do_not_include_other_site():
+def test_limited_admin_without_all_plants_stays_on_assigned_plants():
+    user = _user(roles=["Admin"], plant_id=PLANT_A, all_plants=False)
+    assert user_can_receive_for_plant(user, PLANT_A, "Admin") is True
+    assert user_can_receive_for_plant(user, PLANT_B, "Admin") is False
+
+
+def test_explicit_user_without_plant_does_not_bypass_scope():
     user = _user(roles=["QC"], plant_id=PLANT_A)
-    assert PLANT_A in user_allowed_plant_ids(user)
-    assert PLANT_B not in user_allowed_plant_ids(user)
+    assert user_can_receive_for_plant(user, None, "QC", explicit_user=True) is False

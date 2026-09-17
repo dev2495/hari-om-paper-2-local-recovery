@@ -3332,49 +3332,77 @@ def _sync_quality_artifacts(
     quality_payload = dict(stage.quality_checks or {})
     if not quality_payload:
         return []
-    readings = {key: value for key, value in quality_payload.items() if key not in {"reasons", "sample_id"}}
-    evaluation = evaluate_job_stage(
-        stage=selected_stage,
-        spec_snapshot=job_card.spec_snapshot or {},
-        readings=readings,
-        reasons=quality_payload.get("reasons"),
-        sample_id=quality_payload.get("sample_id"),
-        require_reasons_on_fail=True,
-    )
-    error = submission_error(evaluation)
-    if error:
-        raise HTTPException(status_code=400, detail=error)
-    inspection = QualityInspection(
-        plant_id=plant_id,
-        job_card_id=job_card.id,
-        stage_type=selected_stage,
-        status=evaluation.verdict,
-        readings=readings,
-        failures=list(evaluation.failures),
-        reasons=quality_payload.get("reasons") or {},
-        evaluation=evaluation.as_dict(),
-        sample_id=str(quality_payload.get("sample_id") or "").strip() or None,
-        created_by=current_user.get("sub"),
-    )
-    db.add(inspection)
-    db.flush()
-    # A concrete out-of-range failure or untrustworthy (non-finite) reading opens
-    # a hold that blocks the next movement; incomplete readings are recorded as
-    # evidence (status INCOMPLETE) but do not fabricate a PASS.
-    if evaluation.verdict not in {"FAIL", "INVALID"}:
-        return []
-    hold = QualityHold(
-        plant_id=plant_id,
-        job_card_id=job_card.id,
-        stage_type=selected_stage,
-        reason=evaluation.issue_summary() or f"{selected_stage} inspection {evaluation.verdict}",
-        status="HOLD",
-        source_inspection_id=inspection.id,
-        created_by=current_user.get("sub"),
-    )
-    db.add(hold)
-    db.flush()
-    return [hold]
+    readings = {
+        key: value
+        for key, value in quality_payload.items()
+        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint"}
+    }
+    samples = quality_payload.get("samples") if isinstance(quality_payload.get("samples"), list) else None
+    created_holds: list[QualityHold] = []
+    payloads = []
+    if samples:
+        for sample in samples:
+            if not isinstance(sample, dict):
+                continue
+            sample_readings = dict(sample.get("readings") or {})
+            if not sample_readings:
+                continue
+            payloads.append(
+                {
+                    "readings": sample_readings,
+                    "reasons": sample.get("reasons") or quality_payload.get("reasons") or {},
+                    "sample_id": sample.get("sample_id") or quality_payload.get("sample_id"),
+                }
+            )
+    else:
+        payloads.append(
+            {
+                "readings": readings,
+                "reasons": quality_payload.get("reasons") or {},
+                "sample_id": quality_payload.get("sample_id"),
+            }
+        )
+    for item in payloads:
+        sample_eval = evaluate_job_stage(
+            stage=selected_stage,
+            spec_snapshot=job_card.spec_snapshot or {},
+            readings=item["readings"],
+            reasons=item["reasons"],
+            sample_id=item.get("sample_id"),
+            require_reasons_on_fail=True,
+        )
+        sample_payload = sample_eval.as_dict()
+        if sample_eval.missing_reasons:
+            sample_payload["workflow_status"] = "REASON_PENDING"
+            sample_payload["reason_pending"] = True
+        inspection = QualityInspection(
+            plant_id=plant_id,
+            job_card_id=job_card.id,
+            stage_type=selected_stage,
+            status=sample_eval.verdict,
+            readings=item["readings"],
+            failures=list(sample_eval.failures),
+            reasons=item["reasons"],
+            evaluation=sample_payload,
+            sample_id=str(item.get("sample_id") or "").strip() or None,
+            created_by=current_user.get("sub"),
+        )
+        db.add(inspection)
+        db.flush()
+        if sample_eval.verdict in {"FAIL", "INVALID"}:
+            hold = QualityHold(
+                plant_id=plant_id,
+                job_card_id=job_card.id,
+                stage_type=selected_stage,
+                reason=sample_eval.issue_summary() or f"{selected_stage} inspection {sample_eval.verdict}",
+                status="HOLD",
+                source_inspection_id=inspection.id,
+                created_by=current_user.get("sub"),
+            )
+            db.add(hold)
+            db.flush()
+            created_holds.append(hold)
+    return created_holds
 
 
 def _packing_consumption_snapshot(
@@ -5261,21 +5289,30 @@ def export_job_cards(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
 ):
-    rows = list_planning_job_cards(
-        search=search,
-        sales_order_id=None,
-        sales_order_line_id=None,
-        release_lot_id=None,
-        status=status,
-        current_stage=current_stage,
-        stage=stage,
-        due_risk=due_risk,
-        limit=500,
-        offset=0,
-        db=db,
-        plant_scope=plant_scope,
-        current_user=current_user,
-    )
+    page_size = 500
+    offset = 0
+    all_rows: list[JobCardPlannerSummary] = []
+    while True:
+        page = list_planning_job_cards(
+            search=search,
+            sales_order_id=None,
+            sales_order_line_id=None,
+            release_lot_id=None,
+            status=status,
+            current_stage=current_stage,
+            stage=stage,
+            due_risk=due_risk,
+            limit=page_size,
+            offset=offset,
+            db=db,
+            plant_scope=plant_scope,
+            current_user=current_user,
+        )
+        all_rows.extend(page)
+        if len(page) < page_size:
+            break
+        offset += page_size
+    rows = all_rows
     buffer = io.StringIO()
     writer = csv.DictWriter(
         buffer,
