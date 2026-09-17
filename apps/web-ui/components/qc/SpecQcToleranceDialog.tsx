@@ -11,6 +11,11 @@ type SpecQcToleranceDialogProps = {
     product?: string
     plant?: string
     dimensions?: string
+    targetWeight?: string
+    cs?: string
+    recipe?: string
+    ply?: string
+    parchment?: string
     notching?: boolean
   }
   initialProfile?: any
@@ -93,13 +98,24 @@ export function SpecQcToleranceDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" data-testid="spec-qc-tolerance-dialog">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+      data-testid="spec-qc-tolerance-dialog"
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onBack()
+      }}
+    >
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
         <div className="border-b border-slate-200 px-6 py-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Review quality tolerances</p>
           <h2 className="mt-1 text-2xl font-semibold text-slate-950">Stage QC setup before save</h2>
           <p className="mt-2 text-sm text-slate-600">
             {context.customer || "Customer pending"} · {context.product || "Product pending"} · {context.plant || "Plant"} · {context.dimensions || "Dimensions pending"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Target weight {context.targetWeight || "pending"} · C.S. {context.cs || "pending"} · Recipe {context.recipe || "pending"} · Ply {context.ply || "pending"} · Parchment {context.parchment || "pending"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             Final product limits stay on the spec sheet. Winding / oven / process ranges are entered here and frozen onto job cards. No invented ± bands.

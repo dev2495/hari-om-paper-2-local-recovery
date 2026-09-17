@@ -145,50 +145,142 @@ function firstFilled(source: Record<string, any> | null | undefined, keys: strin
   return ""
 }
 
+function parseNumericReading(value: any): { missing?: boolean; invalid?: boolean; value?: number; raw?: any } {
+  if (value === null || value === undefined) return { missing: true }
+  if (typeof value === "boolean") return { invalid: true, raw: value }
+  if (typeof value === "string") {
+    const trimmed = value.trim()
+    if (trimmed === "") return { missing: true }
+    if (!/^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/.test(trimmed)) {
+      return { invalid: true, raw: value }
+    }
+    const number = Number(trimmed)
+    if (!Number.isFinite(number)) return { invalid: true, raw: value }
+    return { value: number, raw: value }
+  }
+  const number = Number(value)
+  if (!Number.isFinite(number)) return { invalid: true, raw: value }
+  return { value: number, raw: value }
+}
+
+function sampleHasContent(row: Record<string, any> | null | undefined) {
+  if (!row) return false
+  return Object.entries(row).some(([key, value]) => {
+    if (key === "sample_id") return false
+    if (value === null || value === undefined) return false
+    if (typeof value === "string" && value.trim() === "") return false
+    return true
+  })
+}
+
 export function collectStageQualityChecks(stage: QcStageKey, entry: any) {
-  const readings: Record<string, any> = { ...(entry?.qc_readings || {}) }
   const reasons = entry?.qc_reasons && typeof entry.qc_reasons === "object" ? entry.qc_reasons : {}
-  const sampleId = String(entry?.qc_sample_id || readings.sample_id || "").trim()
+  const unitConflicts: Array<{ field: string; source: string; source_unit: string; target_unit: string }> = []
+  const samples: Array<{ sample_id: string; readings: Record<string, any>; invalid?: Record<string, any> }> = []
+  const numeric: Record<string, any> = {}
+  const invalid: Record<string, any> = {}
+
+  function absorb(code: string, raw: any, into: Record<string, any>, intoInvalid: Record<string, any>) {
+    const parsed = parseNumericReading(raw)
+    if (parsed.missing) return
+    if (parsed.invalid) {
+      intoInvalid[code] = parsed.raw
+      return
+    }
+    into[code] = parsed.value
+  }
+
   if (stage === "WINDER") {
-    const first = Array.isArray(entry?.dimension_readings) ? entry.dimension_readings[0] || {} : {}
-    for (const code of ["id", "od", "height", "weight", "cs"]) {
-      if (readings[code] == null || readings[code] === "") {
-        readings[code] = firstFilled(first, code === "height" ? ["height", "length"] : [code])
+    const rows = Array.isArray(entry?.dimension_readings) ? entry.dimension_readings : []
+    rows.forEach((row: any, index: number) => {
+      if (!sampleHasContent(row)) return
+      const readings: Record<string, any> = {}
+      const sampleInvalid: Record<string, any> = {}
+      for (const code of ["id", "od", "height", "weight", "cs"]) {
+        const raw = code === "height" ? (row?.height ?? row?.length) : row?.[code]
+        absorb(code, raw, readings, sampleInvalid)
       }
+      samples.push({
+        sample_id: String(row?.sample_id || `W${index + 1}`),
+        readings,
+        invalid: Object.keys(sampleInvalid).length ? sampleInvalid : undefined,
+      })
+    })
+    const qcReadings = entry?.qc_readings && typeof entry.qc_readings === "object" ? entry.qc_readings : {}
+    for (const [key, value] of Object.entries(qcReadings)) {
+      absorb(String(key), value, numeric, invalid)
     }
   }
   if (stage === "OVEN") {
-    const aliases: Record<string, string[]> = {
-      pre_weight: ["pre_weight", "pre_oven_weight_kg"],
-      post_weight: ["post_weight", "post_oven_weight_kg"],
-      pre_moisture: ["pre_moisture", "moisture_before"],
-      post_moisture: ["post_moisture", "moisture_after"],
+    const aliases: Record<string, { keys: string[]; unit?: string; targetUnit: string }> = {
+      pre_weight: { keys: ["pre_weight"], targetUnit: "g" },
+      post_weight: { keys: ["post_weight"], targetUnit: "g" },
+      pre_moisture: { keys: ["pre_moisture", "moisture_before"], targetUnit: "%" },
+      post_moisture: { keys: ["post_moisture", "moisture_after"], targetUnit: "%" },
     }
-    for (const [code, keys] of Object.entries(aliases)) {
-      if (readings[code] == null || readings[code] === "") {
-        readings[code] = firstFilled(entry, keys)
+    const readings: Record<string, any> = {}
+    const sampleInvalid: Record<string, any> = {}
+    const qcReadings = entry?.qc_readings && typeof entry.qc_readings === "object" ? entry.qc_readings : {}
+    for (const [code, spec] of Object.entries(aliases)) {
+      const raw = firstFilled({ ...entry, ...qcReadings }, spec.keys)
+      absorb(code, raw, readings, sampleInvalid)
+      if ((entry?.pre_oven_weight_kg || entry?.post_oven_weight_kg) && (code === "pre_weight" || code === "post_weight")) {
+        const kgSource = code === "pre_weight" ? "pre_oven_weight_kg" : "post_oven_weight_kg"
+        if (entry?.[kgSource] != null && String(entry[kgSource]).trim() !== "" && (readings[code] == null)) {
+          unitConflicts.push({
+            field: code,
+            source: kgSource,
+            source_unit: "kg",
+            target_unit: "g",
+          })
+        }
       }
     }
+    if (sampleHasContent(readings) || Object.keys(sampleInvalid).length) {
+      samples.push({
+        sample_id: String(entry?.qc_sample_id || entry?.sample_id || "OVEN-1"),
+        readings,
+        invalid: Object.keys(sampleInvalid).length ? sampleInvalid : undefined,
+      })
+    }
+    Object.assign(numeric, readings)
+    Object.assign(invalid, sampleInvalid)
   }
   if (stage === "PROCESS") {
-    const measurements = entry?.final_measurements || {}
+    const measurements = { ...(entry?.final_measurements || {}), ...(entry?.qc_readings || {}) }
+    const readings: Record<string, any> = {}
+    const sampleInvalid: Record<string, any> = {}
     for (const code of ["height", "weight", "cs", "notch_distance", "notch_depth", "moisture"]) {
-      if (readings[code] == null || readings[code] === "") {
-        readings[code] = firstFilled(measurements, code === "height" ? ["height", "length"] : [code])
-      }
+      const raw = code === "height" ? (measurements.height ?? measurements.length) : measurements[code]
+      absorb(code, raw, readings, sampleInvalid)
     }
+    if (sampleHasContent(readings) || Object.keys(sampleInvalid).length) {
+      samples.push({
+        sample_id: String(entry?.qc_sample_id || "P1"),
+        readings,
+        invalid: Object.keys(sampleInvalid).length ? sampleInvalid : undefined,
+      })
+    }
+    Object.assign(numeric, readings)
+    Object.assign(invalid, sampleInvalid)
   }
-  const numeric: Record<string, any> = {}
-  for (const [key, value] of Object.entries(readings)) {
-    if (value === "" || value == null) continue
-    const number = Number(value)
-    numeric[key] = Number.isFinite(number) ? number : value
+
+  if (samples.length && stage === "WINDER") {
+    samples.forEach((sample) => {
+      for (const [key, value] of Object.entries(sample.readings)) {
+        if (numeric[key] == null) numeric[key] = value
+      }
+    })
   }
-  const hasReadings = Object.keys(numeric).length > 0
+
+  const hasReadings = samples.some((sample) => Object.keys(sample.readings).length > 0) || Object.keys(numeric).length > 0
   return {
     readings: numeric,
     reasons,
-    sample_id: sampleId || undefined,
+    sample_id: String(entry?.qc_sample_id || samples[0]?.sample_id || "").trim() || undefined,
+    samples,
+    invalid,
+    unit_conflicts: unitConflicts,
     hasReadings,
   }
 }

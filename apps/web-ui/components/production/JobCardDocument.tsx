@@ -243,10 +243,12 @@ function normalizeStageEntry(stage: StageName, entry: any) {
     return {
       ...blankOvenEntry(),
       ...source,
-      pre_weight: source.pre_weight || source.pre_oven_weight_kg || "",
-      post_weight: source.post_weight || source.post_oven_weight_kg || "",
-      pre_moisture: source.pre_moisture || source.moisture_before || "",
-      post_moisture: source.post_moisture || source.moisture_after || "",
+      pre_weight: source.pre_weight ?? "",
+      post_weight: source.post_weight ?? "",
+      pre_moisture: source.pre_moisture ?? source.moisture_before ?? "",
+      post_moisture: source.post_moisture ?? source.moisture_after ?? "",
+      pre_oven_weight_kg: source.pre_oven_weight_kg ?? "",
+      post_oven_weight_kg: source.post_oven_weight_kg ?? "",
       qc_readings: source.qc_readings || {},
       qc_reasons: source.qc_reasons || {},
     }
@@ -880,7 +882,16 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         input_qty: entry.bamboo_count_produced !== "" ? Number(entry.bamboo_count_produced) : base.input_qty,
         output_qty: entry.accepted_bamboo_count !== "" ? Number(entry.accepted_bamboo_count) : 0,
         scrap_qty: entry.reject_bamboo_count !== "" ? Number(entry.reject_bamboo_count) : 0,
-        ...(checks.hasReadings ? { quality_checks: { ...checks.readings, reasons: checks.reasons, sample_id: checks.sample_id } } : {}),
+        ...(checks.hasReadings
+          ? {
+              quality_checks: {
+                samples: checks.samples,
+                reasons: checks.reasons,
+                sample_id: checks.sample_id,
+                unit_conflicts: checks.unit_conflicts,
+              },
+            }
+          : {}),
       }
     }
     if (stage === "OVEN") {
@@ -889,7 +900,16 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         ...base,
         input_qty: entry.bamboo_count_in !== "" ? Number(entry.bamboo_count_in) : base.input_qty,
         output_qty: entry.bamboo_count_out !== "" ? Number(entry.bamboo_count_out) : 0,
-        ...(checks.hasReadings ? { quality_checks: { ...checks.readings, reasons: checks.reasons, sample_id: checks.sample_id } } : {}),
+        ...(checks.hasReadings
+          ? {
+              quality_checks: {
+                samples: checks.samples,
+                reasons: checks.reasons,
+                sample_id: checks.sample_id,
+                unit_conflicts: checks.unit_conflicts,
+              },
+            }
+          : {}),
       }
     }
     if (stage === "PROCESS") {
@@ -898,7 +918,16 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         ...base,
         output_qty: entry.process_qty !== "" ? Number(entry.process_qty) : 0,
         scrap_qty: entry.reject_qty !== "" ? Number(entry.reject_qty) : 0,
-        ...(checks.hasReadings ? { quality_checks: { ...checks.readings, reasons: checks.reasons, sample_id: checks.sample_id } } : {}),
+        ...(checks.hasReadings
+          ? {
+              quality_checks: {
+                samples: checks.samples,
+                reasons: checks.reasons,
+                sample_id: checks.sample_id,
+                unit_conflicts: checks.unit_conflicts,
+              },
+            }
+          : {}),
       }
     }
     if (stage === "QC") {
@@ -2153,13 +2182,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {(Array.isArray(winderPrintEntry.dimension_readings) ? winderPrintEntry.dimension_readings : []).slice(0, 4).map((row: any, index: number) => (
+                {(Array.isArray(winderPrintEntry.dimension_readings) ? winderPrintEntry.dimension_readings : [])
+                  .filter((row: any) => Object.values(row || {}).some((value) => value !== null && value !== undefined && String(value).trim() !== ""))
+                  .map((row: any, index: number) => (
                   <tr key={`winder-print-${index}`}>
-                    <td className="border border-slate-300 px-2 py-2">{row.height || row.length || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.id || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.od || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.weight || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.cs || ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.height ?? ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.id ?? ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.od ?? ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.weight ?? ""}</td>
+                    <td className="border border-slate-300 px-2 py-2">{row.cs ?? ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2203,10 +2234,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             </table>
             <div className="grid gap-0 text-sm md:grid-cols-5">
               <LabeledValue label="Sample / pair ID" value={ovenPrintEntry.qc_sample_id || ovenPrintEntry.sample_id} />
-              <LabeledValue label="Pre-weight" value={ovenPrintEntry.pre_weight || ovenPrintEntry.qc_readings?.pre_weight || ovenPrintEntry.pre_oven_weight_kg} />
-              <LabeledValue label="Post-weight" value={ovenPrintEntry.post_weight || ovenPrintEntry.qc_readings?.post_weight || ovenPrintEntry.post_oven_weight_kg} />
-              <LabeledValue label="Pre-moisture" value={ovenPrintEntry.pre_moisture || ovenPrintEntry.qc_readings?.pre_moisture || ovenPrintEntry.moisture_before} />
-              <LabeledValue label="Post-moisture" value={ovenPrintEntry.post_moisture || ovenPrintEntry.qc_readings?.post_moisture || ovenPrintEntry.moisture_after} />
+              <LabeledValue label="Pre-weight (g)" value={ovenPrintEntry.pre_weight ?? ovenPrintEntry.qc_readings?.pre_weight ?? ""} />
+              <LabeledValue label="Post-weight (g)" value={ovenPrintEntry.post_weight ?? ovenPrintEntry.qc_readings?.post_weight ?? ""} />
+              <LabeledValue label="Legacy batch pre-weight (kg)" value={ovenPrintEntry.pre_oven_weight_kg ?? ""} />
+              <LabeledValue label="Pre-moisture" value={ovenPrintEntry.pre_moisture ?? ovenPrintEntry.qc_readings?.pre_moisture ?? ovenPrintEntry.moisture_before ?? ""} />
+              <LabeledValue label="Post-moisture" value={ovenPrintEntry.post_moisture ?? ovenPrintEntry.qc_readings?.post_moisture ?? ovenPrintEntry.moisture_after ?? ""} />
             </div>
           </div>
         </section>
@@ -2264,12 +2296,12 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             </thead>
             <tbody>
               <tr>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.height || processPrintEntry.final_measurements?.height || processPrintEntry.final_measurements?.length || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.weight || processPrintEntry.final_measurements?.weight || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.cs || processPrintEntry.final_measurements?.cs || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_distance || processPrintEntry.final_measurements?.notch_distance || documentSnapshot?.setup_tooling?.notch_distance || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_depth || processPrintEntry.final_measurements?.notch_depth || documentSnapshot?.setup_tooling?.notch_depth || ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.moisture || processPrintEntry.final_measurements?.moisture || ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.height ?? processPrintEntry.final_measurements?.height ?? ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.weight ?? processPrintEntry.final_measurements?.weight ?? ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.cs ?? processPrintEntry.final_measurements?.cs ?? ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_distance ?? processPrintEntry.final_measurements?.notch_distance ?? ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_depth ?? processPrintEntry.final_measurements?.notch_depth ?? ""}</td>
+                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.moisture ?? processPrintEntry.final_measurements?.moisture ?? ""}</td>
               </tr>
             </tbody>
           </table>
@@ -2360,11 +2392,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const winderReadings = Array.isArray(winderPrintEntry.dimension_readings)
       ? winderPrintEntry.dimension_readings.filter((row: any) => Object.values(row || {}).some(Boolean))
       : []
-    const winderRows = Array.from({ length: 4 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
-    const processRows = Array.from({ length: 3 }, (_, index) => index === 0 ? {
-      ...targetMeasure,
-      ...(processPrintEntry.final_measurements || {}),
-    } : {})
+    const winderRows = winderReadings.length ? winderReadings : Array.from({ length: 4 }, () => ({}))
+    const processRows = [{ ...(processPrintEntry.final_measurements || {}) }]
     const headerFields = [
       ["Date", documentSnapshot?.header?.date || ""],
       ["Customer Name", customerName],

@@ -13,7 +13,8 @@ import {
   useInventoryTransactions,
   useInventoryValuationSummary,
   useReels,
-} from "@/hooks/use-inventory"
+import { PageHeader } from "@/components/workspace/page-header"
+import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
 const formatNumber = (value: unknown, digits = 0) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
@@ -133,25 +134,21 @@ export default function InventoryOverviewPage() {
 
   return (
     <div className="space-y-5" data-testid="inventory-control-page">
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[#07111f] p-6 text-white shadow-[0_24px_90px_rgba(15,23,42,0.18)]">
-        <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1fr)_520px] xl:items-end">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.3em] text-cyan-200">Inventory control</p>
-            <h1 className="mt-3 max-w-4xl text-4xl font-semibold tracking-[-0.05em] md:text-5xl">
-              Inventory stock, locations, reels, issues, valuation, and MRP readiness.
-            </h1>
-            <p className="mt-4 max-w-3xl text-sm leading-6 text-slate-300">
-              Stores gets transaction screens; owner and planner get kg/value/risk views; purchasing gets shortage-to-PO draft signals.
-            </p>
-          </div>
+      <PageHeader
+        variant="hero"
+        appearance={MODULE_APPEARANCES.inventory}
+        badge="Inventory control"
+        title="Inventory stock, locations, reels, issues, valuation, and MRP readiness."
+        description="Stores gets transaction screens; owner and planner get kg/value/risk views; purchasing gets shortage-to-PO draft signals."
+        aside={
           <div className="grid gap-2 sm:grid-cols-2">
             <Kpi label="Inventory value" value={formatCurrency(totalValue)} hint="RM + tracked batch valuation" tone="cyan" />
             <Kpi label="Available load" value={formatKg(totalKg)} hint={`${inventoryRows.length} stocked item rows`} tone="emerald" />
             <Kpi label="Blocked / hold" value={formatKg(blockedKg)} hint="QC hold, blocked, scrap pressure" tone={blockedKg ? "rose" : "slate"} />
             <Kpi label="Locations used" value={`${occupiedLocations}/${totalLocations}`} hint="Warehouse occupancy" tone="amber" />
           </div>
-        </div>
-      </section>
+        }
+      />
 
       <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
         {actionCards.map((card) => (

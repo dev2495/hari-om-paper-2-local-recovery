@@ -104,6 +104,7 @@ def _ensure_schema_compatibility():
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS reasons JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS evaluation JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS sample_id VARCHAR(80)",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS parent_inspection_id UUID",
     ]
     for _statement in _short_close_downtime_migrations:
         try:

@@ -82,13 +82,10 @@ def user_can_receive_for_plant(
     if not user.is_active:
         return False
     if not plant_id:
-        if explicit_user:
-            return True
-        # Role-wide plant-scoped broadcasts are unsafe without a plant.
-        if matched_role in PLANT_SCOPED_ROLES:
-            return False
-        return bool(user_role_names(user).intersection(ALL_PLANT_ROLES) or getattr(user, "is_owner_all_plants", False))
-    if getattr(user, "is_owner_all_plants", False) or user_role_names(user).intersection(ALL_PLANT_ROLES):
+        # Explicit recipient IDs do not bypass resource scope. Plant-scoped
+        # QC events without a plant never leak to Owner/Admin/QC users.
+        return False
+    if getattr(user, "is_owner_all_plants", False):
         return True
     canonical = _canonical_plant_id(plant_id)
     if not canonical:

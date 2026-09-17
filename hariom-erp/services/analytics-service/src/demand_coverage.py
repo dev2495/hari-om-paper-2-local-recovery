@@ -97,6 +97,8 @@ def expand_bom_for_qty(bom: dict[str, Any], qty_pcs: float) -> list[dict[str, An
                 "kind": "PARCHMENT",
                 "material_key": f"PARCHMENT:{color.upper() or 'UNSPECIFIED'}",
                 "paper_id": None,
+                "color": color or None,
+                "item_code": f"PARCHMENT-{color.upper()}" if color else None,
                 "label": f"Parchment {color}".strip(),
                 "required_qty": round(parchment_kg, 6),
                 "uom": "KG",
@@ -129,8 +131,12 @@ def match_inventory_item(
             return items_by_code[label], "MAPPED"
         return None, "UNKNOWN"
     if kind == "PARCHMENT":
-        if "PARCHMENT" in items_by_code:
-            return items_by_code["PARCHMENT"], "MAPPED"
+        color = str(need.get("color") or "").strip().upper()
+        code_candidates = [item for item in (need.get("item_code"), f"PARCHMENT-{color}" if color else None) if item]
+        for code in code_candidates:
+            token = str(code).strip().upper()
+            if token and token in items_by_code:
+                return items_by_code[token], "MAPPED"
         return None, "UNKNOWN"
     return None, "UNKNOWN"
 
@@ -199,6 +205,12 @@ def build_coverage(
                 items_by_code=items_by_code,
                 items_by_id=items_by_id,
             )
+            if item and str((item or {}).get("uom") or "").strip().upper() not in {"", str(need.get("uom") or "").upper()}:
+                mapping = "UNKNOWN"
+                item = None
+            issued_qty = _safe_float(line.get("issued_qty") or line.get("already_issued_qty") or need.get("already_issued_qty"))
+            allocated_fg = _safe_float(line.get("allocated_accepted_fg_qty"))
+            residual_need = max(0.0, need["required_qty"] - issued_qty - allocated_fg)
             material_key = need["material_key"]
             if item:
                 material_key = f"ITEM:{item.get('item_id') or item.get('id')}"
@@ -210,10 +222,12 @@ def build_coverage(
                     "label": (item or {}).get("name") or need["label"],
                     "item_id": (item or {}).get("item_id"),
                     "item_code": (item or {}).get("item_code"),
-                    "uom": (item or {}).get("uom") or need["uom"],
+                    "uom": need["uom"],
+                    "inventory_uom": (item or {}).get("uom"),
                     "mapping_state": mapping,
                     "gross_demand_qty": 0.0,
                     "already_issued_qty": 0.0,
+                    "allocated_accepted_fg_qty": 0.0,
                     "remaining_requirement_qty": 0.0,
                     "usable_qty": _safe_float((item or {}).get("usable_qty"), _safe_float((item or {}).get("available_qty"))),
                     "physical_qty": _safe_float((item or {}).get("balance")),
@@ -233,14 +247,16 @@ def build_coverage(
             if mapping == "UNKNOWN":
                 row["mapping_state"] = "UNKNOWN"
             row["gross_demand_qty"] = round(row["gross_demand_qty"] + need["required_qty"], 6)
-            row["remaining_requirement_qty"] = round(row["remaining_requirement_qty"] + need["required_qty"], 6)
+            row["already_issued_qty"] = round(row["already_issued_qty"] + issued_qty, 6)
+            row["allocated_accepted_fg_qty"] = round(row.get("allocated_accepted_fg_qty", 0.0) + allocated_fg, 6)
+            row["remaining_requirement_qty"] = round(row["remaining_requirement_qty"] + residual_need, 6)
             bucket_row = row["buckets"].setdefault(
                 bucket,
                 {"bucket": bucket, "gross_demand_qty": 0.0, "remaining_requirement_qty": 0.0},
             )
             bucket_row["gross_demand_qty"] = round(bucket_row["gross_demand_qty"] + need["required_qty"], 6)
             bucket_row["remaining_requirement_qty"] = round(
-                bucket_row["remaining_requirement_qty"] + need["required_qty"], 6
+                bucket_row["remaining_requirement_qty"] + residual_need, 6
             )
             row["contributing_lines"].append(
                 {
@@ -262,6 +278,7 @@ def build_coverage(
                 row["source_revisions"].append(revision)
 
     supply_by_item: dict[str, float] = defaultdict(float)
+    usable_supply_by_item: dict[str, float] = defaultdict(float)
     for po_line in open_purchase_lines or []:
         item_id = str(po_line.get("item_id") or "")
         remaining_po = max(
@@ -270,12 +287,21 @@ def build_coverage(
         )
         if item_id and remaining_po > 0:
             supply_by_item[item_id] += remaining_po
+            awaiting_qc = str(po_line.get("qc_status") or po_line.get("stock_status") or "").upper() in {
+                "QC_HOLD",
+                "HOLD",
+                "PENDING",
+                "AWAITING_QC",
+            }
+            if not awaiting_qc:
+                usable_supply_by_item[item_id] += remaining_po
 
     material_rows = []
     for row in materials.values():
         item_id = str(row.get("item_id") or "")
         row["supply_due_qty"] = round(supply_by_item.get(item_id, 0.0), 6)
-        # Shortfall is demand vs usable stock only. Reorder policy is displayed separately.
+        row["supply_usable_qty"] = round(usable_supply_by_item.get(item_id, 0.0), 6)
+        # Shortfall is residual demand vs usable stock only. Future/QC-held supply is not coverage.
         shortfall = max(0.0, row["remaining_requirement_qty"] - row["usable_qty"])
         row["shortfall_qty"] = round(shortfall, 6)
         first_shortage = None
@@ -294,12 +320,13 @@ def build_coverage(
 
     material_rows.sort(key=lambda row: (-row["shortfall_qty"], row["label"] or ""))
     demand_source_complete = demand_payload.get("coverage") == "all_open_lines"
-    completeness = "OK"
+    completeness = "ESTIMATE"
     notes = [
-        "Gross remaining BOM uses customer outstanding × the approved recipe BOM.",
-        "Issued/WIP residual consumption is not netted in this read model.",
+        "GROSS outstanding-BOM estimate. This is not a net buy recommendation.",
+        "Remaining requirement deducts issued/WIP and allocated accepted FG only when those quantities are supplied on the demand line.",
         "Shortfall is remaining requirement minus usable (unrestricted) stock. Reorder/safety is a separate measure.",
-        "QC-held stock is reported but not treated as usable coverage.",
+        "QC-held stock and supplier receipts awaiting QC are reported but not treated as usable coverage of an earlier need.",
+        "Customer delivery, production segments, and supplier receipts remain separate calendars.",
     ]
     if not demand_source_complete or unknown_lines or any(row["mapping_state"] != "MAPPED" for row in material_rows):
         completeness = "PARTIAL"
@@ -313,9 +340,10 @@ def build_coverage(
         "plant_id": plant_id,
         "ledger": False,
         "measure_set": {
-            "demand": "gross remaining BOM from all open sales lines",
+            "demand": "gross remaining BOM from all open sales lines (estimate until residual snapshots are complete)",
             "available": "usable unrestricted stock from the inventory ledger",
             "reorder_policy": "item master reorder/safety/lead time; not used in shortfall",
+            "calculation_mode": "GROSS_ESTIMATE",
         },
         "completeness": completeness,
         "notes": notes,

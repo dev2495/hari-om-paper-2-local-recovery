@@ -12,7 +12,7 @@ from ..models import InventoryLocation, ItemMaster, PaperReel, ReferenceType, St
 from ..services import get_batch_balance, get_item_balance
 from ..services.labels import batch_label_payload
 from ..utils.audit_client import emit_audit_event
-from ..utils.auth import require_role, get_current_plant, get_current_plant_scope, get_current_user
+from ..quality_pin import pin_quality_profile_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -300,8 +300,8 @@ def create_inward(
         "supplier_id": str(inward.supplier_id),
         "supplier_name": inward.supplier_name,
         "location_id": str(location.id) if location else None,
-        "location_code": location.code if location else inward.location,
     }
+    metadata = pin_quality_profile_metadata(metadata, item.quality_profile if item else None)
 
     batch = StockBatch(
         item_id=inward.item_id,

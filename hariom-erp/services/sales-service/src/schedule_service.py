@@ -16,8 +16,10 @@ from .models import (
     SalesOrderReleaseLot,
     SalesOrderScheduleAllocation,
 )
+from .commercial import SalesCommercialError, validate_delivery_after_customer_po_date
 from .schedule_policy import (
     EDITABLE_STATUSES,
+    PATCHABLE_STATUSES,
     SchedulePolicyError,
     assert_row_mutable,
     is_immutable_status,
@@ -34,21 +36,38 @@ def _line_map(order: SalesOrder) -> dict[str, SalesOrderLine]:
     return {str(line.id): line for line in order.lines or []}
 
 
-def load_order_for_schedule(db: Session, order_id: uuid.UUID, plant_scope: dict) -> SalesOrder:
+def load_order_for_schedule(
+    db: Session, order_id: uuid.UUID, plant_scope: dict, *, lock: bool = False
+) -> SalesOrder:
     query = apply_plant_scope(
         db.query(SalesOrder)
         .options(
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
-            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules).joinedload(
+                SalesOrderDeliverySchedule.allocations
+            ),
         )
         .filter(SalesOrder.id == order_id),
         SalesOrder.plant_id,
         plant_scope,
     )
+    if lock:
+        query = query.with_for_update()
     order = query.first()
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
     return order
+
+
+def _assert_delivery_date(order: SalesOrder, delivery_date: Any) -> None:
+    try:
+        validate_delivery_after_customer_po_date(
+            delivery_date,
+            getattr(order, "po_date", None),
+            origin=getattr(order, "origin", None) or "customer_po",
+        )
+    except SalesCommercialError as exc:
+        raise SchedulePolicyError(str(exc), code="INVALID_DATE", field="delivery_date") from exc
 
 
 def serialize_schedule_row(row: SalesOrderDeliverySchedule) -> dict[str, Any]:
@@ -113,6 +132,7 @@ def preview_line_schedules(
     proposed_by_line: dict[str, list[dict[str, Any]]],
     *,
     default_status: str = "committed",
+    mode: str = "replace",
 ) -> dict[str, Any]:
     lines = _line_map(order)
     errors = []
@@ -125,11 +145,17 @@ def preview_line_schedules(
             continue
         preserved_lots.extend(serialize_release_lots_preserved(line))
         try:
+            dated_rows = []
+            for row in payload_rows:
+                delivery_date = _as_date(row.get("delivery_date"))
+                _assert_delivery_date(order, delivery_date)
+                dated_rows.append({**row, "delivery_date": delivery_date})
             merged = merge_line_schedules(
                 line=line,
                 existing=list(getattr(line, "delivery_schedules", []) or []),
-                proposed=[{**row, "delivery_date": _as_date(row.get("delivery_date"))} for row in payload_rows],
+                proposed=dated_rows,
                 default_status=default_status,
+                mode=mode,
             )
             proposed_rows.extend(merged)
         except SchedulePolicyError as exc:
@@ -139,6 +165,8 @@ def preview_line_schedules(
         "order_id": str(order.id),
         "schedule_revision": int(order.schedule_revision or 0),
         "calendar": "customer_delivery",
+        "calendar_note": "Customer call-off calendar only. Production segments and supplier receipts are separate ledgers.",
+        "merge_mode": mode,
         "valid": not errors,
         "errors": errors,
         "proposed_rows": proposed_rows,
@@ -164,7 +192,11 @@ def preview_entire_po(
     line_splits: Optional[dict[str, list[dict[str, Any]]]] = None,
 ) -> dict[str, Any]:
     try:
+        if default_date is not None:
+            _assert_delivery_date(order, default_date)
         proposed = propose_entire_po_rows(order.lines or [], default_date=default_date, line_splits=line_splits)
+        for row in proposed:
+            _assert_delivery_date(order, row.get("delivery_date"))
     except SchedulePolicyError as exc:
         return {
             "order_id": str(order.id),
@@ -181,13 +213,13 @@ def preview_entire_po(
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in proposed:
         grouped.setdefault(str(row["line_id"]), []).append(row)
-    payload = preview_line_schedules(order, grouped)
+    payload = preview_line_schedules(order, grouped, mode="append")
     payload["action"] = "schedule_entire_po"
     payload["default_date"] = default_date.isoformat() if default_date else None
     return payload
 
 
-def _replace_editable_rows(
+def _apply_merged_rows(
     db: Session,
     *,
     order: SalesOrder,
@@ -195,18 +227,34 @@ def _replace_editable_rows(
     proposed: list[dict[str, Any]],
     actor: str,
     revision: int,
+    mode: str,
 ) -> list[SalesOrderDeliverySchedule]:
-    existing = list(getattr(line, "delivery_schedules", []) or [])
-    for row in existing:
-        if str(row.status or "").lower() in EDITABLE_STATUSES:
-            db.delete(row)
-    db.flush()
-    created = []
+    existing = {str(row.id): row for row in list(getattr(line, "delivery_schedules", []) or [])}
+    proposed_ids = {str(item.get("id")) for item in proposed if item.get("id")}
+    if mode == "replace":
+        for row in list(getattr(line, "delivery_schedules", []) or []):
+            if str(row.status or "").lower() in EDITABLE_STATUSES and str(row.id) not in proposed_ids:
+                db.delete(row)
+        db.flush()
+    applied = []
     for item in proposed:
-        if item.get("immutable"):
+        if item.get("immutable") or item.get("kept"):
+            if item.get("id") and str(item["id"]) in existing:
+                applied.append(existing[str(item["id"])])
+            continue
+        row_id = item.get("id")
+        if row_id and str(row_id) in existing:
+            row = existing[str(row_id)]
+            assert_row_mutable(row)
+            row.delivery_date = _as_date(item.get("delivery_date"))
+            row.quantity = float(item.get("quantity") or 0.0)
+            row.status = str(item.get("status") or "committed")
+            row.revision = revision
+            row.updated_at = datetime.utcnow()
+            applied.append(row)
             continue
         row = SalesOrderDeliverySchedule(
-            id=uuid.UUID(item["id"]) if item.get("id") else uuid.uuid4(),
+            id=uuid.UUID(str(row_id)) if row_id else uuid.uuid4(),
             sales_order_id=order.id,
             sales_order_line_id=line.id,
             plant_id=str(order.plant_id),
@@ -217,8 +265,34 @@ def _replace_editable_rows(
             created_by=actor,
         )
         db.add(row)
-        created.append(row)
-    return created
+        applied.append(row)
+    return applied
+
+
+def _allocation_parent_maps(order: SalesOrder) -> tuple[dict[str, Any], dict[str, Any]]:
+    schedules = {}
+    lots = {}
+    for line in order.lines or []:
+        for row in getattr(line, "delivery_schedules", []) or []:
+            schedules[str(row.id)] = row
+        for lot in getattr(line, "release_lots", []) or []:
+            lots[str(lot.id)] = lot
+    return schedules, lots
+
+
+def _existing_allocation_payloads(order: SalesOrder) -> list[dict[str, Any]]:
+    rows = []
+    for line in order.lines or []:
+        for schedule in getattr(line, "delivery_schedules", []) or []:
+            for alloc in getattr(schedule, "allocations", []) or []:
+                rows.append(
+                    {
+                        "delivery_schedule_id": str(alloc.delivery_schedule_id),
+                        "release_lot_id": str(alloc.release_lot_id),
+                        "quantity": float(alloc.quantity or 0.0),
+                    }
+                )
+    return rows
 
 
 def commit_line_schedules(
@@ -229,8 +303,17 @@ def commit_line_schedules(
     expected_revision: int,
     actor: str,
     allocations: Optional[list[dict[str, Any]]] = None,
+    mode: str = "replace",
 ) -> dict[str, Any]:
-    current_revision = int(order.schedule_revision or 0)
+    locked = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == order.id)
+        .with_for_update()
+        .first()
+    )
+    if not locked:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    current_revision = int(locked.schedule_revision or 0)
     if int(expected_revision) != current_revision:
         raise HTTPException(
             status_code=409,
@@ -240,7 +323,8 @@ def commit_line_schedules(
                 "current_revision": current_revision,
             },
         )
-    preview = preview_line_schedules(order, proposed_by_line)
+    db.refresh(order)
+    preview = preview_line_schedules(order, proposed_by_line, mode=mode)
     if not preview["valid"]:
         raise HTTPException(status_code=400, detail={"code": "SCHEDULE_REJECTED", "errors": preview["errors"]})
 
@@ -248,22 +332,48 @@ def commit_line_schedules(
     lines = _line_map(order)
     for line_id, payload_rows in proposed_by_line.items():
         line = lines[str(line_id)]
+        dated_rows = []
+        for row in payload_rows:
+            delivery_date = _as_date(row.get("delivery_date"))
+            try:
+                _assert_delivery_date(order, delivery_date)
+            except SchedulePolicyError as exc:
+                raise HTTPException(status_code=400, detail=exc.as_dict()) from exc
+            dated_rows.append({**row, "delivery_date": delivery_date})
         merged = merge_line_schedules(
             line=line,
             existing=list(getattr(line, "delivery_schedules", []) or []),
-            proposed=[{**row, "delivery_date": _as_date(row.get("delivery_date"))} for row in payload_rows],
+            proposed=dated_rows,
+            mode=mode,
         )
-        _replace_editable_rows(db, order=order, line=line, proposed=merged, actor=actor, revision=next_revision)
+        _apply_merged_rows(
+            db, order=order, line=line, proposed=merged, actor=actor, revision=next_revision, mode=mode
+        )
 
+    db.flush()
     if allocations:
-        db.flush()
-        schedule_qty = {
-            str(row.id): float(row.quantity or 0.0)
-            for line in order.lines or []
-            for row in getattr(line, "delivery_schedules", []) or []
-        }
-        # Newly added rows are in the session; refresh qty map after flush.
-        db.flush()
+        schedule_rows, lot_rows = _allocation_parent_maps(order)
+        for item in allocations:
+            schedule = schedule_rows.get(str(item.get("delivery_schedule_id") or ""))
+            lot = lot_rows.get(str(item.get("release_lot_id") or ""))
+            if schedule is None or lot is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": "UNKNOWN_ALLOCATION_PARENT", "message": "Allocation parents must exist on this order."},
+                )
+            if str(schedule.sales_order_line_id) != str(lot.sales_order_line_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "INCOMPATIBLE_PARENTS",
+                        "message": "A delivery row cannot allocate a release lot from another line or spec.",
+                    },
+                )
+            if str(schedule.plant_id) != str(order.plant_id) or str(getattr(lot, "plant_id", order.plant_id) or order.plant_id) != str(order.plant_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": "INCOMPATIBLE_PARENTS", "message": "Allocations must stay on the order plant."},
+                )
         schedule_qty = {
             str(row.id): float(row.quantity or 0.0)
             for line in order.lines or []
@@ -275,9 +385,17 @@ def commit_line_schedules(
             for lot in getattr(line, "release_lots", []) or []
             if str(lot.status or "").lower() != "cancelled"
         }
+        combined = _existing_allocation_payloads(order) + [
+            {
+                "delivery_schedule_id": str(item["delivery_schedule_id"]),
+                "release_lot_id": str(item["release_lot_id"]),
+                "quantity": float(item["quantity"]),
+            }
+            for item in allocations
+        ]
         try:
             validate_schedule_to_release_allocations(
-                allocations, schedule_qty_by_id=schedule_qty, lot_qty_by_id=lot_qty
+                combined, schedule_qty_by_id=schedule_qty, lot_qty_by_id=lot_qty
             )
         except SchedulePolicyError as exc:
             raise HTTPException(status_code=400, detail=exc.as_dict()) from exc
@@ -290,6 +408,7 @@ def commit_line_schedules(
                 )
             )
 
+    locked.schedule_revision = next_revision
     order.schedule_revision = next_revision
     db.commit()
     db.refresh(order)
@@ -306,6 +425,7 @@ def commit_line_schedules(
     result["preserved_release_lots"] = [
         lot for line in order.lines or [] for lot in serialize_release_lots_preserved(line)
     ]
+    result["merge_mode"] = mode
     result["message"] = "Customer delivery schedule committed. Release lots and started work were not modified."
     return result
 
@@ -324,7 +444,7 @@ def commit_entire_po(
         raise HTTPException(status_code=400, detail={"code": "SCHEDULE_REJECTED", "errors": preview["errors"]})
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in preview.get("proposed_rows") or []:
-        if row.get("immutable"):
+        if row.get("immutable") or row.get("kept"):
             continue
         grouped.setdefault(str(row["line_id"]), []).append(row)
     return commit_line_schedules(
@@ -333,6 +453,7 @@ def commit_entire_po(
         proposed_by_line=grouped,
         expected_revision=expected_revision,
         actor=actor,
+        mode="append",
     )
 
 
@@ -344,12 +465,17 @@ def mutate_schedule_row(
     updates: dict[str, Any],
     actor: str,
 ) -> dict[str, Any]:
+    del actor
+    locked = db.query(SalesOrder).filter(SalesOrder.id == order.id).with_for_update().first()
+    if not locked:
+        raise HTTPException(status_code=404, detail="Sales order not found")
     row = (
         db.query(SalesOrderDeliverySchedule)
         .filter(
             SalesOrderDeliverySchedule.id == schedule_id,
             SalesOrderDeliverySchedule.sales_order_id == order.id,
         )
+        .with_for_update()
         .first()
     )
     if not row:
@@ -361,14 +487,31 @@ def mutate_schedule_row(
     if "quantity" in updates and updates["quantity"] is not None:
         row.quantity = float(updates["quantity"])
     if "delivery_date" in updates and updates["delivery_date"] is not None:
-        row.delivery_date = _as_date(updates["delivery_date"])
+        delivery_date = _as_date(updates["delivery_date"])
+        try:
+            _assert_delivery_date(order, delivery_date)
+        except SchedulePolicyError as exc:
+            raise HTTPException(status_code=400, detail=exc.as_dict()) from exc
+        row.delivery_date = delivery_date
     if "status" in updates and updates["status"] is not None:
         status = str(updates["status"]).strip().lower()
-        if is_immutable_status(row.status) or is_immutable_status(status) and status != row.status:
-            # Allow planned/committed -> locked/delivered (lifecycle), but not reverse.
-            if is_immutable_status(row.status):
-                raise HTTPException(status_code=409, detail={"code": "IMMUTABLE_SCHEDULE_ROW", "message": "Delivered or locked rows cannot be mutated."})
-        row.status = status
+        if status == "delivered":
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "INVALID_STATUS",
+                    "message": "Delivered status is derived from authorized fulfillment, not a generic patch.",
+                },
+            )
+        if status == "locked" and str(row.status or "").lower() in EDITABLE_STATUSES:
+            row.status = "locked"
+        elif status not in PATCHABLE_STATUSES:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "INVALID_STATUS", "message": f"Unsupported delivery-schedule status '{status}'."},
+            )
+        else:
+            row.status = status
     row.updated_at = datetime.utcnow()
     line = next((item for item in order.lines or [] if item.id == row.sales_order_line_id), None)
     if line is not None:
@@ -378,6 +521,6 @@ def mutate_schedule_row(
             validate_active_sum(line, list(getattr(line, "delivery_schedules", []) or []))
         except SchedulePolicyError as exc:
             raise HTTPException(status_code=400, detail=exc.as_dict()) from exc
-    order.schedule_revision = int(order.schedule_revision or 0) + 1
+    locked.schedule_revision = int(locked.schedule_revision or 0) + 1
     db.commit()
     return serialize_schedule_row(row)

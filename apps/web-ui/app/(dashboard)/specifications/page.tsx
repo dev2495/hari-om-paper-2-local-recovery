@@ -13,6 +13,8 @@ import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data
 import { specApi } from "@/lib/api"
 import { qcActionLabel, qcSetupStatus } from "@/lib/qc-measurement"
 import { formatSpecMeasure, resolveSpecSummary } from "@/lib/spec-summary"
+import { PageHeader } from "@/components/workspace/page-header"
+import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { cn } from "@/lib/utils"
 
 const STATUS_FILTERS = ["all", "draft", "review", "trial", "approved", "obsolete"] as const
@@ -179,35 +181,33 @@ export default function SpecificationsIndexPage() {
           </div>
         </section>
       ) : null}
-      <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white/80 shadow-premium">
-        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.9fr)] lg:px-8">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-slate-400">Spec Control Room</p>
-            <h1 className="mt-3 max-w-3xl text-3xl font-semibold text-slate-950">
-              Commercial spec sheets, recipe truth, and printable release packets in one lane.
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm text-slate-600">
-              Start from the master-driven spec sheet, keep trial versions attached to the same record, and send the approved snapshot straight into planning and job-card execution.
-            </p>
-            <div className="mt-5 flex flex-wrap gap-3">
-              {canManageSpecs ? (
-                <Link href="/specifications/new">
-                  <Button className="gap-2">
-                    <FilePlus2 className="h-4 w-4" />
-                    New Specification
-                  </Button>
-                </Link>
-              ) : null}
-              <Link href="/masters/papers">
-                <Button variant="outline" className="gap-2">
-                  <Factory className="h-4 w-4" />
-                  Review Master Papers
+      <PageHeader
+        variant="hero"
+        appearance={MODULE_APPEARANCES.sales}
+        badge="Spec Control Room"
+        title="Commercial spec sheets, recipe truth, and printable release packets in one lane."
+        description="Start from the master-driven spec sheet, keep trial versions attached to the same record, and send the approved snapshot straight into planning and job-card execution."
+        actions={
+          <div className="flex flex-wrap gap-3">
+            {canManageSpecs ? (
+              <Link href="/specifications/new">
+                <Button className="gap-2">
+                  <FilePlus2 className="h-4 w-4" />
+                  New Specification
                 </Button>
               </Link>
-            </div>
+            ) : null}
+            <Link href="/masters/papers">
+              <Button variant="outline" className="gap-2">
+                <Factory className="h-4 w-4" />
+                Review Master Papers
+              </Button>
+            </Link>
           </div>
+        }
+      />
 
-          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
+      <section className="grid gap-3 rounded-[32px] border border-slate-200 bg-white/80 p-5 shadow-premium sm:grid-cols-3">
             <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Active Specs</p>
               <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.all}</p>
@@ -223,8 +223,6 @@ export default function SpecificationsIndexPage() {
               <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.approved}</p>
               <p className="mt-1 text-sm text-slate-500">Approved snapshots that planning and production can rely on.</p>
             </div>
-          </div>
-        </div>
       </section>
 
       <section className="rounded-[32px] border border-slate-200 bg-white/80 px-5 py-5 shadow-premium">

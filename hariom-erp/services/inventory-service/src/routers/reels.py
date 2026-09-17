@@ -21,7 +21,7 @@ from ..models import (
     TrackingMode,
 )
 from ..services.labels import reel_label_payload
-from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
+from ..quality_pin import pin_quality_profile_metadata
 
 router = APIRouter(prefix="/reels", tags=["reels"])
 
@@ -328,6 +328,7 @@ def create_reel_inward(
             "paper_master_snapshot": master_snapshot,
             "paper_quality_source": "MASTER_SNAPSHOT" if master_snapshot else "LEGACY_ITEM_INPUT",
         }
+        metadata = pin_quality_profile_metadata(metadata, getattr(paper, "quality_profile", None) if paper else None)
         reel = PaperReel(
             plant_id=plant_uuid,
             reel_code=code,

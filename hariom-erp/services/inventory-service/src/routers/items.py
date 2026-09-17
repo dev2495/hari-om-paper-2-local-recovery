@@ -8,7 +8,7 @@ import uuid
 from ..database import get_db
 from ..models import ItemMaster, ItemType, TrackingMode
 from ..utils.audit_client import emit_audit_event
-from ..utils.auth import get_current_user, require_role, get_current_plant, get_current_plant_scope
+from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_save
 
 _audit_logger = logging.getLogger(__name__)
 
@@ -346,6 +346,17 @@ class ItemQualityProfileUpdate(BaseModel):
     setup_status: Optional[str] = None
 
 
+class ItemQualityProfileApprove(BaseModel):
+    expected_revision: int
+
+
+def _actor_roles(current_user: dict) -> list[str]:
+    raw = current_user.get("roles") or current_user.get("role") or []
+    if isinstance(raw, str):
+        return [raw]
+    return [str(item) for item in raw]
+
+
 @router.put("/{item_id}/quality-profile", response_model=ItemResponse)
 def upsert_item_quality_profile(
     item_id: uuid.UUID,
@@ -357,14 +368,44 @@ def upsert_item_quality_profile(
     db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
-    profile = dict(payload.quality_profile or {})
-    if payload.setup_status:
-        profile["setup_status"] = str(payload.setup_status).strip().lower()
-        profile["status"] = profile["setup_status"]
-    parameters = profile.get("parameters")
+    incoming = dict(payload.quality_profile or {})
+    parameters = incoming.get("parameters")
     if parameters is not None and not isinstance(parameters, list):
         raise HTTPException(status_code=400, detail="quality_profile.parameters must be a list")
-    db_item.quality_profile = profile
+    try:
+        db_item.quality_profile = apply_profile_save(
+            db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
+            incoming,
+            requested_status=payload.setup_status,
+            actor_roles=_actor_roles(current_user),
+        )
+    except ProfileLifecycleError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.post("/{item_id}/quality-profile/approve", response_model=ItemResponse)
+def approve_item_quality_profile(
+    item_id: uuid.UUID,
+    payload: ItemQualityProfileApprove,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
+):
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    try:
+        db_item.quality_profile = apply_profile_approve(
+            db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
+            expected_revision=payload.expected_revision,
+            actor=str(current_user.get("sub") or "unknown"),
+            actor_roles=_actor_roles(current_user),
+        )
+    except ProfileLifecycleError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
     db.commit()
     db.refresh(db_item)
     return db_item

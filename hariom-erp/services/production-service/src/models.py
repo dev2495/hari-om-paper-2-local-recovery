@@ -322,6 +322,7 @@ class QualityInspection(Base):
     reasons = Column(JSONB, nullable=False, default=dict)
     evaluation = Column(JSONB, nullable=False, default=dict)
     sample_id = Column(String(80), nullable=True)
+    parent_inspection_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 

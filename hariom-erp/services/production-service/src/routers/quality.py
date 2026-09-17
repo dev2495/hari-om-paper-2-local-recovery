@@ -154,6 +154,8 @@ class InspectionCreate(BaseModel):
     reasons: dict[str, Any] = Field(default_factory=dict)
     sample_id: Optional[str] = None
     create_hold_on_fail: bool = True
+    parent_inspection_id: Optional[uuid.UUID] = None
+    final_submission: bool = False
 
     @field_validator("stage_type")
     @classmethod
@@ -182,6 +184,10 @@ class InspectionResponse(BaseModel):
     sample_id: Optional[str] = None
     created_at: datetime
     hold_id: Optional[uuid.UUID] = None
+    reason_pending: bool = False
+    workflow_status: Optional[str] = None
+    parent_inspection_id: Optional[uuid.UUID] = None
+    exposure_after_dispatch: bool = False
 
 
 class HoldCreate(BaseModel):
@@ -221,7 +227,13 @@ class QualitySummaryResponse(BaseModel):
     inspection_count: int
     passed_count: int
     failed_count: int
+    measured_count: int = 0
+    incomplete_count: int = 0
+    invalid_count: int = 0
+    first_pass_count: int = 0
+    retest_count: int = 0
     pass_rate: Optional[float] = None
+    first_pass_rate: Optional[float] = None
     active_holds: int
     released_holds: int
 
@@ -255,13 +267,29 @@ def get_quality_summary(
     del current_user
     inspections = _apply_quality_plant_scope(db.query(QualityInspection), QualityInspection.plant_id, plant_scope).all()
     holds = _apply_quality_plant_scope(db.query(QualityHold), QualityHold.plant_id, plant_scope).all()
-    passed = sum(1 for row in inspections if str(row.status or "").upper() == "PASS")
-    failed = sum(1 for row in inspections if str(row.status or "").upper() == "FAIL")
+    statuses = [str(row.status or "").upper() for row in inspections]
+    passed = sum(1 for status in statuses if status == "PASS")
+    failed = sum(1 for status in statuses if status == "FAIL")
+    incomplete = sum(1 for status in statuses if status == "INCOMPLETE")
+    invalid = sum(1 for status in statuses if status == "INVALID")
+    measured = passed + failed
+    retest = sum(1 for row in inspections if getattr(row, "parent_inspection_id", None))
+    first_pass = sum(
+        1
+        for row in inspections
+        if str(row.status or "").upper() == "PASS" and not getattr(row, "parent_inspection_id", None)
+    )
     return QualitySummaryResponse(
         inspection_count=len(inspections),
         passed_count=passed,
         failed_count=failed,
-        pass_rate=quality_pass_rate(passed, len(inspections)),
+        measured_count=measured,
+        incomplete_count=incomplete,
+        invalid_count=invalid,
+        first_pass_count=first_pass,
+        retest_count=retest,
+        pass_rate=quality_pass_rate(passed, measured),
+        first_pass_rate=quality_pass_rate(first_pass, measured),
         active_holds=sum(1 for row in holds if str(row.status or "").upper() == "HOLD"),
         released_holds=sum(1 for row in holds if str(row.status or "").upper() == "RELEASED"),
     )
@@ -290,9 +318,11 @@ def create_inspection(
         sample_id=payload.sample_id,
         require_reasons_on_fail=True,
     )
-    error = submission_error(evaluation)
-    if error:
-        raise HTTPException(status_code=400, detail=error)
+    reason_pending = bool(evaluation.missing_reasons)
+    if payload.final_submission:
+        error = submission_error(evaluation)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
     if payload.stage_type == "QC" and evaluation.verdict == "INCOMPLETE":
         missing = [
             row.label
@@ -305,6 +335,20 @@ def create_inspection(
                 detail=f"Final QC requires full spec readings: {', '.join(missing)}",
             )
 
+    job_status = str(job_card.status or "").upper()
+    exposure_after_dispatch = job_status in {"COMPLETED", "DISPATCHED"} or str(job_card.current_stage or "").upper() in {
+        "DISPATCH",
+        "DONE",
+    }
+    evaluation_payload = evaluation.as_dict()
+    if reason_pending:
+        evaluation_payload["workflow_status"] = "REASON_PENDING"
+        evaluation_payload["reason_pending"] = True
+    if exposure_after_dispatch:
+        evaluation_payload["exposure_after_dispatch"] = True
+    if payload.parent_inspection_id:
+        evaluation_payload["parent_inspection_id"] = str(payload.parent_inspection_id)
+
     failures = list(evaluation.failures)
     inspection = QualityInspection(
         plant_id=plant_uuid,
@@ -314,18 +358,17 @@ def create_inspection(
         readings=payload.readings or {},
         failures=failures,
         reasons=payload.reasons or {},
-        evaluation=evaluation.as_dict(),
+        evaluation=evaluation_payload,
         sample_id=payload.sample_id,
+        parent_inspection_id=payload.parent_inspection_id,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
     db.flush()
 
-    # A definite out-of-range failure or an untrustworthy (non-finite/inverted)
-    # reading opens a hold. Invalid data is never allowed to read as PASS, and an
-    # inspection that failed evaluation must physically block the next movement.
+    # Containment is a server policy. The client create_hold_on_fail flag is ignored.
     hold: Optional[QualityHold] = None
-    if evaluation.status in {"FAIL", "INVALID"} and payload.create_hold_on_fail:
+    if evaluation.status in {"FAIL", "INVALID"}:
         hold = QualityHold(
             plant_id=plant_uuid,
             job_card_id=job_card.id,
@@ -360,6 +403,7 @@ def create_inspection(
     )
     db.commit()
     db.refresh(inspection)
+    evaluation_blob = inspection.evaluation or evaluation.as_dict()
     return InspectionResponse(
         id=inspection.id,
         job_card_id=inspection.job_card_id,
@@ -368,11 +412,15 @@ def create_inspection(
         readings=inspection.readings or {},
         failures=inspection.failures or [],
         reasons=inspection.reasons or {},
-        evaluation=inspection.evaluation or evaluation.as_dict(),
+        evaluation=evaluation_blob,
         frozen_rules=evaluation.frozen_rules,
         sample_id=inspection.sample_id,
         created_at=inspection.created_at,
         hold_id=hold.id if hold else None,
+        reason_pending=bool(evaluation_blob.get("reason_pending")),
+        workflow_status=evaluation_blob.get("workflow_status"),
+        parent_inspection_id=inspection.parent_inspection_id,
+        exposure_after_dispatch=bool(evaluation_blob.get("exposure_after_dispatch")),
     )
 
 
@@ -417,6 +465,10 @@ def list_inspections(
             sample_id=getattr(row, "sample_id", None),
             created_at=row.created_at,
             hold_id=None,
+            reason_pending=bool((getattr(row, "evaluation", None) or {}).get("reason_pending")),
+            workflow_status=(getattr(row, "evaluation", None) or {}).get("workflow_status"),
+            parent_inspection_id=getattr(row, "parent_inspection_id", None),
+            exposure_after_dispatch=bool((getattr(row, "evaluation", None) or {}).get("exposure_after_dispatch")),
         )
         for row in rows
     ]

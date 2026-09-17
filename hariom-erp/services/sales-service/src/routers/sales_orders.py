@@ -1294,7 +1294,10 @@ def update_sales_order(
 ):
     order = (
         db.query(SalesOrder)
-        .options(joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots))
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
         .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
         .first()
     )
@@ -1352,6 +1355,11 @@ def update_sales_order(
         )
         for line in order.lines
     ]
+    stored_schedules = [
+        {"delivery_date": row.delivery_date, "line_no": getattr(line, "line_no", None)}
+        for line in order.lines or []
+        for row in getattr(line, "delivery_schedules", []) or []
+    ]
     origin, po_number, po_date, internal_order_date = _validate_commercial_payload(
         origin=order.origin,
         customer_id=order.customer_id,
@@ -1359,7 +1367,7 @@ def update_sales_order(
         po_date=order.po_date,
         internal_order_date=order.internal_order_date,
         lines=working_lines,
-        delivery_schedules=payload.delivery_schedules,
+        delivery_schedules=payload.delivery_schedules if payload.delivery_schedules is not None else stored_schedules,
     )
     order.origin = origin
     order.origin_review_required = origin == ORIGIN_REVIEW

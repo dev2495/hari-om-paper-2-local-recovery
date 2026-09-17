@@ -10,6 +10,13 @@ from __future__ import annotations
 from typing import Any, Optional
 
 
+class QcProfileError(ValueError):
+    def __init__(self, message: str, *, code: str = "INVALID_PROFILE"):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+
 STAGE_PARAMETER_DEFS: dict[str, tuple[dict[str, Any], ...]] = {
     "WINDER": (
         {"code": "id", "label": "I.D.", "unit": "mm"},
@@ -56,15 +63,34 @@ def _finite_or_none(value: Any) -> Optional[float]:
     return number
 
 
+def _require_bound(value: Any, *, field: str, code: str) -> Optional[float]:
+    if value in (None, ""):
+        return None
+    number = _finite_or_none(value)
+    if number is None:
+        raise QcProfileError(
+            f"Malformed numeric {field} for {code}.",
+            code="MALFORMED_BOUNDS",
+        )
+    return number
+
+
 def _normalize_parameter(raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
-    lower = _finite_or_none(raw.get("min") if "min" in raw else raw.get("lower"))
-    upper = _finite_or_none(raw.get("max") if "max" in raw else raw.get("upper"))
+    lower = _require_bound(raw.get("min") if "min" in raw else raw.get("lower"), field="min", code=fallback["code"])
+    upper = _require_bound(raw.get("max") if "max" in raw else raw.get("upper"), field="max", code=fallback["code"])
+    if lower is not None and upper is not None and lower > upper:
+        raise QcProfileError(
+            f"Inverted bounds for {fallback['code']}: min {lower} > max {upper}.",
+            code="INVERTED_BOUNDS",
+        )
     applicable = raw.get("applicable")
     if applicable is None:
         applicable = fallback.get("conditional") is None
     required = raw.get("required")
     if required is None:
         required = True
+    input_type = str(raw.get("input_type") or "number").strip().lower() or "number"
+    options = raw.get("options") if isinstance(raw.get("options"), list) else None
     return {
         "code": fallback["code"],
         "label": _clean_text(raw.get("label")) or fallback["label"],
@@ -80,7 +106,11 @@ def _normalize_parameter(raw: dict[str, Any], fallback: dict[str, Any]) -> dict[
         "applicable": bool(applicable),
         "pair_group": fallback.get("pair_group"),
         "conditional": fallback.get("conditional"),
-        "input_type": "number",
+        "input_type": input_type,
+        "options": options,
+        "checkpoint": _clean_text(raw.get("checkpoint")) or (
+            "PRE" if fallback["code"].startswith("pre_") else "POST" if fallback["code"].startswith("post_") else None
+        ),
     }
 
 
@@ -101,11 +131,15 @@ def profile_status(profile: Optional[dict[str, Any]]) -> str:
     if not isinstance(profile, dict) or not profile:
         return "missing"
     explicit = _clean_text(profile.get("status"))
-    if explicit in {"approved", "pending_review", "draft", "incomplete", "missing"}:
-        if explicit == "approved":
-            return "approved"
+    if explicit in {"pending_review", "draft", "incomplete", "missing"}:
         if explicit == "pending_review":
             return "pending_review"
+        if explicit == "draft":
+            pass
+        elif explicit in {"incomplete", "missing"}:
+            return explicit
+    if explicit == "approved" and profile.get("approved_by"):
+        return "approved"
     stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else {}
     if not stages:
         return "missing"
@@ -141,7 +175,13 @@ def empty_qc_profile() -> dict[str, Any]:
     }
 
 
-def normalize_qc_profile(raw: Any, *, previous: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def normalize_qc_profile(
+    raw: Any,
+    *,
+    previous: Optional[dict[str, Any]] = None,
+    mutating: bool = False,
+    allow_approved: bool = False,
+) -> dict[str, Any]:
     base = empty_qc_profile()
     incoming = raw if isinstance(raw, dict) else {}
     previous = previous if isinstance(previous, dict) else {}
@@ -168,13 +208,32 @@ def normalize_qc_profile(raw: Any, *, previous: Optional[dict[str, Any]] = None)
                 for item in defs
             ]
         }
-    revision = incoming.get("revision") or previous.get("revision") or 1
+    previous_revision = previous.get("revision") or 1
     try:
-        revision = int(revision)
+        previous_revision = int(previous_revision)
     except (TypeError, ValueError):
-        revision = 1
+        previous_revision = 1
+    previous_status = str(previous.get("status") or "").strip().lower()
+    requested = incoming.get("status")
+    if mutating and requested == "approved" and not allow_approved:
+        requested = None
+    if mutating:
+        revision = previous_revision
+        if previous_status == "approved" and not allow_approved:
+            revision = previous_revision + 1
+            incoming_snapshot = previous.get("approved_snapshot") or {
+                key: value for key, value in previous.items() if key != "approved_snapshot"
+            }
+        else:
+            incoming_snapshot = previous.get("approved_snapshot")
+    else:
+        try:
+            revision = int(incoming.get("revision") or previous_revision)
+        except (TypeError, ValueError):
+            revision = previous_revision
+        incoming_snapshot = incoming.get("approved_snapshot") or previous.get("approved_snapshot")
     normalized = {
-        "status": incoming.get("status") or previous.get("status") or "draft",
+        "status": requested or previous.get("status") or "draft",
         "revision": revision,
         "stages": merged_stages,
         "method_notes": _clean_text(incoming.get("method_notes") or previous.get("method_notes")),
@@ -182,8 +241,19 @@ def normalize_qc_profile(raw: Any, *, previous: Optional[dict[str, Any]] = None)
         if "notching_applicable" in incoming
         else previous.get("notching_applicable"),
     }
-    if incoming.get("status") in {"approved", "pending_review", "draft"}:
-        normalized["status"] = incoming.get("status")
+    if incoming_snapshot:
+        normalized["approved_snapshot"] = incoming_snapshot
+        if previous.get("approved_by"):
+            normalized["approved_by"] = previous.get("approved_by")
+        if previous.get("approved_at"):
+            normalized["approved_at"] = previous.get("approved_at")
+    if mutating and previous_status == "approved" and not allow_approved:
+        normalized["status"] = requested if requested in {"draft", "pending_review", "complete"} else "draft"
+        normalized["supersedes_revision"] = previous_revision
+    elif requested in {"pending_review", "draft", "complete"}:
+        normalized["status"] = requested
+    elif requested == "approved" and allow_approved:
+        normalized["status"] = "approved"
     else:
         normalized["status"] = profile_status(normalized)
     return normalized
