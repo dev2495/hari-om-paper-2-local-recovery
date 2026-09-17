@@ -133,6 +133,13 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       {
+        name: "Purchase",
+        href: "/purchase",
+        icon: FileText,
+        description: "Supplier purchase orders, GRN receipts, and delivery schedules.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+      },
+      {
         name: "Genealogy",
         href: "/inventory/genealogy",
         icon: Layers,

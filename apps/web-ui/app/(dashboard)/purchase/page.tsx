@@ -76,6 +76,21 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{children}</span>
 }
 
+function emptyPurchaseLine() {
+  return {
+    key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    item_id: "",
+    qty: "",
+    unit_cost: "",
+    width_mm: "",
+    gsm: "",
+    plybond: "",
+    bulk: "",
+    cobb: "",
+    description: "",
+  }
+}
+
 export default function PurchaseFlowPage() {
   const queryClient = useQueryClient()
   const { activePlant, setActivePlant } = useAuth()
@@ -107,15 +122,6 @@ export default function PurchaseFlowPage() {
     supplier_contact: "",
     supplier_address: "",
     supplier_gst_no: "",
-    item_id: "",
-    qty: "",
-    unit_cost: "",
-    width_mm: "",
-    gsm: "",
-    plybond: "",
-    bulk: "",
-    cobb: "",
-    description: "",
     needed_date: today(),
     notes: "",
     freight_terms: "Freight included in landed rate.",
@@ -125,6 +131,7 @@ export default function PurchaseFlowPage() {
     test_report_terms: "Attach test report with delivery challan copy for PB/GSM/RCT/COBB.",
     special_instruction: "FOR AMIGO INDUSTRIES UNIT-2",
   })
+  const [poLines, setPoLines] = useState(() => [emptyPurchaseLine(), emptyPurchaseLine()])
   const grnRequestId = useRef<string | null>(null)
   const [grnForm, setGrnForm] = useState({
     purchase_order_id: "",
@@ -136,7 +143,6 @@ export default function PurchaseFlowPage() {
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null)
 
   const selectedRequestVendor = vendors.find((row: any) => String(row.id) === poForm.vendor_id)
-  const selectedRequestItem = items.find((row: any) => String(row.id) === poForm.item_id)
 
   const createOrder = useMutation({
     mutationFn: async (payload: any) => purchaseApi.createOrder(payload),
@@ -195,8 +201,34 @@ export default function PurchaseFlowPage() {
   async function submitPurchaseOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setMessage(null)
-    if (!selectedRequestVendor || !selectedRequestItem) {
-      setMessage({ tone: "error", text: "Select vendor and material before creating a purchase order." })
+    if (!selectedRequestVendor) {
+      setMessage({ tone: "error", text: "Select vendor before creating a purchase order." })
+      return
+    }
+    const preparedLines = poLines
+      .map((line) => {
+        const item = items.find((row: any) => String(row.id) === line.item_id)
+        return {
+          item,
+          item_id: line.item_id,
+          qty_ordered: Number(line.qty),
+          unit_cost: Number(line.unit_cost),
+          incoming_qc_required: true,
+          description: line.description || item?.name,
+          width_mm: line.width_mm ? Number(line.width_mm) : undefined,
+          gsm: line.gsm ? Number(line.gsm) : undefined,
+          plybond: line.plybond ? Number(line.plybond) : undefined,
+          bulk: line.bulk ? Number(line.bulk) : undefined,
+          cobb: line.cobb || undefined,
+        }
+      })
+      .filter((line) => line.item_id && Number.isFinite(line.qty_ordered) && line.qty_ordered > 0)
+    if (preparedLines.length < 1) {
+      setMessage({ tone: "error", text: "Add at least one purchase line with material and quantity." })
+      return
+    }
+    if (preparedLines.some((line) => !line.item || !Number.isFinite(line.unit_cost) || line.unit_cost < 0)) {
+      setMessage({ tone: "error", text: "Every line needs a valid material and unit cost." })
       return
     }
     try {
@@ -216,23 +248,11 @@ export default function PurchaseFlowPage() {
         delivery_terms: poForm.delivery_terms || undefined,
         test_report_terms: poForm.test_report_terms || undefined,
         special_instruction: poForm.special_instruction || undefined,
-        lines: [
-          {
-            item_id: poForm.item_id,
-            qty_ordered: Number(poForm.qty),
-            unit_cost: Number(poForm.unit_cost),
-            incoming_qc_required: true,
-            description: poForm.description || selectedRequestItem.name,
-            width_mm: poForm.width_mm ? Number(poForm.width_mm) : undefined,
-            gsm: poForm.gsm ? Number(poForm.gsm) : undefined,
-            plybond: poForm.plybond ? Number(poForm.plybond) : undefined,
-            bulk: poForm.bulk ? Number(poForm.bulk) : undefined,
-            cobb: poForm.cobb || undefined,
-          },
-        ],
+        lines: preparedLines.map(({ item, ...line }) => line),
       })
-      setPoForm((current) => ({ ...current, po_no: "", qty: "", unit_cost: "", width_mm: "", gsm: "", plybond: "", bulk: "", cobb: "", description: "", notes: "" }))
-      setMessage({ tone: "success", text: "Purchase order created. Approve it before posting GRN." })
+      setPoForm((current) => ({ ...current, po_no: "", notes: "" }))
+      setPoLines([emptyPurchaseLine(), emptyPurchaseLine()])
+      setMessage({ tone: "success", text: `Purchase order created with ${preparedLines.length} line(s). Approve it before posting GRN.` })
     } catch (error: any) {
       setMessage({ tone: "error", text: errorMessage(error) })
     }
@@ -315,7 +335,7 @@ export default function PurchaseFlowPage() {
       <section className="grid min-w-0 gap-4 xl:grid-cols-[0.92fr_1.08fr] [&>*]:min-w-0">
         <Panel
           title="Create Purchase Order"
-          subtitle="Vendor, material, quantity, rate, expected date, and incoming QC requirement are captured before GRN."
+          subtitle="Vendor header plus multiple material lines. The API already accepted a lines array; this desk now sends every row."
           actions={<StatusBadge value={ordersQuery.data?.available ? "CONNECTED" : "ERROR"} />}
         >
           <form onSubmit={submitPurchaseOrder} className="grid gap-3 md:grid-cols-2">
@@ -350,46 +370,77 @@ export default function PurchaseFlowPage() {
               <FieldLabel>Vendor address</FieldLabel>
               <textarea value={poForm.supplier_address} onChange={(event) => setPoForm((current) => ({ ...current, supplier_address: event.target.value }))} rows={2} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
             </label>
-            <label className="space-y-1">
-              <FieldLabel>Material</FieldLabel>
-              <select required value={poForm.item_id} onChange={(event) => setPoForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
-                <option value="">Select material</option>
-                {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
-              </select>
-            </label>
-            <label className="space-y-1">
-              <FieldLabel>Description</FieldLabel>
-              <input value={poForm.description} onChange={(event) => setPoForm((current) => ({ ...current, description: event.target.value }))} placeholder={selectedRequestItem?.name || "KRAFT BOARD"} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-            </label>
-            <label className="space-y-1">
-              <FieldLabel>Qty</FieldLabel>
-              <input required type="number" min="0.001" step="0.001" value={poForm.qty} onChange={(event) => setPoForm((current) => ({ ...current, qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-            </label>
-            <label className="space-y-1 md:col-span-2">
-              <FieldLabel>Unit cost</FieldLabel>
-              <input required type="number" min="0.01" step="0.01" value={poForm.unit_cost} onChange={(event) => setPoForm((current) => ({ ...current, unit_cost: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-            </label>
-            <div className="grid gap-3 md:col-span-2 md:grid-cols-5">
-              <label className="space-y-1">
-                <FieldLabel>Width mm</FieldLabel>
-                <input type="number" min="0" step="0.01" value={poForm.width_mm} onChange={(event) => setPoForm((current) => ({ ...current, width_mm: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>GSM</FieldLabel>
-                <input type="number" min="0" step="0.01" value={poForm.gsm} onChange={(event) => setPoForm((current) => ({ ...current, gsm: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>PB</FieldLabel>
-                <input type="number" min="0" step="0.01" value={poForm.plybond} onChange={(event) => setPoForm((current) => ({ ...current, plybond: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>Bulk</FieldLabel>
-                <input type="number" min="0" step="0.001" value={poForm.bulk} onChange={(event) => setPoForm((current) => ({ ...current, bulk: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>COBB</FieldLabel>
-                <input value={poForm.cobb} onChange={(event) => setPoForm((current) => ({ ...current, cobb: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
+            <div className="md:col-span-2 space-y-3" data-testid="purchase-multiline-editor">
+              <div className="flex items-center justify-between gap-3">
+                <FieldLabel>Purchase lines</FieldLabel>
+                <button
+                  type="button"
+                  onClick={() => setPoLines((current) => [...current, emptyPurchaseLine()])}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-800"
+                >
+                  Add line
+                </button>
+              </div>
+              {poLines.map((line, index) => {
+                const selectedItem = items.find((row: any) => String(row.id) === line.item_id)
+                return (
+                  <div key={line.key} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                    <div className="md:col-span-2 flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Line {index + 1}</p>
+                      <button
+                        type="button"
+                        disabled={poLines.length <= 1}
+                        onClick={() => setPoLines((current) => current.filter((row) => row.key !== line.key))}
+                        className="text-xs font-semibold text-rose-800 disabled:opacity-40"
+                        aria-label={`Remove line ${index + 1}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <label className="space-y-1">
+                      <FieldLabel>Material</FieldLabel>
+                      <select value={line.item_id} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, item_id: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                        <option value="">Select material</option>
+                        {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <FieldLabel>Description</FieldLabel>
+                      <input value={line.description} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, description: event.target.value } : row))} placeholder={selectedItem?.name || "KRAFT BOARD"} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                    <label className="space-y-1">
+                      <FieldLabel>Qty</FieldLabel>
+                      <input type="number" min="0.001" step="0.001" value={line.qty} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, qty: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                    <label className="space-y-1">
+                      <FieldLabel>Unit cost</FieldLabel>
+                      <input type="number" min="0.01" step="0.01" value={line.unit_cost} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, unit_cost: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                    <div className="grid gap-3 md:col-span-2 md:grid-cols-5">
+                      <label className="space-y-1">
+                        <FieldLabel>Width mm</FieldLabel>
+                        <input type="number" min="0" step="0.01" value={line.width_mm} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, width_mm: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>GSM</FieldLabel>
+                        <input type="number" min="0" step="0.01" value={line.gsm} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, gsm: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>PB</FieldLabel>
+                        <input type="number" min="0" step="0.01" value={line.plybond} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, plybond: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>Bulk</FieldLabel>
+                        <input type="number" min="0" step="0.001" value={line.bulk} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, bulk: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>COBB</FieldLabel>
+                        <input value={line.cobb} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, cobb: event.target.value.toUpperCase() } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             <div className="grid gap-3 md:col-span-2 md:grid-cols-2">
               <label className="space-y-1">
@@ -447,18 +498,23 @@ export default function PurchaseFlowPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-slate-100">
-                    <td className="py-2 pr-3">{selectedRequestItem?.item_code || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.description || selectedRequestItem?.name || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.width_mm || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.gsm || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.plybond || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.bulk || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.cobb || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.qty || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.unit_cost || "-"}</td>
-                    <td className="py-2 pr-3 font-semibold text-slate-950">{formatCurrency(Number(poForm.qty || 0) * Number(poForm.unit_cost || 0))}</td>
-                  </tr>
+                  {poLines.map((line) => {
+                    const selectedItem = items.find((row: any) => String(row.id) === line.item_id)
+                    return (
+                      <tr key={line.key} className="border-b border-slate-100">
+                        <td className="py-2 pr-3">{selectedItem?.item_code || "-"}</td>
+                        <td className="py-2 pr-3">{line.description || selectedItem?.name || "-"}</td>
+                        <td className="py-2 pr-3">{line.width_mm || "-"}</td>
+                        <td className="py-2 pr-3">{line.gsm || "-"}</td>
+                        <td className="py-2 pr-3">{line.plybond || "-"}</td>
+                        <td className="py-2 pr-3">{line.bulk || "-"}</td>
+                        <td className="py-2 pr-3">{line.cobb || "-"}</td>
+                        <td className="py-2 pr-3">{line.qty || "-"}</td>
+                        <td className="py-2 pr-3">{line.unit_cost || "-"}</td>
+                        <td className="py-2 pr-3 font-semibold text-slate-950">{formatCurrency(Number(line.qty || 0) * Number(line.unit_cost || 0))}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

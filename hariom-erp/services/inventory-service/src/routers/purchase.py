@@ -241,6 +241,7 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
 def list_purchase_orders(
     status: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(get_current_user),
@@ -248,8 +249,8 @@ def list_purchase_orders(
     query = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == plant_id)
     if status:
         query = query.filter(PurchaseOrder.status == status.strip().upper())
-    rows = query.order_by(PurchaseOrder.created_at.desc()).limit(limit).all()
-    return {"items": [_serialize_order(row) for row in rows]}
+    rows = query.order_by(PurchaseOrder.created_at.desc()).offset(offset).limit(limit).all()
+    return {"items": [_serialize_order(row) for row in rows], "limit": limit, "offset": offset}
 
 
 @router.post("/orders", response_model=PurchaseOrderResponse)
