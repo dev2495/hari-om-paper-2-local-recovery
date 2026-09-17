@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { useEffect, useMemo, useState } from "react"
 
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
+import { SpecQcToleranceDialog } from "@/components/qc/SpecQcToleranceDialog"
 import { SpecSheetPrint } from "@/components/specs/print/SpecSheetPrint"
 import { SpecSheetWorkspace } from "@/components/specs/SpecSheetWorkspace"
 import { ClientReqCard } from "@/components/specs/sections/ClientReqCard"
@@ -661,6 +662,8 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   const [form, setForm] = useState<FormState>(() => defaultFormState())
   const [loadedSpecSignature, setLoadedSpecSignature] = useState<string | null>(null)
+  const [qcDialogOpen, setQcDialogOpen] = useState(false)
+  const [qcProfile, setQcProfile] = useState<any>(null)
   const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
   const [defaultsBootstrappedForPlant, setDefaultsBootstrappedForPlant] = useState<string | null>(null)
   const [todayLabel, setTodayLabel] = useState("--/--/----")
@@ -1557,6 +1560,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         approved: Boolean(latestApprovedTrial?.approved),
       },
     })
+    setQcProfile(spec.qc_profile || null)
     setLoadedSpecSignature(specHydrationSignature)
 
     if (mode === "edit" && (spec.active === false || spec.status === "obsolete" || spec.status === "review")) {
@@ -2062,6 +2066,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       shrink_percent: Number(form.shrinkPercent || 0),
       variant_template_key: CANONICAL_VARIANT_KEY,
       profile: profilePayload,
+      qc_profile: qcProfile,
       dynamic_fields: buildDynamicFieldsPayload(dynamicValues),
     }
   }
@@ -2118,7 +2123,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     }
   }
 
-  const handleSave = async () => {
+  const persistSpecification = async (nextQcProfile: any) => {
     if (editBlockReason) {
       showToast(editBlockReason, "error")
       return
@@ -2137,7 +2142,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     }
 
     try {
-      const specData = buildSpecPayload()
+      const specData = { ...buildSpecPayload(), qc_profile: nextQcProfile }
       const recipeLayers = buildRecipeLayers()
       const recipeData = { notes: form.notes || "Factory sheet recipe" }
       const trialData = isCreate ? null : buildTrialPayload()
@@ -2217,6 +2222,18 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       const message = error?.response?.data?.detail || error?.message || "Failed to save the specification sheet."
       showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
     }
+  }
+
+  const handleSave = () => {
+    if (editBlockReason) {
+      showToast(editBlockReason, "error")
+      return
+    }
+    if (!canSaveDraft) {
+      showToast("Customer, tube size, mandrel, and the core averages are required.", "error")
+      return
+    }
+    setQcDialogOpen(true)
   }
 
   const handleSubmitReview = async () => {
@@ -2518,6 +2535,29 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   return (
     <SpecSheetWorkspace printMode={isPrint}>
       <div className="min-w-0 space-y-3" data-testid="spec-sheet-page">
+        <SpecQcToleranceDialog
+          open={qcDialogOpen}
+          context={{
+            customer: selectedCustomer?.name || specDocument?.spec?.customer_name,
+            product: selectedTube ? `${selectedTube.inner_diameter_mm} × ${selectedTube.outer_diameter_mm} × ${selectedTube.length_mm} mm` : undefined,
+            plant: displayPlantScope(activePlant),
+            dimensions: selectedTube ? `I.D./O.D./Height ${selectedTube.inner_diameter_mm}/${selectedTube.outer_diameter_mm}/${selectedTube.length_mm}` : undefined,
+            notching: Boolean(form.dynamicValues?.notch_type || form.dynamicValues?.notch_distance_mm || form.dynamicValues?.notch_depth_mm),
+          }}
+          initialProfile={qcProfile}
+          saving={createSpecSheet.isPending || updateSpecSheet.isPending}
+          onBack={() => setQcDialogOpen(false)}
+          onSaveDraft={async (profile) => {
+            setQcProfile(profile)
+            setQcDialogOpen(false)
+            await persistSpecification(profile)
+          }}
+          onSaveComplete={async (profile) => {
+            setQcProfile(profile)
+            setQcDialogOpen(false)
+            await persistSpecification(profile)
+          }}
+        />
         <section
           className="scroll-mt-24"
           data-print-hidden="true"
