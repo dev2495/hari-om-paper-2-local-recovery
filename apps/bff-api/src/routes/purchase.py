@@ -2,7 +2,7 @@
 
 import os
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.middleware.auth import get_token
 from src.services.http_client import proxy_to_service
@@ -73,6 +73,32 @@ async def list_purchase_receipts(request: Request, token: str = Depends(get_toke
     return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/receipts", request, token)
 
 
+@router.get("/schedules")
+async def list_supplier_schedules(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/schedules", request, token)
+
+
+@router.post("/orders/{po_id}/schedules")
+async def commit_supplier_schedules(po_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/orders/{po_id}/schedules", request, token)
+
+
+@router.post("/receipt-lines/{line_id}/allocate-schedule")
+async def allocate_receipt_schedule(line_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/purchase/receipt-lines/{line_id}/allocate-schedule",
+        request,
+        token,
+    )
+
+
 @router.post("/receipt-lines/{line_id}/qc")
 async def post_purchase_receipt_qc(line_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/receipt-lines/{line_id}/qc", request, token)
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Incoming QC PASS/UNRESTRICTED verdicts belong to QC/inventory, not the purchase desk. "
+            "This purchase path does not set receipt QC status."
+        ),
+    )

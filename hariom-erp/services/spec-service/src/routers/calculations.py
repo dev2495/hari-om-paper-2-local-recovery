@@ -89,6 +89,30 @@ def get_yield_calculation(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Calculation error: {str(e)}")
 
+def _midpoint(low: float | None, high: float | None) -> float:
+    if low is not None and high is not None:
+        return (float(low) + float(high)) / 2.0
+    if low is not None:
+        return float(low)
+    if high is not None:
+        return float(high)
+    return 0.0
+
+
+def _approved_recipe_for_spec(spec_id: uuid.UUID, db: Session, plant_scope: dict) -> RecipeHeader | None:
+    query = apply_plant_scope(
+        db.query(RecipeHeader).filter(RecipeHeader.spec_id == spec_id),
+        RecipeHeader.plant_id,
+        plant_scope,
+    )
+    approved = (
+        query.filter(RecipeHeader.status == "approved")
+        .order_by(RecipeHeader.version.desc())
+        .first()
+    )
+    return approved
+
+
 @router.get("/bom/{recipe_id}")
 def get_bom(
     recipe_id: uuid.UUID,
@@ -113,6 +137,86 @@ def get_bom(
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"BOM generation error: {str(e)}")
+
+
+@router.get("/bom-for-spec/{spec_id}")
+def get_bom_for_spec(
+    spec_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Canonical BOM for a spec from its approved recipe. Does not invent manufacturing math."""
+    spec = apply_plant_scope(
+        db.query(SpecificationSheet).filter(SpecificationSheet.id == spec_id),
+        SpecificationSheet.plant_id,
+        plant_scope,
+    ).first()
+    if not spec:
+        raise HTTPException(status_code=404, detail="Specification not found")
+
+    recipe = _approved_recipe_for_spec(spec_id, db, plant_scope)
+    if not recipe:
+        return {
+            "spec_id": str(spec.id),
+            "recipe_id": None,
+            "completeness": "UNKNOWN",
+            "reason": "No approved recipe for this specification. Demand cannot be treated as zero.",
+            "bom": None,
+            "source_revision": {
+                "spec_id": str(spec.id),
+                "spec_status": spec.status,
+                "spec_version": spec.version,
+            },
+        }
+
+    tube_length_mm = int(round(_midpoint(spec.length_min_mm, spec.length_max_mm)))
+    tube_od_mm = int(round(_midpoint(spec.od_min_mm, spec.od_max_mm)))
+    if tube_length_mm <= 0:
+        return {
+            "spec_id": str(spec.id),
+            "recipe_id": str(recipe.id),
+            "recipe_version": recipe.version,
+            "recipe_status": recipe.status,
+            "tube_length_mm": tube_length_mm,
+            "tube_od_mm": tube_od_mm,
+            "completeness": "UNKNOWN",
+            "reason": "Specification length is missing; BOM cannot be expanded.",
+            "bom": None,
+            "source_revision": {
+                "spec_id": str(spec.id),
+                "spec_status": spec.status,
+                "spec_version": spec.version,
+                "recipe_id": str(recipe.id),
+                "recipe_version": recipe.version,
+                "recipe_status": recipe.status,
+            },
+        }
+
+    try:
+        bom = generate_bom(str(recipe.id), tube_length_mm, tube_od_mm or 122, db)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"BOM generation error: {str(exc)}") from exc
+
+    return {
+        "spec_id": str(spec.id),
+        "recipe_id": str(recipe.id),
+        "recipe_version": recipe.version,
+        "recipe_status": recipe.status,
+        "tube_length_mm": tube_length_mm,
+        "tube_od_mm": tube_od_mm,
+        "completeness": "OK",
+        "reason": None,
+        "bom": bom,
+        "source_revision": {
+            "spec_id": str(spec.id),
+            "spec_status": spec.status,
+            "spec_version": spec.version,
+            "recipe_id": str(recipe.id),
+            "recipe_version": recipe.version,
+            "recipe_status": recipe.status,
+        },
+    }
 
 
 @router.post("/preview")

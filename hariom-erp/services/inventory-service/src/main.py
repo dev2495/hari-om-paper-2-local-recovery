@@ -376,6 +376,75 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("UPDATE customer_rejections SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
     )
+    connection.execute(
+      text(
+        "CREATE TABLE IF NOT EXISTS purchase_line_schedules ("
+        "id UUID PRIMARY KEY, "
+        "plant_id VARCHAR(50) NOT NULL, "
+        "purchase_order_line_id UUID NOT NULL REFERENCES purchase_order_lines(id), "
+        "scheduled_qty DOUBLE PRECISION NOT NULL, "
+        "promised_date DATE NOT NULL, "
+        "current_expected_date DATE NOT NULL, "
+        "confirmation_status VARCHAR(20) NOT NULL DEFAULT 'TENTATIVE', "
+        "notes VARCHAR(500), "
+        "created_by VARCHAR(200) NOT NULL, "
+        "created_at TIMESTAMP, "
+        "cancelled_at TIMESTAMP"
+        ")"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE TABLE IF NOT EXISTS receipt_schedule_allocations ("
+        "id UUID PRIMARY KEY, "
+        "plant_id VARCHAR(50) NOT NULL, "
+        "receipt_line_id UUID NOT NULL REFERENCES purchase_receipt_lines(id), "
+        "schedule_id UUID NOT NULL REFERENCES purchase_line_schedules(id), "
+        "allocated_qty DOUBLE PRECISION NOT NULL, "
+        "created_at TIMESTAMP"
+        ")"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_schedule_alloc_receipt_line "
+        "ON receipt_schedule_allocations (receipt_line_id)"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_schedule_alloc_pair "
+        "ON receipt_schedule_allocations (receipt_line_id, schedule_id)"
+      )
+    )
+    connection.execute(
+      text("CREATE INDEX IF NOT EXISTS ix_purchase_line_schedules_line ON purchase_line_schedules (purchase_order_line_id)")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS purchase_line_schedules ADD COLUMN IF NOT EXISTS current_expected_date DATE")
+    )
+    connection.execute(
+      text(
+        "DO $$ BEGIN "
+        "IF EXISTS ("
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'purchase_line_schedules' AND column_name = 'current_date'"
+        ") THEN "
+        "UPDATE purchase_line_schedules "
+        "SET current_expected_date = COALESCE(current_expected_date, \"current_date\", promised_date) "
+        "WHERE current_expected_date IS NULL; "
+        "END IF; "
+        "END $$;"
+      )
+    )
+    connection.execute(
+      text(
+        "UPDATE purchase_line_schedules "
+        "SET current_expected_date = COALESCE(current_expected_date, promised_date) "
+        "WHERE current_expected_date IS NULL"
+      )
+    )
+    connection.execute(text('ALTER TABLE IF EXISTS purchase_line_schedules DROP COLUMN IF EXISTS "current_date"'))
 
 
 ensure_runtime_schema()

@@ -523,7 +523,10 @@ export const purchaseApi = {
   approveOrder: (id: string) => api.post(`/api/purchase/orders/${id}/approve`, {}),
   postGrn: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/grn`, data),
   getReceipts: () => api.get("/api/purchase/receipts"),
-  updateReceiptQc: (lineId: string, data: any) => api.post(`/api/purchase/receipt-lines/${lineId}/qc`, data),
+  getSchedules: () => api.get("/api/purchase/schedules"),
+  commitSchedules: (poId: string, data: any) => api.post(`/api/purchase/orders/${poId}/schedules`, data),
+  allocateReceiptSchedule: (lineId: string, data: any) =>
+    api.post(`/api/purchase/receipt-lines/${lineId}/allocate-schedule`, data),
 }
 
 export const dispatchApi = {

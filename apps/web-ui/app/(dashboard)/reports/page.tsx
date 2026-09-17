@@ -85,14 +85,14 @@ const REPORTS: Array<{
   {
     href: "/reports/inventory",
     title: "Inventory Intelligence",
-    description: "Valuation · days-on-hand · aging · velocity matrix · top movers · MRP-driven shortage planner.",
+    description: "Valuation · days-on-hand · aging · velocity matrix · top movers · reorder-policy planner.",
     audience: "inventory",
     accent: "inv",
   },
   {
     href: "/analytics/mrp",
-    title: "MRP & Shortage Planner",
-    description: "Demand-driven shortages → PO drafts. Lead-time projection. Reorder-policy coverage gaps.",
+    title: "MRP: reorder policy and demand coverage",
+    description: "Two separate views: item-master reorder/safety policy, and demand/BOM coverage from all open sales lines. Reorder numbers are not demand-driven shortages.",
     audience: "inventory",
     accent: "inv",
   },
