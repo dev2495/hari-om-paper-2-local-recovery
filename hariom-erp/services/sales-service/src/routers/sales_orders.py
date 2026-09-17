@@ -295,7 +295,10 @@ def _serialize_order(order: SalesOrder) -> dict:
         "approved_at": order.approved_at,
         "released_at": order.released_at,
         "plant_id": str(order.plant_id),
-        "lines": [_serialize_line(line) for line in order.lines],
+        "lines": [
+            _serialize_line(line)
+            for line in sorted(order.lines, key=lambda item: (int(item.line_no or 0), str(item.id)))
+        ],
     }
 
 
