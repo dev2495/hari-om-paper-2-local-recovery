@@ -3,13 +3,15 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import { ArrowLeft, ArrowRight, ClipboardCheck, Factory, Layers3, ScrollText } from "lucide-react"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
+import { useApp } from "@/context/AppContext"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrder } from "@/hooks/use-sales"
+import { useApproveSalesOrder, useSalesOrder } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
 
@@ -22,10 +24,14 @@ function formatDate(value?: string | null) {
 export default function SalesOrderDetailPage() {
   const params = useParams()
   const orderId = String(params?.orderId || "")
+  const { showToast } = useApp()
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([])
+  const [releaseOpen, setReleaseOpen] = useState(false)
 
   const orderQuery = useSalesOrder(orderId)
   const customersQuery = useCustomers()
   const jobCardsQuery = usePlanningJobCards({ sales_order_id: orderId, limit: 250 }, Boolean(orderId))
+  const approveOrder = useApproveSalesOrder()
 
   const customerMap = useMemo(
     () =>
@@ -61,6 +67,31 @@ export default function SalesOrderDetailPage() {
     [order?.lines],
   )
 
+  const canApprove = ["draft", "submitted"].includes(String(order?.status || "").toLowerCase())
+  const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(String(order?.status || "").toLowerCase())
+
+  const handleApprove = async () => {
+    try {
+      await approveOrder.mutateAsync({ orderId, plantId: String(order?.plant_id || order?.plant || "") || undefined })
+      showToast("Sales order approved.", "success")
+      return true
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Approval failed."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      return false
+    }
+  }
+
+  const handleOpenRelease = () => {
+    const lineIds = selectedLineIds.length ? selectedLineIds : (order?.lines || []).map((line: any) => String(line.id))
+    if (!lineIds.length) {
+      showToast("This order has no lines to release.", "error")
+      return
+    }
+    setSelectedLineIds(lineIds)
+    setReleaseOpen(true)
+  }
+
   if (orderQuery.isLoading) {
     return <EmptyState label="Loading sales order..." />
   }
@@ -82,7 +113,24 @@ export default function SalesOrderDetailPage() {
               <ArrowLeft className="h-4 w-4" />
               Back to queue
             </Link>
-            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg">
+            {canApprove || canRelease ? (
+              <button
+                type="button"
+                data-testid="sales-order-detail:approve-release"
+                onClick={async () => {
+                  if (canApprove) {
+                    const approved = await handleApprove()
+                    if (!approved) return
+                  }
+                  handleOpenRelease()
+                }}
+                disabled={approveOrder.isPending}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"
+              >
+                Approve + Release
+              </button>
+            ) : null}
+            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -223,7 +271,17 @@ export default function SalesOrderDetailPage() {
             <div key={line.id} className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line {line.line_no || index + 1}</p>
+                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={selectedLineIds.includes(String(line.id))}
+                      onChange={(event) => {
+                        const id = String(line.id)
+                        setSelectedLineIds((current) => event.target.checked ? [...current, id] : current.filter((value) => value !== id))
+                      }}
+                    />
+                    Line {line.line_no || index + 1}
+                  </label>
                   <h3 className="mt-2 text-lg font-semibold text-slate-950">{line.product_code || "No product code"}</h3>
                   <p className="mt-1 text-sm text-slate-600">
                     Spec {String(line.approved_spec_id || "-").slice(0, 8)} · Parchment {line.parchment_color || "-"} · Due {formatDate(line.due_date)}
@@ -252,6 +310,12 @@ export default function SalesOrderDetailPage() {
           ))}
         </div>
       </Panel>
+      <ReleaseToQueueDialog
+        order={order}
+        selectedLineIds={selectedLineIds.length ? selectedLineIds : (order.lines || []).map((line: any) => String(line.id))}
+        open={releaseOpen}
+        onOpenChange={setReleaseOpen}
+      />
     </div>
   )
 }
