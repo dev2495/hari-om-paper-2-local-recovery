@@ -620,18 +620,20 @@ def get_sales_order_aggregates(
         func.sum((SalesOrderLine.qty - SalesOrderLine.fulfilled_qty) * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)),
         0.0,
     ).label("open_value")
-    customer_value_query = apply_plant_scope(
-        db.query(
-            SalesOrder.customer_id,
-            customer_open_value,
+    customer_value_query = (
+        apply_plant_scope(
+            db.query(
+                SalesOrder.customer_id,
+                customer_open_value,
+            )
+            .join(SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id)
+            .filter(SalesOrder.status != SalesOrderStatus.CLOSED)
+            .group_by(SalesOrder.customer_id),
+            SalesOrder.plant_id,
+            plant_scope,
         )
-        .join(SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id)
-        .filter(SalesOrder.status != SalesOrderStatus.CLOSED)
-        .group_by(SalesOrder.customer_id)
         .order_by(customer_open_value.desc())
-        .limit(5),
-        SalesOrder.plant_id,
-        plant_scope,
+        .limit(5)
     )
     open_value_by_customer = [
         {"customer_id": str(row.customer_id), "open_value": round(float(row.open_value or 0.0), 2)}
