@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
+from ..open_demand import collect_open_demand
 from ..models import (
     SalesOrder,
     SalesOrderLine,
@@ -1077,6 +1078,18 @@ def patch_delivery_schedule_row(
         updates=payload.model_dump() if hasattr(payload, "model_dump") else payload.dict(),
         actor=str(current_user.get("sub") or "unknown"),
     )
+
+
+@router.get("/open-demand")
+def list_open_demand(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """All in-scope open sales lines. Not the first page of /sales-orders."""
+    return collect_open_demand(db, plant_scope)
+
+
 
 
 @router.get("/{order_id}/timeline")

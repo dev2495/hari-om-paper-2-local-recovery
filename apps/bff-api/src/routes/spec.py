@@ -215,6 +215,11 @@ async def calculate_bom(recipe_id: str, request: Request, token: str = Depends(g
     return await proxy_to_service(SPEC_SERVICE_URL, f"/calculate/bom/{recipe_id}", request, token)
 
 
+@router.get("/calculate/bom-for-spec/{spec_id}")
+async def calculate_bom_for_spec(spec_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/calculate/bom-for-spec/{spec_id}", request, token)
+
+
 @router.post("/calculate/preview")
 async def calculate_preview(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, "/calculate/preview", request, token)

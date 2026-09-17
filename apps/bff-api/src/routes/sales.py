@@ -29,6 +29,11 @@ async def export_pending_orders(request: Request, token: str = Depends(get_token
     return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/pending/export", request, token)
 
 
+@router.get("/orders/open-demand")
+async def list_open_demand(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/open-demand", request, token)
+
+
 @router.post("/orders")
 async def create_order(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SALES_SERVICE_URL, "/sales-orders", request, token)

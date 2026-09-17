@@ -128,7 +128,7 @@ export default function InventoryOverviewPage() {
     { href: "/inventory/stock-control", title: "Stock close control", copy: "Opening load, closing certification, and year carry-forward.", icon: FileCheck2 },
     { href: "/purchase", title: "Purchase and GRN", copy: "Request, PO status, GRN handoff, and incoming QC.", icon: ReceiptText },
     { href: "/inventory/ledger", title: "Ledger and balances", copy: "Audit physical, reserved, available, and transactions.", icon: ClipboardCheck },
-    { href: "/analytics/mrp", title: "MRP and PO drafts", copy: "Convert shortages into purchase order drafts.", icon: LineChart },
+    { href: "/analytics/mrp", title: "MRP coverage", copy: "Reorder policy and demand/BOM coverage are separate views.", icon: LineChart },
   ]
 
   return (
@@ -273,7 +273,7 @@ export default function InventoryOverviewPage() {
             <Kpi label="Locations" value={`${locations.length}`} hint="Created warehouse/bin locations" tone="amber" />
           </div>
           <Link href="/analytics/mrp" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
-            Open MRP and generate PO drafts
+            Open MRP reorder and demand views
             <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

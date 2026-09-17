@@ -157,6 +157,11 @@ async def get_item_velocity(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(ANALYTICS_SERVICE_URL, "/deep/item-velocity", request, token, timeout=REPORT_TIMEOUT)
 
 
+@router.get("/mrp/coverage")
+async def get_mrp_coverage(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(ANALYTICS_SERVICE_URL, "/mrp/coverage", request, token, timeout=REPORT_TIMEOUT)
+
+
 @router.get("/scheduler/status")
 async def get_scheduler_status(request: Request, token: str = Depends(get_token)):
     """Scheduler health snapshot for the /system UI."""

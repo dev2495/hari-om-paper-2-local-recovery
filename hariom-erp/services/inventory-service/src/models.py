@@ -843,6 +843,7 @@ class PurchaseOrderLine(Base):
 
     order = relationship("PurchaseOrder", back_populates="lines")
     item = relationship("ItemMaster")
+    schedules = relationship("PurchaseLineSchedule", back_populates="order_line")
 
     __table_args__ = (
         CheckConstraint("qty_ordered > 0", name="ck_purchase_order_lines_qty_ordered_positive"),
@@ -889,8 +890,56 @@ class PurchaseReceiptLine(Base):
     order_line = relationship("PurchaseOrderLine")
     item = relationship("ItemMaster")
     batch = relationship("StockBatch")
+    schedule_allocations = relationship("ReceiptScheduleAllocation", back_populates="receipt_line")
 
     __table_args__ = (
         CheckConstraint("qty_received > 0", name="ck_purchase_receipt_lines_qty_positive"),
         CheckConstraint("qc_status IN ('PENDING','PASS','HOLD')", name="ck_purchase_receipt_lines_qc_status"),
+    )
+
+
+class PurchaseLineSchedule(Base):
+    __tablename__ = "purchase_line_schedules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    purchase_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=False, index=True)
+    scheduled_qty = Column(Float, nullable=False)
+    promised_date = Column(Date, nullable=False)
+    current_date = Column("current_expected_date", Date, nullable=False)
+    confirmation_status = Column(String(20), nullable=False, default="TENTATIVE")
+    notes = Column(String(500), nullable=True)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    cancelled_at = Column(DateTime, nullable=True)
+
+    order_line = relationship("PurchaseOrderLine", back_populates="schedules")
+    allocations = relationship("ReceiptScheduleAllocation", back_populates="schedule")
+
+    __table_args__ = (
+        CheckConstraint("scheduled_qty > 0", name="ck_purchase_line_schedules_qty_positive"),
+        CheckConstraint(
+            "confirmation_status IN ('TENTATIVE','CONFIRMED','CANCELLED')",
+            name="ck_purchase_line_schedules_confirmation",
+        ),
+    )
+
+
+class ReceiptScheduleAllocation(Base):
+    __tablename__ = "receipt_schedule_allocations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    receipt_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipt_lines.id"), nullable=False, index=True)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("purchase_line_schedules.id"), nullable=False, index=True)
+    allocated_qty = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    receipt_line = relationship("PurchaseReceiptLine", back_populates="schedule_allocations")
+    schedule = relationship("PurchaseLineSchedule", back_populates="allocations")
+
+    __table_args__ = (
+        UniqueConstraint("receipt_line_id", name="uq_receipt_schedule_alloc_receipt_line"),
+        UniqueConstraint("receipt_line_id", "schedule_id", name="uq_receipt_schedule_alloc_pair"),
+        CheckConstraint("allocated_qty > 0", name="ck_receipt_schedule_alloc_qty_positive"),
     )
