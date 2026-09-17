@@ -43,6 +43,49 @@ test("sales order KPIs come from a server aggregate not the current page", () =>
   assert.doesNotMatch(page, /Pieces still open in this loaded window/)
 })
 
+test("pending workspace is URL-driven and exports the full server set", () => {
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/pending/page.tsx"), "utf8")
+  assert.match(page, /usePendingSalesOrders/)
+  assert.match(page, /exportPendingOrders/)
+  assert.match(page, /searchParams/)
+  assert.match(page, /pending-orders:total-count/)
+  assert.doesNotMatch(page, /limit: 750/)
+})
+
+test("tracker no longer joins a capped job-card page in the browser", () => {
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/planning/tracker/page.tsx"), "utf8")
+  assert.match(page, /usePendingSalesOrders/)
+  assert.match(page, /usePendingJobCardsByOrder/)
+  assert.doesNotMatch(page, /usePlanningJobCards\(\{ limit: 750 \}\)/)
+  assert.doesNotMatch(page, /jobs\.filter/)
+})
+
+test("owner landing rupee totals come from the sales aggregate endpoint", () => {
+  const page = readFileSync(resolve(process.cwd(), "components/workspace/owner-admin-landings.tsx"), "utf8")
+  assert.match(page, /salesAggregates\?\.booked_value/)
+  assert.match(page, /salesAggregates\?\.open_order_book_value/)
+  assert.doesNotMatch(page, /useSalesOrders\(\)/)
+  assert.doesNotMatch(page, /totals\.booked \+= qty \* rate/)
+})
+
+test("order detail shows persisted delivery schedules and schedule-entire-PO preview/commit", () => {
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/[orderId]/page.tsx"), "utf8")
+  assert.match(page, /DeliverySchedulePanel/)
+  const panel = readFileSync(resolve(process.cwd(), "components/sales/delivery-schedule-panel.tsx"), "utf8")
+  assert.match(panel, /schedule-entire-po:preview/)
+  assert.match(panel, /schedule-entire-po:commit/)
+  assert.match(panel, /Customer delivery schedule/)
+})
+
+test("planning board has a keyboard scheduling path equivalent to drag", () => {
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/planning/board/page.tsx"), "utf8")
+  assert.match(page, /KeyboardScheduleForm/)
+  assert.match(page, /tabIndex=\{0\}/)
+  const form = readFileSync(resolve(process.cwd(), "components/planning/keyboard-schedule-form.tsx"), "utf8")
+  assert.match(form, /planner-keyboard-schedule/)
+  assert.match(form, /Same move as drag-and-drop/)
+})
+
 test("sales release confirm is not a compatibility veto and offers a winder-queue next step", () => {
   const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
   assert.match(page, /authorized_winders/)
