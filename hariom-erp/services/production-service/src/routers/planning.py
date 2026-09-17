@@ -69,6 +69,7 @@ from ..schemas.planning import (
     StageSegmentSplitPayload,
     StageOutputPayload,
 )
+from ..quality_eval import evaluate_stage_quality
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(tags=["planning"])
@@ -3108,34 +3109,8 @@ def _create_or_sync_job_card_for_line(
 
 
 def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], quality_checks: dict[str, Any]) -> list[dict[str, Any]]:
-    checks = dict(quality_checks or {})
-    failures: list[dict[str, Any]] = []
-    stage_type = stage_type.upper()
-
-    def _number(value: Any) -> Optional[float]:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _check_range(label: str, key: str, min_key: str, max_key: str) -> None:
-        value = _number(checks.get(key))
-        minimum = _number(spec_snapshot.get(min_key))
-        maximum = _number(spec_snapshot.get(max_key))
-        if value is None or minimum is None or maximum is None:
-            return
-        if value < minimum or value > maximum:
-            failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
-
-    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
-        _check_range("ID", "id", "id_min_mm", "id_max_mm")
-        _check_range("OD", "od", "od_min_mm", "od_max_mm")
-        _check_range("Length", "length", "length_min_mm", "length_max_mm")
-        _check_range("Weight", "weight", "weight_min_g", "weight_max_g")
-        _check_range("CS", "cs", "cs_min_n", "cs_max_n")
-    if stage_type == "OVEN":
-        _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
-    return failures
+    """Backward-compatible failures list; routed through the shared typed evaluator."""
+    return evaluate_stage_quality(stage_type, spec_snapshot or {}, quality_checks or {}).failures
 
 
 def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
@@ -3301,27 +3276,28 @@ def _sync_quality_artifacts(
     quality_payload = dict(stage.quality_checks or {})
     if not quality_payload:
         return []
-    failures = _quality_failures_for_stage(selected_stage, job_card.spec_snapshot or {}, quality_payload)
+    evaluation = evaluate_stage_quality(selected_stage, job_card.spec_snapshot or {}, quality_payload)
     inspection = QualityInspection(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        status="FAIL" if failures else "PASS",
+        status=evaluation.status,
         readings=quality_payload,
-        failures=failures,
+        failures=evaluation.failures,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
     db.flush()
-    if not failures:
+    # A concrete out-of-range failure or untrustworthy (non-finite) reading opens
+    # a hold that blocks the next movement; incomplete readings are recorded as
+    # evidence (status INCOMPLETE) but do not fabricate a PASS.
+    if evaluation.status not in {"FAIL", "INVALID"}:
         return []
     hold = QualityHold(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        reason="; ".join(
-            f"{item['label']} out of range ({item['value']} not in {item['min']}..{item['max']})" for item in failures
-        ),
+        reason=evaluation.issue_summary() or f"{selected_stage} inspection {evaluation.status}",
         status="HOLD",
         source_inspection_id=inspection.id,
         created_by=current_user.get("sub"),
