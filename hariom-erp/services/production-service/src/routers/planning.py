@@ -37,6 +37,7 @@ from ..models import (
     ShiftMaterialLedger,
     StageQueueOrder,
 )
+from ..pending_by_order import summarize_job_cards_by_sales_order
 from ..due_risk import (
     DUE_RISK_OVERDUE,
     DUE_RISK_PRIORITY,
@@ -58,6 +59,8 @@ from ..schemas.planning import (
     JobCardStageCount,
     JobCardStageSegmentResponse,
     JobCardResponse,
+    PendingJobCardByOrderItem,
+    PendingJobCardByOrderResponse,
     PlanningBoardLane,
     PlanningBoardMachineConstraint,
     PlanningBoardResponse,
@@ -5142,6 +5145,50 @@ def get_job_card_aggregates(
         stage_counts=[JobCardStageCount(stage=stage, count=count) for stage, count in stage_counts.items()],
         priority_job_ids=priority_job_ids,
         overdue_job_ids=overdue_job_ids,
+    )
+
+
+@router.get("/job-cards/pending-by-order", response_model=PendingJobCardByOrderResponse)
+def get_job_cards_pending_by_order(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
+):
+    del current_user
+    today = plant_today()
+    query = (
+        db.query(JobCard, SalesOrder)
+        .outerjoin(SalesOrder, SalesOrder.id == JobCard.sales_order_id)
+    )
+    query = _apply_plant_scope_filter(query, JobCard.plant_id, plant_scope)
+    rows = query.all()
+
+    hold_query = db.query(QualityHold.job_card_id, func.count(QualityHold.id)).filter(QualityHold.status == "HOLD")
+    hold_query = hold_query.join(JobCard, JobCard.id == QualityHold.job_card_id)
+    hold_query = _apply_plant_scope_filter(hold_query, JobCard.plant_id, plant_scope)
+    hold_counts = {job_id: int(count) for job_id, count in hold_query.group_by(QualityHold.job_card_id).all()}
+
+    jobs = []
+    due_lookup = {}
+    for job_card, sales_order in rows:
+        jobs.append(job_card)
+        due_lookup[str(job_card.id)] = _job_due_date(job_card, sales_order)
+
+    items, summary = summarize_job_cards_by_sales_order(
+        jobs,
+        hold_counts=hold_counts,
+        today=today,
+        due_date_of=lambda job: due_lookup.get(str(job.id)),
+        classify_due_risk=classify_due_risk,
+        is_open_status=is_open_job_status,
+    )
+    return PendingJobCardByOrderResponse(
+        as_of=datetime.now(PLANT_TIMEZONE),
+        timezone="Asia/Kolkata",
+        plant_today=today,
+        coverage="production_overlay",
+        summary=summary,
+        items=[PendingJobCardByOrderItem(**item) for item in items],
     )
 
 

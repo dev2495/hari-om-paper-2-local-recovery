@@ -145,6 +145,11 @@ async def get_job_card_aggregates(request: Request, token: str = Depends(get_tok
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards/aggregates", request, token)
 
 
+@router.get("/job-cards/pending-by-order")
+async def get_job_cards_pending_by_order(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards/pending-by-order", request, token)
+
+
 @router.get("/job-cards/export")
 async def export_job_cards(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards/export", request, token)

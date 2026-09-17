@@ -3,6 +3,7 @@ from typing import List, Optional
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
@@ -14,6 +15,21 @@ from ..models import (
     SalesOrderReleaseLot,
     SalesOrderStatus,
     SalesOrderDispatchLog,
+)
+from ..pending_workspace import (
+    build_pending_workspace,
+    export_pending_csv,
+    load_open_orders,
+)
+from ..schedule_service import (
+    commit_entire_po,
+    commit_line_schedules,
+    list_order_schedules,
+    load_order_for_schedule,
+    mutate_schedule_row,
+    preview_entire_po,
+    preview_line_schedules,
+    serialize_schedule_row,
 )
 from ..utils.auth import (
     apply_plant_scope,
@@ -119,6 +135,21 @@ class SalesOrderReleaseLotResponse(BaseModel):
     created_at: datetime
 
 
+class SalesOrderDeliveryScheduleResponse(BaseModel):
+    id: uuid.UUID
+    order_id: uuid.UUID
+    line_id: uuid.UUID
+    plant_id: str
+    delivery_date: date
+    quantity: float
+    status: str
+    revision: int
+    immutable: bool = False
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    allocations: List[dict] = Field(default_factory=list)
+
+
 class SalesOrderLineResponse(BaseModel):
     id: uuid.UUID
     line_no: int
@@ -134,6 +165,8 @@ class SalesOrderLineResponse(BaseModel):
     release_remaining_qty: float
     release_lots: List[SalesOrderReleaseLotResponse] = Field(default_factory=list)
     dispatch_logs: List[dict] = Field(default_factory=list)
+    delivery_schedules: List[dict] = Field(default_factory=list)
+    remaining_to_schedule_qty: float = 0.0
 
 
 class SalesOrderResponse(BaseModel):
@@ -151,6 +184,7 @@ class SalesOrderResponse(BaseModel):
     created_at: datetime
     approved_at: Optional[datetime]
     released_at: Optional[datetime]
+    schedule_revision: int = 0
     lines: List[SalesOrderLineResponse]
 
 
@@ -195,8 +229,11 @@ def _timeline_event(
 
 
 def _serialize_line(line: SalesOrderLine) -> dict:
+    from ..schedule_policy import remaining_to_schedule
+
     release_lots = [lot for lot in getattr(line, "release_lots", []) if str(lot.status or "").lower() != "cancelled"]
     released_qty = sum(float(lot.released_qty or 0.0) for lot in release_lots)
+    schedules = list(getattr(line, "delivery_schedules", []) or [])
     return {
         "id": line.id,
         "line_no": int(line.line_no or 1),
@@ -210,6 +247,11 @@ def _serialize_line(line: SalesOrderLine) -> dict:
         "fulfilled_qty": line.fulfilled_qty,
         "remaining_qty": max(0.0, line.qty - line.fulfilled_qty),
         "release_remaining_qty": max(0.0, line.qty - released_qty),
+        "remaining_to_schedule_qty": remaining_to_schedule(line, schedules),
+        "delivery_schedules": [
+            serialize_schedule_row(row)
+            for row in sorted(schedules, key=lambda item: (item.delivery_date or date.max, str(item.id)))
+        ],
         "release_lots": [
             {
                 "id": lot.id,
@@ -254,6 +296,7 @@ def _serialize_order(order: SalesOrder) -> dict:
         "created_at": order.created_at,
         "approved_at": order.approved_at,
         "released_at": order.released_at,
+        "schedule_revision": int(getattr(order, "schedule_revision", 0) or 0),
         "plant_id": str(order.plant_id),
         "lines": [_serialize_line(line) for line in order.lines],
     }
@@ -384,6 +427,7 @@ def list_sales_orders(
         db.query(SalesOrder).options(
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.dispatch_logs),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
         ),
         SalesOrder.plant_id,
         plant_scope,
@@ -429,6 +473,47 @@ class SalesOrderAggregatesResponse(BaseModel):
     total_order_count: int
     open_qty: float
     remaining_qty: float
+    booked_value: float = 0.0
+    open_order_book_value: float = 0.0
+    released_open_value: float = 0.0
+    dispatched_value: float = 0.0
+    open_value_by_customer: List[dict] = Field(default_factory=list)
+
+
+class DeliveryScheduleRowInput(BaseModel):
+    id: Optional[uuid.UUID] = None
+    line_id: uuid.UUID
+    delivery_date: date
+    quantity: float = Field(..., gt=0)
+    status: Optional[str] = "committed"
+
+
+class DeliverySchedulePreviewPayload(BaseModel):
+    rows: List[DeliveryScheduleRowInput] = Field(..., min_length=1)
+
+
+class DeliveryScheduleCommitPayload(BaseModel):
+    expected_revision: int = 0
+    rows: List[DeliveryScheduleRowInput] = Field(..., min_length=1)
+    allocations: Optional[List[dict]] = None
+
+
+class ScheduleEntirePoLineSplit(BaseModel):
+    delivery_date: date
+    quantity: float = Field(..., gt=0)
+    status: Optional[str] = "committed"
+
+
+class ScheduleEntirePoPayload(BaseModel):
+    expected_revision: int = 0
+    default_date: Optional[date] = None
+    line_splits: Optional[dict[str, List[ScheduleEntirePoLineSplit]]] = None
+
+
+class DeliverySchedulePatchPayload(BaseModel):
+    quantity: Optional[float] = Field(default=None, gt=0)
+    delivery_date: Optional[date] = None
+    status: Optional[str] = None
 
 
 @router.get("/aggregates", response_model=SalesOrderAggregatesResponse)
@@ -470,6 +555,90 @@ def get_sales_order_aggregates(
     )
     planner_synced_count = int(synced_query.scalar() or 0)
 
+    booked_value = float(
+        apply_plant_scope(
+            db.query(func.coalesce(func.sum(SalesOrderLine.qty * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)), 0.0)).join(
+                SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+            ),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).scalar()
+        or 0.0
+    )
+    open_order_book_value = float(
+        apply_plant_scope(
+            db.query(
+                func.coalesce(
+                    func.sum((SalesOrderLine.qty - SalesOrderLine.fulfilled_qty) * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)),
+                    0.0,
+                )
+            )
+            .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+            .filter(SalesOrder.status != SalesOrderStatus.CLOSED),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).scalar()
+        or 0.0
+    )
+    dispatched_value = float(
+        apply_plant_scope(
+            db.query(func.coalesce(func.sum(SalesOrderLine.fulfilled_qty * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)), 0.0)).join(
+                SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+            ),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).scalar()
+        or 0.0
+    )
+    released_rows = apply_plant_scope(
+        db.query(
+            SalesOrderLine.id,
+            SalesOrderLine.fulfilled_qty,
+            SalesOrderLine.rate_per_pc,
+            SalesOrderReleaseLot.released_qty,
+            SalesOrderReleaseLot.status,
+        )
+        .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+        .outerjoin(SalesOrderReleaseLot, SalesOrderReleaseLot.sales_order_line_id == SalesOrderLine.id)
+        .filter(SalesOrder.status != SalesOrderStatus.CLOSED),
+        SalesOrder.plant_id,
+        plant_scope,
+    ).all()
+    released_by_line: dict[str, dict[str, float]] = {}
+    for row in released_rows:
+        bucket = released_by_line.setdefault(
+            str(row.id),
+            {"fulfilled": float(row.fulfilled_qty or 0.0), "rate": float(row.rate_per_pc or 0.0), "released": 0.0},
+        )
+        if str(row.status or "").lower() != "cancelled":
+            bucket["released"] += float(row.released_qty or 0.0)
+    released_open_value = sum(
+        max(0.0, bucket["released"] - bucket["fulfilled"]) * bucket["rate"] for bucket in released_by_line.values()
+    )
+
+    customer_open_value = func.coalesce(
+        func.sum((SalesOrderLine.qty - SalesOrderLine.fulfilled_qty) * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)),
+        0.0,
+    ).label("open_value")
+    customer_value_query = apply_plant_scope(
+        db.query(
+            SalesOrder.customer_id,
+            customer_open_value,
+        )
+        .join(SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id)
+        .filter(SalesOrder.status != SalesOrderStatus.CLOSED)
+        .group_by(SalesOrder.customer_id)
+        .order_by(customer_open_value.desc())
+        .limit(5),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    open_value_by_customer = [
+        {"customer_id": str(row.customer_id), "open_value": round(float(row.open_value or 0.0), 2)}
+        for row in customer_value_query.all()
+        if float(row.open_value or 0.0) > 0
+    ]
+
     return {
         "draft_count": draft_count,
         "ready_count": ready_count,
@@ -479,7 +648,247 @@ def get_sales_order_aggregates(
         "total_order_count": total_order_count,
         "open_qty": round(open_qty, 2),
         "remaining_qty": round(max(open_qty, 0.0), 2),
+        "booked_value": round(booked_value, 2),
+        "open_order_book_value": round(open_order_book_value, 2),
+        "released_open_value": round(released_open_value, 2),
+        "dispatched_value": round(dispatched_value, 2),
+        "open_value_by_customer": open_value_by_customer,
     }
+
+
+def _pending_filters(
+    *,
+    search: Optional[str],
+    customer_id: Optional[uuid.UUID],
+    source: Optional[str],
+    status: Optional[str],
+    product: Optional[str],
+    due_from: Optional[date],
+    due_to: Optional[date],
+    due_risk: Optional[str],
+    missing_schedule: Optional[bool],
+) -> dict:
+    return {
+        "search": search,
+        "customer_id": str(customer_id) if customer_id else None,
+        "source": source,
+        "status": status,
+        "product": product,
+        "due_from": due_from,
+        "due_to": due_to,
+        "due_risk": due_risk,
+        "missing_schedule": missing_schedule,
+    }
+
+
+@router.get("/pending")
+def list_pending_orders(
+    search: Optional[str] = Query(None, min_length=1, max_length=120),
+    customer_id: Optional[uuid.UUID] = Query(None),
+    source: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    product: Optional[str] = Query(None),
+    due_from: Optional[date] = Query(None),
+    due_to: Optional[date] = Query(None),
+    due_risk: Optional[str] = Query(None),
+    missing_schedule: Optional[bool] = Query(None),
+    sort: str = Query("due_date"),
+    direction: str = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    orders = load_open_orders(db, plant_scope)
+    return build_pending_workspace(
+        orders,
+        filters=_pending_filters(
+            search=search,
+            customer_id=customer_id,
+            source=source,
+            status=status,
+            product=product,
+            due_from=due_from,
+            due_to=due_to,
+            due_risk=due_risk,
+            missing_schedule=missing_schedule,
+        ),
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        direction=direction,
+        plant_scope=plant_scope,
+    )
+
+
+@router.get("/pending/export")
+def export_pending_orders(
+    search: Optional[str] = Query(None, min_length=1, max_length=120),
+    customer_id: Optional[uuid.UUID] = Query(None),
+    source: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    product: Optional[str] = Query(None),
+    due_from: Optional[date] = Query(None),
+    due_to: Optional[date] = Query(None),
+    due_risk: Optional[str] = Query(None),
+    missing_schedule: Optional[bool] = Query(None),
+    sort: str = Query("due_date"),
+    direction: str = Query("asc"),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    orders = load_open_orders(db, plant_scope)
+    payload = build_pending_workspace(
+        orders,
+        filters=_pending_filters(
+            search=search,
+            customer_id=customer_id,
+            source=source,
+            status=status,
+            product=product,
+            due_from=due_from,
+            due_to=due_to,
+            due_risk=due_risk,
+            missing_schedule=missing_schedule,
+        ),
+        limit=10_000_000,
+        offset=0,
+        sort=sort,
+        direction=direction,
+        plant_scope=plant_scope,
+    )
+    csv_body = export_pending_csv(payload)
+    return StreamingResponse(
+        iter([csv_body]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=pending-orders.csv"},
+    )
+
+
+def _group_rows_by_line(rows: List[DeliveryScheduleRowInput]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.line_id), []).append(
+            {
+                "id": str(row.id) if row.id else None,
+                "line_id": str(row.line_id),
+                "delivery_date": row.delivery_date,
+                "quantity": row.quantity,
+                "status": row.status or "committed",
+            }
+        )
+    return grouped
+
+
+@router.get("/{order_id}/delivery-schedules")
+def get_order_delivery_schedules(
+    order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return list_order_schedules(order)
+
+
+@router.post("/{order_id}/delivery-schedules/preview")
+def preview_order_delivery_schedules(
+    order_id: uuid.UUID,
+    payload: DeliverySchedulePreviewPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    del current_user
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return preview_line_schedules(order, _group_rows_by_line(payload.rows))
+
+
+@router.post("/{order_id}/delivery-schedules/commit")
+def commit_order_delivery_schedules(
+    order_id: uuid.UUID,
+    payload: DeliveryScheduleCommitPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return commit_line_schedules(
+        db,
+        order=order,
+        proposed_by_line=_group_rows_by_line(payload.rows),
+        expected_revision=payload.expected_revision,
+        actor=str(current_user.get("sub") or "unknown"),
+        allocations=payload.allocations,
+    )
+
+
+@router.post("/{order_id}/schedule-entire-po/preview")
+def preview_schedule_entire_po(
+    order_id: uuid.UUID,
+    payload: ScheduleEntirePoPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    del current_user
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    splits = None
+    if payload.line_splits:
+        splits = {
+            line_id: [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in rows]
+            for line_id, rows in payload.line_splits.items()
+        }
+    return preview_entire_po(order, default_date=payload.default_date, line_splits=splits)
+
+
+@router.post("/{order_id}/schedule-entire-po/commit")
+def commit_schedule_entire_po(
+    order_id: uuid.UUID,
+    payload: ScheduleEntirePoPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    splits = None
+    if payload.line_splits:
+        splits = {
+            line_id: [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in rows]
+            for line_id, rows in payload.line_splits.items()
+        }
+    return commit_entire_po(
+        db,
+        order=order,
+        expected_revision=payload.expected_revision,
+        actor=str(current_user.get("sub") or "unknown"),
+        default_date=payload.default_date,
+        line_splits=splits,
+    )
+
+
+@router.patch("/{order_id}/delivery-schedules/{schedule_id}")
+def patch_delivery_schedule_row(
+    order_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    payload: DeliverySchedulePatchPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return mutate_schedule_row(
+        db,
+        order=order,
+        schedule_id=schedule_id,
+        updates=payload.model_dump() if hasattr(payload, "model_dump") else payload.dict(),
+        actor=str(current_user.get("sub") or "unknown"),
+    )
 
 
 @router.get("/{order_id}/timeline")
@@ -632,7 +1041,10 @@ def get_sales_order(
 ):
     query = apply_plant_scope(
         db.query(SalesOrder)
-        .options(joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots))
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
         .filter(SalesOrder.id == order_id),
         SalesOrder.plant_id,
         plant_scope,

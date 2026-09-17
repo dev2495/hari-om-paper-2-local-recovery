@@ -456,6 +456,35 @@ class JobCardAggregatesResponse(BaseModel):
     overdue_job_ids: list[str] = Field(default_factory=list)
 
 
+class PendingJobCardByOrderItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sales_order_id: str
+    job_count: int
+    open_job_count: int
+    completed_job_count: int
+    blocked_job_count: int
+    dispatch_ready_job_count: int
+    released_qty: float
+    stage_counts: dict[str, int]
+    job_card_ids: list[str] = Field(default_factory=list)
+    due_priority: int = 0
+    due_overdue: int = 0
+    earliest_due: Optional[str] = None
+    flow_status: str
+
+
+class PendingJobCardByOrderResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of: datetime
+    timezone: str
+    plant_today: date
+    coverage: str = "production_overlay"
+    summary: dict[str, int]
+    items: list[PendingJobCardByOrderItem]
+
+
 class JobCardPlanningStage(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
