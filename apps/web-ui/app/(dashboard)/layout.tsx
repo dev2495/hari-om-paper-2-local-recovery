@@ -150,7 +150,7 @@ const navigationUnits: NavGroup[] = [
         name: "MRP",
         href: "/analytics/mrp",
         icon: LineChart,
-        description: "Material shortage planning and purchase draft generation.",
+        description: "Reorder-policy review and demand/BOM coverage. Two separate measures.",
         roles: ["Owner", "Admin", "Store", "Planner"],
       },
       {
