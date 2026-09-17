@@ -37,13 +37,25 @@ from ..models import (
     ShiftMaterialLedger,
     StageQueueOrder,
 )
+from ..due_risk import (
+    DUE_RISK_OVERDUE,
+    DUE_RISK_PRIORITY,
+    classify_due_risk,
+    due_risk_label,
+    is_open_job_status,
+    overdue_label,
+    plant_today,
+    priority_window,
+)
 from ..schemas.planning import (
     AssignMachinePayload,
     BoardMovePayload,
+    JobCardAggregatesResponse,
     JobCardCreate,
     JobCardPlannerSummary,
     JobCardPlanningDetail,
     JobCardPlanningStage,
+    JobCardStageCount,
     JobCardStageSegmentResponse,
     JobCardResponse,
     PlanningBoardLane,
@@ -700,6 +712,34 @@ def _validate_machine_compatibility(
             status_code=400,
             detail="Machine is not configured for the specification mandrel",
         )
+
+
+def _validate_winder_queue_identity(machine: dict[str, Any], plant_id: str) -> None:
+    """Sales release admission: real same-plant WINDER queue only. No geometry/capacity veto."""
+    try:
+        machine_plant_id = _to_uuid(str(machine.get("plant_id") or ""), "machine.plant_id")
+        selected_plant_id = _to_uuid(str(plant_id or ""), "plant_id")
+    except HTTPException:
+        machine_plant_id = None
+        selected_plant_id = None
+    if machine_plant_id != selected_plant_id:
+        raise HTTPException(status_code=400, detail="Winder belongs to another plant")
+    if str(machine.get("department") or "").strip().upper() != "WINDER":
+        raise HTTPException(status_code=400, detail="Selected machine is not a WINDER queue")
+    if not machine.get("id"):
+        raise HTTPException(status_code=400, detail="Winder identity is missing")
+
+
+def _compatibility_warning_for_machine(
+    machine: dict[str, Any],
+    spec_snapshot: dict[str, Any],
+    plant_id: str,
+) -> Optional[str]:
+    try:
+        _validate_machine_compatibility(machine, "WINDER", spec_snapshot, plant_id)
+    except HTTPException as exc:
+        return str(exc.detail)
+    return None
 
 
 def _validate_machine_presence_for_packing(machine: dict[str, Any], plant_id: str) -> None:
@@ -1616,6 +1656,12 @@ def _snapshot_date(value: Any) -> Optional[date]:
         return date.fromisoformat(str(raw))
     except ValueError:
         return None
+
+
+def _job_due_date(job_card: JobCard, sales_order: Optional[SalesOrder] = None) -> Optional[date]:
+    return _snapshot_date((job_card.spec_snapshot or {}).get("sales_order_line_due_date")) or (
+        sales_order.due_date if sales_order else None
+    )
 
 
 def _format_measure(value: Any, digits: int = 2) -> str:
@@ -2939,12 +2985,7 @@ def _create_or_sync_job_card_for_line(
     routing_stages = list(routing_snapshot.get("stages") or _routing_stages_from_snapshot(spec_snapshot))
     first_stage = str(routing_snapshot.get("first_stage") or routing_stages[0])
     assigned_winder = _fetch_machine(winder_machine_id, token, plant_id)
-    _validate_machine_compatibility(
-        machine=assigned_winder,
-        stage="WINDER",
-        spec_snapshot=spec_snapshot,
-        plant_id=plant_id,
-    )
+    _validate_winder_queue_identity(machine=assigned_winder, plant_id=plant_id)
 
     def _reset_winder_to_release_queue(job_card: JobCard) -> None:
         winder_stage = next((stage for stage in job_card.stages if stage.stage_type == "WINDER"), None)
@@ -2986,55 +3027,21 @@ def _create_or_sync_job_card_for_line(
         _sync_stage_row_from_segments(winder_stage, _all_stage_segments(db, job_card.id, "WINDER"))
 
     if existing:
-        before_payload = {
-            "planned_qty": float(existing.planned_qty or 0.0),
-            "current_stage": existing.current_stage,
-            "status": existing.status,
-        }
-        existing.spec_id = line_spec_id
-        existing.spec_snapshot = spec_snapshot
-        existing.routing_snapshot = routing_snapshot
-        existing.material_plan_snapshot = material_plan_snapshot
-        existing.release_lot_id = release_lot_id
-        existing.released_qty = planned_qty
-        existing.assigned_winder_machine_id = winder_machine_id
-        existing.product_code = product_code
-        existing.planned_qty = planned_qty
-        existing.requires_slitting = requires_slitting
-        if existing.status != "COMPLETED":
-            existing.current_stage = first_stage if existing.current_stage == "DONE" else existing.current_stage
-            existing.status = "PLANNED"
-        queue_created = _ensure_job_card_stages(
-            db=db,
-            job_card=existing,
-            routing_stages=routing_stages,
-            first_stage=first_stage,
-        )
-        _record_audit_event(
-            db=db,
-            plant_id=plant_uuid,
-            entity_type="job_card",
-            entity_id=existing.id,
-            action="release_sync_refresh",
-            actor_id=current_user.get("sub"),
-            actor_role=_current_actor_role(current_user),
-            job_card_id=existing.id,
-            payload={
-                "sales_order_id": str(sales_order.id),
-                "sales_order_line_id": str(line_id),
-                "release_lot_id": str(release_lot_id),
-                "first_stage": first_stage,
-                "queue_created": queue_created,
-            },
-            before_payload=before_payload,
-            after_payload={
-                "planned_qty": float(existing.planned_qty or 0.0),
-                "current_stage": existing.current_stage,
-                "status": existing.status,
-            },
-        )
-        _reset_winder_to_release_queue(existing)
-        return existing, queue_created
+        same_qty = abs(float(existing.planned_qty or 0.0) - float(planned_qty)) <= 0.0001
+        same_spec = existing.spec_id == line_spec_id
+        same_winder = existing.assigned_winder_machine_id == winder_machine_id
+        if same_qty and same_spec and (same_winder or existing.assigned_winder_machine_id is None):
+            if existing.assigned_winder_machine_id is None:
+                existing.assigned_winder_machine_id = winder_machine_id
+            return existing, False
+        if not same_qty or not same_spec:
+            raise HTTPException(
+                status_code=409,
+                detail="Release lot already has a job card with a different quantity or specification; use an amendment, not a retry",
+            )
+        if existing.assigned_winder_machine_id and not same_winder:
+            raise HTTPException(status_code=409, detail="A planner-linked release lot cannot change its winder")
+        return existing, False
 
     job_card = JobCard(
         plant_id=plant_uuid,
@@ -3769,8 +3776,9 @@ def _build_execution_snapshot(
     active_cards = 0
     blocked_jobs = 0
     overdue_jobs = 0
+    priority_jobs = 0
     completed_cards = 0
-    today = datetime.now(PLANT_TIMEZONE).date()
+    today = plant_today()
 
     for job_card, sales_order in card_rows:
         status = str(job_card.status or "").upper()
@@ -3786,9 +3794,12 @@ def _build_execution_snapshot(
         blocked_reason = None
         if len(scoped_segments) > 1:
             blocked_reason = f"{len(scoped_segments)} open segments still need stage completion"
-        due_date = sales_order.due_date if sales_order else _snapshot_date((job_card.spec_snapshot or {}).get("sales_order_line_due_date"))
-        if due_date and due_date < today:
+        due_date = _job_due_date(job_card, sales_order)
+        due_bucket = classify_due_risk(due_date, today)
+        if due_bucket == DUE_RISK_OVERDUE:
             overdue_jobs += 1
+        elif due_bucket == DUE_RISK_PRIORITY:
+            priority_jobs += 1
         if blocked_reason:
             blocked_jobs += 1
         live_rows.append(
@@ -3806,6 +3817,7 @@ def _build_execution_snapshot(
                 "released_qty": float(job_card.released_qty or 0.0),
                 "blocked_reason": blocked_reason,
                 "due_date": due_date.isoformat() if due_date else None,
+                "due_risk_bucket": due_bucket,
                 "status": job_card.status,
             }
         )
@@ -3923,6 +3935,7 @@ def _build_execution_snapshot(
                 "blocked_jobs": blocked_jobs,
                 "completed_jobs": completed_cards,
                 "overdue_jobs": overdue_jobs,
+                "priority_jobs": priority_jobs,
             },
             "wip_by_stage": [{"stage": stage, "jobs": count} for stage, count in sorted(wip_by_stage.items())],
             "rows": live_rows,
@@ -4525,36 +4538,55 @@ def preflight_sales_order_release(
         spec = _fetch_spec(_to_uuid(str(approved_spec_id), field="approved_spec_id"), token, plant_id)
         spec_snapshot = _build_spec_snapshot(spec, str(live_order.get("priority") or "NORMAL").upper())
 
+        authorized_winders: list[dict[str, Any]] = []
         compatible_winders: list[dict[str, Any]] = []
+        identity_error_by_id: dict[str, str] = {}
         incompatibility_by_id: dict[str, str] = {}
         for machine in plant_winders:
             machine_id = str(machine.get("id") or "")
             try:
-                _validate_machine_compatibility(machine, "WINDER", spec_snapshot, plant_id)
+                _validate_winder_queue_identity(machine, plant_id)
             except HTTPException as exc:
-                incompatibility_by_id[machine_id] = str(exc.detail)
+                identity_error_by_id[machine_id] = str(exc.detail)
                 continue
-            compatible_winders.append(_release_machine_summary(machine))
+            summary = _release_machine_summary(machine)
+            authorized_winders.append(summary)
+            warning = _compatibility_warning_for_machine(machine, spec_snapshot, plant_id)
+            if warning:
+                incompatibility_by_id[machine_id] = warning
+            else:
+                compatible_winders.append(summary)
 
         selected_machine_id = str(requested_row.winder_machine_id or "")
+        selected_is_authorized = bool(selected_machine_id) and any(
+            str(machine.get("id")) == selected_machine_id for machine in authorized_winders
+        )
         selected_is_compatible = bool(selected_machine_id) and any(
             str(machine.get("id")) == selected_machine_id for machine in compatible_winders
         )
         blocker = None
-        if not compatible_winders:
-            blocker = f"{line_label}: no active winder covers this specification's ID, OD, length and mandrel range"
-        elif selected_machine_id and not selected_is_compatible:
-            blocker = f"{line_label}: {incompatibility_by_id.get(selected_machine_id, 'selected winder is unavailable or incompatible')}"
+        compatibility_warning = None
+        if not authorized_winders:
+            blocker = f"{line_label}: no authorized same-plant winder queue is available"
+        elif selected_machine_id and not selected_is_authorized:
+            blocker = f"{line_label}: {identity_error_by_id.get(selected_machine_id, 'selected machine is not an authorized same-plant winder queue')}"
         elif not selected_machine_id:
-            blocker = f"{line_label}: select a compatible winder"
+            blocker = f"{line_label}: select a winder queue"
+        elif selected_machine_id and not selected_is_compatible:
+            compatibility_warning = incompatibility_by_id.get(
+                selected_machine_id,
+                "Selected winder is outside the specification geometry range; queued anyway",
+            )
 
         results.append(
             ReleasePreflightLineResult(
                 sales_order_line_id=requested_row.sales_order_line_id,
                 release_lot_id=requested_row.release_lot_id,
                 release_qty=float(requested_row.release_qty),
+                authorized_winders=authorized_winders,
                 compatible_winders=compatible_winders,
                 selected_winder_compatible=selected_is_compatible,
+                compatibility_warning=compatibility_warning,
                 blocker=blocker,
             )
         )
@@ -4799,7 +4831,9 @@ def export_planning_board(
     )
 
     export_rows: list[dict[str, Any]] = []
+    today = plant_today()
     for queue_entry, job_card, stage_row, sales_order in rows:
+        due_date = _job_due_date(job_card, sales_order)
         export_rows.append(
             {
                 "sequence_no": queue_entry.sequence_no,
@@ -4813,10 +4847,8 @@ def export_planning_board(
                 "stage_status": stage_row.status,
                 "planned_start": stage_row.planned_start.isoformat() if stage_row.planned_start else "",
                 "planned_end": stage_row.planned_end.isoformat() if stage_row.planned_end else "",
-                "due_date": str(
-                    _snapshot_date((job_card.spec_snapshot or {}).get("sales_order_line_due_date"))
-                    or (sales_order.due_date if sales_order else "")
-                ),
+                "due_date": str(due_date or ""),
+                "due_risk_bucket": classify_due_risk(due_date, today) or "",
             }
         )
 
@@ -4825,7 +4857,7 @@ def export_planning_board(
             f"Planning Export - {selected_stage}",
             f"Plan Date: {plan_date.isoformat() if plan_date else 'ALL'}",
             "",
-            "SEQ | MACHINE | JOB CARD | SALES ORDER | CUSTOMER | QTY | STAGE STATUS | DUE DATE",
+            "SEQ | MACHINE | JOB CARD | SALES ORDER | CUSTOMER | QTY | STAGE STATUS | DUE DATE | DUE RISK",
         ]
         for row in export_rows:
             lines.append(
@@ -4839,6 +4871,7 @@ def export_planning_board(
                         f"{row['planned_qty']:.2f}",
                         row["stage_status"],
                         row["due_date"] or "-",
+                        row["due_risk_bucket"] or "-",
                     ]
                 )
             )
@@ -4866,6 +4899,7 @@ def export_planning_board(
             "planned_start",
             "planned_end",
             "due_date",
+            "due_risk_bucket",
         ],
     )
     writer.writeheader()
@@ -4886,6 +4920,8 @@ def list_planning_job_cards(
     release_lot_id: Optional[uuid.UUID] = Query(None),
     status: Optional[str] = Query(None),
     current_stage: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None, description="Alias for current_stage; used by URL-driven stage tiles"),
+    due_risk: Optional[str] = Query(None, description="PRIORITY or OVERDUE using the plant-local 3-day predicate"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -4902,11 +4938,17 @@ def list_planning_job_cards(
     if status:
         query = query.filter(JobCard.status == status.strip().upper())
 
-    if current_stage:
-        selected_stage = current_stage.strip().upper()
-        if selected_stage not in [*STAGE_SEQUENCE, "DONE"]:
+    stage_filter = (current_stage or stage or "").strip().upper() or None
+    if stage_filter:
+        if stage_filter not in [*STAGE_SEQUENCE, "DONE"]:
             raise HTTPException(status_code=400, detail="Invalid current_stage filter")
-        query = query.filter(JobCard.current_stage == selected_stage)
+        query = query.filter(JobCard.current_stage == stage_filter)
+
+    due_risk_value = (due_risk or "").strip().upper() or None
+    if due_risk_value:
+        if due_risk_value not in {DUE_RISK_PRIORITY, DUE_RISK_OVERDUE}:
+            raise HTTPException(status_code=400, detail="due_risk must be PRIORITY or OVERDUE")
+        query = query.filter(~JobCard.status.in_(["COMPLETED", "CANCELLED"]))
 
     if sales_order_id:
         query = query.filter(JobCard.sales_order_id == sales_order_id)
@@ -4937,12 +4979,17 @@ def list_planning_job_cards(
                 or_(*ref_conditions)
             )
 
-    rows = (
-        query.order_by(JobCard.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-        .all()
-    )
+    ordered = query.order_by(JobCard.created_at.desc())
+    today = plant_today()
+    if due_risk_value:
+        matched_rows = [
+            (job_card, sales_order)
+            for job_card, sales_order in ordered.all()
+            if classify_due_risk(_job_due_date(job_card, sales_order), today) == due_risk_value
+        ]
+        rows = matched_rows[offset : offset + limit]
+    else:
+        rows = ordered.offset(offset).limit(limit).all()
 
     response: list[JobCardPlannerSummary] = []
     for job_card, sales_order in rows:
@@ -5012,13 +5059,152 @@ def list_planning_job_cards(
                 target_bamboo_count=math_context["target_bamboo_count"],
                 selected_bamboo_length_mm=_snapshot_float(spec_snapshot.get("selected_bamboo_length_mm")),
                 usable_length_mm=_snapshot_float(spec_snapshot.get("usable_length_mm")),
-                due_date=_snapshot_date(spec_snapshot.get("sales_order_line_due_date")) or (
-                    sales_order.due_date if sales_order else None
-                ),
+                due_date=_job_due_date(job_card, sales_order),
+                due_risk_bucket=classify_due_risk(_job_due_date(job_card, sales_order), today) if is_open_job_status(job_card.status) else None,
                 created_at=job_card.created_at,
             )
         )
     return response
+
+
+@router.get("/job-cards/aggregates", response_model=JobCardAggregatesResponse)
+def get_job_card_aggregates(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
+):
+    del current_user
+    today = plant_today()
+    priority_start, priority_end = priority_window(today)
+    query = (
+        db.query(JobCard, SalesOrder)
+        .outerjoin(SalesOrder, SalesOrder.id == JobCard.sales_order_id)
+    )
+    query = _apply_plant_scope_filter(query, JobCard.plant_id, plant_scope)
+    rows = query.all()
+
+    hold_query = db.query(QualityHold.job_card_id, func.count(QualityHold.id)).filter(QualityHold.status == "HOLD")
+    hold_query = hold_query.join(JobCard, JobCard.id == QualityHold.job_card_id)
+    hold_query = _apply_plant_scope_filter(hold_query, JobCard.plant_id, plant_scope)
+    hold_counts = {job_id: int(count) for job_id, count in hold_query.group_by(QualityHold.job_card_id).all()}
+
+    stage_counts = {stage: 0 for stage in STAGE_SEQUENCE}
+    open_cards = 0
+    completed_cards = 0
+    due_priority = 0
+    due_overdue = 0
+    dispatch_ready = 0
+    qc_holds = 0
+    blocked = 0
+    priority_job_ids: list[str] = []
+    overdue_job_ids: list[str] = []
+
+    for job_card, sales_order in rows:
+        if str(job_card.status or "").upper() == "COMPLETED":
+            completed_cards += 1
+        if not is_open_job_status(job_card.status):
+            continue
+        open_cards += 1
+        stage = str(job_card.current_stage or "UNASSIGNED").upper()
+        if stage in stage_counts:
+            stage_counts[stage] += 1
+        due_bucket = classify_due_risk(_job_due_date(job_card, sales_order), today)
+        if due_bucket == DUE_RISK_PRIORITY:
+            due_priority += 1
+            priority_job_ids.append(str(job_card.id))
+        elif due_bucket == DUE_RISK_OVERDUE:
+            due_overdue += 1
+            overdue_job_ids.append(str(job_card.id))
+        if stage == "DISPATCH":
+            dispatch_ready += 1
+        active_holds = int(hold_counts.get(job_card.id, 0))
+        qc_holds += active_holds
+        if active_holds > 0 or stage == "QC":
+            blocked += 1
+
+    return JobCardAggregatesResponse(
+        as_of=datetime.now(PLANT_TIMEZONE),
+        timezone="Asia/Kolkata",
+        plant_today=today,
+        priority_start=priority_start,
+        priority_end=priority_end,
+        priority_label=due_risk_label(today),
+        overdue_label=overdue_label(),
+        open_cards=open_cards,
+        completed_cards=completed_cards,
+        due_priority=due_priority,
+        due_overdue=due_overdue,
+        dispatch_ready=dispatch_ready,
+        qc_holds=qc_holds,
+        blocked=blocked,
+        stage_counts=[JobCardStageCount(stage=stage, count=count) for stage, count in stage_counts.items()],
+        priority_job_ids=priority_job_ids,
+        overdue_job_ids=overdue_job_ids,
+    )
+
+
+@router.get("/job-cards/export")
+def export_job_cards(
+    search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    current_stage: Optional[str] = Query(None),
+    stage: Optional[str] = Query(None),
+    due_risk: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
+):
+    rows = list_planning_job_cards(
+        search=search,
+        sales_order_id=None,
+        sales_order_line_id=None,
+        release_lot_id=None,
+        status=status,
+        current_stage=current_stage,
+        stage=stage,
+        due_risk=due_risk,
+        limit=500,
+        offset=0,
+        db=db,
+        plant_scope=plant_scope,
+        current_user=current_user,
+    )
+    buffer = io.StringIO()
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=[
+            "job_card_id",
+            "job_card_ref",
+            "current_stage",
+            "status",
+            "due_date",
+            "due_risk_bucket",
+            "planned_qty",
+            "product_code",
+            "customer_name",
+        ],
+    )
+    writer.writeheader()
+    for row in rows:
+        writer.writerow(
+            {
+                "job_card_id": str(row.id),
+                "job_card_ref": row.job_card_ref or "",
+                "current_stage": row.current_stage,
+                "status": row.status,
+                "due_date": str(row.due_date or ""),
+                "due_risk_bucket": row.due_risk_bucket or "",
+                "planned_qty": row.planned_qty,
+                "product_code": row.product_code or "",
+                "customer_name": row.customer_name or "",
+            }
+        )
+    buffer.seek(0)
+    return StreamingResponse(
+        buffer,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="job-cards.csv"'},
+    )
 
 
 @router.get("/job-cards/{job_card_id}", response_model=JobCardPlanningDetail)
