@@ -444,6 +444,7 @@ def ensure_runtime_schema() -> None:
         "WHERE current_expected_date IS NULL"
       )
     )
+    connection.execute(text('ALTER TABLE IF EXISTS purchase_line_schedules DROP COLUMN IF EXISTS "current_date"'))
 
 
 ensure_runtime_schema()
