@@ -91,6 +91,7 @@ export const authApi = {
   updateUser: (id: string, data: any) => api.put(`/api/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/api/auth/users/${id}`),
   getRoles: () => api.get("/api/auth/roles"),
+  getRoleMatrix: () => api.get("/api/auth/roles/matrix"),
   getNotifications: (params?: any) => api.get("/api/auth/notifications", { params }),
   getNotificationUnreadCount: () => api.get("/api/auth/notifications/unread-count"),
   markAllNotificationsRead: () => api.post("/api/auth/notifications/mark-all-read"),
