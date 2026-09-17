@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Integer, Date, DateTime, ForeignKey, Enum as SQLEnum, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, String, Float, Integer, Date, DateTime, ForeignKey, Enum as SQLEnum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -17,6 +17,12 @@ class SalesOrderStatus(str, enum.Enum):
     CLOSED = "closed"
 
 
+class SalesOrderOrigin(str, enum.Enum):
+    CUSTOMER_PO = "CUSTOMER_PO"
+    INTERNAL = "INTERNAL"
+    REVIEW = "REVIEW"
+
+
 class SalesOrder(Base):
     __tablename__ = "sales_orders"
 
@@ -24,8 +30,11 @@ class SalesOrder(Base):
     order_no = Column(String(50), unique=True, nullable=False)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT-1")
     customer_id = Column(UUID(as_uuid=True), nullable=False)
+    origin = Column(String(20), nullable=False, default=SalesOrderOrigin.CUSTOMER_PO.value)
+    origin_review_required = Column(Boolean, nullable=False, default=False)
     po_number = Column(String(100), nullable=True)
     po_date = Column(Date, nullable=True)
+    internal_order_date = Column(Date, nullable=True)
     notes = Column(Text, nullable=True)
 
     status = Column(SQLEnum(SalesOrderStatus), nullable=False, default=SalesOrderStatus.DRAFT)
@@ -50,6 +59,8 @@ class SalesOrderLine(Base):
     line_no = Column(Float, nullable=False, default=1)
     approved_spec_id = Column(UUID(as_uuid=True), nullable=False)
     product_code = Column(String(120), nullable=True)
+    parchment_required = Column(Boolean, nullable=False, default=False)
+    parchment_color_id = Column(UUID(as_uuid=True), nullable=True)
     parchment_color = Column(String(100), nullable=True)
     rate_per_pc = Column(Float, nullable=True)
     qty = Column(Float, nullable=False)

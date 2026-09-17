@@ -29,7 +29,9 @@ export function normalizeSalesOrder(order: any) {
       fulfilled_qty: fulfilledQty,
       remaining_qty: remainingQty,
       due_date: line?.due_date || null,
-      parchment_color: line?.parchment_color || line?.parchment_pattern || null,
+      parchment_required: Boolean(line?.parchment_required),
+      parchment_color_id: line?.parchment_required ? line?.parchment_color_id || null : null,
+      parchment_color: line?.parchment_required ? line?.parchment_color || line?.parchment_pattern || null : null,
     }
   })
 
@@ -37,6 +39,9 @@ export function normalizeSalesOrder(order: any) {
     ...order,
     po_number: order?.po_number || null,
     po_date: order?.po_date || null,
+    origin: String(order?.origin || "CUSTOMER_PO").toUpperCase(),
+    origin_review_required: Boolean(order?.origin_review_required),
+    internal_order_date: order?.internal_order_date || null,
     lines: normalizedLines,
     status: String(order?.status || "draft").toLowerCase(),
     customer_name: order?.customer_name || order?.customer_id || "Customer",
@@ -116,7 +121,8 @@ function normalizeReleasedLines(orders: any[]) {
         released_qty: Number(line.released_qty || line.qty_released || 0),
         release_remaining_qty: Number(line.release_remaining_qty ?? line.remaining_qty ?? line.remainingQty ?? line.qty ?? 0),
         remaining_qty: Number(line.remaining_qty ?? line.remainingQty ?? line.qty ?? 0),
-        parchment_color: line.parchment_color || line.parchment_pattern || line.parchment || null,
+        parchment_required: Boolean(line.parchment_required),
+        parchment_color: line.parchment_required ? line.parchment_color || line.parchment_pattern || line.parchment || null : null,
       })),
   )
 }
@@ -175,6 +181,16 @@ export function useCreateSalesOrder() {
     onSuccess: (response) => {
       const orderId = String(response?.data?.id || "")
       invalidateSalesQueries(queryClient, orderId || undefined)
+    },
+  })
+}
+
+export function useUpdateSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.updateOrder(orderId, data),
+    onSuccess: (_response, variables) => {
+      invalidateSalesQueries(queryClient, variables.orderId)
     },
   })
 }
