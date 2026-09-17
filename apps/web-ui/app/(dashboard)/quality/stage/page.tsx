@@ -90,7 +90,7 @@ export default function StageQualityPage() {
           create_hold_on_fail: true,
         },
       })
-      const status = String(response?.data?.status || response?.status || "")
+      const status = String(response?.data?.status || "")
       showToast(`Server verdict: ${status}`, status === "FAIL" ? "error" : "success")
       setReadings({})
       setReasons({})

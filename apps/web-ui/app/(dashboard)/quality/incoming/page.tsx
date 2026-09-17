@@ -54,8 +54,9 @@ export default function IncomingQualityPage() {
         status: "PASS",
         disposition: "ACCEPT",
       })
-      const verdict = response?.data?.status || response?.status
-      const ignored = response?.data?.ignored_client_status || response?.ignored_client_status
+      const payload = response?.data || {}
+      const verdict = payload.status
+      const ignored = payload.ignored_client_status
       showToast(
         `Incoming QC verdict ${verdict}. Client status ${ignored || "PASS"} was not trusted.`,
         verdict === "FAIL" ? "error" : "success",
