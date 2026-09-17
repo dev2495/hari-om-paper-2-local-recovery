@@ -461,6 +461,12 @@ export default function SalesOrdersPage() {
                 <Plus className="h-4 w-4" />
                 New sales order
               </Link>
+              <Link
+                href="/sales-orders/pending"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold text-white"
+              >
+                All pending orders
+              </Link>
             </div>
           }
         />

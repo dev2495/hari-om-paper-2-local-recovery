@@ -79,6 +79,13 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "Sales", "Planner"],
       },
       {
+        name: "Pending Orders",
+        href: "/sales-orders/pending",
+        icon: ClipboardList,
+        description: "All in-scope pending demand with server totals and export.",
+        roles: ["Owner", "Admin", "Sales", "Planner", "PlantManager"],
+      },
+      {
         name: "Job Cards",
         href: "/production/job-cards",
         icon: Factory,

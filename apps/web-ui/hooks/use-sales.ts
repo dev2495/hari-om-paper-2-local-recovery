@@ -91,6 +91,7 @@ function fallbackTimeline(order: any) {
 function invalidateSalesQueries(queryClient: ReturnType<typeof useQueryClient>, orderId?: string) {
   queryClient.invalidateQueries({ queryKey: ["sales", "orders"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "order-aggregates"] })
+  queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
   if (orderId) {
     queryClient.invalidateQueries({ queryKey: ["sales", "order", orderId] })
@@ -148,6 +149,75 @@ export function useSalesOrderAggregates() {
     queryFn: async () => {
       const { data } = await salesApi.getOrderAggregates()
       return data
+    },
+  })
+}
+
+export function usePendingSalesOrders(params?: any) {
+  return useQuery({
+    queryKey: ["sales", "pending-orders", params || {}],
+    queryFn: async () => {
+      const { data } = await salesApi.getPendingOrders(params)
+      return data
+    },
+  })
+}
+
+export function useOrderDeliverySchedules(orderId?: string) {
+  return useQuery({
+    queryKey: ["sales", "delivery-schedules", orderId],
+    queryFn: async () => {
+      const { data } = await salesApi.getOrderDeliverySchedules(String(orderId))
+      return data
+    },
+    enabled: Boolean(orderId),
+  })
+}
+
+export function usePreviewDeliverySchedules() {
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.previewOrderDeliverySchedules(orderId, data),
+  })
+}
+
+export function useCommitDeliverySchedules() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.commitOrderDeliverySchedules(orderId, data),
+    onSuccess: (_response, variables) => {
+      invalidateSalesQueries(queryClient, variables.orderId)
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
+    },
+  })
+}
+
+export function usePreviewScheduleEntirePo() {
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.previewScheduleEntirePo(orderId, data),
+  })
+}
+
+export function useCommitScheduleEntirePo() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.commitScheduleEntirePo(orderId, data),
+    onSuccess: (_response, variables) => {
+      invalidateSalesQueries(queryClient, variables.orderId)
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
+    },
+  })
+}
+
+export function usePatchDeliverySchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, scheduleId, data }: { orderId: string; scheduleId: string; data: any }) =>
+      salesApi.patchOrderDeliverySchedule(orderId, scheduleId, data),
+    onSuccess: (_response, variables) => {
+      invalidateSalesQueries(queryClient, variables.orderId)
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
     },
   })
 }

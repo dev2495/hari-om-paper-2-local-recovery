@@ -24,7 +24,7 @@ import { useOwnerPack } from "@/hooks/use-analytics"
 import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePlanningBoard } from "@/hooks/use-production"
-import { useSalesOrderAggregates, useSalesOrders } from "@/hooks/use-sales"
+import { useSalesOrderAggregates } from "@/hooks/use-sales"
 import { useAuditEvents, useSystemHealth } from "@/hooks/use-workspace"
 import { jobCardRef } from "@/lib/job-card-display"
 import { displayPlantScope } from "@/lib/plant-scope"
@@ -44,27 +44,14 @@ function safeSeries(raw: any[]) {
   }))
 }
 
-function openSalesValue(order: any) {
-  return (Array.isArray(order?.lines) ? order.lines : []).reduce(
-    (sum: number, line: any) => sum + Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0)) * Number(line.rate_per_pc || 0),
-    0,
-  )
-}
-
-function looksLikeUuid(value: unknown) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || "").trim())
-}
-
 export function OwnerLandingPage() {
   const { activePlant } = useAuth()
   const { data: ownerPack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
-  const { data: salesOrders } = useSalesOrders()
   const { data: salesAggregates } = useSalesOrderAggregates()
   const { data: customers } = useCustomers()
   const { data: inventoryHealth } = useInventoryHealthSummary()
   const { data: planningBoard } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, true)
 
-  const orders = useMemo(() => (Array.isArray(salesOrders) ? salesOrders : []), [salesOrders])
   const customerById = useMemo(() => {
     const rows = Array.isArray(customers) ? customers : []
     return new Map(rows.map((customer: any) => [String(customer.id), String(customer.name || customer.customer_name || customer.code || customer.id)]))
@@ -72,42 +59,17 @@ export function OwnerLandingPage() {
   const pack: any = ownerPack || {}
   const headline = pack.headline || {}
   const series = safeSeries(pack.production?.series || [])
-  const commercial = useMemo(() => orders.reduce(
-    (totals: { booked: number; open: number; releasedOpen: number; dispatched: number }, order: any) => {
-      for (const line of Array.isArray(order.lines) ? order.lines : []) {
-        const rate = Number(line.rate_per_pc || 0)
-        const qty = Number(line.qty || 0)
-        const fulfilled = Math.min(qty, Number(line.fulfilled_qty || 0))
-        const released = Math.min(qty, Number(line.released_qty || 0))
-        totals.booked += qty * rate
-        totals.open += Math.max(0, qty - fulfilled) * rate
-        totals.releasedOpen += Math.max(0, released - fulfilled) * rate
-        totals.dispatched += fulfilled * rate
-      }
-      return totals
-    },
-    { booked: 0, open: 0, releasedOpen: 0, dispatched: 0 },
-  ), [orders])
-  const orderBookValue = commercial.open
+  const bookedValue = Number(salesAggregates?.booked_value || 0)
+  const orderBookValue = Number(salesAggregates?.open_order_book_value || 0)
+  const releasedOpenValue = Number(salesAggregates?.released_open_value || 0)
+  const dispatchedValue = Number(salesAggregates?.dispatched_value ?? headline.dispatch_value ?? 0)
   const recentSeries = series.slice(-10).map((row) => ({ ...row, otifTarget: 92 }))
   const topCustomers = useMemo(() => {
-    const map = new Map<string, number>()
-    for (const order of orders) {
-      const rawName = order.customer_name
-      const mappedName = customerById.get(String(order.customer_id || order.customerId || rawName || ""))
-      const customer = String(
-        (!looksLikeUuid(rawName) ? rawName : null) ||
-          mappedName ||
-          order.customer_code ||
-          String(order.customer_id || "Unassigned customer"),
-      )
-      map.set(customer, (map.get(customer) || 0) + openSalesValue(order))
-    }
-    return Array.from(map.entries())
-      .map(([label, value]) => ({ label, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 5)
-  }, [customerById, orders])
+    return (Array.isArray(salesAggregates?.open_value_by_customer) ? salesAggregates.open_value_by_customer : []).map((row: any) => ({
+      label: customerById.get(String(row.customer_id)) || String(row.customer_id || "Customer"),
+      value: Number(row.open_value || 0),
+    }))
+  }, [customerById, salesAggregates])
   const delayedOrders = Array.isArray(pack.sales?.delayed_rows) ? pack.sales.delayed_rows : []
   const blockedRows = Array.isArray(pack.production?.blocked_rows) ? pack.production.blocked_rows : []
   const lowStockRows = Array.isArray(pack.inventory?.risk_items?.low_stock) ? pack.inventory.risk_items.low_stock : []
@@ -118,12 +80,12 @@ export function OwnerLandingPage() {
     value: (Array.isArray(stage.lanes) ? stage.lanes : []).reduce((sum: number, lane: any) => sum + Number(lane?.jobs?.length || 0), 0),
   }))
   const stageRows = stageRowsRaw
-  const openOrderCount = Number(salesAggregates?.open_order_count ?? orders.filter((order: any) => openSalesValue(order) > 0).length)
+  const openOrderCount = Number(salesAggregates?.open_order_count || 0)
   const waterfall = [
-    { label: "Booked", value: commercial.booked },
-    { label: "Open", value: commercial.open },
-    { label: "Released open", value: commercial.releasedOpen },
-    { label: "Dispatched", value: Number(headline.dispatch_value ?? commercial.dispatched) },
+    { label: "Booked", value: bookedValue },
+    { label: "Open", value: orderBookValue },
+    { label: "Released open", value: releasedOpenValue },
+    { label: "Dispatched", value: dispatchedValue },
   ]
   const plantMix = (Array.isArray(pack.plant_compare) ? pack.plant_compare : [])
     .map((row: any) => ({
@@ -173,7 +135,7 @@ export function OwnerLandingPage() {
       <InsightStrip items={insights} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Dispatched Value" value={formatCompactCurrency(Number(headline.dispatch_value ?? commercial.dispatched))} detail="Fulfilled quantity multiplied by the sales-line rate" icon={BarChart3} tone="cyan" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.dispatch)) : undefined} />
+        <KpiCard label="Dispatched Value" value={formatCompactCurrency(dispatchedValue)} detail="Server sum of fulfilled quantity × sales-line rate" icon={BarChart3} tone="cyan" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.dispatch)) : undefined} />
         <KpiCard label="Open Order Book" value={formatCompactCurrency(orderBookValue)} detail={`${openOrderCount} sales orders with quantity remaining`} icon={Workflow} tone="amber" />
         <KpiCard label="Inventory Value" value={formatCompactCurrency(Number(headline.inventory_value ?? inventoryHealth?.summary?.total_value ?? 0))} detail={`${formatCompactNumber(Number(headline.active_job_cards || 0))} active job cards across the route`} icon={Factory} tone="violet" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.winder + row.oven + row.process)) : undefined} />
         <KpiCard label="OTIF" value={formatPercent(Number(headline.otif_percent || 0))} detail="Closed orders on-time and in-full" icon={Gauge} tone={Number(headline.otif_percent || 0) >= 92 ? "emerald" : "rose"} delta={{ value: Math.abs(92 - Number(headline.otif_percent || 0)), suffix: "pp", positive: Number(headline.otif_percent || 0) >= 92, label: "vs 92% target" }} sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.otif)) : undefined} />
@@ -182,14 +144,14 @@ export function OwnerLandingPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <ChartCard eyebrow="Commercial Flow" title="Booked to dispatched value" description="Values calculated from real sales-line quantity, fulfilled quantity, released quantity, and rate.">
+        <ChartCard eyebrow="Commercial Flow" title="Booked to dispatched value" description="Server-scoped sums across all in-scope sales lines, not the loaded order page.">
           <AreaTrend rows={waterfall} dataKey="value" color="#0891b2" />
         </ChartCard>
         <ChartCard eyebrow="Top Customers" title="Customer share of the current order book" description="Commercial concentration by open order value.">
           <MiniBarList rows={topCustomers} formatter={(value) => formatCompactCurrency(value)} />
           <div className="mt-4">
-            <Link href="/sales-orders" className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
-              Open sales orders <ArrowRight className="h-4 w-4" />
+            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
+              Open pending workspace <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
         </ChartCard>
