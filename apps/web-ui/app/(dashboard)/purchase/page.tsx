@@ -114,6 +114,11 @@ export default function PurchaseFlowPage() {
     queryFn: () => safePurchaseGet("/api/purchase/receipts"),
     enabled: concretePlant,
   })
+  const schedulesQuery = useQuery({
+    queryKey: ["purchase", "schedules", activePlant],
+    queryFn: () => safePurchaseGet("/api/purchase/schedules"),
+    enabled: concretePlant,
+  })
 
   const [poForm, setPoForm] = useState({
     po_no: "",
@@ -139,6 +144,20 @@ export default function PurchaseFlowPage() {
     qty: "",
     grn_date: today(),
     batch_no: "",
+    schedule_id: "",
+  })
+  const [scheduleForm, setScheduleForm] = useState({
+    purchase_order_id: "",
+    po_line_id: "",
+    scheduled_qty: "",
+    promised_date: today(),
+    current_date: today(),
+    confirmation_status: "TENTATIVE",
+  })
+  const [allocateForm, setAllocateForm] = useState({
+    receipt_line_id: "",
+    schedule_id: "",
+    allocated_qty: "",
   })
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null)
 
@@ -161,6 +180,21 @@ export default function PurchaseFlowPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase", "orders"] })
       queryClient.invalidateQueries({ queryKey: ["purchase", "receipts"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
+    },
+  })
+  const commitSchedules = useMutation({
+    mutationFn: async (payload: { poId: string; body: any }) => purchaseApi.commitSchedules(payload.poId, payload.body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchase", "orders"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
+    },
+  })
+  const allocateSchedule = useMutation({
+    mutationFn: async (payload: { lineId: string; body: any }) => purchaseApi.allocateReceiptSchedule(payload.lineId, payload.body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchase", "receipts"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
     },
   })
   const updateReceiptQc = useMutation({
@@ -192,11 +226,16 @@ export default function PurchaseFlowPage() {
 
   const orders = ordersQuery.data?.rows || []
   const receipts = receiptsQuery.data?.rows || []
-  const endpointPending = [ordersQuery.data, receiptsQuery.data].some((state) => state && !state.available)
+  const schedules = schedulesQuery.data?.rows || []
+  const endpointPending = [ordersQuery.data, receiptsQuery.data, schedulesQuery.data].some((state) => state && !state.available)
   const selectedOrder = orders.find((row: any) => String(row.id) === grnForm.purchase_order_id) || null
   const selectedOrderLines = Array.isArray(selectedOrder?.lines)
     ? selectedOrder.lines.filter((line: any) => String(line.line_status || "").toUpperCase() !== "CLOSED")
     : []
+  const selectedScheduleOrder = orders.find((row: any) => String(row.id) === scheduleForm.purchase_order_id) || null
+  const selectedScheduleLines = Array.isArray(selectedScheduleOrder?.lines) ? selectedScheduleOrder.lines : []
+  const lineSchedules = schedules.filter((row: any) => String(row.purchase_order_line_id) === grnForm.po_line_id)
+  const receiptLines = receipts.flatMap((receipt: any) => (receipt.lines || []).map((line: any) => ({ ...line, grn_no: receipt.grn_no, po_no: receipt.po_no })))
 
   async function submitPurchaseOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -277,13 +316,70 @@ export default function PurchaseFlowPage() {
               po_line_id: grnForm.po_line_id,
               qty_received: Number(grnForm.qty),
               batch_no: grnForm.batch_no || undefined,
+              schedule_id: grnForm.schedule_id || undefined,
             },
           ],
         },
       })
       grnRequestId.current = null
-      setGrnForm((current) => ({ ...current, qty: "", batch_no: "" }))
+      setGrnForm((current) => ({ ...current, qty: "", batch_no: "", schedule_id: "" }))
       setMessage({ tone: "success", text: "GRN posted into stock with vendor, batch cost, and incoming QC status." })
+    } catch (error: any) {
+      setMessage({ tone: "error", text: errorMessage(error) })
+    }
+  }
+
+  async function submitSchedule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setMessage(null)
+    if (!scheduleForm.purchase_order_id || !scheduleForm.po_line_id) {
+      setMessage({ tone: "error", text: "Select a PO line before committing a supplier delivery schedule." })
+      return
+    }
+    try {
+      await commitSchedules.mutateAsync({
+        poId: scheduleForm.purchase_order_id,
+        body: {
+          rows: [
+            {
+              purchase_order_line_id: scheduleForm.po_line_id,
+              scheduled_qty: Number(scheduleForm.scheduled_qty),
+              promised_date: scheduleForm.promised_date,
+              current_date: scheduleForm.current_date || scheduleForm.promised_date,
+              confirmation_status: scheduleForm.confirmation_status,
+            },
+          ],
+        },
+      })
+      setScheduleForm((current) => ({ ...current, scheduled_qty: "" }))
+      setMessage({ tone: "success", text: "Supplier delivery schedule saved. This is a commitment, not a stock posting." })
+    } catch (error: any) {
+      setMessage({ tone: "error", text: errorMessage(error) })
+    }
+  }
+
+  async function submitAllocation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setMessage(null)
+    if (!allocateForm.receipt_line_id || !allocateForm.schedule_id) {
+      setMessage({ tone: "error", text: "Select a receipt line and a schedule row to allocate." })
+      return
+    }
+    try {
+      const result = await allocateSchedule.mutateAsync({
+        lineId: allocateForm.receipt_line_id,
+        body: {
+          schedule_id: allocateForm.schedule_id,
+          allocated_qty: allocateForm.allocated_qty ? Number(allocateForm.allocated_qty) : undefined,
+        },
+      })
+      const replayed = Boolean((result as any)?.data?.idempotent)
+      setMessage({
+        tone: "success",
+        text: replayed
+          ? "Receipt replay did not double-allocate. Existing allocation returned."
+          : "Partial receipt allocated to the supplier schedule.",
+      })
     } catch (error: any) {
       setMessage({ tone: "error", text: errorMessage(error) })
     }
@@ -314,6 +410,7 @@ export default function PurchaseFlowPage() {
       <section className="flex flex-wrap gap-2">
         <EndpointChip label="Purchase orders" state={ordersQuery.data} />
         <EndpointChip label="GRNs" state={receiptsQuery.data} />
+        <EndpointChip label="Supplier schedules" state={schedulesQuery.data} />
       </section>
 
       {endpointPending ? (
@@ -562,6 +659,15 @@ export default function PurchaseFlowPage() {
               <input required type="number" min="0.001" step="0.001" value={grnForm.qty} onChange={(event) => setGrnForm((current) => ({ ...current, qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
             <label className="space-y-1">
+              <FieldLabel>Schedule row optional</FieldLabel>
+              <select value={grnForm.schedule_id} onChange={(event) => setGrnForm((current) => ({ ...current, schedule_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Do not allocate on post</option>
+                {lineSchedules.filter((row: any) => String(row.confirmation_status || "").toUpperCase() !== "CANCELLED").map((row: any) => (
+                  <option key={row.id} value={row.id}>{row.current_date} · remain {formatNumber(row.remaining_qty, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
               <FieldLabel>Batch no optional</FieldLabel>
               <input value={grnForm.batch_no} onChange={(event) => setGrnForm((current) => ({ ...current, batch_no: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
@@ -571,6 +677,94 @@ export default function PurchaseFlowPage() {
             <Link href="/inventory/raw-material-inward" className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50">
               Live stock inward <ArrowRight className="h-4 w-4" />
             </Link>
+          </form>
+        </Panel>
+      </section>
+
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2" data-testid="supplier-schedule-panel">
+        <Panel title="Supplier delivery schedule" subtitle="Dated commitments on a purchase line. Separate from GRN and incoming QC.">
+          <form onSubmit={submitSchedule} className="grid gap-3 md:grid-cols-2">
+            <label className="space-y-1">
+              <FieldLabel>Purchase order</FieldLabel>
+              <select required value={scheduleForm.purchase_order_id} onChange={(event) => setScheduleForm((current) => ({ ...current, purchase_order_id: event.target.value, po_line_id: "" }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select PO</option>
+                {orders.map((order: any) => <option key={order.id} value={order.id}>{order.po_no} · {order.supplier_name}</option>)}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>PO line</FieldLabel>
+              <select required value={scheduleForm.po_line_id} onChange={(event) => setScheduleForm((current) => ({ ...current, po_line_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select line</option>
+                {selectedScheduleLines.map((line: any) => (
+                  <option key={line.id} value={line.id}>{line.item_code} · ordered {formatNumber(line.qty_ordered, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Scheduled qty</FieldLabel>
+              <input required type="number" min="0.001" step="0.001" value={scheduleForm.scheduled_qty} onChange={(event) => setScheduleForm((current) => ({ ...current, scheduled_qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Confirmation</FieldLabel>
+              <select value={scheduleForm.confirmation_status} onChange={(event) => setScheduleForm((current) => ({ ...current, confirmation_status: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="TENTATIVE">Tentative</option>
+                <option value="CONFIRMED">Confirmed</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Promised date</FieldLabel>
+              <input required type="date" value={scheduleForm.promised_date} onChange={(event) => setScheduleForm((current) => ({ ...current, promised_date: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Current expected date</FieldLabel>
+              <input required type="date" value={scheduleForm.current_date} onChange={(event) => setScheduleForm((current) => ({ ...current, current_date: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <button disabled={commitSchedules.isPending} className="md:col-span-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60">
+              {commitSchedules.isPending ? "Saving schedule..." : "Commit schedule row"}
+            </button>
+          </form>
+          <div className="mt-4 space-y-2">
+            {schedules.slice(0, 8).map((row: any) => (
+              <div key={row.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-950">{row.po_no || "PO"} · {row.item_code || row.purchase_order_line_id}</span>
+                  <StatusBadge value={row.confirmation_status || "TENTATIVE"} />
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {row.current_date} · scheduled {formatNumber(row.scheduled_qty, 2)} · allocated {formatNumber(row.allocated_qty, 2)} · remain {formatNumber(row.remaining_qty, 2)}
+                </p>
+              </div>
+            ))}
+            {!schedules.length ? <EmptyState label="No supplier schedule rows yet." /> : null}
+          </div>
+        </Panel>
+        <Panel title="Receipt-to-schedule allocation" subtitle="Partial receipts allocate explicitly. Replaying the same receipt line does not allocate twice.">
+          <form onSubmit={submitAllocation} className="grid gap-3">
+            <label className="space-y-1">
+              <FieldLabel>Receipt line</FieldLabel>
+              <select required value={allocateForm.receipt_line_id} onChange={(event) => setAllocateForm((current) => ({ ...current, receipt_line_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select GRN line</option>
+                {receiptLines.map((line: any) => (
+                  <option key={line.id} value={line.id}>{line.grn_no} · {line.item_code} · {formatNumber(line.qty_received, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Schedule row</FieldLabel>
+              <select required value={allocateForm.schedule_id} onChange={(event) => setAllocateForm((current) => ({ ...current, schedule_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select schedule</option>
+                {schedules.filter((row: any) => String(row.confirmation_status || "").toUpperCase() !== "CANCELLED").map((row: any) => (
+                  <option key={row.id} value={row.id}>{row.po_no} · {row.current_date} · remain {formatNumber(row.remaining_qty, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Allocated qty optional</FieldLabel>
+              <input type="number" min="0.001" step="0.001" value={allocateForm.allocated_qty} onChange={(event) => setAllocateForm((current) => ({ ...current, allocated_qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <button disabled={allocateSchedule.isPending} className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60">
+              {allocateSchedule.isPending ? "Allocating..." : "Allocate receipt to schedule"}
+            </button>
           </form>
         </Panel>
       </section>

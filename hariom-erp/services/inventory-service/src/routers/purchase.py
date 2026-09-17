@@ -16,6 +16,7 @@ from ..database import get_db
 from ..models import (
     InventoryLocation,
     ItemMaster,
+    PurchaseLineSchedule,
     PurchaseOrder,
     PurchaseOrderLine,
     PurchaseReceipt,
@@ -24,6 +25,11 @@ from ..models import (
     StockBatch,
     StockTransaction,
     TransactionType,
+)
+from ..services.supplier_schedule import (
+    active_scheduled_qty,
+    allocate_receipt_to_schedule,
+    serialize_schedule,
 )
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_user, require_role
@@ -164,6 +170,7 @@ class GrnLineCreate(BaseModel):
     qty_received: float = Field(gt=0)
     batch_no: Optional[str] = Field(default=None, max_length=100)
     location_id: Optional[uuid.UUID] = None
+    schedule_id: Optional[uuid.UUID] = None
 
 
 class GrnCreate(BaseModel):
@@ -188,6 +195,38 @@ class ReceiptQcPayload(BaseModel):
         if normalized not in {"PASS", "HOLD"}:
             raise ValueError("status must be PASS or HOLD")
         return normalized
+
+
+class SupplierScheduleRowIn(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    purchase_order_line_id: uuid.UUID
+    scheduled_qty: float = Field(gt=0)
+    promised_date: date
+    current_date: Optional[date] = None
+    confirmation_status: str = "TENTATIVE"
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+    @field_validator("confirmation_status")
+    @classmethod
+    def validate_confirmation(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in {"TENTATIVE", "CONFIRMED"}:
+            raise ValueError("confirmation_status must be TENTATIVE or CONFIRMED")
+        return normalized
+
+
+class SupplierScheduleCommit(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    rows: list[SupplierScheduleRowIn] = Field(min_length=1)
+
+
+class ReceiptScheduleAllocate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    schedule_id: uuid.UUID
+    allocated_qty: Optional[float] = Field(default=None, gt=0)
 
 
 def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
@@ -231,6 +270,18 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "cobb": (line.metadata_json or {}).get("cobb"),
                 "amount": round(float(line.qty_ordered or 0.0) * float(line.unit_cost or 0.0), 2),
                 "metadata_json": line.metadata_json or {},
+                "schedules": [
+                    {
+                        "id": str(schedule.id),
+                        "scheduled_qty": float(schedule.scheduled_qty or 0.0),
+                        "allocated_qty": round(sum(float(row.allocated_qty or 0.0) for row in (schedule.allocations or [])), 6),
+                        "promised_date": schedule.promised_date.isoformat() if schedule.promised_date else None,
+                        "current_date": schedule.current_date.isoformat() if schedule.current_date else None,
+                        "confirmation_status": schedule.confirmation_status,
+                    }
+                    for schedule in (line.schedules or [])
+                    if schedule.confirmation_status != "CANCELLED"
+                ],
             }
             for line in (order.lines or [])
         ],
@@ -410,12 +461,37 @@ def post_grn(
         movement = db.query(StockTransaction).filter(StockTransaction.external_ref == f"GRN:{existing.id}:1").first()
         if existing.purchase_order_id != order.id or not movement or (movement.movement_metadata or {}).get("request_fingerprint") != fingerprint:
             raise HTTPException(status_code=409, detail="This receipt reference already exists with different details. Review GRNs before retrying.")
-        return {"id": str(existing.id), "purchase_order_id": str(order.id), "po_no": order.po_no,
-                "grn_no": existing.grn_no, "received_date": existing.received_date.isoformat(),
-                "status": existing.status, "order_status": order.status, "idempotent": True,
-                "lines": [{"po_line_id": str(line.purchase_order_line_id), "batch_id": str(line.batch_id),
-                           "batch_no": line.batch.batch_no if line.batch else None,
-                           "qty_received": line.qty_received, "qc_status": line.qc_status} for line in existing.lines]}
+        return {
+            "id": str(existing.id),
+            "purchase_order_id": str(order.id),
+            "po_no": order.po_no,
+            "grn_no": existing.grn_no,
+            "received_date": existing.received_date.isoformat(),
+            "status": existing.status,
+            "order_status": order.status,
+            "idempotent": True,
+            "lines": [
+                {
+                    "po_line_id": str(line.purchase_order_line_id),
+                    "receipt_line_id": str(line.id),
+                    "batch_id": str(line.batch_id),
+                    "batch_no": line.batch.batch_no if line.batch else None,
+                    "qty_received": line.qty_received,
+                    "qc_status": line.qc_status,
+                    "schedule_allocation": (
+                        {
+                            "id": str(line.schedule_allocations[0].id),
+                            "schedule_id": str(line.schedule_allocations[0].schedule_id),
+                            "allocated_qty": float(line.schedule_allocations[0].allocated_qty),
+                            "idempotent": True,
+                        }
+                        if line.schedule_allocations
+                        else None
+                    ),
+                }
+                for line in existing.lines
+            ],
+        }
     if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
         raise HTTPException(status_code=400, detail="Only approved purchase orders can receive GRN")
 
@@ -495,27 +571,50 @@ def post_grn(
             )
         )
         qc_status = "PENDING" if po_line.incoming_qc_required else "PASS"
-        db.add(
-            PurchaseReceiptLine(
-                receipt_id=receipt.id,
-                purchase_order_line_id=po_line.id,
-                item_id=po_line.item_id,
-                batch_id=batch.id,
-                qty_received=line_payload.qty_received,
-                unit_cost=po_line.unit_cost,
-                qc_status=qc_status,
-            )
+        receipt_line = PurchaseReceiptLine(
+            receipt_id=receipt.id,
+            purchase_order_line_id=po_line.id,
+            item_id=po_line.item_id,
+            batch_id=batch.id,
+            qty_received=line_payload.qty_received,
+            unit_cost=po_line.unit_cost,
+            qc_status=qc_status,
         )
+        db.add(receipt_line)
+        db.flush()
+        allocation_payload = None
+        if line_payload.schedule_id:
+            schedule = db.query(PurchaseLineSchedule).filter(
+                PurchaseLineSchedule.id == line_payload.schedule_id,
+                PurchaseLineSchedule.plant_id == plant_id,
+            ).first()
+            if not schedule:
+                raise HTTPException(status_code=404, detail=f"Supplier schedule not found for GRN line {idx}")
+            allocation, replayed = allocate_receipt_to_schedule(
+                db,
+                plant_id=plant_id,
+                receipt_line=receipt_line,
+                schedule=schedule,
+                qty=float(line_payload.qty_received),
+            )
+            allocation_payload = {
+                "id": str(allocation.id),
+                "schedule_id": str(schedule.id),
+                "allocated_qty": float(allocation.allocated_qty),
+                "idempotent": replayed,
+            }
         po_line.qty_received = float(po_line.qty_received or 0.0) + float(line_payload.qty_received)
         po_line.line_status = _line_status(po_line.qty_ordered, po_line.qty_received)
         response_lines.append(
             {
                 "po_line_id": str(po_line.id),
+                "receipt_line_id": str(receipt_line.id),
                 "batch_id": str(batch.id),
                 "batch_no": batch.batch_no,
                 "qty_received": line_payload.qty_received,
                 "stock_status": stock_status,
                 "qc_status": qc_status,
+                "schedule_allocation": allocation_payload,
             }
         )
 
@@ -596,6 +695,15 @@ def list_purchase_receipts(
                         "qty_received": float(line.qty_received or 0.0),
                         "unit_cost": float(line.unit_cost or 0.0),
                         "qc_status": line.qc_status,
+                        "schedule_allocation": (
+                            {
+                                "id": str(line.schedule_allocations[0].id),
+                                "schedule_id": str(line.schedule_allocations[0].schedule_id),
+                                "allocated_qty": float(line.schedule_allocations[0].allocated_qty),
+                            }
+                            if line.schedule_allocations
+                            else None
+                        ),
                     }
                     for line in (receipt.lines or [])
                 ],
@@ -653,4 +761,106 @@ def update_receipt_line_qc(
         "batch_id": str(line.batch_id) if line.batch_id else None,
         "batch_stock_status": line.batch.stock_status if line.batch else None,
         "notes": payload.notes,
+    }
+
+
+@router.get("/schedules")
+def list_supplier_schedules(
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    rows = (
+        db.query(PurchaseLineSchedule)
+        .filter(PurchaseLineSchedule.plant_id == plant_id)
+        .order_by(PurchaseLineSchedule.current_date.asc(), PurchaseLineSchedule.created_at.asc())
+        .all()
+    )
+    return {
+        "ledger": False,
+        "items": [serialize_schedule(row, db) for row in rows],
+    }
+
+
+@router.post("/orders/{po_id}/schedules")
+def commit_supplier_schedules(
+    po_id: uuid.UUID,
+    payload: SupplierScheduleCommit,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner", "Planner"])),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    lines_by_id = {line.id: line for line in order.lines or []}
+    created = []
+    for idx, row in enumerate(payload.rows, start=1):
+        po_line = lines_by_id.get(row.purchase_order_line_id)
+        if not po_line:
+            raise HTTPException(status_code=404, detail=f"Purchase line not found for schedule row {idx}")
+        next_total = active_scheduled_qty(db, po_line.id) + float(row.scheduled_qty)
+        if next_total > float(po_line.qty_ordered or 0.0) + 1e-9:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scheduled quantity for line {idx} exceeds unordered remainder of the PO line",
+            )
+        current_date = row.current_date or row.promised_date
+        schedule = PurchaseLineSchedule(
+            plant_id=plant_id,
+            purchase_order_line_id=po_line.id,
+            scheduled_qty=row.scheduled_qty,
+            promised_date=row.promised_date,
+            current_date=current_date,
+            confirmation_status=row.confirmation_status,
+            notes=row.notes,
+            created_by=_actor(current_user),
+        )
+        db.add(schedule)
+        db.flush()
+        created.append(serialize_schedule(schedule, db))
+    db.commit()
+    return {"purchase_order_id": str(order.id), "po_no": order.po_no, "ledger": False, "items": created}
+
+
+@router.post("/receipt-lines/{line_id}/allocate-schedule")
+def allocate_receipt_line_schedule(
+    line_id: uuid.UUID,
+    payload: ReceiptScheduleAllocate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager"])),
+):
+    receipt_line = (
+        db.query(PurchaseReceiptLine)
+        .join(PurchaseReceipt, PurchaseReceiptLine.receipt_id == PurchaseReceipt.id)
+        .filter(PurchaseReceiptLine.id == line_id, PurchaseReceipt.plant_id == plant_id)
+        .with_for_update()
+        .first()
+    )
+    if not receipt_line:
+        raise HTTPException(status_code=404, detail="Receipt line not found")
+    schedule = db.query(PurchaseLineSchedule).filter(
+        PurchaseLineSchedule.id == payload.schedule_id,
+        PurchaseLineSchedule.plant_id == plant_id,
+    ).with_for_update().first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Supplier schedule not found")
+    qty = float(payload.allocated_qty if payload.allocated_qty is not None else receipt_line.qty_received)
+    allocation, replayed = allocate_receipt_to_schedule(
+        db,
+        plant_id=plant_id,
+        receipt_line=receipt_line,
+        schedule=schedule,
+        qty=qty,
+    )
+    db.commit()
+    return {
+        "id": str(allocation.id),
+        "receipt_line_id": str(receipt_line.id),
+        "schedule_id": str(schedule.id),
+        "allocated_qty": float(allocation.allocated_qty),
+        "idempotent": replayed,
+        "ledger": False,
+        "schedule": serialize_schedule(schedule, db),
     }
