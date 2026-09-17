@@ -1,15 +1,17 @@
 "use client"
 
 import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dayjs from "dayjs"
-import { useDeferredValue, useMemo, useState } from "react"
 import { AlertTriangle, ClipboardList, Factory, Search, TimerReset, Truck } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
-import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrders } from "@/hooks/use-sales"
+import { useCustomers } from "@/hooks/use-master-data"
+import { usePendingJobCardsByOrder } from "@/hooks/use-production"
+import { usePendingSalesOrders } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { dueRiskLabel, overdueLabel } from "@/lib/due-risk"
 import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
 function formatDate(value?: string | null) {
@@ -18,139 +20,86 @@ function formatDate(value?: string | null) {
   return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(value)
 }
 
-function numberValue(value: unknown) {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : 0
-}
-
-function stageLabel(stageCounts: Record<string, number>) {
-  const entries = Object.entries(stageCounts).sort((a, b) => b[1] - a[1])
+function stageLabel(stageCounts: Record<string, number> | undefined) {
+  const entries = Object.entries(stageCounts || {}).sort((a, b) => b[1] - a[1])
   if (!entries.length) return "Not released"
   return entries.map(([stage, count]) => `${stage} ${count}`).join(" · ")
 }
 
 export default function PlanningTrackerPage() {
+  const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const section = String(searchParams?.get("section") || "winder").toLowerCase()
-  const [search, setSearch] = useState("")
-  const [status, setStatus] = useState("ALL")
-  const deferredSearch = useDeferredValue(search.trim().toLowerCase())
+  const search = String(searchParams?.get("search") || "")
+  const flow = String(searchParams?.get("status") || "ALL")
+  const page = Math.max(0, Number(searchParams?.get("page") || 0))
+  const pageSize = 25
+  const [searchDraft, setSearchDraft] = useState(search)
 
-  const ordersQuery = useSalesOrders()
-  const jobsQuery = usePlanningJobCards({ limit: 750 })
-  const machinesQuery = useMachines()
+  const pendingQuery = usePendingSalesOrders({
+    search: search || undefined,
+    limit: pageSize,
+    offset: page * pageSize,
+    sort: "due_date",
+    direction: "asc",
+  })
+  const productionQuery = usePendingJobCardsByOrder()
+  const customersQuery = useCustomers()
 
-  const orders = useMemo(() => (Array.isArray(ordersQuery.data) ? ordersQuery.data : []), [ordersQuery.data])
-  const jobs = useMemo(() => (Array.isArray(jobsQuery.data) ? jobsQuery.data : []), [jobsQuery.data])
-  const machineLabelMap = useMemo(
+  const payload = pendingQuery.data || {}
+  const summary = payload.summary || {}
+  const productionSummary = productionQuery.data?.summary || {}
+  const items = Array.isArray(payload.items) ? payload.items : []
+  const productionByOrder = useMemo(() => {
+    const map = new Map<string, any>()
+    for (const row of Array.isArray(productionQuery.data?.items) ? productionQuery.data.items : []) {
+      map.set(String(row.sales_order_id), row)
+    }
+    return map
+  }, [productionQuery.data])
+  const customerMap = useMemo(
     () =>
       new Map(
-        (Array.isArray(machinesQuery.data) ? machinesQuery.data : []).map((machine: any) => [
-          String(machine.id),
-          machine.code || machine.name || String(machine.id).slice(0, 8),
+        (Array.isArray(customersQuery.data) ? customersQuery.data : []).map((customer: any) => [
+          String(customer.id),
+          customer.name || customer.customer_name || customer.code,
         ]),
       ),
-    [machinesQuery.data],
+    [customersQuery.data],
   )
 
-  const trackerRows = useMemo(() => {
-    return orders.map((order: any) => {
-      const lineIds = new Set((order.lines || []).map((line: any) => String(line.id || "")))
-      const linkedJobs = jobs.filter((job: any) => {
-        return String(job.sales_order_id || "") === String(order.id || "") || lineIds.has(String(job.sales_order_line_id || ""))
-      })
-      const stageCounts = linkedJobs.reduce((acc: Record<string, number>, job: any) => {
-        const stage = String(job.current_stage || "CREATED").toUpperCase()
-        acc[stage] = (acc[stage] || 0) + 1
-        return acc
-      }, {})
-      const blockedJobs = linkedJobs.filter((job: any) => Boolean(job.blocked_reason || job.planner_gate_reason))
-      const dispatchJobs = linkedJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() === "DISPATCH")
-      const completedJobs = linkedJobs.filter((job: any) => String(job.status || "").toUpperCase() === "COMPLETED")
-      const dueDates = [
-        ...(order.lines || []).map((line: any) => line.due_date).filter(Boolean),
-        ...linkedJobs.map((job: any) => job.due_date).filter(Boolean),
-      ]
-      const earliestDue = dueDates
-        .map((value) => dayjs(value))
-        .filter((value) => value.isValid())
-        .sort((a, b) => a.valueOf() - b.valueOf())[0]
-      const dueRisk = earliestDue ? earliestDue.isBefore(dayjs().add(2, "day"), "day") : false
-      const releasedQty = linkedJobs.reduce((sum: number, job: any) => sum + numberValue(job.planned_qty ?? job.segment_planned_qty), 0)
-      const orderQty = numberValue(order.total_qty)
-      const fulfilledQty = numberValue(order.fulfilled_qty)
-      const orderRef = order.order_no || order.sales_order_no || order.so_no || order.po_number || compactRef(order.id, "SO")
-      const currentStatus =
-        blockedJobs.length > 0
-          ? "Blocked"
-          : completedJobs.length && completedJobs.length === linkedJobs.length
-            ? "Completed"
-            : dispatchJobs.length
-              ? "Dispatch ready"
-              : linkedJobs.length
-                ? "In production"
-                : "Commercial open"
-
-      return {
-        order,
-        orderRef,
-        linkedJobs,
-        blockedJobs,
-        dispatchJobs,
-        completedJobs,
-        stageCounts,
-        stageSummary: stageLabel(stageCounts),
-        dueRisk,
-        earliestDue: earliestDue?.toISOString() || null,
-        orderQty,
-        releasedQty,
-        fulfilledQty,
-        remainingQty: numberValue(order.remaining_qty),
-        currentStatus,
-      }
+  const replaceQuery = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams?.toString() || "")
+    Object.entries(patch).forEach(([key, value]) => {
+      if (!value) next.delete(key)
+      else next.set(key, value)
     })
-  }, [jobs, orders])
+    if (!("page" in patch)) next.delete("page")
+    const query = next.toString()
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }
 
-  const filteredRows = useMemo(() => {
-    return trackerRows.filter((row: any) => {
-      if (status !== "ALL" && row.currentStatus !== status) return false
-      if (!deferredSearch) return true
-      const haystack = [
-        row.orderRef,
-        row.order.customer_name,
-        row.order.po_number,
-        row.order.status,
-        row.stageSummary,
-        ...(row.order.lines || []).flatMap((line: any) => [line.product_code, line.parchment_color]),
-        ...row.linkedJobs.flatMap((job: any) => [jobCardRef(job), job.product_code, job.customer_name, job.current_stage]),
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-      return haystack.includes(deferredSearch)
+  const rows = items
+    .map((order: any) => {
+      const production = productionByOrder.get(String(order.id))
+      const flowStatus = production?.flow_status || (Number(order.unreleased_qty || 0) === Number(order.outstanding_qty || 0) ? "Commercial open" : "In production")
+      return { order, production, flowStatus }
     })
-  }, [deferredSearch, status, trackerRows])
-
-  const metrics = useMemo(() => {
-    const openOrders = trackerRows.filter((row: any) => row.currentStatus !== "Completed")
-    return {
-      openOrders,
-      unreleased: trackerRows.filter((row: any) => row.linkedJobs.length === 0),
-      blocked: trackerRows.filter((row: any) => row.blockedJobs.length > 0),
-      dueRisk: trackerRows.filter((row: any) => row.dueRisk),
-      dispatchReady: trackerRows.filter((row: any) => row.dispatchJobs.length > 0),
-    }
-  }, [trackerRows])
+    .filter((row: any) => flow === "ALL" || row.flowStatus === flow)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="planning-tracker-page">
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.planning}
         badge="Sales Order Tracker"
         title="Customer order to dispatch tracker"
-        description="This page tracks each sales order across commercial demand, release lots, job cards, WIP stages, and dispatch readiness. Use Job Cards for the individual production-card register."
+        description="Counts come from the pending-orders server workspace and a server job-card grouping. This page no longer joins hundreds of job cards in the browser."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/sales-orders/pending" className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900">
+              Pending workspace
+            </Link>
             <Link href={`/planning/board?section=${section}`} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
               Planning board
             </Link>
@@ -162,32 +111,30 @@ export default function PlanningTrackerPage() {
       />
 
       <MetricRail>
-        <MetricCard label="Open Orders" value={metrics.openOrders.length} detail="Sales orders not fully completed" icon={ClipboardList} tone="cyan" />
-        <MetricCard label="Not Released" value={metrics.unreleased.length} detail="Commercial demand without job cards" icon={Factory} tone="amber" />
-        <MetricCard label="Blocked" value={metrics.blocked.length} detail="Any linked job card carrying a hold" icon={AlertTriangle} tone="rose" />
-        <MetricCard label="Due Risk" value={metrics.dueRisk.length} detail="Due date inside the near window" icon={TimerReset} tone="amber" />
-        <MetricCard label="Dispatch Ready" value={metrics.dispatchReady.length} detail="At least one linked card is at dispatch" icon={Truck} tone="emerald" />
+        <MetricCard label="Open Orders" value={Number(summary.order_count || 0)} detail="Server pending-order total" icon={ClipboardList} tone="cyan" />
+        <MetricCard label="Not Released" value={formatUnreleased(summary)} detail="Commercial demand still unreleased" icon={Factory} tone="amber" />
+        <MetricCard label="Blocked" value={Number(productionSummary.blocked_order_count || 0)} detail="Server job-card overlay" icon={AlertTriangle} tone="rose" />
+        <MetricCard label="Priority (3 plant days)" value={Number(summary.due_priority_count || 0)} detail={summary.priority_label || dueRiskLabel()} icon={TimerReset} tone="amber" />
+        <MetricCard label="Overdue" value={Number(summary.due_overdue_count || 0)} detail={summary.overdue_label || overdueLabel()} icon={TimerReset} tone="rose" />
+        <MetricCard label="Dispatch Ready" value={Number(productionSummary.dispatch_ready_order_count || 0)} detail="At least one open card at dispatch" icon={Truck} tone="emerald" />
       </MetricRail>
 
       <Panel
         title="Sales Order Tracking Grid"
-        subtitle="One row per customer order. Expand from here into sales order detail, planner board, or job-card register."
+        subtitle={`Server window of ${items.length} / ${Number(payload.total_count || 0)} pending orders. Production stage mix is grouped by sales order on the server.`}
         actions={
-          <div className="flex flex-wrap items-center gap-2">
+          <form
+            className="flex flex-wrap items-center gap-2"
+            onSubmit={(event) => {
+              event.preventDefault()
+              replaceQuery({ search: searchDraft.trim() || null })
+            }}
+          >
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 text-slate-400" />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search SO, customer, product, job card..."
-                className="w-80 bg-transparent text-sm outline-none placeholder:text-slate-400"
-              />
+              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search SO, customer, product..." className="w-80 bg-transparent text-sm outline-none placeholder:text-slate-400" />
             </div>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-            >
+            <select value={flow} onChange={(event) => replaceQuery({ status: event.target.value === "ALL" ? null : event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
               <option value="ALL">All flow states</option>
               <option value="Commercial open">Commercial open</option>
               <option value="In production">In production</option>
@@ -195,12 +142,12 @@ export default function PlanningTrackerPage() {
               <option value="Blocked">Blocked</option>
               <option value="Completed">Completed</option>
             </select>
-          </div>
+          </form>
         }
       >
-        {ordersQuery.isLoading || jobsQuery.isLoading ? (
+        {pendingQuery.isLoading || productionQuery.isLoading ? (
           <EmptyState label="Loading sales-order tracker..." />
-        ) : filteredRows.length === 0 ? (
+        ) : rows.length === 0 ? (
           <EmptyState label="No sales orders matched this tracker filter." />
         ) : (
           <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
@@ -218,75 +165,82 @@ export default function PlanningTrackerPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
-                {filteredRows.map((row: any) => (
-                  <tr key={row.order.id} className="transition hover:bg-cyan-50/40">
-                    <td className="px-4 py-4">
-                      <Link href={`/sales-orders/${row.order.id}`} className="text-sm font-black text-slate-950 hover:text-cyan-700">
-                        {row.orderRef}
-                      </Link>
-                      <div className="mt-1 text-xs text-slate-500">Internal {compactRef(row.order.id, "SO")}</div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-900">{row.order.customer_name || "Customer"}</div>
-                      <div className="mt-1 text-xs text-slate-500">
-                        PO {row.order.po_number || "not entered"} · {row.order.line_count || 0} line(s)
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
-                      {row.orderQty.toLocaleString("en-IN")}
-                      <div className="mt-1 text-xs text-slate-500">{row.remainingQty.toLocaleString("en-IN")} open</div>
-                    </td>
-                    <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
-                      {row.releasedQty.toLocaleString("en-IN")}
-                      <div className="mt-1 text-xs text-slate-500">{row.fulfilledQty.toLocaleString("en-IN")} fulfilled</div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <StatusBadge value={row.currentStatus} />
-                      <div className="mt-2 text-xs text-slate-500">{row.linkedJobs.length ? "Production card(s) linked" : "Release from sales order required"}</div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
-                      {row.stageSummary}
-                      {row.blockedJobs.length ? <div className="mt-1 text-xs font-semibold text-rose-700">{row.blockedJobs.length} blocked job(s)</div> : null}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
-                      {row.linkedJobs.length === 0 ? (
-                        <span className="text-slate-400">No cards yet</span>
-                      ) : (
-                        <div className="flex max-w-[260px] flex-wrap gap-1.5">
-                          {row.linkedJobs.slice(0, 4).map((job: any) => (
-                            <Link
-                              key={job.id}
-                              href={`/production/job-cards/${job.id}`}
-                              className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-cyan-200 hover:bg-cyan-50"
-                              title={`${jobCardRef(job)} · ${job.assigned_winder_machine_id ? machineLabelMap.get(String(job.assigned_winder_machine_id)) || "target winder" : "no winder"}`}
-                            >
-                              {jobCardRef(job)}
-                            </Link>
-                          ))}
-                          {row.linkedJobs.length > 4 ? (
-                            <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">+{row.linkedJobs.length - 4}</span>
-                          ) : null}
+                {rows.map((row: any) => {
+                  const order = row.order
+                  const production = row.production
+                  return (
+                    <tr key={order.id} className="transition hover:bg-cyan-50/40">
+                      <td className="px-4 py-4">
+                        <Link href={`/sales-orders/${order.id}`} className="text-sm font-black text-slate-950 hover:text-cyan-700">
+                          {order.order_no}
+                        </Link>
+                        <div className="mt-1 text-xs text-slate-500">Internal {compactRef(order.id, "SO")}</div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-700">
+                        <div className="font-semibold text-slate-900">{customerMap.get(String(order.customer_id)) || "Customer"}</div>
+                        <div className="mt-1 text-xs text-slate-500">PO {order.po_number || "not entered"} · {order.line_count || 0} line(s)</div>
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
+                        {Number(order.outstanding_qty || 0).toLocaleString("en-IN")}
+                        <div className="mt-1 text-xs text-slate-500">open</div>
+                      </td>
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
+                        {Number((order.outstanding_qty || 0) - (order.unreleased_qty || 0)).toLocaleString("en-IN")}
+                        <div className="mt-1 text-xs text-slate-500">{Number(order.unreleased_qty || 0).toLocaleString("en-IN")} unreleased</div>
+                      </td>
+                      <td className="px-4 py-4">
+                        <StatusBadge value={row.flowStatus} />
+                        <div className="mt-2 text-xs text-slate-500">{production?.job_count ? "Production card(s) linked" : "Release from sales order required"}</div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-700">
+                        {stageLabel(production?.stage_counts)}
+                        {production?.blocked_job_count ? <div className="mt-1 text-xs font-semibold text-rose-700">{production.blocked_job_count} blocked job(s)</div> : null}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-700">
+                        {!production?.job_card_ids?.length ? (
+                          <span className="text-slate-400">No cards yet</span>
+                        ) : (
+                          <div className="flex max-w-[260px] flex-wrap gap-1.5">
+                            {production.job_card_ids.slice(0, 4).map((jobId: string) => (
+                              <Link key={jobId} href={`/production/job-cards/${jobId}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-cyan-200 hover:bg-cyan-50">
+                                {jobCardRef({ id: jobId })}
+                              </Link>
+                            ))}
+                            {production.job_card_ids.length > 4 ? (
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">+{production.job_card_ids.length - 4}</span>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-slate-700">
+                        <div className={order.due_risk === "OVERDUE" ? "font-semibold text-rose-700" : order.due_risk === "PRIORITY" ? "font-semibold text-amber-700" : ""}>
+                          Due {formatDate(order.earliest_due)}
+                          {order.due_risk === "OVERDUE" ? " · Overdue" : order.due_risk === "PRIORITY" ? " · Priority" : ""}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
-                      <div className={row.dueRisk ? "font-semibold text-amber-700" : ""}>Due {formatDate(row.earliestDue)}</div>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Link href={`/sales-orders/${row.order.id}`} className="text-xs font-black text-cyan-800 hover:text-cyan-950">
-                          View SO
-                        </Link>
-                        <Link href={`/planning/board?section=${section}`} className="text-xs font-black text-slate-800 hover:text-slate-950">
-                          Plan
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Link href={`/sales-orders/${order.id}`} className="text-xs font-black text-cyan-800 hover:text-cyan-950">View SO</Link>
+                          <Link href={`/planning/board?section=${section}`} className="text-xs font-black text-slate-800 hover:text-slate-950">Plan</Link>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
         )}
+        <div className="mt-4 flex justify-end gap-2">
+          <button type="button" disabled={page === 0} onClick={() => replaceQuery({ page: page > 1 ? String(page - 1) : null })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:opacity-40">Previous</button>
+          <button type="button" disabled={!payload.has_more} onClick={() => replaceQuery({ page: String(page + 1) })} className="rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:opacity-40">Next</button>
+        </div>
       </Panel>
     </div>
   )
+}
+
+function formatUnreleased(summary: any) {
+  const outstanding = Number(summary.outstanding_qty || 0)
+  const unreleased = Number(summary.unreleased_qty || 0)
+  if (!outstanding) return unreleased
+  return unreleased
 }

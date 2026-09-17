@@ -122,6 +122,28 @@ export function usePlanningJobCards(params?: any, enabled = true) {
   })
 }
 
+export function useJobCardAggregates(enabled = true) {
+  return useQuery({
+    queryKey: ["job-card-aggregates"],
+    queryFn: async () => {
+      const { data } = await productionApi.getJobCardAggregates()
+      return data
+    },
+    enabled,
+  })
+}
+
+export function usePendingJobCardsByOrder(enabled = true) {
+  return useQuery({
+    queryKey: ["job-cards-pending-by-order"],
+    queryFn: async () => {
+      const { data } = await productionApi.getPendingJobCardsByOrder()
+      return data
+    },
+    enabled,
+  })
+}
+
 export function usePlanningJobCard(jobCardId?: string) {
   return useQuery({
     queryKey: ["planning-job-card", jobCardId],
@@ -224,6 +246,17 @@ export function useQualityInspections(params?: any, enabled = true) {
   })
 }
 
+export function useQualitySummary(enabled = true) {
+  return useQuery({
+    queryKey: ["quality-summary"],
+    queryFn: async () => {
+      const { data } = await productionApi.getQualitySummary()
+      return data
+    },
+    enabled,
+  })
+}
+
 export function useQualityHolds(params?: any, enabled = true) {
   return useQuery({
     queryKey: ["quality-holds", params || {}],
@@ -235,6 +268,21 @@ export function useQualityHolds(params?: any, enabled = true) {
   })
 }
 
+export function useJobQcTemplate(jobCardId?: string, stageType?: string, plantId?: string) {
+  return useQuery({
+    queryKey: ["job-qc-template", jobCardId || "", stageType || "", plantId || ""],
+    queryFn: async () => {
+      const { data } = await productionApi.getJobQcTemplate(
+        String(jobCardId),
+        stageType ? { stage_type: stageType } : undefined,
+        plantId,
+      )
+      return data
+    },
+    enabled: Boolean(jobCardId),
+  })
+}
+
 export function useCreateQualityInspection() {
   const queryClient = useQueryClient()
   return useMutation({
@@ -242,8 +290,10 @@ export function useCreateQualityInspection() {
       productionApi.createQualityInspection(data, plantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quality-inspections"] })
+      queryClient.invalidateQueries({ queryKey: ["quality-summary"] })
       queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
       queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["job-card-aggregates"] })
       queryClient.invalidateQueries({ queryKey: ["analytics-owner-pack"] })
     },
   })
@@ -256,7 +306,9 @@ export function useCreateQualityHold() {
       productionApi.createQualityHold(data, plantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["quality-summary"] })
       queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["job-card-aggregates"] })
       queryClient.invalidateQueries({ queryKey: ["analytics-owner-pack"] })
     },
   })
@@ -269,7 +321,9 @@ export function useReleaseQualityHold() {
       productionApi.releaseQualityHold(holdId, plantId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["quality-summary"] })
       queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["job-card-aggregates"] })
       queryClient.invalidateQueries({ queryKey: ["analytics-owner-pack"] })
     },
   })
@@ -327,6 +381,8 @@ export function useReleaseSyncSalesOrder() {
       queryClient.invalidateQueries({ queryKey: ["sales", "order", variables.salesOrderId] })
       queryClient.invalidateQueries({ queryKey: ["sales", "timeline", variables.salesOrderId] })
       queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "order-aggregates"] })
+      queryClient.invalidateQueries({ queryKey: ["job-card-aggregates"] })
     },
   })
 }

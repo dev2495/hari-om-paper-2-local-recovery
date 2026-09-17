@@ -376,9 +376,200 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("UPDATE customer_rejections SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
     )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS eligibility_status VARCHAR(40)")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_reason TEXT")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_approved_by VARCHAR(200)")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_approved_at TIMESTAMP")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS item_master ADD COLUMN IF NOT EXISTS quality_profile JSONB")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS reasons JSONB DEFAULT '{}'::jsonb")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS evaluation JSONB DEFAULT '{}'::jsonb")
+    )
+    connection.execute(text("ALTER TABLE IF EXISTS inventory_quality_inspections DROP CONSTRAINT IF EXISTS ck_inventory_qc_status"))
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS inventory_quality_inspections "
+        "ADD CONSTRAINT ck_inventory_qc_status "
+        "CHECK (status IN ('PENDING','PASS','FAIL','SKIPPED','INCOMPLETE','INVALID','NOT_REQUIRED'))"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE TABLE IF NOT EXISTS purchase_line_schedules ("
+        "id UUID PRIMARY KEY, "
+        "plant_id VARCHAR(50) NOT NULL, "
+        "purchase_order_line_id UUID NOT NULL REFERENCES purchase_order_lines(id), "
+        "scheduled_qty DOUBLE PRECISION NOT NULL, "
+        "promised_date DATE NOT NULL, "
+        "current_expected_date DATE NOT NULL, "
+        "confirmation_status VARCHAR(20) NOT NULL DEFAULT 'TENTATIVE', "
+        "notes VARCHAR(500), "
+        "created_by VARCHAR(200) NOT NULL, "
+        "created_at TIMESTAMP, "
+        "cancelled_at TIMESTAMP"
+        ")"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE TABLE IF NOT EXISTS receipt_schedule_allocations ("
+        "id UUID PRIMARY KEY, "
+        "plant_id VARCHAR(50) NOT NULL, "
+        "receipt_line_id UUID NOT NULL REFERENCES purchase_receipt_lines(id), "
+        "schedule_id UUID NOT NULL REFERENCES purchase_line_schedules(id), "
+        "allocated_qty DOUBLE PRECISION NOT NULL, "
+        "created_at TIMESTAMP"
+        ")"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_schedule_alloc_receipt_line "
+        "ON receipt_schedule_allocations (receipt_line_id)"
+      )
+    )
+    connection.execute(
+      text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_schedule_alloc_pair "
+        "ON receipt_schedule_allocations (receipt_line_id, schedule_id)"
+      )
+    )
+    connection.execute(
+      text("CREATE INDEX IF NOT EXISTS ix_purchase_line_schedules_line ON purchase_line_schedules (purchase_order_line_id)")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS purchase_line_schedules ADD COLUMN IF NOT EXISTS current_expected_date DATE")
+    )
+    connection.execute(
+      text(
+        "DO $$ BEGIN "
+        "IF EXISTS ("
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'purchase_line_schedules' AND column_name = 'current_date'"
+        ") THEN "
+        "UPDATE purchase_line_schedules "
+        "SET current_expected_date = COALESCE(current_expected_date, \"current_date\", promised_date) "
+        "WHERE current_expected_date IS NULL; "
+        "END IF; "
+        "END $$;"
+      )
+    )
+    connection.execute(
+      text(
+        "UPDATE purchase_line_schedules "
+        "SET current_expected_date = COALESCE(current_expected_date, promised_date) "
+        "WHERE current_expected_date IS NULL"
+      )
+    )
+    connection.execute(text('ALTER TABLE IF EXISTS purchase_line_schedules DROP COLUMN IF EXISTS "current_date"'))
 
 
 ensure_runtime_schema()
+
+
+def backfill_fail_accept_concession_eligibility() -> dict[str, int]:
+    """Classify pre-existing FAIL+ACCEPT inspections that never got a concession.
+
+    Historical rows could be FAIL with disposition=ACCEPT and unrestricted stock
+    because the inspection write path used to honor that shortcut. The concession
+    model forbids rewriting those to PASS. This backfill is idempotent: it only
+    touches rows whose eligibility_status is still null, marks them
+    NEEDS_CONCESSION_REVIEW, and blocks linked UNRESTRICTED stock.
+    """
+    counts = {
+        "inspections_marked": 0,
+        "batches_blocked": 0,
+        "reels_blocked": 0,
+        "rejections_blocked": 0,
+    }
+    statements = [
+        (
+            "inspections_marked",
+            """
+            UPDATE inventory_quality_inspections
+            SET eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+            WHERE status = 'FAIL'
+              AND UPPER(COALESCE(disposition, '')) = 'ACCEPT'
+              AND eligibility_status IS NULL
+              AND concession_approved_at IS NULL
+            """,
+        ),
+        (
+            "batches_blocked",
+            """
+            UPDATE stock_batch AS batch
+            SET stock_status = 'BLOCKED'
+            FROM inventory_quality_inspections AS inspection
+            WHERE inspection.entity_type = 'BATCH'
+              AND inspection.entity_id = batch.id
+              AND inspection.status = 'FAIL'
+              AND UPPER(COALESCE(inspection.disposition, '')) = 'ACCEPT'
+              AND inspection.eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+              AND inspection.concession_approved_at IS NULL
+              AND batch.stock_status = 'UNRESTRICTED'
+            """,
+        ),
+        (
+            "reels_blocked",
+            """
+            UPDATE paper_reels AS reel
+            SET stock_status = 'BLOCKED'
+            FROM inventory_quality_inspections AS inspection
+            WHERE inspection.entity_type = 'REEL'
+              AND inspection.entity_id = reel.id
+              AND inspection.status = 'FAIL'
+              AND UPPER(COALESCE(inspection.disposition, '')) = 'ACCEPT'
+              AND inspection.eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+              AND inspection.concession_approved_at IS NULL
+              AND reel.stock_status = 'UNRESTRICTED'
+            """,
+        ),
+        (
+            "rejections_blocked",
+            """
+            UPDATE customer_rejections AS rejection
+            SET status = 'BLOCKED'
+            FROM inventory_quality_inspections AS inspection
+            WHERE inspection.entity_type = 'CUSTOMER_REJECTION'
+              AND inspection.entity_id = rejection.id
+              AND inspection.status = 'FAIL'
+              AND UPPER(COALESCE(inspection.disposition, '')) = 'ACCEPT'
+              AND inspection.eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+              AND inspection.concession_approved_at IS NULL
+              AND rejection.status = 'UNRESTRICTED'
+            """,
+        ),
+    ]
+    for key, statement in statements:
+        try:
+            with engine.begin() as connection:
+                result = connection.execute(text(statement))
+                counts[key] = int(result.rowcount or 0)
+        except Exception as exc:  # pragma: no cover - defensive migration guard
+            print(f"[schema-compat] skipped concession backfill {key}: {exc}")
+    print(
+        "[schema-compat] concession eligibility backfill: "
+        f"inspections={counts['inspections_marked']} "
+        f"batches={counts['batches_blocked']} "
+        f"reels={counts['reels_blocked']} "
+        f"rejections={counts['rejections_blocked']}"
+    )
+    return counts
+
+
+backfill_fail_accept_concession_eligibility()
 
 
 def seed_default_locations() -> None:

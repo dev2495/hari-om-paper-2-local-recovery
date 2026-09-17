@@ -2,6 +2,7 @@ export type LandingRole =
   | "Owner"
   | "Admin"
   | "PlantManager"
+  | "QC"
   | "Planner"
   | "Store"
   | "Dispatch"
@@ -18,6 +19,7 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Owner: "Owner",
   Admin: "Admin",
   PlantManager: "Plant Manager",
+  QC: "Quality Control",
   Planner: "Planner",
   Store: "Store",
   Dispatch: "Dispatch",
@@ -25,7 +27,7 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Operator: "Operator",
 }
 
-export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "Planner", "Store", "Dispatch", "Sales", "Operator"]
+export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "Operator"]
 
 // Legacy role aliases are normalized here only so old auth/session rows land on a canonical workspace.
 // User-facing navigation policy should use the condensed role matrix above.
@@ -35,7 +37,7 @@ export const ROLE_TO_LANDING: Record<string, LandingRole> = {
   PlantManager: "PlantManager",
   SupervisorEntry: "PlantManager",
   Production: "PlantManager",
-  QC: "PlantManager",
+  QC: "QC",
   Planner: "Planner",
   Store: "Store",
   Dispatch: "Dispatch",
@@ -61,6 +63,7 @@ export function landingPathForRole(role: string | null | undefined) {
   const landingRole = ROLE_TO_LANDING[String(role || "")] || resolveLandingRole(role ? [role] : [])
   if (landingRole === "Owner") return "/landing/owner"
   if (landingRole === "Admin") return "/landing/admin"
+  if (landingRole === "QC") return "/landing/qc"
   if (landingRole === "Planner") return "/planning/board/winder"
   if (landingRole === "PlantManager") return "/planning/tracker"
   if (landingRole === "Sales") return "/sales-orders"
@@ -71,7 +74,7 @@ export function landingPathForRole(role: string | null | undefined) {
 
 export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Owner: [
-    { href: "/reports/owner", label: "Owner Pack", detail: "Review KPI stack, OTIF, and exceptions." },
+    { href: "/sales-orders/pending", label: "Pending Orders", detail: "All open demand with server totals and export." },
     { href: "/planning/board?section=winder", label: "Planning Board", detail: "Check route loading and bottlenecks." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Validate active cards and stage completion." },
     { href: "/production/reconciliation", label: "Reconciliation", detail: "Close cost and material variances." },
@@ -88,8 +91,14 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/production/job-cards", label: "Job Cards", detail: "Track cards through the production spine." },
     { href: "/logistics/dispatch", label: "Dispatch Ready", detail: "Confirm finished jobs ready for handoff." },
   ],
+  QC: [
+    { href: "/quality", label: "Quality Desk", detail: "Incoming, stage, and results/holds desks." },
+    { href: "/quality/stage", label: "Stage QC", detail: "Enter winding, oven, and process readings against frozen ranges." },
+    { href: "/reports/quality", label: "Quality Reports", detail: "Run permitted quality reports for this plant." },
+    { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Read authorized job and spec context." },
+  ],
   Planner: [
-    { href: "/sales-orders", label: "Sales Queue", detail: "Review approvals and pending releases." },
+    { href: "/sales-orders/pending", label: "Pending Orders", detail: "All open demand with server totals and export." },
     { href: "/planning/board?section=winder", label: "Planning Workspace", detail: "Plan by stage, machine, and shift." },
     { href: "/planning/tracker", label: "Tracker", detail: "Monitor WIP and delays by stage." },
     { href: "/specifications/new", label: "Spec Sheet", detail: "Create recipe-backed specification sheets." },
@@ -109,8 +118,8 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Sales: [
     { href: "/sales-orders/new", label: "Create Sales Order", detail: "Capture PO demand and release needs." },
     { href: "/sales-orders", label: "Sales Orders", detail: "Approve, release, and track line items." },
+    { href: "/sales-orders/pending", label: "Pending Orders", detail: "All open demand with server totals and export." },
     { href: "/reports/sales", label: "Sales Reports", detail: "Track OTIF and delayed commitments." },
-    { href: "/logistics/dispatch", label: "Dispatch Status", detail: "Check commercial handoff status." },
   ],
   Operator: [
     { href: "/production/supervisor-entry", label: "QR / Stage Entry", detail: "Scan job card and enter stage output." },

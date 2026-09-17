@@ -154,6 +154,24 @@ def get_current_plant_scope(
     return _resolve_scope(current_user=current_user, requested_plant_id=requested, allow_all=True)
 
 
+def authorized_plant_ids(plant_scope: dict) -> list[str]:
+    allowed = [str(value).strip() for value in (plant_scope.get("allowed_plants") or []) if str(value).strip()]
+    if plant_scope.get("scope_all"):
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ALL-plants views require an explicit allowed plant set; unresolved plant is not defaulted to Plant A",
+            )
+        return allowed
+    selected = str(plant_scope.get("selected_plant_id") or "").strip()
+    if not selected:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A",
+        )
+    return [selected]
+
+
 def require_role(required_roles: list[str]):
     def role_checker(current_user: dict = Depends(get_current_user)):
         user_roles = set(current_user.get("roles", []))

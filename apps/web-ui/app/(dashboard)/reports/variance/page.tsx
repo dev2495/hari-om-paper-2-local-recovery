@@ -25,7 +25,7 @@ import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function VarianceWrapper() {
   return (
-    <RoleGate allow={["PlantManager", "Planner", "Owner", "Admin", "Quality"]}>
+    <RoleGate allow={["PlantManager", "Planner", "Owner", "Admin", "QC"]}>
       <VarianceBridgePage />
     </RoleGate>
   )

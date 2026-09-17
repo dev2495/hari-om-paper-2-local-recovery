@@ -7,11 +7,14 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
 from ..models import AuditEvent, JobCard, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
+from ..quality_eval import evaluate_job_stage, evaluate_stage_quality, submission_error
+from ..quality_metrics import quality_pass_rate
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/quality", tags=["quality"])
@@ -46,11 +49,38 @@ def _normalize_stage(value: str) -> str:
     return normalized
 
 
+CONCESSION_PERMISSION = "qc:disposition:approve"
+CONCESSION_ROLES = {"Owner", "Admin"}
+
+
 def _current_actor_role(current_user: dict) -> Optional[str]:
     user_roles = set(current_user.get("roles", []))
     if user_roles:
         return str(list(user_roles)[0])
     return None
+
+
+def _require_concession_authority(current_user: dict, *, inspector_id: Optional[str]) -> None:
+    actor = str(
+        current_user.get("sub")
+        or current_user.get("actor_identity")
+        or current_user.get("user_id")
+        or ""
+    ).strip()
+    inspector = str(inspector_id or "").strip()
+    if actor and inspector and actor == inspector:
+        raise HTTPException(
+            status_code=403,
+            detail="Concession approval requires a second person; the inspector cannot authorize their own FAIL.",
+        )
+    roles = set(current_user.get("roles") or [])
+    permissions = set(current_user.get("permissions") or [])
+    if CONCESSION_PERMISSION in permissions or roles.intersection(CONCESSION_ROLES):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Releasing a FAIL result requires the qc:disposition:approve capability.",
+    )
 
 
 def _json_hash(value: Any) -> Optional[str]:
@@ -93,33 +123,17 @@ def _record_audit_event(
 
 
 def _check_failures(stage_type: str, spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[dict[str, Any]]:
-    failures: list[dict[str, Any]] = []
-
-    def _number(value: Any) -> Optional[float]:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _check_range(label: str, reading_key: str, min_key: str, max_key: str) -> None:
-        value = _number(readings.get(reading_key))
-        minimum = _number(spec_snapshot.get(min_key))
-        maximum = _number(spec_snapshot.get(max_key))
-        if value is None or minimum is None or maximum is None:
-            return
-        if value < minimum or value > maximum:
-            failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
-
-    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
-        _check_range("ID", "id", "id_min_mm", "id_max_mm")
-        _check_range("OD", "od", "od_min_mm", "od_max_mm")
-        _check_range("Length", "length", "length_min_mm", "length_max_mm")
-        _check_range("Weight", "weight", "weight_min_g", "weight_max_g")
-        _check_range("CS", "cs", "cs_min_n", "cs_max_n")
-    if stage_type == "OVEN":
-        _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
-
-    return failures
+    """Backward-compatible failures list; routed through the shared evaluator."""
+    evaluation = evaluate_job_stage(
+        stage=stage_type,
+        spec_snapshot=spec_snapshot or {},
+        readings=readings or {},
+        require_reasons_on_fail=False,
+    )
+    if evaluation.failures:
+        return list(evaluation.failures)
+    # Spec-snapshot typed validator (p0) when the frozen profile produced no rows.
+    return evaluate_stage_quality(stage_type, spec_snapshot or {}, readings or {}).failures
 
 
 def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
@@ -137,12 +151,20 @@ class InspectionCreate(BaseModel):
     job_card_id: uuid.UUID
     stage_type: str
     readings: dict[str, Any] = Field(default_factory=dict)
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    sample_id: Optional[str] = None
     create_hold_on_fail: bool = True
 
     @field_validator("stage_type")
     @classmethod
     def validate_stage_type(cls, value: str) -> str:
         return _normalize_stage(value)
+
+    @field_validator("sample_id")
+    @classmethod
+    def validate_sample_id(cls, value: Optional[str]) -> Optional[str]:
+        text = str(value or "").strip()
+        return text or None
 
 
 class InspectionResponse(BaseModel):
@@ -154,6 +176,10 @@ class InspectionResponse(BaseModel):
     status: str
     readings: dict[str, Any]
     failures: list[dict[str, Any]]
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    frozen_rules: list[dict[str, Any]] = Field(default_factory=list)
+    sample_id: Optional[str] = None
     created_at: datetime
     hold_id: Optional[uuid.UUID] = None
 
@@ -189,12 +215,56 @@ class HoldResponse(BaseModel):
     released_at: Optional[datetime] = None
 
 
+class QualitySummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inspection_count: int
+    passed_count: int
+    failed_count: int
+    pass_rate: Optional[float] = None
+    active_holds: int
+    released_holds: int
+
+
+def _apply_quality_plant_scope(query, column, plant_scope: dict):
+    if plant_scope.get("scope_all"):
+        allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
+        if not allowed:
+            return query.filter(column.in_([]))
+        return query.filter(column.in_(allowed))
+    selected = plant_scope.get("selected_plant_id")
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+    return query.filter(column == _to_uuid(selected, field="plant_id"))
+
+
 class HoldReleaseResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     hold_id: uuid.UUID
     status: str
     released_at: datetime
+
+
+@router.get("/summary", response_model=QualitySummaryResponse)
+def get_quality_summary(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales"])),
+):
+    del current_user
+    inspections = _apply_quality_plant_scope(db.query(QualityInspection), QualityInspection.plant_id, plant_scope).all()
+    holds = _apply_quality_plant_scope(db.query(QualityHold), QualityHold.plant_id, plant_scope).all()
+    passed = sum(1 for row in inspections if str(row.status or "").upper() == "PASS")
+    failed = sum(1 for row in inspections if str(row.status or "").upper() == "FAIL")
+    return QualitySummaryResponse(
+        inspection_count=len(inspections),
+        passed_count=passed,
+        failed_count=failed,
+        pass_rate=quality_pass_rate(passed, len(inspections)),
+        active_holds=sum(1 for row in holds if str(row.status or "").upper() == "HOLD"),
+        released_holds=sum(1 for row in holds if str(row.status or "").upper() == "RELEASED"),
+    )
 
 
 @router.post("/inspections", response_model=InspectionResponse)
@@ -212,36 +282,55 @@ def create_inspection(
     )
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
-    if payload.stage_type == "QC":
-        missing = _missing_final_spec_qc_fields(job_card.spec_snapshot or {}, payload.readings or {})
+    evaluation = evaluate_job_stage(
+        stage=payload.stage_type,
+        spec_snapshot=job_card.spec_snapshot or {},
+        readings=payload.readings or {},
+        reasons=payload.reasons or {},
+        sample_id=payload.sample_id,
+        require_reasons_on_fail=True,
+    )
+    error = submission_error(evaluation)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    if payload.stage_type == "QC" and evaluation.verdict == "INCOMPLETE":
+        missing = [
+            row.label
+            for row in evaluation.parameter_results
+            if row.verdict == "INCOMPLETE"
+        ]
         if missing:
             raise HTTPException(
                 status_code=400,
                 detail=f"Final QC requires full spec readings: {', '.join(missing)}",
             )
 
-    failures = _check_failures(payload.stage_type, job_card.spec_snapshot or {}, payload.readings or {})
+    failures = list(evaluation.failures)
     inspection = QualityInspection(
         plant_id=plant_uuid,
         job_card_id=job_card.id,
         stage_type=payload.stage_type,
-        status="FAIL" if failures else "PASS",
+        status=evaluation.verdict,
         readings=payload.readings or {},
         failures=failures,
+        reasons=payload.reasons or {},
+        evaluation=evaluation.as_dict(),
+        sample_id=payload.sample_id,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
     db.flush()
 
+    # A definite out-of-range failure or an untrustworthy (non-finite/inverted)
+    # reading opens a hold. Invalid data is never allowed to read as PASS, and an
+    # inspection that failed evaluation must physically block the next movement.
     hold: Optional[QualityHold] = None
-    if failures and payload.create_hold_on_fail:
+    if evaluation.status in {"FAIL", "INVALID"} and payload.create_hold_on_fail:
         hold = QualityHold(
             plant_id=plant_uuid,
             job_card_id=job_card.id,
             stage_type=payload.stage_type,
-            reason="; ".join(
-                f"{item['label']} out of range ({item['value']} not in {item['min']}..{item['max']})" for item in failures
-            ),
+            reason=evaluation.issue_summary() or f"{payload.stage_type} inspection {evaluation.verdict}",
             status="HOLD",
             source_inspection_id=inspection.id,
             created_by=current_user.get("sub"),
@@ -266,6 +355,7 @@ def create_inspection(
             "status": inspection.status,
             "readings": payload.readings or {},
             "failures": failures,
+            "evaluation": evaluation.as_dict(),
         },
     )
     db.commit()
@@ -277,6 +367,10 @@ def create_inspection(
         status=inspection.status,
         readings=inspection.readings or {},
         failures=inspection.failures or [],
+        reasons=inspection.reasons or {},
+        evaluation=inspection.evaluation or evaluation.as_dict(),
+        frozen_rules=evaluation.frozen_rules,
+        sample_id=inspection.sample_id,
         created_at=inspection.created_at,
         hold_id=hold.id if hold else None,
     )
@@ -295,10 +389,15 @@ def list_inspections(
     query = db.query(QualityInspection)
     if plant_scope.get("scope_all"):
         allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
-        if allowed:
+        if not allowed:
+            query = query.filter(QualityInspection.plant_id.in_([]))
+        else:
             query = query.filter(QualityInspection.plant_id.in_(allowed))
     else:
-        query = query.filter(QualityInspection.plant_id == _to_uuid(plant_scope["selected_plant_id"], field="plant_id"))
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+        query = query.filter(QualityInspection.plant_id == _to_uuid(selected, field="plant_id"))
     if job_card_id:
         query = query.filter(QualityInspection.job_card_id == job_card_id)
     if status:
@@ -312,11 +411,64 @@ def list_inspections(
             status=row.status,
             readings=row.readings or {},
             failures=row.failures or [],
+            reasons=getattr(row, "reasons", None) or {},
+            evaluation=getattr(row, "evaluation", None) or {},
+            frozen_rules=((getattr(row, "evaluation", None) or {}).get("frozen_rules") or []),
+            sample_id=getattr(row, "sample_id", None),
             created_at=row.created_at,
             hold_id=None,
         )
         for row in rows
     ]
+
+
+@router.get("/job-cards/{job_card_id}/template")
+def get_frozen_qc_template(
+    job_card_id: uuid.UUID,
+    stage_type: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+):
+    query = db.query(JobCard).filter(JobCard.id == job_card_id)
+    if plant_scope.get("scope_all"):
+        allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
+        if allowed:
+            query = query.filter(JobCard.plant_id.in_(allowed))
+        else:
+            query = query.filter(JobCard.plant_id.in_([]))
+    else:
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+        query = query.filter(JobCard.plant_id == _to_uuid(selected, field="plant_id"))
+    job_card = query.first()
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    snapshot = job_card.spec_snapshot or {}
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    requested = _normalize_stage(stage_type) if stage_type else None
+    stages: dict[str, Any] = {}
+    for stage in ("WINDER", "OVEN", "PROCESS", "QC"):
+        if requested and requested != stage:
+            continue
+        evaluation = evaluate_job_stage(
+            stage=stage,
+            spec_snapshot=snapshot,
+            readings={},
+            require_reasons_on_fail=False,
+        )
+        stages[stage] = {
+            "parameters": evaluation.frozen_rules,
+            "verdict_if_blank": evaluation.verdict,
+        }
+    return {
+        "job_card_id": str(job_card.id),
+        "qc_profile": profile,
+        "profile_revision": profile.get("revision"),
+        "notching_applicable": bool(snapshot.get("notch_capability_required")),
+        "stages": stages,
+    }
 
 
 @router.post("/holds", response_model=HoldResponse)
@@ -388,10 +540,15 @@ def list_holds(
     query = db.query(QualityHold)
     if plant_scope.get("scope_all"):
         allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
-        if allowed:
+        if not allowed:
+            query = query.filter(QualityHold.plant_id.in_([]))
+        else:
             query = query.filter(QualityHold.plant_id.in_(allowed))
     else:
-        query = query.filter(QualityHold.plant_id == _to_uuid(plant_scope["selected_plant_id"], field="plant_id"))
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+        query = query.filter(QualityHold.plant_id == _to_uuid(selected, field="plant_id"))
     if job_card_id:
         query = query.filter(QualityHold.job_card_id == job_card_id)
     if status:
@@ -432,6 +589,15 @@ def release_hold(
         raise HTTPException(status_code=404, detail="Quality hold not found")
     if hold.status != "HOLD":
         raise HTTPException(status_code=400, detail="Only active holds can be released")
+
+    source_inspection = None
+    if hold.source_inspection_id:
+        source_inspection = db.query(QualityInspection).filter(QualityInspection.id == hold.source_inspection_id).first()
+    if source_inspection is not None and str(source_inspection.status or "").upper() == "FAIL":
+        _require_concession_authority(
+            current_user,
+            inspector_id=source_inspection.created_by or hold.created_by,
+        )
 
     before_payload = {"status": hold.status, "released_at": str(hold.released_at) if hold.released_at else None}
     hold.status = "RELEASED"

@@ -75,9 +75,19 @@ async def list_quality_inspections(request: Request, token: str = Depends(get_to
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/inspections", request, token)
 
 
+@router.get("/quality/summary")
+async def get_quality_summary(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/summary", request, token)
+
+
 @router.post("/quality/inspections")
 async def create_quality_inspection(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/inspections", request, token)
+
+
+@router.get("/quality/job-cards/{job_card_id}/template")
+async def get_job_qc_template(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/template", request, token)
 
 
 @router.get("/quality/holds")
@@ -133,6 +143,21 @@ async def preflight_sales_order_release(sales_order_id: str, request: Request, t
 @router.get("/job-cards")
 async def list_planning_job_cards(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards", request, token)
+
+
+@router.get("/job-cards/aggregates")
+async def get_job_card_aggregates(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards/aggregates", request, token)
+
+
+@router.get("/job-cards/pending-by-order")
+async def get_job_cards_pending_by_order(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards/pending-by-order", request, token)
+
+
+@router.get("/job-cards/export")
+async def export_job_cards(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/job-cards/export", request, token)
 
 
 @router.get("/job-cards/{job_card_id}")

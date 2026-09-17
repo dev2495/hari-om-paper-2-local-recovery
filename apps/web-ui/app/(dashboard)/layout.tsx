@@ -79,11 +79,18 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "Sales", "Planner"],
       },
       {
+        name: "Pending Orders",
+        href: "/sales-orders/pending",
+        icon: ClipboardList,
+        description: "All in-scope pending demand with server totals and export.",
+        roles: ["Owner", "Admin", "Sales", "Planner", "PlantManager"],
+      },
+      {
         name: "Job Cards",
         href: "/production/job-cards",
         icon: Factory,
         description: "Release truth, execution packets, and printable cards.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Operator"],
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "Operator"],
       },
       {
         name: "Planner",
@@ -104,7 +111,7 @@ const navigationUnits: NavGroup[] = [
         href: "/quality",
         icon: ShieldCheck,
         description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
-        roles: ["Owner", "Admin", "PlantManager", "Dispatch", "Store", "Sales"],
+        roles: ["Owner", "Admin", "PlantManager", "QC", "Dispatch", "Store", "Sales"],
       },
       {
         name: "Reconciliation",
@@ -133,6 +140,13 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       {
+        name: "Purchase",
+        href: "/purchase",
+        icon: FileText,
+        description: "Supplier purchase orders, GRN receipts, and delivery schedules.",
+        roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
+      },
+      {
         name: "Genealogy",
         href: "/inventory/genealogy",
         icon: Layers,
@@ -150,7 +164,7 @@ const navigationUnits: NavGroup[] = [
         name: "MRP",
         href: "/analytics/mrp",
         icon: LineChart,
-        description: "Material shortage planning and purchase draft generation.",
+        description: "Reorder-policy review and demand/BOM coverage. Two separate measures.",
         roles: ["Owner", "Admin", "Store", "Planner"],
       },
       {
@@ -189,7 +203,7 @@ const navigationUnits: NavGroup[] = [
         href: "/reports",
         icon: FileText,
         description: "Owner reporting, exceptions, and plant summaries.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales"],
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
       },
     ],
   },

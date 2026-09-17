@@ -25,7 +25,7 @@ import { useOwnerPack } from "@/hooks/use-analytics"
 import { useReadyJobs } from "@/hooks/use-dispatch"
 import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { usePlanningBoard, usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrders } from "@/hooks/use-sales"
+import { useSalesOrderAggregates, useSalesOrders } from "@/hooks/use-sales"
 import { ERP_CHART_THEME, MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
 import { LANDING_LABELS, LANDING_QUICK_ACTIONS, type LandingRole } from "@/lib/workspace"
@@ -58,6 +58,11 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "Machine loading, route pressure, and floor exceptions for the current plant scope",
     description: "Schedule the route, clear bottlenecks, and keep the shop floor moving with real queue and exception signals.",
   },
+  QC: {
+    badge: "Quality Control Workspace",
+    title: "Inspections, holds, and proposed dispositions for the authorized plant",
+    description: "Read assigned item, spec, job, and receipt context. Sign inspections and create holds without user-admin, sales-approval, or stock-adjust powers.",
+  },
   Planner: {
     badge: "Planner Workspace",
     title: "Order release, specification readiness, and schedule pressure across the execution spine",
@@ -89,6 +94,7 @@ const ROLE_ICONS = {
   Owner: ReceiptText,
   Admin: ShieldAlert,
   PlantManager: Factory,
+  QC: FlaskConical,
   Planner: ClipboardCheck,
   Store: Warehouse,
   Dispatch: Truck,
@@ -160,6 +166,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
     enabled: canUseOwnerPack && Boolean(activePlant),
   })
   const { data: salesOrders } = useSalesOrders()
+  const { data: salesAggregates } = useSalesOrderAggregates()
   const { data: planningBoard } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, Boolean(activePlant))
   const { data: jobCards } = usePlanningJobCards()
   const { data: inventoryHealth } = useInventoryHealthSummary()
@@ -186,6 +193,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
   const activeQcHolds = Number(ownerHeadline.active_qc_holds || activeHolds.length || 0)
   const backlogOrders = Number(
     ownerHeadline.backlog_orders ||
+      salesAggregates?.ready_count ||
       orderRows.filter((row: any) => ["partially_released", "released", "partially_dispatched"].includes(row.status)).length ||
       0,
   )
@@ -224,6 +232,12 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
       { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Cards held away from clean flow", icon: ShieldAlert, tone: "rose" },
       { label: "Schedule Adherence", value: formatMetric(commonMetrics.scheduleAdherence, "%", 1), detail: "Planned vs actual completion", icon: ClipboardCheck, tone: "amber" },
       { label: "Ready Dispatches", value: formatMetric(commonMetrics.readyDispatchCount), detail: "FG jobs waiting to move", icon: Truck, tone: "emerald" },
+    ],
+    QC: [
+      { label: "QC Holds", value: formatMetric(commonMetrics.activeQcHolds), detail: "Active holds in the authorized plant", icon: FlaskConical, tone: "amber" },
+      { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Jobs waiting on quality clearance", icon: ShieldAlert, tone: "rose" },
+      { label: "Open Job Cards", value: formatMetric(commonMetrics.activeJobCards), detail: "Authorized job context for inspection", icon: ClipboardCheck, tone: "cyan" },
+      { label: "Notifications", value: formatMetric(notificationItems.length), detail: "Plant-scoped quality alerts", icon: Bell, tone: "violet" },
     ],
     Planner: [
       { label: "Backlog Orders", value: formatMetric(commonMetrics.backlogOrders), detail: "Released demand still moving through the system", icon: ShoppingCart, tone: "cyan" },

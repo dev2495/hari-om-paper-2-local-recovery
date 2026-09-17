@@ -6,7 +6,13 @@ import pytest
 from pydantic import ValidationError
 
 from src.models import SalesOrderStatus
-from src.routers.sales_orders import SalesOrderLineInput, _serialize_line, _sync_release_status, carry_forward_lot_split
+from src.routers.sales_orders import (
+    SalesOrderLineInput,
+    _serialize_line,
+    _sync_release_status,
+    carry_forward_lot_split,
+    next_counter_seq,
+)
 from src.utils.auth import require_role
 
 
@@ -15,6 +21,13 @@ def test_carry_forward_split_conserves_released_quantity():
     assert original == 824.75
     assert carry == 175.25
     assert original + carry == 1000
+
+
+def test_order_number_counter_jumps_past_preexisting_max():
+    assert next_counter_seq(None, 0) == 1
+    assert next_counter_seq(48, 51) == 52
+    assert next_counter_seq(60, 51) == 61
+    assert next_counter_seq(0, 0) == 1
 
 
 def test_sales_line_rejects_nonpositive_qty_and_negative_rate():
@@ -32,6 +45,8 @@ def test_sales_line_serializer_exposes_dispatch_lineage_and_correct_balances():
         line_no=1,
         approved_spec_id=uuid.uuid4(),
         product_code="TUBE-01",
+        parchment_required=False,
+        parchment_color_id=None,
         parchment_color=None,
         rate_per_pc=12.5,
         qty=100.0,
@@ -69,6 +84,55 @@ def test_sales_line_serializer_exposes_dispatch_lineage_and_correct_balances():
     assert payload["release_remaining_qty"] == 20.0
     assert payload["dispatch_logs"][0]["dispatch_line_ref"] == "DISPATCH-REQUEST:stable-1"
     assert payload["dispatch_logs"][0]["qty"] == 35.0
+    assert payload["parchment_required"] is False
+    assert payload["parchment_color"] is None
+
+
+def test_sales_line_serializer_hides_stale_parchment_color_when_not_required():
+    line = SimpleNamespace(
+        id=uuid.uuid4(),
+        sales_order_id=uuid.uuid4(),
+        line_no=1,
+        approved_spec_id=uuid.uuid4(),
+        product_code="TUBE-01",
+        parchment_required=False,
+        parchment_color_id=uuid.uuid4(),
+        parchment_color="Should not resurface",
+        rate_per_pc=None,
+        qty=10.0,
+        due_date=date(2026, 7, 31),
+        fulfilled_qty=0.0,
+        release_lots=[],
+        dispatch_logs=[],
+    )
+    payload = _serialize_line(line)
+    assert payload["parchment_required"] is False
+    assert payload["parchment_color"] is None
+    assert payload["parchment_color_id"] is None
+
+
+def test_sales_line_serializer_round_trips_required_parchment():
+    color_id = uuid.uuid4()
+    line = SimpleNamespace(
+        id=uuid.uuid4(),
+        sales_order_id=uuid.uuid4(),
+        line_no=1,
+        approved_spec_id=uuid.uuid4(),
+        product_code="TUBE-01",
+        parchment_required=True,
+        parchment_color_id=color_id,
+        parchment_color="Natural",
+        rate_per_pc=None,
+        qty=10.0,
+        due_date=date(2026, 7, 31),
+        fulfilled_qty=0.0,
+        release_lots=[],
+        dispatch_logs=[],
+    )
+    payload = _serialize_line(line)
+    assert payload["parchment_required"] is True
+    assert payload["parchment_color"] == "Natural"
+    assert payload["parchment_color_id"] == color_id
 
 
 def test_later_release_preserves_partial_dispatch_status():

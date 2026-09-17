@@ -3,15 +3,24 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import { ArrowLeft, ArrowRight, ClipboardCheck, Factory, Layers3, ScrollText } from "lucide-react"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useParams } from "next/navigation"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
+import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
+import { DeliverySchedulePanel } from "@/components/sales/delivery-schedule-panel"
+import { useApp } from "@/context/AppContext"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrder } from "@/hooks/use-sales"
+import { useApproveSalesOrder, useSalesOrder } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
+import {
+  isInternalOrigin,
+  parchmentLineLabel,
+  salesOrderOriginLabel,
+  salesOrderReferenceLabel,
+} from "@/lib/sales-order-entry"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -22,10 +31,14 @@ function formatDate(value?: string | null) {
 export default function SalesOrderDetailPage() {
   const params = useParams()
   const orderId = String(params?.orderId || "")
+  const { showToast } = useApp()
+  const [selectedLineIds, setSelectedLineIds] = useState<string[]>([])
+  const [releaseOpen, setReleaseOpen] = useState(false)
 
   const orderQuery = useSalesOrder(orderId)
   const customersQuery = useCustomers()
   const jobCardsQuery = usePlanningJobCards({ sales_order_id: orderId, limit: 250 }, Boolean(orderId))
+  const approveOrder = useApproveSalesOrder()
 
   const customerMap = useMemo(
     () =>
@@ -61,6 +74,31 @@ export default function SalesOrderDetailPage() {
     [order?.lines],
   )
 
+  const canApprove = ["draft", "submitted"].includes(String(order?.status || "").toLowerCase())
+  const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(String(order?.status || "").toLowerCase())
+
+  const handleApprove = async () => {
+    try {
+      await approveOrder.mutateAsync({ orderId, plantId: String(order?.plant_id || order?.plant || "") || undefined })
+      showToast("Sales order approved.", "success")
+      return true
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Approval failed."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      return false
+    }
+  }
+
+  const handleOpenRelease = () => {
+    const lineIds = selectedLineIds.length ? selectedLineIds : (order?.lines || []).map((line: any) => String(line.id))
+    if (!lineIds.length) {
+      showToast("This order has no lines to release.", "error")
+      return
+    }
+    setSelectedLineIds(lineIds)
+    setReleaseOpen(true)
+  }
+
   if (orderQuery.isLoading) {
     return <EmptyState label="Loading sales order..." />
   }
@@ -74,15 +112,40 @@ export default function SalesOrderDetailPage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.sales}
         badge="Sales Tracking"
-        title={order.po_number || order.order_no || `Sales order ${orderId}`}
-        description="One PO, many release moments. Use this page to read commercial truth, line posture, and current planner handoff together."
+        title={salesOrderReferenceLabel(order)}
+        description={`${salesOrderOriginLabel(order.origin)} for ${customerLabel}. Created ${formatDate(order.created_at)}.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
               <ArrowLeft className="h-4 w-4" />
               Back to queue
             </Link>
-            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg">
+            {order.status === "draft" || order.status === "submitted" ? (
+              <Link href={`/sales-orders/${order.id}/edit`} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
+                Edit order
+              </Link>
+            ) : null}
+            {canApprove || canRelease ? (
+              <button
+                type="button"
+                data-testid="sales-order-detail:approve-release"
+                onClick={async () => {
+                  if (canApprove) {
+                    const approved = await handleApprove()
+                    if (!approved) return
+                  }
+                  handleOpenRelease()
+                }}
+                disabled={approveOrder.isPending}
+                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"
+              >
+                Approve + Release
+              </button>
+            ) : null}
+            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold text-white">
+              Pending workspace
+            </Link>
+            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -119,18 +182,23 @@ export default function SalesOrderDetailPage() {
               <p className="mt-2 font-semibold text-slate-950">{customerLabel}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">PO Context</p>
-              <p className="mt-2 font-semibold text-slate-950">{order.po_number || order.order_no || "-"}</p>
-              <p className="mt-1 text-slate-600">PO Date {formatDate(order.po_date)}</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Order source</p>
+              <p className="mt-2 font-semibold text-slate-950">{salesOrderOriginLabel(order.origin)}</p>
+              <p className="mt-1 text-slate-600">{salesOrderReferenceLabel(order)}</p>
+              {isInternalOrigin(order.origin) ? (
+                <p className="mt-1 text-slate-600">Internal order date {formatDate(order.internal_order_date)}</p>
+              ) : (
+                <p className="mt-1 text-slate-600">Customer PO Date {formatDate(order.po_date)}</p>
+              )}
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Commercial Notes</p>
               <p className="mt-2 text-slate-700">{order.notes || "No commercial notes recorded."}</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Earliest Due</p>
+              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Earliest Delivery Date</p>
               <p className="mt-2 text-slate-700">{formatDate(earliestDue)}</p>
-              <p className="mt-1 text-xs text-slate-500">Use this to prioritize release planning.</p>
+              <p className="mt-1 text-xs text-slate-500">Customer commitment date for the earliest line.</p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
               <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Approved</p>
@@ -223,10 +291,20 @@ export default function SalesOrderDetailPage() {
             <div key={line.id} className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Line {line.line_no || index + 1}</p>
+                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                    <input
+                      type="checkbox"
+                      checked={selectedLineIds.includes(String(line.id))}
+                      onChange={(event) => {
+                        const id = String(line.id)
+                        setSelectedLineIds((current) => event.target.checked ? [...current, id] : current.filter((value) => value !== id))
+                      }}
+                    />
+                    Line {line.line_no || index + 1}
+                  </label>
                   <h3 className="mt-2 text-lg font-semibold text-slate-950">{line.product_code || "No product code"}</h3>
                   <p className="mt-1 text-sm text-slate-600">
-                    Spec {String(line.approved_spec_id || "-").slice(0, 8)} · Parchment {line.parchment_color || "-"} · Due {formatDate(line.due_date)}
+                    Spec {String(line.approved_spec_id || "-").slice(0, 8)} · {parchmentLineLabel(line)} · Delivery {formatDate(line.due_date)}
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -252,6 +330,13 @@ export default function SalesOrderDetailPage() {
           ))}
         </div>
       </Panel>
+      <DeliverySchedulePanel order={order} />
+      <ReleaseToQueueDialog
+        order={order}
+        selectedLineIds={selectedLineIds.length ? selectedLineIds : (order.lines || []).map((line: any) => String(line.id))}
+        open={releaseOpen}
+        onOpenChange={setReleaseOpen}
+      />
     </div>
   )
 }

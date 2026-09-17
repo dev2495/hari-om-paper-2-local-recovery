@@ -239,6 +239,7 @@ class ItemMaster(Base):
     reorder_level = Column(Float, nullable=False, default=0.0)
     safety_stock = Column(Float, nullable=False, default=0.0)
     lead_time_days = Column(Float, nullable=False, default=0.0)
+    quality_profile = Column(JSON, nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -350,14 +351,41 @@ class InventoryQualityInspection(Base):
     failures = Column(JSON, nullable=False, default=list)
     disposition = Column(String(40), nullable=True)
     notes = Column(Text, nullable=True)
+    reasons = Column(JSON, nullable=False, default=dict)
+    evaluation = Column(JSON, nullable=False, default=dict)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    eligibility_status = Column(String(40), nullable=True)
+    concession_reason = Column(Text, nullable=True)
+    concession_approved_by = Column(String(200), nullable=True)
+    concession_approved_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         CheckConstraint("entity_type IN ('BATCH','REEL','CUSTOMER_REJECTION')", name="ck_inventory_qc_entity_type"),
         CheckConstraint("source IN ('INWARD','CUSTOMER_REJECTION','PROCESS_STAGE')", name="ck_inventory_qc_source"),
-        CheckConstraint("status IN ('PENDING','PASS','FAIL','SKIPPED')", name="ck_inventory_qc_status"),
+        CheckConstraint("status IN ('PENDING','PASS','FAIL','SKIPPED','INCOMPLETE','INVALID','NOT_REQUIRED')", name="ck_inventory_qc_status"),
     )
+
+
+class InventoryQualityConcession(Base):
+    __tablename__ = "inventory_quality_concessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    inspection_id = Column(UUID(as_uuid=True), ForeignKey("inventory_quality_inspections.id"), nullable=False, index=True)
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    measured_status = Column(String(20), nullable=False, default="FAIL")
+    eligibility_status = Column(String(40), nullable=False, default="RELEASED_BY_CONCESSION")
+    disposition = Column(String(40), nullable=True)
+    stock_status_before = Column(String(40), nullable=True)
+    stock_status_after = Column(String(40), nullable=True)
+    hold_released = Column(Boolean, nullable=False, default=False)
+    reason = Column(Text, nullable=False)
+    quantity = Column(Float, nullable=True)
+    inspector_id = Column(String(200), nullable=True)
+    approved_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class CustomerRejection(Base):
@@ -815,6 +843,7 @@ class PurchaseOrderLine(Base):
 
     order = relationship("PurchaseOrder", back_populates="lines")
     item = relationship("ItemMaster")
+    schedules = relationship("PurchaseLineSchedule", back_populates="order_line")
 
     __table_args__ = (
         CheckConstraint("qty_ordered > 0", name="ck_purchase_order_lines_qty_ordered_positive"),
@@ -861,8 +890,56 @@ class PurchaseReceiptLine(Base):
     order_line = relationship("PurchaseOrderLine")
     item = relationship("ItemMaster")
     batch = relationship("StockBatch")
+    schedule_allocations = relationship("ReceiptScheduleAllocation", back_populates="receipt_line")
 
     __table_args__ = (
         CheckConstraint("qty_received > 0", name="ck_purchase_receipt_lines_qty_positive"),
         CheckConstraint("qc_status IN ('PENDING','PASS','HOLD')", name="ck_purchase_receipt_lines_qc_status"),
+    )
+
+
+class PurchaseLineSchedule(Base):
+    __tablename__ = "purchase_line_schedules"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    purchase_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=False, index=True)
+    scheduled_qty = Column(Float, nullable=False)
+    promised_date = Column(Date, nullable=False)
+    current_date = Column("current_expected_date", Date, nullable=False)
+    confirmation_status = Column(String(20), nullable=False, default="TENTATIVE")
+    notes = Column(String(500), nullable=True)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    cancelled_at = Column(DateTime, nullable=True)
+
+    order_line = relationship("PurchaseOrderLine", back_populates="schedules")
+    allocations = relationship("ReceiptScheduleAllocation", back_populates="schedule")
+
+    __table_args__ = (
+        CheckConstraint("scheduled_qty > 0", name="ck_purchase_line_schedules_qty_positive"),
+        CheckConstraint(
+            "confirmation_status IN ('TENTATIVE','CONFIRMED','CANCELLED')",
+            name="ck_purchase_line_schedules_confirmation",
+        ),
+    )
+
+
+class ReceiptScheduleAllocation(Base):
+    __tablename__ = "receipt_schedule_allocations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    receipt_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipt_lines.id"), nullable=False, index=True)
+    schedule_id = Column(UUID(as_uuid=True), ForeignKey("purchase_line_schedules.id"), nullable=False, index=True)
+    allocated_qty = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    receipt_line = relationship("PurchaseReceiptLine", back_populates="schedule_allocations")
+    schedule = relationship("PurchaseLineSchedule", back_populates="allocations")
+
+    __table_args__ = (
+        UniqueConstraint("receipt_line_id", name="uq_receipt_schedule_alloc_receipt_line"),
+        UniqueConstraint("receipt_line_id", "schedule_id", name="uq_receipt_schedule_alloc_pair"),
+        CheckConstraint("allocated_qty > 0", name="ck_receipt_schedule_alloc_qty_positive"),
     )

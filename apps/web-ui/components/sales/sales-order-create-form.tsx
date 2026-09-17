@@ -1,22 +1,31 @@
 "use client"
 
 import Link from "next/link"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ArrowRight, CalendarClock, Layers3, Plus, ScrollText, Sparkles, Trash2 } from "lucide-react"
+import { Plus, Trash2 } from "lucide-react"
 
 import { Panel } from "@/components/erp/shell"
 import { useApp } from "@/context/AppContext"
 import { useCustomers, useParchments } from "@/hooks/use-master-data"
-import { useCreateSalesOrder } from "@/hooks/use-sales"
+import { useCreateSalesOrder, useSalesOrder, useUpdateSalesOrder } from "@/hooks/use-sales"
 import { useSpecs } from "@/hooks/use-specs"
+import {
+  ORDER_ORIGIN_CUSTOMER_PO,
+  ORDER_ORIGIN_INTERNAL,
+  addCalendarDays,
+  deliveryDateMustFollowCustomerPoDate,
+  isCustomerPoOrigin,
+} from "@/lib/sales-order-entry"
 
 type SalesLineForm = {
   localId: string
+  persistedId?: string
   approved_spec_id: string
   product_code: string
   size_label: string
   parchment_required: boolean
+  parchment_color_id: string
   parchment_color: string
   rate_per_pc: string
   qty: string
@@ -24,9 +33,11 @@ type SalesLineForm = {
 }
 
 type SalesOrderForm = {
+  origin: string
   customer_id: string
   po_number: string
   po_date: string
+  internal_order_date: string
   notes: string
   lines: SalesLineForm[]
 }
@@ -38,6 +49,7 @@ function createLine(seed = 1): SalesLineForm {
     product_code: "",
     size_label: "",
     parchment_required: false,
+    parchment_color_id: "",
     parchment_color: "",
     rate_per_pc: "",
     qty: "",
@@ -46,9 +58,11 @@ function createLine(seed = 1): SalesLineForm {
 }
 
 const INITIAL_FORM: SalesOrderForm = {
+  origin: ORDER_ORIGIN_CUSTOMER_PO,
   customer_id: "",
   po_number: "",
   po_date: "",
+  internal_order_date: "",
   notes: "",
   lines: [createLine()],
 }
@@ -99,14 +113,26 @@ function deriveProductCode(spec: any, fallbackIndex = 1) {
   return id ? `SPEC-${id}` : `LINE-${fallbackIndex}`
 }
 
-export function SalesOrderCreateForm() {
+function isoDate(value?: string | null) {
+  if (!value) return ""
+  return String(value).slice(0, 10)
+}
+
+export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
   const router = useRouter()
   const { showToast } = useApp()
   const { data: customers } = useCustomers()
   const { data: specs } = useSpecs()
   const { data: parchments } = useParchments()
+  const existingOrder = useSalesOrder(orderId)
   const createOrder = useCreateSalesOrder()
+  const updateOrder = useUpdateSalesOrder()
   const [form, setForm] = useState<SalesOrderForm>(INITIAL_FORM)
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const [hydratedOrderId, setHydratedOrderId] = useState<string | null>(null)
+
+  const editing = Boolean(orderId)
+  const saving = createOrder.isPending || updateOrder.isPending
 
   const approvedSpecs = useMemo(
     () => (Array.isArray(specs) ? specs : []).filter((spec: any) => spec.status === "approved" && spec.active),
@@ -119,23 +145,77 @@ export function SalesOrderCreateForm() {
     return map
   }, [approvedSpecs])
 
-  const totalQty = useMemo(
-    () => form.lines.reduce((sum, line) => sum + Number(line.qty || 0), 0),
-    [form.lines],
+  const parchmentOptions = useMemo(
+    () =>
+      (Array.isArray(parchments) ? parchments : []).filter(
+        (parchment: any) => parchment?.color_name && parchment?.id && !String(parchment.id).startsWith("vendor:"),
+      ),
+    [parchments],
   )
 
-  const parchmentLineCount = useMemo(
-    () => form.lines.filter((line) => line.parchment_required).length,
-    [form.lines],
-  )
+  const customerPoMode = isCustomerPoOrigin(form.origin)
+  const deliveryMinDate = customerPoMode && form.po_date ? addCalendarDays(form.po_date, 1) : undefined
 
-  const codedLines = useMemo(
-    () => form.lines.filter((line) => line.product_code.trim()).length,
-    [form.lines],
-  )
+  useEffect(() => {
+    if (!orderId || !existingOrder.data || hydratedOrderId === orderId) return
+    const order = existingOrder.data
+    const origin = String(order.origin || ORDER_ORIGIN_CUSTOMER_PO).toUpperCase() === ORDER_ORIGIN_INTERNAL
+      ? ORDER_ORIGIN_INTERNAL
+      : ORDER_ORIGIN_CUSTOMER_PO
+    setForm({
+      origin,
+      customer_id: String(order.customer_id || ""),
+      po_number: origin === ORDER_ORIGIN_CUSTOMER_PO ? String(order.po_number || "") : "",
+      po_date: origin === ORDER_ORIGIN_CUSTOMER_PO ? isoDate(order.po_date) : "",
+      internal_order_date: origin === ORDER_ORIGIN_INTERNAL ? isoDate(order.internal_order_date || order.created_at) : "",
+      notes: String(order.notes || ""),
+      lines: (order.lines || []).length
+        ? order.lines.map((line: any, index: number) => ({
+            localId: String(line.id || `line-${index + 1}`),
+            persistedId: line.id ? String(line.id) : undefined,
+            approved_spec_id: String(line.approved_spec_id || ""),
+            product_code: String(line.product_code || ""),
+            size_label: String(line.size_label || ""),
+            parchment_required: Boolean(line.parchment_required),
+            parchment_color_id: line.parchment_required ? String(line.parchment_color_id || "") : "",
+            parchment_color: line.parchment_required ? String(line.parchment_color || "") : "",
+            rate_per_pc: line.rate_per_pc == null ? "" : String(line.rate_per_pc),
+            qty: line.qty == null ? "" : String(line.qty),
+            due_date: isoDate(line.due_date),
+          }))
+        : [createLine()],
+    })
+    setHydratedOrderId(orderId)
+  }, [existingOrder.data, hydratedOrderId, orderId])
 
   function updateHeader<K extends keyof SalesOrderForm>(key: K, value: SalesOrderForm[K]) {
     setForm((current) => ({ ...current, [key]: value }))
+    setFieldErrors((current) => {
+      const next = { ...current }
+      delete next[String(key)]
+      return next
+    })
+  }
+
+  function setOrigin(origin: string) {
+    setForm((current) => ({
+      ...current,
+      origin,
+      ...(origin === ORDER_ORIGIN_INTERNAL
+        ? { po_number: "", po_date: "" }
+        : { internal_order_date: "" }),
+    }))
+    setFieldErrors((current) => {
+      const next = { ...current }
+      delete next.origin
+      delete next.po_number
+      delete next.po_date
+      delete next.internal_order_date
+      Object.keys(next).forEach((key) => {
+        if (key.startsWith("due_date:")) delete next[key]
+      })
+      return next
+    })
   }
 
   function updateLine(localId: string, field: keyof SalesLineForm, value: string | boolean) {
@@ -146,11 +226,19 @@ export function SalesOrderCreateForm() {
           ? {
               ...line,
               [field]: value,
-              ...(field === "parchment_required" && !value ? { parchment_color: "" } : {}),
+              ...(field === "parchment_required" && !value
+                ? { parchment_color: "", parchment_color_id: "" }
+                : {}),
             }
           : line,
       ),
     }))
+    setFieldErrors((current) => {
+      const next = { ...current }
+      delete next[`${String(field)}:${localId}`]
+      if (field === "due_date") delete next[`due_date:${localId}`]
+      return next
+    })
   }
 
   function updateSpec(localId: string, specId: string) {
@@ -172,6 +260,30 @@ export function SalesOrderCreateForm() {
     }))
   }
 
+  function updateParchment(localId: string, parchmentId: string) {
+    const selected = parchmentOptions.find((parchment: any) => String(parchment.id) === parchmentId)
+    const snapshot = selected
+      ? String(selected.display_name || [selected.color_name, selected.vendor_name].filter(Boolean).join(" / ") || selected.color_name || "")
+      : ""
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line) =>
+        line.localId === localId
+          ? {
+              ...line,
+              parchment_color_id: parchmentId,
+              parchment_color: snapshot,
+            }
+          : line,
+      ),
+    }))
+    setFieldErrors((current) => {
+      const next = { ...current }
+      delete next[`parchment_color:${localId}`]
+      return next
+    })
+  }
+
   function addLine() {
     setForm((current) => ({ ...current, lines: [...current.lines, createLine(current.lines.length + 1)] }))
   }
@@ -183,81 +295,122 @@ export function SalesOrderCreateForm() {
     }))
   }
 
+  function validateForm() {
+    const errors: Record<string, string> = {}
+    if (!form.customer_id) errors.customer_id = "Customer is required."
+    if (customerPoMode) {
+      if (!form.po_number.trim()) errors.po_number = "Customer PO number is required for customer PO orders."
+      if (!form.po_date) errors.po_date = "Customer PO Date is required for customer PO orders."
+    } else if (!form.internal_order_date) {
+      errors.internal_order_date = "Internal order date is required for internal sales orders."
+    }
+
+    form.lines.forEach((line, index) => {
+      const dateError = deliveryDateMustFollowCustomerPoDate(line.due_date, form.po_date, form.origin)
+      if (dateError) errors[`due_date:${line.localId}`] = `Line ${index + 1}: ${dateError}`
+      if (line.parchment_required && !line.parchment_color_id && !line.parchment_color) {
+        errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: Parchment color is required when parchment is required.`
+      }
+    })
+    setFieldErrors(errors)
+    return errors
+  }
+
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    try {
-      const response = await createOrder.mutateAsync({
-        customer_id: form.customer_id,
-        po_number: form.po_number || null,
-        po_date: form.po_date || null,
-        notes: form.notes || null,
-        lines: form.lines.map((line, index) => ({
-          approved_spec_id: line.approved_spec_id,
-          line_no: index + 1,
-          product_code: line.product_code || deriveProductCode(selectedSpecs.get(line.approved_spec_id), index + 1),
-          size_label: line.size_label || deriveSizeLabel(selectedSpecs.get(line.approved_spec_id)) || null,
-          parchment_required: line.parchment_required,
-          parchment_color: line.parchment_required ? line.parchment_color || null : null,
-          rate_per_pc: line.rate_per_pc ? Number(line.rate_per_pc) : null,
-          qty: Number(line.qty),
-          due_date: line.due_date,
-        })),
-      })
-      const orderId = response?.data?.id || response?.data?.order?.id
-      setForm(INITIAL_FORM)
-      showToast("Sales PO created.", "success")
-      router.push(orderId ? `/sales-orders/${orderId}` : "/sales-orders")
-    } catch (error: any) {
-      const detail = error?.response?.data?.detail || error?.message || "Unable to create sales order."
-      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    const errors = validateForm()
+    if (Object.keys(errors).length > 0) {
+      const first = Object.values(errors)[0]
+      showToast(first, "error")
+      return
     }
+    const payload = {
+      origin: form.origin,
+      customer_id: form.customer_id,
+      po_number: customerPoMode ? form.po_number : null,
+      po_date: customerPoMode ? form.po_date || null : null,
+      internal_order_date: customerPoMode ? null : form.internal_order_date || null,
+      notes: form.notes || null,
+      lines: form.lines.map((line, index) => ({
+        id: line.persistedId || undefined,
+        approved_spec_id: line.approved_spec_id,
+        line_no: index + 1,
+        product_code: line.product_code || deriveProductCode(selectedSpecs.get(line.approved_spec_id), index + 1),
+        size_label: line.size_label || deriveSizeLabel(selectedSpecs.get(line.approved_spec_id)) || null,
+        parchment_required: Boolean(line.parchment_required),
+        parchment_color_id: line.parchment_required ? line.parchment_color_id || null : null,
+        parchment_color: line.parchment_required ? line.parchment_color || null : null,
+        rate_per_pc: line.rate_per_pc ? Number(line.rate_per_pc) : null,
+        qty: Number(line.qty),
+        due_date: line.due_date,
+      })),
+    }
+    try {
+      const response = editing
+        ? await updateOrder.mutateAsync({ orderId: String(orderId), data: payload })
+        : await createOrder.mutateAsync(payload)
+      const savedId = response?.data?.id || response?.data?.order?.id || orderId
+      if (!editing) setForm(INITIAL_FORM)
+      showToast(editing ? "Sales order updated." : "Sales order created.", "success")
+      router.push(savedId ? `/sales-orders/${savedId}` : "/sales-orders")
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Unable to save sales order."
+      const message = typeof detail === "string" ? detail : JSON.stringify(detail)
+      showToast(message, "error")
+      if (typeof detail === "string" && /delivery date/i.test(detail)) {
+        const match = detail.match(/Line (\d+)/i)
+        const lineIndex = match ? Number(match[1]) - 1 : 0
+        const line = form.lines[lineIndex]
+        if (line) setFieldErrors((current) => ({ ...current, [`due_date:${line.localId}`]: detail }))
+      }
+    }
+  }
+
+  if (editing && existingOrder.isLoading) {
+    return <p className="text-sm text-slate-600">Loading sales order...</p>
   }
 
   return (
     <div className="space-y-6">
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1e293b_58%,#164e63_100%)] p-6 text-white shadow-[0_30px_80px_rgba(15,23,42,0.18)]">
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-100">Sales PO Entry</p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight">Enter one long-horizon PO, then release exact line buckets later.</h1>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-200/85">
-              This is the commercial source of truth. Each line remains its own product bucket with its own product code, spec, parchment condition, and due date so production releases stay exact weeks later.
-            </p>
-            <div className="mt-6 flex flex-wrap gap-3 text-xs text-cyan-50/90">
-              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5">Header once</span>
-              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5">Multiple product buckets</span>
-              <span className="rounded-full border border-white/10 bg-white/10 px-3 py-1.5">Release later by line</span>
-            </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
-            <div className="rounded-[1.35rem] border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
-              <div className="flex items-center gap-2 text-cyan-100">
-                <Layers3 className="h-4 w-4" />
-                <p className="text-[11px] uppercase tracking-[0.16em]">Commercial Lines</p>
-              </div>
-              <p className="mt-2 text-3xl font-semibold">{form.lines.length}</p>
-            </div>
-            <div className="rounded-[1.35rem] border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
-              <div className="flex items-center gap-2 text-cyan-100">
-                <Sparkles className="h-4 w-4" />
-                <p className="text-[11px] uppercase tracking-[0.16em]">Parchment Lines</p>
-              </div>
-              <p className="mt-2 text-3xl font-semibold">{parchmentLineCount}</p>
-            </div>
-            <div className="rounded-[1.35rem] border border-white/10 bg-white/10 p-4 backdrop-blur-sm">
-              <div className="flex items-center gap-2 text-cyan-100">
-                <ScrollText className="h-4 w-4" />
-                <p className="text-[11px] uppercase tracking-[0.16em]">Order Qty</p>
-              </div>
-              <p className="mt-2 text-3xl font-semibold">{totalQty.toFixed(0)}</p>
-            </div>
-          </div>
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Sales</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+            {editing ? "Edit sales order" : "New sales order"}
+          </h1>
         </div>
-      </section>
+        <Link href="/sales-orders" className="text-sm font-semibold text-slate-600 hover:text-slate-900">
+          Back to sales queue
+        </Link>
+      </header>
 
-      <form data-testid="sales-orders:create-form" onSubmit={handleSubmit} className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="space-y-6">
-          <Panel title="PO Header" subtitle="Commercial header saved once for the entire customer order.">
+      <form data-testid="sales-orders:create-form" onSubmit={handleSubmit} className="space-y-6">
+        <Panel title="Order header" subtitle="Customer stays on both customer PO and internal orders. External PO fields stay empty for internal orders.">
+          <div className="space-y-4">
+            <fieldset>
+              <legend className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Order source</legend>
+              <div className="mt-2 inline-flex rounded-xl border border-slate-300 bg-slate-50 p-1">
+                <button
+                  type="button"
+                  data-testid="sales-orders:origin-customer-po"
+                  aria-pressed={customerPoMode}
+                  onClick={() => setOrigin(ORDER_ORIGIN_CUSTOMER_PO)}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${customerPoMode ? "bg-white text-slate-950 shadow-sm" : "text-slate-600"}`}
+                >
+                  Customer PO
+                </button>
+                <button
+                  type="button"
+                  data-testid="sales-orders:origin-internal"
+                  aria-pressed={!customerPoMode}
+                  onClick={() => setOrigin(ORDER_ORIGIN_INTERNAL)}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${!customerPoMode ? "bg-white text-slate-950 shadow-sm" : "text-slate-600"}`}
+                >
+                  Internal sales order
+                </button>
+              </div>
+            </fieldset>
+
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-1">
                 <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customer</label>
@@ -275,25 +428,49 @@ export function SalesOrderCreateForm() {
                     </option>
                   ))}
                 </select>
+                {fieldErrors.customer_id ? <p className="text-xs text-rose-700">{fieldErrors.customer_id}</p> : null}
               </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">PO Number</label>
-                <input
-                  value={form.po_number}
-                  onChange={(event) => updateHeader("po_number", event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                  placeholder="Customer PO number"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">PO Date</label>
-                <input
-                  type="date"
-                  value={form.po_date}
-                  onChange={(event) => updateHeader("po_date", event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                />
-              </div>
+              {customerPoMode ? (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customer PO number</label>
+                    <input
+                      data-testid="sales-orders:po-number"
+                      required={customerPoMode}
+                      value={form.po_number}
+                      onChange={(event) => updateHeader("po_number", event.target.value)}
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                      placeholder="Customer PO number"
+                    />
+                    {fieldErrors.po_number ? <p className="text-xs text-rose-700">{fieldErrors.po_number}</p> : null}
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customer PO Date</label>
+                    <input
+                      data-testid="sales-orders:po-date"
+                      type="date"
+                      required={customerPoMode}
+                      value={form.po_date}
+                      onChange={(event) => updateHeader("po_date", event.target.value)}
+                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                    />
+                    {fieldErrors.po_date ? <p className="text-xs text-rose-700">{fieldErrors.po_date}</p> : null}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1">
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Internal order date</label>
+                  <input
+                    data-testid="sales-orders:internal-order-date"
+                    type="date"
+                    required={!customerPoMode}
+                    value={form.internal_order_date}
+                    onChange={(event) => updateHeader("internal_order_date", event.target.value)}
+                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                  />
+                  {fieldErrors.internal_order_date ? <p className="text-xs text-rose-700">{fieldErrors.internal_order_date}</p> : null}
+                </div>
+              )}
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
                 <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notes</label>
                 <textarea
@@ -306,204 +483,169 @@ export function SalesOrderCreateForm() {
                 />
               </div>
             </div>
-          </Panel>
-
-          <Panel title="PO Lines" subtitle="One line per size and parchment/color demand bucket.">
-            <div className="space-y-4">
-              {form.lines.map((line, index) => {
-                const linkedSpec = selectedSpecs.get(line.approved_spec_id)
-                return (
-                  <section
-                    key={line.localId}
-                    className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg"
-                  >
-                    <div className="border-b border-slate-200 bg-[linear-gradient(90deg,#f8fafc_0%,#ecfeff_100%)] px-4 py-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Line {index + 1}</p>
-                          <p className="mt-1 text-sm text-slate-700">
-                            {linkedSpec ? specLabel(linkedSpec) : "Select approved spec and commercial line details"}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeLine(line.localId)}
-                          disabled={form.lines.length === 1}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-white disabled:opacity-40"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
-                      <div className="space-y-1 xl:col-span-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Approved Specification</label>
-                        <select
-                          data-testid={index === 0 ? "sales-orders:spec" : undefined}
-                          required
-                          value={line.approved_spec_id}
-                          onChange={(event) => updateSpec(line.localId, event.target.value)}
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                        >
-                          <option value="">Select approved spec</option>
-                          {approvedSpecs.map((spec: any) => (
-                            <option key={spec.id} value={spec.id}>
-                              {specLabel(spec)}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Product Code</label>
-                        <input
-                          required
-                          value={line.product_code}
-                          onChange={(event) => updateLine(line.localId, "product_code", event.target.value.toUpperCase())}
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                          placeholder="Customer-facing product code"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Size Label</label>
-                        <input
-                          value={line.size_label}
-                          readOnly
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 text-sm text-slate-700"
-                          placeholder="Auto-filled from selected spec"
-                        />
-                      </div>
-                      <div className="space-y-1 xl:col-span-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Rate / Pc</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          value={line.rate_per_pc}
-                          onChange={(event) => updateLine(line.localId, "rate_per_pc", event.target.value)}
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                          placeholder="12.60"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Order Qty</label>
-                        <input
-                          data-testid={index === 0 ? "sales-orders:qty" : undefined}
-                          required
-                          type="number"
-                          min="1"
-                          value={line.qty}
-                          onChange={(event) => updateLine(line.localId, "qty", event.target.value)}
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                          placeholder="2000"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Due Date</label>
-                        <input
-                          data-testid={index === 0 ? "sales-orders:due-date" : undefined}
-                          required
-                          type="date"
-                          value={line.due_date}
-                          onChange={(event) => updateLine(line.localId, "due_date", event.target.value)}
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
-                        />
-                      </div>
-                      <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
-                        <input
-                          type="checkbox"
-                          checked={line.parchment_required}
-                          onChange={(event) => updateLine(line.localId, "parchment_required", event.target.checked)}
-                        />
-                        Parchment required
-                      </label>
-                      <div className="space-y-1 xl:col-span-2">
-                        <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Parchment Color</label>
-                        <select
-                          data-testid={index === 0 ? "sales-orders:parchment" : undefined}
-                          value={line.parchment_color}
-                          onChange={(event) => updateLine(line.localId, "parchment_color", event.target.value)}
-                          disabled={!line.parchment_required}
-                          className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
-                        >
-                          <option value="">{line.parchment_required ? "Select parchment color" : "Not required for this line"}</option>
-                          {(parchments || []).map((parchment: any) => (
-                            <option key={parchment.id} value={parchment.color_name}>
-                              {parchment.color_name} / {parchment.vendor_name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                      {line.product_code ? `Release bucket ${line.product_code}` : "Product code pending"} · {line.qty ? `${Number(line.qty).toFixed(0)} pcs` : "Qty pending"} · {line.due_date || "Due date pending"}
-                    </div>
-                  </section>
-                )
-              })}
-
-              <button
-                type="button"
-                onClick={addLine}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white"
-              >
-                <Plus className="h-4 w-4" />
-                Add another PO line
-              </button>
-            </div>
-          </Panel>
-        </div>
-
-        <aside className="space-y-4 xl:sticky xl:top-6 xl:self-start">
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Release Readiness</p>
-            <div className="mt-4 grid gap-3">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Next Step</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">Approve the PO, then release exact quantities by line into the planner.</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Product Codes</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{codedLines} / {form.lines.length} filled</p>
-              </div>
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Earliest Due</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">
-                  {form.lines.map((line) => line.due_date).filter(Boolean).sort()[0] || "Not set"}
-                </p>
-              </div>
-            </div>
-            <div className="mt-5 space-y-3 text-sm text-slate-600">
-              <div className="flex items-start gap-3 rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3">
-                <CalendarClock className="mt-0.5 h-4 w-4 text-cyan-700" />
-                <p>Use separate lines even for the same size when product code or parchment changes.</p>
-              </div>
-              <div className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <ArrowRight className="mt-0.5 h-4 w-4 text-slate-700" />
-                <p>Release popup will later ask target winder and release qty per line before planning starts.</p>
-              </div>
-            </div>
           </div>
+        </Panel>
 
-          <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
+        <Panel title="Order lines" subtitle="Each line keeps a stable identity. Add or remove lines without using the row number as the database key.">
+          <div className="space-y-4">
+            {form.lines.map((line, index) => {
+              const lineNumber = index + 1
+              const dueError = fieldErrors[`due_date:${line.localId}`]
+              const parchmentError = fieldErrors[`parchment_color:${line.localId}`]
+              return (
+                <section key={line.localId} className="rounded-xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-slate-700">
+                      <span className="sr-only">Sales order </span>Line {lineNumber}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => removeLine(line.localId)}
+                      disabled={form.lines.length === 1}
+                      aria-label={`Remove line ${lineNumber}`}
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Remove
+                    </button>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                    <div className="space-y-1 xl:col-span-2">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Approved Specification</label>
+                      <select
+                        data-testid={index === 0 ? "sales-orders:spec" : undefined}
+                        required
+                        value={line.approved_spec_id}
+                        onChange={(event) => updateSpec(line.localId, event.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                      >
+                        <option value="">Select approved spec</option>
+                        {approvedSpecs.map((spec: any) => (
+                          <option key={spec.id} value={spec.id}>
+                            {specLabel(spec)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Product Code</label>
+                      <input
+                        required
+                        value={line.product_code}
+                        onChange={(event) => updateLine(line.localId, "product_code", event.target.value.toUpperCase())}
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        placeholder="Customer-facing product code"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Size Label</label>
+                      <input
+                        value={line.size_label}
+                        readOnly
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 text-sm text-slate-700"
+                        placeholder="Auto-filled from selected spec"
+                      />
+                    </div>
+                    <div className="space-y-1 xl:col-span-2">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Rate / Pc</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={line.rate_per_pc}
+                        onChange={(event) => updateLine(line.localId, "rate_per_pc", event.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        placeholder="12.60"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Order Qty</label>
+                      <input
+                        data-testid={index === 0 ? "sales-orders:qty" : undefined}
+                        required
+                        type="number"
+                        min="1"
+                        value={line.qty}
+                        onChange={(event) => updateLine(line.localId, "qty", event.target.value)}
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        placeholder="2000"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Delivery Date</label>
+                      <input
+                        data-testid={index === 0 ? "sales-orders:due-date" : `sales-orders:due-date-${index}`}
+                        required
+                        type="date"
+                        min={deliveryMinDate}
+                        value={line.due_date}
+                        onChange={(event) => updateLine(line.localId, "due_date", event.target.value)}
+                        className={`h-11 w-full rounded-xl border bg-white px-3 text-sm ${dueError ? "border-rose-400" : "border-slate-300"}`}
+                      />
+                      {dueError ? <p className="text-xs text-rose-700">{dueError}</p> : null}
+                    </div>
+                    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                      <input
+                        data-testid={index === 0 ? "sales-orders:parchment-required" : undefined}
+                        type="checkbox"
+                        checked={line.parchment_required}
+                        onChange={(event) => updateLine(line.localId, "parchment_required", event.target.checked)}
+                      />
+                      Parchment required
+                    </label>
+                    <div className="space-y-1 xl:col-span-2">
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Parchment Color</label>
+                      <select
+                        data-testid={index === 0 ? "sales-orders:parchment" : undefined}
+                        value={line.parchment_color_id}
+                        onChange={(event) => updateParchment(line.localId, event.target.value)}
+                        disabled={!line.parchment_required}
+                        required={line.parchment_required}
+                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+                      >
+                        <option value="">{line.parchment_required ? "Select parchment color" : "Not required for this line"}</option>
+                        {parchmentOptions.map((parchment: any) => (
+                          <option key={parchment.id} value={parchment.id}>
+                            {parchment.display_name || `${parchment.color_name} / ${parchment.vendor_name || ""}`.trim()}
+                          </option>
+                        ))}
+                      </select>
+                      {parchmentError ? <p className="text-xs text-rose-700">{parchmentError}</p> : null}
+                    </div>
+                  </div>
+                </section>
+              )
+            })}
+
             <button
-              data-testid="sales-orders:create-submit"
-              type="submit"
-              disabled={createOrder.isPending}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              type="button"
+              onClick={addLine}
+              data-testid="sales-orders:add-line"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white"
             >
-              {createOrder.isPending ? "Creating PO..." : "Create sales PO"}
+              <Plus className="h-4 w-4" />
+              Add line
             </button>
-            <Link
-              href="/sales-orders"
-              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-            >
-              Back to sales queue
-            </Link>
           </div>
-        </aside>
+        </Panel>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            data-testid="sales-orders:create-submit"
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? "Saving..." : editing ? "Save sales order" : "Create sales order"}
+          </button>
+          <Link
+            href="/sales-orders"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Cancel
+          </Link>
+        </div>
       </form>
     </div>
   )

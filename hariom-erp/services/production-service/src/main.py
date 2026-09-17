@@ -68,6 +68,20 @@ def _ensure_schema_compatibility():
                 "ON machine_downtime (machine_id, started_at)"
             )
         )
+        connection.execute(text("ALTER TABLE job_cards DROP CONSTRAINT IF EXISTS ck_job_cards_current_stage"))
+        connection.execute(
+            text(
+                "ALTER TABLE job_cards ADD CONSTRAINT ck_job_cards_current_stage "
+                "CHECK (current_stage IN ('SLITTING','WINDER','OVEN','PROCESS','PACKING','QC','DISPATCH','DONE'))"
+            )
+        )
+        connection.execute(text("ALTER TABLE job_card_stages DROP CONSTRAINT IF EXISTS ck_job_card_stages_type"))
+        connection.execute(
+            text(
+                "ALTER TABLE job_card_stages ADD CONSTRAINT ck_job_card_stages_type "
+                "CHECK (stage_type IN ('SLITTING','WINDER','OVEN','PROCESS','PACKING','QC','DISPATCH'))"
+            )
+        )
 
     # Carry-forward / process-level short-close + HOLD follow-up + downtime
     # reschedule columns. Each statement runs in its own transaction and is
@@ -87,6 +101,9 @@ def _ensure_schema_compatibility():
         "DROP INDEX IF EXISTS uq_short_close_job_card",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_short_close_job_card_stage "
         "ON job_card_short_close (job_card_id, stage_type)",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS reasons JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS evaluation JSONB DEFAULT '{}'::jsonb",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS sample_id VARCHAR(80)",
     ]
     for _statement in _short_close_downtime_migrations:
         try:

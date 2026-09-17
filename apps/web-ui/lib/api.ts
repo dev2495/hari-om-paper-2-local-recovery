@@ -91,6 +91,7 @@ export const authApi = {
   updateUser: (id: string, data: any) => api.put(`/api/auth/users/${id}`, data),
   deleteUser: (id: string) => api.delete(`/api/auth/users/${id}`),
   getRoles: () => api.get("/api/auth/roles"),
+  getRoleMatrix: () => api.get("/api/auth/roles/matrix"),
   getNotifications: (params?: any) => api.get("/api/auth/notifications", { params }),
   getNotificationUnreadCount: () => api.get("/api/auth/notifications/unread-count"),
   markAllNotificationsRead: () => api.post("/api/auth/notifications/mark-all-read"),
@@ -282,6 +283,9 @@ export const specApi = {
     api.post(`/api/spec/specifications/${id}/approve`, data, withPlantHeader(plantId)),
   obsoleteSpec: (id: string, data?: any, plantId?: string) =>
     api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}, withPlantHeader(plantId)),
+  upsertSpecQcProfile: (id: string, data: any, plantId?: string) =>
+    api.put(`/api/spec/specifications/${id}/qc-profile`, data, withPlantHeader(plantId)),
+  getQcParameterDictionary: () => api.get("/api/spec/qc-parameter-dictionary"),
   getConstants: () => api.get("/api/spec/constants"),
   getDefaults: (plantId?: string) => api.get("/api/spec/defaults", withPlantHeader(plantId)),
   updateDefaults: (data: any, plantId?: string) => api.put("/api/spec/defaults", data, withPlantHeader(plantId)),
@@ -309,6 +313,16 @@ export const specApi = {
 
 export const salesApi = {
   getOrders: (params?: any) => api.get("/api/sales/orders", { params }),
+  getOrderAggregates: () => api.get("/api/sales/orders/aggregates"),
+  getPendingOrders: (params?: any) => api.get("/api/sales/orders/pending", { params }),
+  exportPendingOrders: (params?: any) => api.get("/api/sales/orders/pending/export", { params, responseType: "blob" }),
+  getOrderDeliverySchedules: (id: string) => api.get(`/api/sales/orders/${id}/delivery-schedules`),
+  previewOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/preview`, data),
+  commitOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/commit`, data),
+  patchOrderDeliverySchedule: (orderId: string, scheduleId: string, data: any) =>
+    api.patch(`/api/sales/orders/${orderId}/delivery-schedules/${scheduleId}`, data),
+  previewScheduleEntirePo: (id: string, data: any) => api.post(`/api/sales/orders/${id}/schedule-entire-po/preview`, data),
+  commitScheduleEntirePo: (id: string, data: any) => api.post(`/api/sales/orders/${id}/schedule-entire-po/commit`, data),
   createOrder: (data: any) => api.post("/api/sales/orders", data),
   getOrder: (id: string) => api.get(`/api/sales/orders/${id}`),
   getOrderTimeline: (id: string) => api.get(`/api/sales/orders/${id}/timeline`),
@@ -350,6 +364,9 @@ export const productionApi = {
     api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
   getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params: clampPlanningListParams(params) }),
+  getJobCardAggregates: () => api.get("/api/production/job-cards/aggregates"),
+  getPendingJobCardsByOrder: () => api.get("/api/production/job-cards/pending-by-order"),
+  exportJobCards: (params?: any) => api.get("/api/production/job-cards/export", { params, responseType: "blob" }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
   getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {
@@ -370,6 +387,9 @@ export const productionApi = {
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
   getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),
+  getJobQcTemplate: (jobCardId: string, params?: any, plantId?: string) =>
+    api.get(`/api/production/quality/job-cards/${jobCardId}/template`, { params, ...(withPlantHeader(plantId) || {}) }),
+  getQualitySummary: () => api.get("/api/production/quality/summary"),
   createQualityInspection: (data: any, plantId?: string) =>
     api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),
   getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),
@@ -434,6 +454,7 @@ export const inventoryApi = {
   getItems: () => api.get("/api/inventory/items"),
   createItem: (data: any) => api.post("/api/inventory/items", data),
   updateItem: (id: string, data: any) => api.put(`/api/inventory/items/${id}`, data),
+  upsertItemQualityProfile: (id: string, data: any) => api.put(`/api/inventory/items/${id}/quality-profile`, data),
   deleteItem: (id: string) => api.delete(`/api/inventory/items/${id}`),
   getBalances: () => api.get("/api/inventory/balance"),
   getItemBalance: (itemId: string) => api.get(`/api/inventory/balance/${itemId}`),
@@ -504,6 +525,7 @@ export const inventoryApi = {
   getPendingQuality: () => api.get("/api/inventory/quality/pending"),
   getInventoryQualityInspections: (params?: any) => api.get("/api/inventory/quality/inspections", { params }),
   createInventoryQualityInspection: (data: any) => api.post("/api/inventory/quality/inspections", data),
+  createInventoryQualityConcession: (data: any) => api.post("/api/inventory/quality/concessions", data),
   getCustomerRejections: (params?: any) => api.get("/api/inventory/quality/customer-rejections", { params }),
   createCustomerRejection: (data: any) => api.post("/api/inventory/quality/customer-rejections", data),
   disposeCustomerRejection: (id: string, data: any) =>
@@ -523,7 +545,10 @@ export const purchaseApi = {
   approveOrder: (id: string) => api.post(`/api/purchase/orders/${id}/approve`, {}),
   postGrn: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/grn`, data),
   getReceipts: () => api.get("/api/purchase/receipts"),
-  updateReceiptQc: (lineId: string, data: any) => api.post(`/api/purchase/receipt-lines/${lineId}/qc`, data),
+  getSchedules: () => api.get("/api/purchase/schedules"),
+  commitSchedules: (poId: string, data: any) => api.post(`/api/purchase/orders/${poId}/schedules`, data),
+  allocateReceiptSchedule: (lineId: string, data: any) =>
+    api.post(`/api/purchase/receipt-lines/${lineId}/allocate-schedule`, data),
 }
 
 export const dispatchApi = {

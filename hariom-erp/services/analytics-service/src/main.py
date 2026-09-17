@@ -1,6 +1,6 @@
 from fastapi import Depends, FastAPI
 
-from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts, jobs
+from src.routers import dashboard, production, loss, inventory, dispatch, quality, reports, deep_cuts, jobs, mrp
 from src.cache import _build_cache_key
 from src.dependencies import get_token
 from src.job_queue import ensure_job_schema
@@ -107,6 +107,7 @@ app.include_router(quality.router)
 app.include_router(reports.router)
 app.include_router(deep_cuts.router)
 app.include_router(jobs.router)
+app.include_router(mrp.router)
 
 
 @app.on_event("startup")
@@ -158,6 +159,7 @@ def health_check():
             "/deep/leadtime-anatomy",
             "/deep/scrap-cost-ladder",
             "/deep/item-velocity",
+            "/mrp/coverage",
         ],
     }
 

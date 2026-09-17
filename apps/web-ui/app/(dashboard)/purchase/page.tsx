@@ -76,6 +76,21 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{children}</span>
 }
 
+function emptyPurchaseLine() {
+  return {
+    key: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    item_id: "",
+    qty: "",
+    unit_cost: "",
+    width_mm: "",
+    gsm: "",
+    plybond: "",
+    bulk: "",
+    cobb: "",
+    description: "",
+  }
+}
+
 export default function PurchaseFlowPage() {
   const queryClient = useQueryClient()
   const { activePlant, setActivePlant } = useAuth()
@@ -99,6 +114,11 @@ export default function PurchaseFlowPage() {
     queryFn: () => safePurchaseGet("/api/purchase/receipts"),
     enabled: concretePlant,
   })
+  const schedulesQuery = useQuery({
+    queryKey: ["purchase", "schedules", activePlant],
+    queryFn: () => safePurchaseGet("/api/purchase/schedules"),
+    enabled: concretePlant,
+  })
 
   const [poForm, setPoForm] = useState({
     po_no: "",
@@ -107,15 +127,6 @@ export default function PurchaseFlowPage() {
     supplier_contact: "",
     supplier_address: "",
     supplier_gst_no: "",
-    item_id: "",
-    qty: "",
-    unit_cost: "",
-    width_mm: "",
-    gsm: "",
-    plybond: "",
-    bulk: "",
-    cobb: "",
-    description: "",
     needed_date: today(),
     notes: "",
     freight_terms: "Freight included in landed rate.",
@@ -125,6 +136,7 @@ export default function PurchaseFlowPage() {
     test_report_terms: "Attach test report with delivery challan copy for PB/GSM/RCT/COBB.",
     special_instruction: "FOR AMIGO INDUSTRIES UNIT-2",
   })
+  const [poLines, setPoLines] = useState(() => [emptyPurchaseLine(), emptyPurchaseLine()])
   const grnRequestId = useRef<string | null>(null)
   const [grnForm, setGrnForm] = useState({
     purchase_order_id: "",
@@ -132,11 +144,24 @@ export default function PurchaseFlowPage() {
     qty: "",
     grn_date: today(),
     batch_no: "",
+    schedule_id: "",
+  })
+  const [scheduleForm, setScheduleForm] = useState({
+    purchase_order_id: "",
+    po_line_id: "",
+    scheduled_qty: "",
+    promised_date: today(),
+    current_date: today(),
+    confirmation_status: "TENTATIVE",
+  })
+  const [allocateForm, setAllocateForm] = useState({
+    receipt_line_id: "",
+    schedule_id: "",
+    allocated_qty: "",
   })
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null)
 
   const selectedRequestVendor = vendors.find((row: any) => String(row.id) === poForm.vendor_id)
-  const selectedRequestItem = items.find((row: any) => String(row.id) === poForm.item_id)
 
   const createOrder = useMutation({
     mutationFn: async (payload: any) => purchaseApi.createOrder(payload),
@@ -155,18 +180,21 @@ export default function PurchaseFlowPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase", "orders"] })
       queryClient.invalidateQueries({ queryKey: ["purchase", "receipts"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
     },
   })
-  const updateReceiptQc = useMutation({
-    mutationFn: async ({ lineId, status }: { lineId: string; status: "PASS" | "HOLD" }) =>
-      purchaseApi.updateReceiptQc(lineId, {
-        status,
-        notes: status === "PASS" ? "Incoming QC cleared from purchase desk." : "Incoming QC hold from purchase desk.",
-      }),
+  const commitSchedules = useMutation({
+    mutationFn: async (payload: { poId: string; body: any }) => purchaseApi.commitSchedules(payload.poId, payload.body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchase", "orders"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
+    },
+  })
+  const allocateSchedule = useMutation({
+    mutationFn: async (payload: { lineId: string; body: any }) => purchaseApi.allocateReceiptSchedule(payload.lineId, payload.body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase", "receipts"] })
-      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
-      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
+      queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
     },
   })
 
@@ -186,17 +214,48 @@ export default function PurchaseFlowPage() {
 
   const orders = ordersQuery.data?.rows || []
   const receipts = receiptsQuery.data?.rows || []
-  const endpointPending = [ordersQuery.data, receiptsQuery.data].some((state) => state && !state.available)
+  const schedules = schedulesQuery.data?.rows || []
+  const endpointPending = [ordersQuery.data, receiptsQuery.data, schedulesQuery.data].some((state) => state && !state.available)
   const selectedOrder = orders.find((row: any) => String(row.id) === grnForm.purchase_order_id) || null
   const selectedOrderLines = Array.isArray(selectedOrder?.lines)
     ? selectedOrder.lines.filter((line: any) => String(line.line_status || "").toUpperCase() !== "CLOSED")
     : []
+  const selectedScheduleOrder = orders.find((row: any) => String(row.id) === scheduleForm.purchase_order_id) || null
+  const selectedScheduleLines = Array.isArray(selectedScheduleOrder?.lines) ? selectedScheduleOrder.lines : []
+  const lineSchedules = schedules.filter((row: any) => String(row.purchase_order_line_id) === grnForm.po_line_id)
+  const receiptLines = receipts.flatMap((receipt: any) => (receipt.lines || []).map((line: any) => ({ ...line, grn_no: receipt.grn_no, po_no: receipt.po_no })))
 
   async function submitPurchaseOrder(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setMessage(null)
-    if (!selectedRequestVendor || !selectedRequestItem) {
-      setMessage({ tone: "error", text: "Select vendor and material before creating a purchase order." })
+    if (!selectedRequestVendor) {
+      setMessage({ tone: "error", text: "Select vendor before creating a purchase order." })
+      return
+    }
+    const preparedLines = poLines
+      .map((line) => {
+        const item = items.find((row: any) => String(row.id) === line.item_id)
+        return {
+          item,
+          item_id: line.item_id,
+          qty_ordered: Number(line.qty),
+          unit_cost: Number(line.unit_cost),
+          incoming_qc_required: true,
+          description: line.description || item?.name,
+          width_mm: line.width_mm ? Number(line.width_mm) : undefined,
+          gsm: line.gsm ? Number(line.gsm) : undefined,
+          plybond: line.plybond ? Number(line.plybond) : undefined,
+          bulk: line.bulk ? Number(line.bulk) : undefined,
+          cobb: line.cobb || undefined,
+        }
+      })
+      .filter((line) => line.item_id && Number.isFinite(line.qty_ordered) && line.qty_ordered > 0)
+    if (preparedLines.length < 1) {
+      setMessage({ tone: "error", text: "Add at least one purchase line with material and quantity." })
+      return
+    }
+    if (preparedLines.some((line) => !line.item || !Number.isFinite(line.unit_cost) || line.unit_cost < 0)) {
+      setMessage({ tone: "error", text: "Every line needs a valid material and unit cost." })
       return
     }
     try {
@@ -216,23 +275,11 @@ export default function PurchaseFlowPage() {
         delivery_terms: poForm.delivery_terms || undefined,
         test_report_terms: poForm.test_report_terms || undefined,
         special_instruction: poForm.special_instruction || undefined,
-        lines: [
-          {
-            item_id: poForm.item_id,
-            qty_ordered: Number(poForm.qty),
-            unit_cost: Number(poForm.unit_cost),
-            incoming_qc_required: true,
-            description: poForm.description || selectedRequestItem.name,
-            width_mm: poForm.width_mm ? Number(poForm.width_mm) : undefined,
-            gsm: poForm.gsm ? Number(poForm.gsm) : undefined,
-            plybond: poForm.plybond ? Number(poForm.plybond) : undefined,
-            bulk: poForm.bulk ? Number(poForm.bulk) : undefined,
-            cobb: poForm.cobb || undefined,
-          },
-        ],
+        lines: preparedLines.map(({ item, ...line }) => line),
       })
-      setPoForm((current) => ({ ...current, po_no: "", qty: "", unit_cost: "", width_mm: "", gsm: "", plybond: "", bulk: "", cobb: "", description: "", notes: "" }))
-      setMessage({ tone: "success", text: "Purchase order created. Approve it before posting GRN." })
+      setPoForm((current) => ({ ...current, po_no: "", notes: "" }))
+      setPoLines([emptyPurchaseLine(), emptyPurchaseLine()])
+      setMessage({ tone: "success", text: `Purchase order created with ${preparedLines.length} line(s). Approve it before posting GRN.` })
     } catch (error: any) {
       setMessage({ tone: "error", text: errorMessage(error) })
     }
@@ -257,13 +304,70 @@ export default function PurchaseFlowPage() {
               po_line_id: grnForm.po_line_id,
               qty_received: Number(grnForm.qty),
               batch_no: grnForm.batch_no || undefined,
+              schedule_id: grnForm.schedule_id || undefined,
             },
           ],
         },
       })
       grnRequestId.current = null
-      setGrnForm((current) => ({ ...current, qty: "", batch_no: "" }))
+      setGrnForm((current) => ({ ...current, qty: "", batch_no: "", schedule_id: "" }))
       setMessage({ tone: "success", text: "GRN posted into stock with vendor, batch cost, and incoming QC status." })
+    } catch (error: any) {
+      setMessage({ tone: "error", text: errorMessage(error) })
+    }
+  }
+
+  async function submitSchedule(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setMessage(null)
+    if (!scheduleForm.purchase_order_id || !scheduleForm.po_line_id) {
+      setMessage({ tone: "error", text: "Select a PO line before committing a supplier delivery schedule." })
+      return
+    }
+    try {
+      await commitSchedules.mutateAsync({
+        poId: scheduleForm.purchase_order_id,
+        body: {
+          rows: [
+            {
+              purchase_order_line_id: scheduleForm.po_line_id,
+              scheduled_qty: Number(scheduleForm.scheduled_qty),
+              promised_date: scheduleForm.promised_date,
+              current_date: scheduleForm.current_date || scheduleForm.promised_date,
+              confirmation_status: scheduleForm.confirmation_status,
+            },
+          ],
+        },
+      })
+      setScheduleForm((current) => ({ ...current, scheduled_qty: "" }))
+      setMessage({ tone: "success", text: "Supplier delivery schedule saved. This is a commitment, not a stock posting." })
+    } catch (error: any) {
+      setMessage({ tone: "error", text: errorMessage(error) })
+    }
+  }
+
+  async function submitAllocation(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setMessage(null)
+    if (!allocateForm.receipt_line_id || !allocateForm.schedule_id) {
+      setMessage({ tone: "error", text: "Select a receipt line and a schedule row to allocate." })
+      return
+    }
+    try {
+      const result = await allocateSchedule.mutateAsync({
+        lineId: allocateForm.receipt_line_id,
+        body: {
+          schedule_id: allocateForm.schedule_id,
+          allocated_qty: allocateForm.allocated_qty ? Number(allocateForm.allocated_qty) : undefined,
+        },
+      })
+      const replayed = Boolean((result as any)?.data?.idempotent)
+      setMessage({
+        tone: "success",
+        text: replayed
+          ? "Receipt replay did not double-allocate. Existing allocation returned."
+          : "Partial receipt allocated to the supplier schedule.",
+      })
     } catch (error: any) {
       setMessage({ tone: "error", text: errorMessage(error) })
     }
@@ -275,9 +379,9 @@ export default function PurchaseFlowPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-100/80">Purchase to GRN control</p>
-            <h1 className="mt-2 text-2xl font-semibold">Purchase orders, GRN stock posting, and incoming QC.</h1>
+            <h1 className="mt-2 text-2xl font-semibold">Purchase orders, GRN stock posting, and supplier schedules.</h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">
-              Create vendor-linked purchase orders, approve buying, then post GRN into priced inventory batches that stay on QC hold until cleared.
+              Create vendor-linked purchase orders, approve buying, then post GRN into priced inventory batches. Incoming QC verdicts stay with QC/inventory; this desk cannot set PASS or UNRESTRICTED.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -294,6 +398,7 @@ export default function PurchaseFlowPage() {
       <section className="flex flex-wrap gap-2">
         <EndpointChip label="Purchase orders" state={ordersQuery.data} />
         <EndpointChip label="GRNs" state={receiptsQuery.data} />
+        <EndpointChip label="Supplier schedules" state={schedulesQuery.data} />
       </section>
 
       {endpointPending ? (
@@ -315,7 +420,7 @@ export default function PurchaseFlowPage() {
       <section className="grid min-w-0 gap-4 xl:grid-cols-[0.92fr_1.08fr] [&>*]:min-w-0">
         <Panel
           title="Create Purchase Order"
-          subtitle="Vendor, material, quantity, rate, expected date, and incoming QC requirement are captured before GRN."
+          subtitle="Vendor header plus multiple material lines. The API already accepted a lines array; this desk now sends every row."
           actions={<StatusBadge value={ordersQuery.data?.available ? "CONNECTED" : "ERROR"} />}
         >
           <form onSubmit={submitPurchaseOrder} className="grid gap-3 md:grid-cols-2">
@@ -350,46 +455,77 @@ export default function PurchaseFlowPage() {
               <FieldLabel>Vendor address</FieldLabel>
               <textarea value={poForm.supplier_address} onChange={(event) => setPoForm((current) => ({ ...current, supplier_address: event.target.value }))} rows={2} className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm" />
             </label>
-            <label className="space-y-1">
-              <FieldLabel>Material</FieldLabel>
-              <select required value={poForm.item_id} onChange={(event) => setPoForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
-                <option value="">Select material</option>
-                {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
-              </select>
-            </label>
-            <label className="space-y-1">
-              <FieldLabel>Description</FieldLabel>
-              <input value={poForm.description} onChange={(event) => setPoForm((current) => ({ ...current, description: event.target.value }))} placeholder={selectedRequestItem?.name || "KRAFT BOARD"} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-            </label>
-            <label className="space-y-1">
-              <FieldLabel>Qty</FieldLabel>
-              <input required type="number" min="0.001" step="0.001" value={poForm.qty} onChange={(event) => setPoForm((current) => ({ ...current, qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-            </label>
-            <label className="space-y-1 md:col-span-2">
-              <FieldLabel>Unit cost</FieldLabel>
-              <input required type="number" min="0.01" step="0.01" value={poForm.unit_cost} onChange={(event) => setPoForm((current) => ({ ...current, unit_cost: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-            </label>
-            <div className="grid gap-3 md:col-span-2 md:grid-cols-5">
-              <label className="space-y-1">
-                <FieldLabel>Width mm</FieldLabel>
-                <input type="number" min="0" step="0.01" value={poForm.width_mm} onChange={(event) => setPoForm((current) => ({ ...current, width_mm: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>GSM</FieldLabel>
-                <input type="number" min="0" step="0.01" value={poForm.gsm} onChange={(event) => setPoForm((current) => ({ ...current, gsm: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>PB</FieldLabel>
-                <input type="number" min="0" step="0.01" value={poForm.plybond} onChange={(event) => setPoForm((current) => ({ ...current, plybond: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>Bulk</FieldLabel>
-                <input type="number" min="0" step="0.001" value={poForm.bulk} onChange={(event) => setPoForm((current) => ({ ...current, bulk: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
-              <label className="space-y-1">
-                <FieldLabel>COBB</FieldLabel>
-                <input value={poForm.cobb} onChange={(event) => setPoForm((current) => ({ ...current, cobb: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
-              </label>
+            <div className="md:col-span-2 space-y-3" data-testid="purchase-multiline-editor">
+              <div className="flex items-center justify-between gap-3">
+                <FieldLabel>Purchase lines</FieldLabel>
+                <button
+                  type="button"
+                  onClick={() => setPoLines((current) => [...current, emptyPurchaseLine()])}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.12em] text-slate-800"
+                >
+                  Add line
+                </button>
+              </div>
+              {poLines.map((line, index) => {
+                const selectedItem = items.find((row: any) => String(row.id) === line.item_id)
+                return (
+                  <div key={line.key} className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-2">
+                    <div className="md:col-span-2 flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Line {index + 1}</p>
+                      <button
+                        type="button"
+                        disabled={poLines.length <= 1}
+                        onClick={() => setPoLines((current) => current.filter((row) => row.key !== line.key))}
+                        className="text-xs font-semibold text-rose-800 disabled:opacity-40"
+                        aria-label={`Remove line ${index + 1}`}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <label className="space-y-1">
+                      <FieldLabel>Material</FieldLabel>
+                      <select value={line.item_id} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, item_id: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                        <option value="">Select material</option>
+                        {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
+                      </select>
+                    </label>
+                    <label className="space-y-1">
+                      <FieldLabel>Description</FieldLabel>
+                      <input value={line.description} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, description: event.target.value } : row))} placeholder={selectedItem?.name || "KRAFT BOARD"} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                    <label className="space-y-1">
+                      <FieldLabel>Qty</FieldLabel>
+                      <input type="number" min="0.001" step="0.001" value={line.qty} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, qty: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                    <label className="space-y-1">
+                      <FieldLabel>Unit cost</FieldLabel>
+                      <input type="number" min="0.01" step="0.01" value={line.unit_cost} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, unit_cost: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                    <div className="grid gap-3 md:col-span-2 md:grid-cols-5">
+                      <label className="space-y-1">
+                        <FieldLabel>Width mm</FieldLabel>
+                        <input type="number" min="0" step="0.01" value={line.width_mm} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, width_mm: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>GSM</FieldLabel>
+                        <input type="number" min="0" step="0.01" value={line.gsm} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, gsm: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>PB</FieldLabel>
+                        <input type="number" min="0" step="0.01" value={line.plybond} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, plybond: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>Bulk</FieldLabel>
+                        <input type="number" min="0" step="0.001" value={line.bulk} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, bulk: event.target.value } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                      <label className="space-y-1">
+                        <FieldLabel>COBB</FieldLabel>
+                        <input value={line.cobb} onChange={(event) => setPoLines((current) => current.map((row) => row.key === line.key ? { ...row, cobb: event.target.value.toUpperCase() } : row))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+                      </label>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
             <div className="grid gap-3 md:col-span-2 md:grid-cols-2">
               <label className="space-y-1">
@@ -447,18 +583,23 @@ export default function PurchaseFlowPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  <tr className="border-b border-slate-100">
-                    <td className="py-2 pr-3">{selectedRequestItem?.item_code || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.description || selectedRequestItem?.name || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.width_mm || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.gsm || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.plybond || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.bulk || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.cobb || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.qty || "-"}</td>
-                    <td className="py-2 pr-3">{poForm.unit_cost || "-"}</td>
-                    <td className="py-2 pr-3 font-semibold text-slate-950">{formatCurrency(Number(poForm.qty || 0) * Number(poForm.unit_cost || 0))}</td>
-                  </tr>
+                  {poLines.map((line) => {
+                    const selectedItem = items.find((row: any) => String(row.id) === line.item_id)
+                    return (
+                      <tr key={line.key} className="border-b border-slate-100">
+                        <td className="py-2 pr-3">{selectedItem?.item_code || "-"}</td>
+                        <td className="py-2 pr-3">{line.description || selectedItem?.name || "-"}</td>
+                        <td className="py-2 pr-3">{line.width_mm || "-"}</td>
+                        <td className="py-2 pr-3">{line.gsm || "-"}</td>
+                        <td className="py-2 pr-3">{line.plybond || "-"}</td>
+                        <td className="py-2 pr-3">{line.bulk || "-"}</td>
+                        <td className="py-2 pr-3">{line.cobb || "-"}</td>
+                        <td className="py-2 pr-3">{line.qty || "-"}</td>
+                        <td className="py-2 pr-3">{line.unit_cost || "-"}</td>
+                        <td className="py-2 pr-3 font-semibold text-slate-950">{formatCurrency(Number(line.qty || 0) * Number(line.unit_cost || 0))}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -506,6 +647,15 @@ export default function PurchaseFlowPage() {
               <input required type="number" min="0.001" step="0.001" value={grnForm.qty} onChange={(event) => setGrnForm((current) => ({ ...current, qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
             <label className="space-y-1">
+              <FieldLabel>Schedule row optional</FieldLabel>
+              <select value={grnForm.schedule_id} onChange={(event) => setGrnForm((current) => ({ ...current, schedule_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Do not allocate on post</option>
+                {lineSchedules.filter((row: any) => String(row.confirmation_status || "").toUpperCase() !== "CANCELLED").map((row: any) => (
+                  <option key={row.id} value={row.id}>{row.current_date} · remain {formatNumber(row.remaining_qty, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
               <FieldLabel>Batch no optional</FieldLabel>
               <input value={grnForm.batch_no} onChange={(event) => setGrnForm((current) => ({ ...current, batch_no: event.target.value.toUpperCase() }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
             </label>
@@ -515,6 +665,94 @@ export default function PurchaseFlowPage() {
             <Link href="/inventory/raw-material-inward" className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50">
               Live stock inward <ArrowRight className="h-4 w-4" />
             </Link>
+          </form>
+        </Panel>
+      </section>
+
+      <section className="grid min-w-0 gap-4 xl:grid-cols-2" data-testid="supplier-schedule-panel">
+        <Panel title="Supplier delivery schedule" subtitle="Dated commitments on a purchase line. Separate from GRN and incoming QC.">
+          <form onSubmit={submitSchedule} className="grid gap-3 md:grid-cols-2">
+            <label className="space-y-1">
+              <FieldLabel>Purchase order</FieldLabel>
+              <select required value={scheduleForm.purchase_order_id} onChange={(event) => setScheduleForm((current) => ({ ...current, purchase_order_id: event.target.value, po_line_id: "" }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select PO</option>
+                {orders.map((order: any) => <option key={order.id} value={order.id}>{order.po_no} · {order.supplier_name}</option>)}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>PO line</FieldLabel>
+              <select required value={scheduleForm.po_line_id} onChange={(event) => setScheduleForm((current) => ({ ...current, po_line_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select line</option>
+                {selectedScheduleLines.map((line: any) => (
+                  <option key={line.id} value={line.id}>{line.item_code} · ordered {formatNumber(line.qty_ordered, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Scheduled qty</FieldLabel>
+              <input required type="number" min="0.001" step="0.001" value={scheduleForm.scheduled_qty} onChange={(event) => setScheduleForm((current) => ({ ...current, scheduled_qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Confirmation</FieldLabel>
+              <select value={scheduleForm.confirmation_status} onChange={(event) => setScheduleForm((current) => ({ ...current, confirmation_status: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="TENTATIVE">Tentative</option>
+                <option value="CONFIRMED">Confirmed</option>
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Promised date</FieldLabel>
+              <input required type="date" value={scheduleForm.promised_date} onChange={(event) => setScheduleForm((current) => ({ ...current, promised_date: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Current expected date</FieldLabel>
+              <input required type="date" value={scheduleForm.current_date} onChange={(event) => setScheduleForm((current) => ({ ...current, current_date: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <button disabled={commitSchedules.isPending} className="md:col-span-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60">
+              {commitSchedules.isPending ? "Saving schedule..." : "Commit schedule row"}
+            </button>
+          </form>
+          <div className="mt-4 space-y-2">
+            {schedules.slice(0, 8).map((row: any) => (
+              <div key={row.id} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-semibold text-slate-950">{row.po_no || "PO"} · {row.item_code || row.purchase_order_line_id}</span>
+                  <StatusBadge value={row.confirmation_status || "TENTATIVE"} />
+                </div>
+                <p className="mt-1 text-xs text-slate-500">
+                  {row.current_date} · scheduled {formatNumber(row.scheduled_qty, 2)} · allocated {formatNumber(row.allocated_qty, 2)} · remain {formatNumber(row.remaining_qty, 2)}
+                </p>
+              </div>
+            ))}
+            {!schedules.length ? <EmptyState label="No supplier schedule rows yet." /> : null}
+          </div>
+        </Panel>
+        <Panel title="Receipt-to-schedule allocation" subtitle="Partial receipts allocate explicitly. Replaying the same receipt line does not allocate twice.">
+          <form onSubmit={submitAllocation} className="grid gap-3">
+            <label className="space-y-1">
+              <FieldLabel>Receipt line</FieldLabel>
+              <select required value={allocateForm.receipt_line_id} onChange={(event) => setAllocateForm((current) => ({ ...current, receipt_line_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select GRN line</option>
+                {receiptLines.map((line: any) => (
+                  <option key={line.id} value={line.id}>{line.grn_no} · {line.item_code} · {formatNumber(line.qty_received, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Schedule row</FieldLabel>
+              <select required value={allocateForm.schedule_id} onChange={(event) => setAllocateForm((current) => ({ ...current, schedule_id: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm">
+                <option value="">Select schedule</option>
+                {schedules.filter((row: any) => String(row.confirmation_status || "").toUpperCase() !== "CANCELLED").map((row: any) => (
+                  <option key={row.id} value={row.id}>{row.po_no} · {row.current_date} · remain {formatNumber(row.remaining_qty, 2)}</option>
+                ))}
+              </select>
+            </label>
+            <label className="space-y-1">
+              <FieldLabel>Allocated qty optional</FieldLabel>
+              <input type="number" min="0.001" step="0.001" value={allocateForm.allocated_qty} onChange={(event) => setAllocateForm((current) => ({ ...current, allocated_qty: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
+            </label>
+            <button disabled={allocateSchedule.isPending} className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60">
+              {allocateSchedule.isPending ? "Allocating..." : "Allocate receipt to schedule"}
+            </button>
           </form>
         </Panel>
       </section>
@@ -552,24 +790,9 @@ export default function PurchaseFlowPage() {
                     </button>
                   ) : null}
                   {section.title === "Incoming QC" ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={updateReceiptQc.isPending}
-                        onClick={() => updateReceiptQc.mutate({ lineId: String(row.id), status: "PASS" })}
-                        className="inline-flex h-8 items-center rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                      >
-                        Pass QC
-                      </button>
-                      <button
-                        type="button"
-                        disabled={updateReceiptQc.isPending}
-                        onClick={() => updateReceiptQc.mutate({ lineId: String(row.id), status: "HOLD" })}
-                        className="inline-flex h-8 items-center rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 disabled:opacity-60"
-                      >
-                        Hold
-                      </button>
-                    </div>
+                    <p className="mt-2 text-xs text-slate-500" data-testid="purchase-qc-no-pass-shortcut">
+                      Pending for QC/inventory. Purchase cannot set PASS or UNRESTRICTED.
+                    </p>
                   ) : null}
                 </div>
               ))}

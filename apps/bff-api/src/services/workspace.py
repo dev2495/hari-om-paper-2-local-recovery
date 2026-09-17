@@ -21,15 +21,16 @@ INTERNAL_EVENT_TOKEN = os.getenv("INTERNAL_EVENT_TOKEN", "hariom-internal-events
 workspace_http_client = httpx.AsyncClient(timeout=20.0)
 
 NAV_ITEMS = [
-    {"label": "Dashboard", "href": "/dashboard", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch", "Operator"]},
+    {"label": "Dashboard", "href": "/dashboard", "roles": ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Sales", "Dispatch", "Operator"]},
     {"label": "Sales Orders", "href": "/sales-orders", "roles": ["Owner", "Admin", "Planner", "Sales"]},
     {"label": "Specifications", "href": "/specifications", "roles": ["Owner", "Admin"]},
     {"label": "Planning", "href": "/planning", "roles": ["Owner", "Admin", "Planner", "PlantManager"]},
-    {"label": "Job Cards", "href": "/job-cards", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Operator"]},
+    {"label": "Job Cards", "href": "/job-cards", "roles": ["Owner", "Admin", "Planner", "PlantManager", "QC", "Operator"]},
     {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Operator"]},
+    {"label": "Quality", "href": "/quality", "roles": ["Owner", "Admin", "PlantManager", "QC", "Store", "Dispatch", "Sales"]},
     {"label": "Inventory", "href": "/inventory", "roles": ["Owner", "Admin", "Store", "PlantManager", "Sales", "Dispatch"]},
     {"label": "Dispatch", "href": "/dispatch", "roles": ["Owner", "Admin", "Planner", "Store", "Sales", "Dispatch"]},
-    {"label": "Reports", "href": "/reports", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch"]},
+    {"label": "Reports", "href": "/reports", "roles": ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Sales", "Dispatch"]},
     {"label": "User Management", "href": "/system/users", "roles": ["Owner", "Admin"]},
     {"label": "Variance Tolerances", "href": "/system/tolerances", "roles": ["Owner", "Admin"]},
 ]
@@ -38,8 +39,9 @@ QUICK_ACTIONS = [
     {"label": "New Sales Order", "href": "/sales-orders/new", "roles": ["Owner", "Admin", "Planner", "Sales"]},
     {"label": "New Specification", "href": "/specifications/new", "roles": ["Owner", "Admin"]},
     {"label": "Open Planning Board", "href": "/planning", "roles": ["Owner", "Admin", "Planner", "PlantManager"]},
+    {"label": "Quality Desk", "href": "/quality", "roles": ["Owner", "Admin", "PlantManager", "QC"]},
     {"label": "Supervisor Entry", "href": "/supervisor-entry", "roles": ["Owner", "Admin", "PlantManager", "Operator"]},
-    {"label": "Open Reports", "href": "/reports/owner", "roles": ["Owner", "Admin", "Planner", "PlantManager", "Store", "Sales", "Dispatch"]},
+    {"label": "Open Reports", "href": "/reports/owner", "roles": ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Sales", "Dispatch"]},
     {"label": "Role Matrix", "href": "/system/users", "roles": ["Owner", "Admin"]},
     {"label": "Variance Tolerances", "href": "/system/tolerances", "roles": ["Owner", "Admin"]},
 ]
@@ -123,9 +125,17 @@ async def emit_notification_event(
     exclude_user_ids: list[str] | None = None,
     role_context: str | None = None,
     payload: dict[str, Any] | None = None,
+    plant_id: str | None = None,
+    required_permissions: list[str] | None = None,
+    assigned_user_ids: list[str] | None = None,
+    event_id: str | None = None,
 ) -> None:
     claims = current_user_claims(token)
     actor_user_id = claims.get("user_id")
+    event_payload = dict(payload or {})
+    resolved_plant = plant_id or event_payload.get("plant_id") or event_payload.get("plant")
+    if resolved_plant:
+        event_payload.setdefault("plant_id", resolved_plant)
     await workspace_http_client.post(
         f"{AUTH_SERVICE_URL}/notifications/events",
         headers={
@@ -142,7 +152,11 @@ async def emit_notification_event(
             "exclude_user_ids": exclude_user_ids or [],
             "actor_user_id": actor_user_id,
             "role_context": role_context,
-            "payload": payload or {},
+            "payload": event_payload,
+            "plant_id": resolved_plant,
+            "required_permissions": required_permissions or [],
+            "assigned_user_ids": assigned_user_ids or [],
+            "event_id": event_id or event_payload.get("event_id"),
         },
     )
 

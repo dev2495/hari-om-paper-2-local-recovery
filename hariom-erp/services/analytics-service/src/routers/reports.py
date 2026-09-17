@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.config import AUTH_SERVICE_URL, INVENTORY_SERVICE_URL, MASTER_DATA_SERVICE_URL, PRODUCTION_SERVICE_URL, SALES_SERVICE_URL
-from src.dependencies import get_plant_scope, get_token
+from src.dependencies import get_plant_scope, get_token, require_capability
 from src.report_exports import (
     emit_delivery_notification,
     get_owner_recipients,
@@ -484,6 +484,8 @@ def _quality_report(snapshot: dict[str, Any], start_day: date, end_day: date, gr
             "passed": passed,
             "failed": failed,
             "compliance_percent": round((passed / total * 100.0), 2) if total else 0.0,
+            "pass_rate": round((passed / total * 100.0), 2) if total else None,
+            "has_inspection_data": total > 0,
             "active_holds": len(active_holds),
         },
         "series": list(series.values()),
@@ -830,6 +832,7 @@ def owner_pack_report(
     granularity: Optional[str] = Query(default="day"),
     token: str = Depends(get_token),
     plant_scope: dict = Depends(get_plant_scope),
+    current_user: dict = Depends(require_capability("analytics:view")),
 ):
     return _build_reports(token, plant_scope, start_date, end_date, granularity)["owner_pack"]
 
@@ -841,6 +844,7 @@ def owner_pack_report_html(
     granularity: Optional[str] = Query(default="day"),
     token: str = Depends(get_token),
     plant_scope: dict = Depends(get_plant_scope),
+    current_user: dict = Depends(require_capability("analytics:view")),
 ):
     report = _build_reports(token, plant_scope, start_date, end_date, granularity)["owner_pack"]
     return HTMLResponse(render_owner_pack_html(report))
@@ -853,6 +857,7 @@ def owner_pack_report_pdf(
     granularity: Optional[str] = Query(default="day"),
     token: str = Depends(get_token),
     plant_scope: dict = Depends(get_plant_scope),
+    current_user: dict = Depends(require_capability("analytics:view")),
 ):
     report = _build_reports(token, plant_scope, start_date, end_date, granularity)["owner_pack"]
     pdf_bytes = render_owner_pack_pdf(report)
@@ -893,6 +898,7 @@ def sales_report(
     granularity: Optional[str] = Query(default="day"),
     token: str = Depends(get_token),
     plant_scope: dict = Depends(get_plant_scope),
+    current_user: dict = Depends(require_capability("so:create", "so:approve")),
 ):
     return _build_reports(token, plant_scope, start_date, end_date, granularity)["sales"]
 

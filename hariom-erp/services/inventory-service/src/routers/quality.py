@@ -13,6 +13,7 @@ from ..database import get_db
 from ..models import (
     CustomerRejection,
     InventoryLocation,
+    InventoryQualityConcession,
     InventoryQualityInspection,
     InventoryQualityTemplate,
     ItemMaster,
@@ -25,8 +26,9 @@ from ..models import (
     StockTransaction,
     TransactionType,
 )
+from ..quality_eval import evaluate_incoming, evaluate_incoming_quality, submission_error
 from ..services import get_batch_balance
-from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
+from ..utils.auth import authorized_plant_ids, get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/inventory/quality", tags=["inventory-quality"])
 
@@ -58,6 +60,47 @@ VALID_ENTITY_TYPES = {"BATCH", "REEL", "CUSTOMER_REJECTION"}
 VALID_SOURCES = {"INWARD", "CUSTOMER_REJECTION", "PROCESS_STAGE"}
 VALID_INSPECTION_STATUS = {"PASS", "FAIL", "SKIPPED"}
 VALID_DISPOSITIONS = {"ACCEPT", "REWORK", "REHEAT", "SEGREGATE", "SCRAP", "BLOCK"}
+CONCESSION_PERMISSION = "qc:disposition:approve"
+CONCESSION_ROLES = {"Owner", "Admin"}
+CONCESSION_ELIGIBILITY = "RELEASED_BY_CONCESSION"
+
+
+def require_concession_authority(current_user: dict, *, inspector_id: Optional[str]) -> None:
+    actor = str(
+        current_user.get("sub")
+        or current_user.get("actor_identity")
+        or current_user.get("user_id")
+        or ""
+    ).strip()
+    inspector = str(inspector_id or "").strip()
+    if actor and inspector and actor == inspector:
+        raise HTTPException(
+            status_code=403,
+            detail="Concession approval requires a second person; the inspector cannot authorize their own FAIL.",
+        )
+    roles = set(current_user.get("roles") or [])
+    permissions = set(current_user.get("permissions") or [])
+    if CONCESSION_PERMISSION in permissions or roles.intersection(CONCESSION_ROLES):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="FAIL release requires the qc:disposition:approve capability.",
+    )
+
+
+def measured_inspection_status(*, supplied_status: Optional[str], failures: list[dict[str, Any]]) -> str:
+    del supplied_status
+    if failures:
+        return "FAIL"
+    return "PASS"
+
+
+def reject_fail_accept_shortcut(status: str, disposition: Optional[str]) -> None:
+    if status == "FAIL" and str(disposition or "").strip().upper() == "ACCEPT":
+        raise HTTPException(
+            status_code=403,
+            detail="FAIL inspections cannot be unrestricted by disposition=ACCEPT. Use a permissioned concession approval.",
+        )
 
 
 def normalize_material_type(value: str) -> str:
@@ -223,6 +266,7 @@ class QualityInspectionCreate(BaseModel):
     status: Optional[str] = None
     readings: dict[str, Any] = Field(default_factory=dict)
     failures: list[dict[str, Any]] = Field(default_factory=list)
+    reasons: dict[str, Any] = Field(default_factory=dict)
     disposition: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -275,8 +319,15 @@ class QualityInspectionResponse(BaseModel):
     readings: dict[str, Any]
     failures: list[dict[str, Any]]
     disposition: Optional[str] = None
+    eligibility_status: Optional[str] = None
+    concession_reason: Optional[str] = None
+    concession_approved_by: Optional[str] = None
+    concession_approved_at: Optional[datetime] = None
     stock_status: Optional[str] = None
     notes: Optional[str] = None
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    ignored_client_status: Optional[str] = None
     created_at: datetime
 
 
@@ -292,6 +343,8 @@ class PendingQualityItem(BaseModel):
     supplier_or_customer: Optional[str] = None
     created_at: Optional[datetime] = None
     source: str
+    item_id: Optional[uuid.UUID] = None
+    quality_profile: Optional[dict[str, Any]] = None
 
 
 class CustomerRejectionCreate(BaseModel):
@@ -398,8 +451,15 @@ def _inspection_response(row: InventoryQualityInspection, stock_status: Optional
         readings=dict(row.readings or {}),
         failures=list(row.failures or []),
         disposition=row.disposition,
+        eligibility_status=getattr(row, "eligibility_status", None),
+        concession_reason=getattr(row, "concession_reason", None),
+        concession_approved_by=getattr(row, "concession_approved_by", None),
+        concession_approved_at=getattr(row, "concession_approved_at", None),
         stock_status=stock_status,
         notes=row.notes,
+        reasons=dict(getattr(row, "reasons", None) or {}),
+        evaluation=dict(getattr(row, "evaluation", None) or {}),
+        ignored_client_status=None,
         created_at=row.created_at,
     )
 
@@ -444,7 +504,7 @@ def list_quality_templates(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production"])),
 ):
-    plant_id = str(plant_scope.get("selected_plant_id") or "PLANT_A")
+    plant_id = authorized_plant_ids(plant_scope)[0] if not plant_scope.get("scope_all") else authorized_plant_ids(plant_scope)[0]
     if material_type:
         rows = _template_rows(db, plant_id, material_type)
     else:
@@ -500,9 +560,7 @@ def list_pending_quality(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production"])),
 ):
-    allowed_plants = [str(value) for value in (plant_scope.get("allowed_plants") or [])]
-    selected_plant = str(plant_scope.get("selected_plant_id") or "PLANT_A")
-    plant_filter = allowed_plants if plant_scope.get("scope_all") and allowed_plants else [selected_plant]
+    plant_filter = authorized_plant_ids(plant_scope)
     rows: list[PendingQualityItem] = []
 
     batches = (
@@ -525,6 +583,8 @@ def list_pending_quality(
                 supplier_or_customer=batch.supplier_name_snapshot,
                 created_at=batch.created_at,
                 source="INWARD",
+                item_id=item.id if item else None,
+                quality_profile=getattr(item, "quality_profile", None) if item else None,
             )
         )
 
@@ -541,6 +601,7 @@ def list_pending_quality(
             .all()
         )
         for reel in reels:
+            paper = getattr(reel, "paper", None)
             rows.append(
                 PendingQualityItem(
                     entity_type="REEL",
@@ -552,6 +613,8 @@ def list_pending_quality(
                     supplier_or_customer=reel.supplier_name_snapshot or reel.supplier_name,
                     created_at=reel.created_at,
                     source="INWARD",
+                    item_id=paper.id if paper else getattr(reel, "paper_id", None),
+                    quality_profile=getattr(paper, "quality_profile", None) if paper else None,
                 )
             )
 
@@ -563,6 +626,7 @@ def list_pending_quality(
         .all()
     )
     for rejection in rejections:
+        item = getattr(rejection, "item", None)
         rows.append(
             PendingQualityItem(
                 entity_type="CUSTOMER_REJECTION",
@@ -574,6 +638,8 @@ def list_pending_quality(
                 supplier_or_customer=rejection.customer_name,
                 created_at=rejection.created_at,
                 source="CUSTOMER_REJECTION",
+                item_id=rejection.item_id,
+                quality_profile=getattr(item, "quality_profile", None) if item else None,
             )
         )
 
@@ -588,31 +654,70 @@ def create_quality_inspection(
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store"])),
 ):
     stock_status: Optional[str] = None
-    material_type = payload.material_type
     batch: Optional[StockBatch] = None
     reel: Optional[PaperReel] = None
     rejection: Optional[CustomerRejection] = None
 
+    # The material type — and therefore which frozen template rules apply — is
+    # derived from the owned lot, never trusted from the request body. This closes
+    # the trust shortcut where a caller could select a permissive template.
     if payload.entity_type == "BATCH":
         batch = db.query(StockBatch).filter(StockBatch.id == payload.entity_id, StockBatch.plant_id == plant_id).first()
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
-        material_type = material_type or _material_type_for_item(batch.item)
+        material_type = _material_type_for_item(batch.item)
     elif payload.entity_type == "REEL":
         reel = _paper_reel_for_plant(db, plant_id, payload.entity_id)
-        material_type = material_type or "RAW_PAPER"
+        material_type = "RAW_PAPER"
     else:
         rejection = db.query(CustomerRejection).filter(CustomerRejection.id == payload.entity_id, CustomerRejection.plant_id == plant_id).first()
         if not rejection:
             raise HTTPException(status_code=404, detail="Customer rejection not found")
-        material_type = material_type or "FINISHED_GOOD"
+        material_type = "FINISHED_GOOD"
 
     material_type = normalize_material_type(material_type or "OTHER")
-    status = payload.status or ("FAIL" if payload.failures else "PASS")
-    if status == "PASS":
-        missing = _missing_required_parameters(db, plant_id, material_type, payload.readings or {})
-        if missing:
-            raise HTTPException(status_code=400, detail=f"QC pass requires readings: {', '.join(missing)}")
+
+    item: Optional[ItemMaster] = None
+    if batch is not None:
+        item = batch.item
+    elif reel is not None:
+        item = db.query(ItemMaster).filter(ItemMaster.id == reel.paper_id, ItemMaster.plant_id == plant_id).first()
+    elif rejection is not None:
+        item = rejection.item
+
+    profile = getattr(item, "quality_profile", None) if item is not None else None
+    evaluation_payload: dict[str, Any] = {}
+    computed_failures: list[dict[str, Any]] = []
+    reasons = payload.reasons or {}
+
+    if profile:
+        # Frozen item-profile ranges (qc-measurement). Client status is ignored.
+        evaluation = evaluate_incoming(
+            profile=profile,
+            readings=payload.readings or {},
+            reasons=reasons,
+            require_reasons_on_fail=True,
+        )
+        error = submission_error(evaluation)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+        status = evaluation.verdict
+        if status == "NOT_REQUIRED":
+            status = "SKIPPED"
+        computed_failures = list(evaluation.failures)
+        evaluation_payload = evaluation.as_dict()
+    else:
+        # Fallback: template-based incoming verdict (p0 Q04). Client status is
+        # ignored except that missing/invalid evidence cannot unlock stock.
+        template_rows = _template_rows(db, plant_id, material_type)
+        incoming = evaluate_incoming_quality(template_rows, payload.readings or {})
+        status = incoming.status
+        computed_failures = incoming.failures
+        evaluation_payload = {"status": status, "failures": computed_failures, "evaluator": "incoming_template"}
+
+    # Concession gate: FAIL/INVALID/INCOMPLETE + ACCEPT cannot unrestrict on
+    # the inspection write path. A second-person Owner/Admin concession is required.
+    reject_fail_accept_shortcut("FAIL" if status in {"FAIL", "INVALID", "INCOMPLETE"} else status, payload.disposition)
 
     inspection = InventoryQualityInspection(
         plant_id=plant_id,
@@ -622,7 +727,9 @@ def create_quality_inspection(
         source=payload.source,
         status=status,
         readings=payload.readings or {},
-        failures=payload.failures or [],
+        failures=computed_failures,
+        reasons=reasons,
+        evaluation=evaluation_payload,
         disposition=payload.disposition,
         notes=payload.notes,
         created_by=current_user.get("sub"),
@@ -630,29 +737,163 @@ def create_quality_inspection(
     db.add(inspection)
     db.flush()
 
+    held_statuses = {"FAIL", "INVALID", "INCOMPLETE"}
     if batch:
         if status == "PASS":
             batch.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
-        elif status == "FAIL":
-            batch.stock_status = stock_status_for_disposition(payload.disposition or "BLOCK")
+        elif status in held_statuses:
+            batch.stock_status = (
+                stock_status_for_disposition(payload.disposition)
+                if payload.disposition
+                else "QC_HOLD"
+            )
         stock_status = batch.stock_status
     elif reel:
         if status == "PASS":
             reel.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
-        elif status == "FAIL":
-            reel.stock_status = stock_status_for_disposition(payload.disposition or "BLOCK")
+        elif status in held_statuses:
+            reel.stock_status = (
+                stock_status_for_disposition(payload.disposition)
+                if payload.disposition
+                else "QC_HOLD"
+            )
         stock_status = reel.stock_status
     elif rejection:
         rejection.qc_inspection_id = inspection.id
         if status == "PASS":
             rejection.status = stock_status_for_disposition(payload.disposition or "ACCEPT")
-        elif status == "FAIL":
-            rejection.status = stock_status_for_disposition(payload.disposition or "BLOCK")
+        elif status in held_statuses:
+            rejection.status = (
+                stock_status_for_disposition(payload.disposition)
+                if payload.disposition
+                else "QC_HOLD"
+            )
         stock_status = rejection.status
 
     db.commit()
     db.refresh(inspection)
-    return _inspection_response(inspection, stock_status=stock_status)
+    response = _inspection_response(inspection, stock_status=stock_status)
+    response.ignored_client_status = payload.status
+    return response
+
+
+class QualityConcessionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inspection_id: uuid.UUID
+    reason: str = Field(min_length=1, max_length=2000)
+    quantity: Optional[float] = Field(default=None, ge=0)
+    release_stock: bool = False
+
+
+class QualityConcessionResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inspection_id: uuid.UUID
+    measured_status: str
+    eligibility_status: str
+    disposition: str
+    stock_status: Optional[str] = None
+    hold_released: bool
+    approved_by: Optional[str] = None
+    inspector_id: Optional[str] = None
+    reason: str
+    quantity: Optional[float] = None
+
+
+@router.post("/concessions", response_model=QualityConcessionResponse)
+def create_quality_concession(
+    payload: QualityConcessionCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "PlantManager"])),
+):
+    inspection = (
+        db.query(InventoryQualityInspection)
+        .filter(InventoryQualityInspection.id == payload.inspection_id, InventoryQualityInspection.plant_id == plant_id)
+        .first()
+    )
+    if not inspection:
+        raise HTTPException(status_code=404, detail="Quality inspection not found")
+    if str(inspection.status or "").upper() != "FAIL":
+        raise HTTPException(status_code=400, detail="Concession applies only to measured FAIL inspections")
+    require_concession_authority(current_user, inspector_id=inspection.created_by)
+
+    stock_status: Optional[str] = None
+    stock_status_before: Optional[str] = None
+    hold_released = False
+    batch = None
+    reel = None
+    rejection = None
+    if inspection.entity_type == "BATCH":
+        batch = db.query(StockBatch).filter(StockBatch.id == inspection.entity_id, StockBatch.plant_id == plant_id).first()
+        stock_status_before = batch.stock_status if batch else None
+        stock_status = stock_status_before
+    elif inspection.entity_type == "REEL":
+        reel = _paper_reel_for_plant(db, plant_id, inspection.entity_id)
+        stock_status_before = reel.stock_status if reel else None
+        stock_status = stock_status_before
+    elif inspection.entity_type == "CUSTOMER_REJECTION":
+        rejection = db.query(CustomerRejection).filter(CustomerRejection.id == inspection.entity_id, CustomerRejection.plant_id == plant_id).first()
+        stock_status_before = rejection.status if rejection else None
+        stock_status = stock_status_before
+
+    inspection.status = "FAIL"
+    inspection.disposition = inspection.disposition or "ACCEPT"
+    inspection.eligibility_status = CONCESSION_ELIGIBILITY
+    inspection.concession_reason = payload.reason
+    inspection.concession_approved_by = current_user.get("sub")
+    inspection.concession_approved_at = datetime.utcnow()
+    if payload.release_stock:
+        # Explicit stock release is still a concession of FAIL, never a rewritten PASS.
+        if batch:
+            batch.stock_status = "UNRESTRICTED"
+            stock_status = batch.stock_status
+            hold_released = True
+        elif reel:
+            reel.stock_status = "UNRESTRICTED"
+            stock_status = reel.stock_status
+            hold_released = True
+        elif rejection:
+            rejection.status = "UNRESTRICTED"
+            stock_status = rejection.status
+            hold_released = True
+            if rejection.batch_id:
+                linked = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).first()
+                if linked:
+                    linked.stock_status = "UNRESTRICTED"
+
+    concession = InventoryQualityConcession(
+        plant_id=plant_id,
+        inspection_id=inspection.id,
+        entity_type=inspection.entity_type,
+        entity_id=inspection.entity_id,
+        measured_status="FAIL",
+        eligibility_status=CONCESSION_ELIGIBILITY,
+        disposition=inspection.disposition,
+        stock_status_before=stock_status_before,
+        stock_status_after=stock_status,
+        hold_released=hold_released,
+        reason=payload.reason,
+        quantity=payload.quantity,
+        inspector_id=inspection.created_by,
+        approved_by=current_user.get("sub"),
+    )
+    db.add(concession)
+    db.commit()
+    db.refresh(inspection)
+    return QualityConcessionResponse(
+        inspection_id=inspection.id,
+        measured_status=inspection.status,
+        eligibility_status=CONCESSION_ELIGIBILITY,
+        disposition=inspection.disposition or "ACCEPT",
+        stock_status=stock_status,
+        hold_released=hold_released,
+        approved_by=current_user.get("sub"),
+        inspector_id=inspection.created_by,
+        reason=payload.reason,
+        quantity=payload.quantity,
+    )
 
 
 @router.get("/inspections", response_model=list[QualityInspectionResponse])
@@ -666,9 +907,7 @@ def list_quality_inspections(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Production", "Dispatch", "Sales"])),
 ):
-    allowed_plants = [str(value) for value in (plant_scope.get("allowed_plants") or [])]
-    selected_plant = str(plant_scope.get("selected_plant_id") or "PLANT_A")
-    plant_filter = allowed_plants if plant_scope.get("scope_all") and allowed_plants else [selected_plant]
+    plant_filter = authorized_plant_ids(plant_scope)
     query = db.query(InventoryQualityInspection).filter(InventoryQualityInspection.plant_id.in_(plant_filter))
     if entity_type:
         normalized_entity = entity_type.strip().upper()
@@ -785,9 +1024,7 @@ def list_customer_rejections(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store", "Dispatch", "Sales"])),
 ):
-    allowed_plants = [str(value) for value in (plant_scope.get("allowed_plants") or [])]
-    selected_plant = str(plant_scope.get("selected_plant_id") or "PLANT_A")
-    plant_filter = allowed_plants if plant_scope.get("scope_all") and allowed_plants else [selected_plant]
+    plant_filter = authorized_plant_ids(plant_scope)
     query = db.query(CustomerRejection).filter(CustomerRejection.plant_id.in_(plant_filter))
     if status:
         query = query.filter(CustomerRejection.status == status.strip().upper())
@@ -808,7 +1045,12 @@ def dispose_customer_rejection(
         raise HTTPException(status_code=404, detail="Customer rejection not found")
     if rejection.closed_at:
         raise HTTPException(status_code=400, detail="Customer rejection is already closed")
-    target_stock_status = stock_status_for_disposition(payload.disposition)
+    held_rejection = str(rejection.status or "").upper() in {"QC_HOLD", "BLOCKED"}
+    if payload.disposition == "ACCEPT" and held_rejection:
+        require_concession_authority(current_user, inspector_id=rejection.created_by)
+        target_stock_status = rejection.status
+    else:
+        target_stock_status = stock_status_for_disposition(payload.disposition)
     effective_date_value = payload.effective_date or date.today()
     computed_scrap_cost: Optional[float] = None
     if rejection.batch_id:
@@ -898,7 +1140,11 @@ def dispose_customer_rejection(
         entity_id=rejection.id,
         material_type="FINISHED_GOOD",
         source="CUSTOMER_REJECTION",
-        status="FAIL" if payload.disposition in {"SCRAP", "BLOCK"} else "PASS",
+        status=(
+            "FAIL"
+            if payload.disposition in {"SCRAP", "BLOCK"} or (held_rejection and payload.disposition == "ACCEPT")
+            else "PASS"
+        ),
         readings=payload.readings or {},
         failures=payload.failures or [],
         disposition=payload.disposition,

@@ -3,17 +3,46 @@ from typing import List, Optional
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import func, literal, or_, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
+from ..open_demand import collect_open_demand
 from ..models import (
     SalesOrder,
     SalesOrderLine,
+    SalesOrderNumberCounter,
     SalesOrderReleaseLot,
     SalesOrderStatus,
     SalesOrderDispatchLog,
+)
+from ..commercial import (
+    ORIGIN_CUSTOMER_PO,
+    ORIGIN_REVIEW,
+    SalesCommercialError,
+    validate_delivery_schedule_input,
+    validate_origin_and_external_po,
+    validate_order_lines_delivery_dates,
+    validate_persisted_order,
+    resolve_parchment_variant,
+)
+from ..pending_workspace import (
+    build_pending_workspace,
+    export_pending_csv,
+    load_open_orders,
+)
+from ..schedule_service import (
+    commit_entire_po,
+    commit_line_schedules,
+    list_order_schedules,
+    load_order_for_schedule,
+    mutate_schedule_row,
+    preview_entire_po,
+    preview_line_schedules,
+    serialize_schedule_row,
 )
 from ..utils.auth import (
     apply_plant_scope,
@@ -29,30 +58,46 @@ router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 
 class SalesOrderLineInput(BaseModel):
+    id: Optional[uuid.UUID] = None
     approved_spec_id: uuid.UUID
     line_no: Optional[int] = None
     product_code: Optional[str] = None
+    parchment_required: Optional[bool] = None
+    parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str] = None
     rate_per_pc: Optional[float] = Field(default=None, ge=0)
     qty: float = Field(..., gt=0)
     due_date: date
 
 
+class DeliveryScheduleInput(BaseModel):
+    """Dated quantity row. Validated with the same R05 rule as line delivery dates."""
+    line_no: Optional[int] = None
+    delivery_date: date
+    qty: float = Field(..., gt=0)
+
+
 class SalesOrderCreate(BaseModel):
     customer_id: uuid.UUID
+    origin: Optional[str] = None
     po_number: Optional[str] = None
     po_date: Optional[date] = None
+    internal_order_date: Optional[date] = None
     notes: Optional[str] = None
     lines: List[SalesOrderLineInput] = Field(..., min_length=1)
+    delivery_schedules: Optional[List[DeliveryScheduleInput]] = None
 
 
 class SalesOrderUpdate(BaseModel):
     customer_id: Optional[uuid.UUID] = None
+    origin: Optional[str] = None
     po_number: Optional[str] = None
     po_date: Optional[date] = None
+    internal_order_date: Optional[date] = None
     notes: Optional[str] = None
     status: Optional[str] = None
     lines: Optional[List[SalesOrderLineInput]] = None
+    delivery_schedules: Optional[List[DeliveryScheduleInput]] = None
 
 
 class DispatchValidationPayload(BaseModel):
@@ -119,11 +164,28 @@ class SalesOrderReleaseLotResponse(BaseModel):
     created_at: datetime
 
 
+class SalesOrderDeliveryScheduleResponse(BaseModel):
+    id: uuid.UUID
+    order_id: uuid.UUID
+    line_id: uuid.UUID
+    plant_id: str
+    delivery_date: date
+    quantity: float
+    status: str
+    revision: int
+    immutable: bool = False
+    created_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+    allocations: List[dict] = Field(default_factory=list)
+
+
 class SalesOrderLineResponse(BaseModel):
     id: uuid.UUID
     line_no: int
     approved_spec_id: uuid.UUID
     product_code: Optional[str]
+    parchment_required: bool = False
+    parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str]
     rate_per_pc: Optional[float]
     qty: float
@@ -134,6 +196,8 @@ class SalesOrderLineResponse(BaseModel):
     release_remaining_qty: float
     release_lots: List[SalesOrderReleaseLotResponse] = Field(default_factory=list)
     dispatch_logs: List[dict] = Field(default_factory=list)
+    delivery_schedules: List[dict] = Field(default_factory=list)
+    remaining_to_schedule_qty: float = 0.0
 
 
 class SalesOrderResponse(BaseModel):
@@ -141,8 +205,11 @@ class SalesOrderResponse(BaseModel):
     order_no: str
     plant_id: str
     customer_id: uuid.UUID
+    origin: str = ORIGIN_CUSTOMER_PO
+    origin_review_required: bool = False
     po_number: Optional[str]
     po_date: Optional[date]
+    internal_order_date: Optional[date] = None
     notes: Optional[str]
     status: str
     created_by: str
@@ -151,6 +218,7 @@ class SalesOrderResponse(BaseModel):
     created_at: datetime
     approved_at: Optional[datetime]
     released_at: Optional[datetime]
+    schedule_revision: int = 0
     lines: List[SalesOrderLineResponse]
 
 
@@ -195,14 +263,22 @@ def _timeline_event(
 
 
 def _serialize_line(line: SalesOrderLine) -> dict:
+    from ..schedule_policy import remaining_to_schedule
+
     release_lots = [lot for lot in getattr(line, "release_lots", []) if str(lot.status or "").lower() != "cancelled"]
     released_qty = sum(float(lot.released_qty or 0.0) for lot in release_lots)
+    parchment_required = bool(getattr(line, "parchment_required", False))
+    parchment_color = getattr(line, "parchment_color", None) if parchment_required else None
+    parchment_color_id = getattr(line, "parchment_color_id", None) if parchment_required else None
+    schedules = list(getattr(line, "delivery_schedules", []) or [])
     return {
         "id": line.id,
         "line_no": int(line.line_no or 1),
         "approved_spec_id": line.approved_spec_id,
         "product_code": line.product_code,
-        "parchment_color": line.parchment_color,
+        "parchment_required": parchment_required,
+        "parchment_color_id": parchment_color_id,
+        "parchment_color": parchment_color,
         "rate_per_pc": line.rate_per_pc,
         "qty": line.qty,
         "due_date": line.due_date,
@@ -210,6 +286,11 @@ def _serialize_line(line: SalesOrderLine) -> dict:
         "fulfilled_qty": line.fulfilled_qty,
         "remaining_qty": max(0.0, line.qty - line.fulfilled_qty),
         "release_remaining_qty": max(0.0, line.qty - released_qty),
+        "remaining_to_schedule_qty": remaining_to_schedule(line, schedules),
+        "delivery_schedules": [
+            serialize_schedule_row(row)
+            for row in sorted(schedules, key=lambda item: (item.delivery_date or date.max, str(item.id)))
+        ],
         "release_lots": [
             {
                 "id": lot.id,
@@ -240,12 +321,16 @@ def _serialize_line(line: SalesOrderLine) -> dict:
 
 
 def _serialize_order(order: SalesOrder) -> dict:
+    origin = str(getattr(order, "origin", None) or ORIGIN_CUSTOMER_PO)
     return {
         "id": order.id,
         "order_no": order.order_no,
         "customer_id": order.customer_id,
+        "origin": origin,
+        "origin_review_required": bool(getattr(order, "origin_review_required", False)) or origin == ORIGIN_REVIEW,
         "po_number": order.po_number,
         "po_date": order.po_date,
+        "internal_order_date": getattr(order, "internal_order_date", None),
         "notes": order.notes,
         "status": order.status.value,
         "created_by": order.created_by,
@@ -254,16 +339,58 @@ def _serialize_order(order: SalesOrder) -> dict:
         "created_at": order.created_at,
         "approved_at": order.approved_at,
         "released_at": order.released_at,
+        "schedule_revision": int(getattr(order, "schedule_revision", 0) or 0),
         "plant_id": str(order.plant_id),
-        "lines": [_serialize_line(line) for line in order.lines],
+        "lines": [
+            _serialize_line(line)
+            for line in sorted(order.lines, key=lambda item: (int(item.line_no or 0), str(item.id)))
+        ],
     }
 
 
+def existing_order_seq_max(db: Session, date_part: str) -> int:
+    """Highest ``NNNN`` already persisted for ``SO-{date_part}-NNNN``."""
+    value = db.execute(
+        text(
+            "SELECT COALESCE(MAX(CAST(substring(order_no FROM 13) AS INTEGER)), 0) "
+            "FROM sales_orders "
+            "WHERE order_no LIKE :pfx"
+        ),
+        {"pfx": f"SO-{date_part}-%"},
+    ).scalar()
+    return int(value or 0)
+
+
+def next_counter_seq(current_last_seq: int | None, max_existing: int) -> int:
+    """Jump the allocator past both the counter and any pre-counter rows."""
+    base = int(current_last_seq or 0)
+    return max(base, int(max_existing or 0)) + 1
+
+
 def _next_order_no(db: Session) -> str:
+    """Allocate the next ``SO-YYYYMMDD-NNNN`` reference atomically.
+
+    A single counter row per date key is incremented with an atomic upsert that
+    returns the new value, so concurrent creates can never collide on the same
+    sequence number. The upsert also jumps past any ``sales_orders.order_no``
+    values minted before the counter existed, otherwise UniqueViolation 500s
+    appear once the counter lags the live table.
+    """
     date_part = datetime.utcnow().strftime("%Y%m%d")
-    like_pattern = f"SO-{date_part}-%"
-    count = db.query(SalesOrder).filter(SalesOrder.order_no.like(like_pattern)).count()
-    return f"SO-{date_part}-{count + 1:04d}"
+    max_existing = existing_order_seq_max(db, date_part)
+    stmt = (
+        pg_insert(SalesOrderNumberCounter)
+        .values(date_key=date_part, last_seq=next_counter_seq(None, max_existing))
+        .on_conflict_do_update(
+            index_elements=[SalesOrderNumberCounter.date_key],
+            set_={
+                "last_seq": func.greatest(SalesOrderNumberCounter.last_seq, literal(max_existing)) + 1
+            },
+        )
+        .returning(SalesOrderNumberCounter.last_seq)
+    )
+    seq = db.execute(stmt).scalar_one()
+    return f"SO-{date_part}-{int(seq):04d}"
 
 
 def _sync_order_status(order: SalesOrder):
@@ -304,6 +431,94 @@ def _sync_release_status(order: SalesOrder):
         order.status = SalesOrderStatus.RELEASED
 
 
+def _http_commercial(exc: SalesCommercialError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+def _apply_line_fields(target: SalesOrderLine, incoming: SalesOrderLineInput, index: int) -> None:
+    required, color_id, color = resolve_parchment_variant(
+        parchment_required=incoming.parchment_required,
+        parchment_color=incoming.parchment_color,
+        parchment_color_id=incoming.parchment_color_id,
+        line_no=incoming.line_no or index,
+    )
+    target.line_no = incoming.line_no or index
+    target.approved_spec_id = incoming.approved_spec_id
+    target.product_code = (incoming.product_code or "").strip() or None
+    target.parchment_required = required
+    target.parchment_color_id = color_id
+    target.parchment_color = color
+    target.rate_per_pc = incoming.rate_per_pc
+    target.qty = incoming.qty
+    target.due_date = incoming.due_date
+
+
+def _upsert_order_lines(order: SalesOrder, lines: List[SalesOrderLineInput]) -> None:
+    existing = {str(line.id): line for line in list(order.lines)}
+    kept: set[str] = set()
+    for index, incoming in enumerate(lines, start=1):
+        target = None
+        if incoming.id is not None and str(incoming.id) in existing:
+            target = existing[str(incoming.id)]
+            kept.add(str(incoming.id))
+        if target is None:
+            target = SalesOrderLine(fulfilled_qty=0.0)
+            order.lines.append(target)
+        _apply_line_fields(target, incoming, index)
+    for line_id, line in existing.items():
+        if line_id in kept:
+            continue
+        if _released_qty(line) > 0 or float(line.fulfilled_qty or 0.0) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot remove line {int(line.line_no or 0)} after release or dispatch",
+            )
+        order.lines.remove(line)
+
+
+def _validate_commercial_payload(
+    *,
+    origin: Optional[str],
+    customer_id,
+    po_number: Optional[str],
+    po_date,
+    internal_order_date,
+    lines: List[SalesOrderLineInput],
+    delivery_schedules: Optional[List[DeliveryScheduleInput]] = None,
+):
+    try:
+        resolved_origin, resolved_po_number, resolved_po_date, resolved_internal_date = validate_origin_and_external_po(
+            origin=origin or ORIGIN_CUSTOMER_PO,
+            customer_id=customer_id,
+            po_number=po_number,
+            po_date=po_date,
+            internal_order_date=internal_order_date,
+        )
+        validate_order_lines_delivery_dates(
+            origin=resolved_origin,
+            customer_po_date=resolved_po_date,
+            lines=lines,
+        )
+        validate_delivery_schedule_input(
+            origin=resolved_origin,
+            customer_po_date=resolved_po_date,
+            schedule_rows=[
+                {"line_no": row.line_no, "delivery_date": row.delivery_date, "qty": row.qty}
+                for row in (delivery_schedules or [])
+            ],
+        )
+        for index, line in enumerate(lines, start=1):
+            resolve_parchment_variant(
+                parchment_required=line.parchment_required,
+                parchment_color=line.parchment_color,
+                parchment_color_id=line.parchment_color_id,
+                line_no=line.line_no or index,
+            )
+    except SalesCommercialError as exc:
+        raise _http_commercial(exc) from exc
+    return resolved_origin, resolved_po_number, resolved_po_date, resolved_internal_date
+
+
 @router.post("", response_model=SalesOrderResponse)
 def create_sales_order(
     payload: SalesOrderCreate,
@@ -314,11 +529,24 @@ def create_sales_order(
     if not payload.lines:
         raise HTTPException(status_code=400, detail="At least one line is required")
 
-    order = SalesOrder(
-        order_no=_next_order_no(db),
+    origin, po_number, po_date, internal_order_date = _validate_commercial_payload(
+        origin=payload.origin,
         customer_id=payload.customer_id,
         po_number=payload.po_number,
         po_date=payload.po_date,
+        internal_order_date=payload.internal_order_date,
+        lines=payload.lines,
+        delivery_schedules=payload.delivery_schedules,
+    )
+
+    order = SalesOrder(
+        order_no=_next_order_no(db),
+        customer_id=payload.customer_id,
+        origin=origin,
+        origin_review_required=origin == ORIGIN_REVIEW,
+        po_number=po_number,
+        po_date=po_date,
+        internal_order_date=internal_order_date,
         notes=payload.notes,
         plant_id=plant_id,
         status=SalesOrderStatus.DRAFT,
@@ -328,19 +556,12 @@ def create_sales_order(
     db.flush()
 
     for index, line in enumerate(payload.lines, start=1):
-        db.add(
-            SalesOrderLine(
-                sales_order_id=order.id,
-                line_no=line.line_no or index,
-                approved_spec_id=line.approved_spec_id,
-                product_code=(line.product_code or "").strip() or None,
-                parchment_color=line.parchment_color,
-                rate_per_pc=line.rate_per_pc,
-                qty=line.qty,
-                due_date=line.due_date,
-                fulfilled_qty=0.0,
-            )
+        target = SalesOrderLine(
+            sales_order_id=order.id,
+            fulfilled_qty=0.0,
         )
+        _apply_line_fields(target, line, index)
+        db.add(target)
 
     db.commit()
     db.refresh(order)
@@ -368,6 +589,37 @@ def create_sales_order(
     return _serialize_order(order)
 
 
+class SalesOrderBulkImport(BaseModel):
+    orders: List[SalesOrderCreate] = Field(..., min_length=1)
+
+
+@router.post("/import", response_model=List[SalesOrderResponse])
+def bulk_import_sales_orders(
+    payload: SalesOrderBulkImport,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Sales"])),
+):
+    """Bulk create uses the same commercial contract as single-order create (R05/R08/R10)."""
+    if not payload.orders:
+        raise HTTPException(status_code=400, detail="At least one sales order is required")
+    for index, row in enumerate(payload.orders, start=1):
+        try:
+            _validate_commercial_payload(
+                origin=row.origin,
+                customer_id=row.customer_id,
+                po_number=row.po_number,
+                po_date=row.po_date,
+                internal_order_date=row.internal_order_date,
+                lines=row.lines,
+                delivery_schedules=row.delivery_schedules,
+            )
+        except HTTPException as exc:
+            detail = exc.detail
+            raise HTTPException(status_code=400, detail=f"Import row {index}: {detail}") from exc
+    return [create_sales_order(row, db, plant_id, current_user) for row in payload.orders]
+
+
 @router.get("", response_model=List[SalesOrderResponse])
 def list_sales_orders(
     status: Optional[str] = Query(None),
@@ -384,6 +636,7 @@ def list_sales_orders(
         db.query(SalesOrder).options(
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
             joinedload(SalesOrder.lines).joinedload(SalesOrderLine.dispatch_logs),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
         ),
         SalesOrder.plant_id,
         plant_scope,
@@ -406,6 +659,7 @@ def list_sales_orders(
         clauses = [
             SalesOrder.order_no.ilike(needle),
             SalesOrder.po_number.ilike(needle),
+            SalesOrder.origin.ilike(needle),
             SalesOrder.notes.ilike(needle),
             SalesOrder.lines.any(SalesOrderLine.product_code.ilike(needle)),
             SalesOrder.lines.any(SalesOrderLine.parchment_color.ilike(needle)),
@@ -418,6 +672,447 @@ def list_sales_orders(
 
     orders = query.order_by(SalesOrder.created_at.desc()).offset(offset).limit(limit).all()
     return [_serialize_order(order) for order in orders]
+
+
+class SalesOrderAggregatesResponse(BaseModel):
+    draft_count: int
+    ready_count: int
+    approved_count: int
+    planner_synced_count: int
+    open_order_count: int
+    total_order_count: int
+    open_qty: float
+    remaining_qty: float
+    booked_value: float = 0.0
+    open_order_book_value: float = 0.0
+    released_open_value: float = 0.0
+    dispatched_value: float = 0.0
+    open_value_by_customer: List[dict] = Field(default_factory=list)
+
+
+class DeliveryScheduleRowInput(BaseModel):
+    id: Optional[uuid.UUID] = None
+    line_id: uuid.UUID
+    delivery_date: date
+    quantity: float = Field(..., gt=0)
+    status: Optional[str] = "committed"
+
+
+class DeliverySchedulePreviewPayload(BaseModel):
+    rows: List[DeliveryScheduleRowInput] = Field(..., min_length=1)
+
+
+class DeliveryScheduleCommitPayload(BaseModel):
+    expected_revision: int = 0
+    rows: List[DeliveryScheduleRowInput] = Field(..., min_length=1)
+    allocations: Optional[List[dict]] = None
+
+
+class ScheduleEntirePoLineSplit(BaseModel):
+    delivery_date: date
+    quantity: float = Field(..., gt=0)
+    status: Optional[str] = "committed"
+
+
+class ScheduleEntirePoPayload(BaseModel):
+    expected_revision: int = 0
+    default_date: Optional[date] = None
+    line_splits: Optional[dict[str, List[ScheduleEntirePoLineSplit]]] = None
+
+
+class DeliverySchedulePatchPayload(BaseModel):
+    quantity: Optional[float] = Field(default=None, gt=0)
+    delivery_date: Optional[date] = None
+    status: Optional[str] = None
+
+
+@router.get("/aggregates", response_model=SalesOrderAggregatesResponse)
+def get_sales_order_aggregates(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    base = apply_plant_scope(db.query(SalesOrder), SalesOrder.plant_id, plant_scope)
+    total_order_count = int(base.count() or 0)
+    draft_count = int(base.filter(SalesOrder.status.in_([SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED])).count() or 0)
+    ready_statuses = [
+        SalesOrderStatus.APPROVED,
+        SalesOrderStatus.RELEASED,
+        SalesOrderStatus.PARTIALLY_RELEASED,
+        SalesOrderStatus.PARTIALLY_DISPATCHED,
+    ]
+    ready_count = int(base.filter(SalesOrder.status.in_(ready_statuses)).count() or 0)
+    approved_count = int(base.filter(SalesOrder.status == SalesOrderStatus.APPROVED).count() or 0)
+    open_order_count = int(base.filter(SalesOrder.status != SalesOrderStatus.CLOSED).count() or 0)
+
+    open_qty_query = apply_plant_scope(
+        db.query(func.coalesce(func.sum(SalesOrderLine.qty - SalesOrderLine.fulfilled_qty), 0.0)).join(
+            SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+        ).filter(SalesOrder.status != SalesOrderStatus.CLOSED),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    open_qty = float(open_qty_query.scalar() or 0.0)
+
+    synced_query = apply_plant_scope(
+        db.query(func.count(func.distinct(SalesOrderReleaseLot.sales_order_id)))
+        .join(SalesOrder, SalesOrder.id == SalesOrderReleaseLot.sales_order_id)
+        .filter(SalesOrderReleaseLot.job_card_id.isnot(None))
+        .filter(func.lower(func.coalesce(SalesOrderReleaseLot.status, "")) != "cancelled"),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    planner_synced_count = int(synced_query.scalar() or 0)
+
+    booked_value = float(
+        apply_plant_scope(
+            db.query(func.coalesce(func.sum(SalesOrderLine.qty * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)), 0.0)).join(
+                SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+            ),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).scalar()
+        or 0.0
+    )
+    open_order_book_value = float(
+        apply_plant_scope(
+            db.query(
+                func.coalesce(
+                    func.sum((SalesOrderLine.qty - SalesOrderLine.fulfilled_qty) * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)),
+                    0.0,
+                )
+            )
+            .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+            .filter(SalesOrder.status != SalesOrderStatus.CLOSED),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).scalar()
+        or 0.0
+    )
+    dispatched_value = float(
+        apply_plant_scope(
+            db.query(func.coalesce(func.sum(SalesOrderLine.fulfilled_qty * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)), 0.0)).join(
+                SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+            ),
+            SalesOrder.plant_id,
+            plant_scope,
+        ).scalar()
+        or 0.0
+    )
+    released_rows = apply_plant_scope(
+        db.query(
+            SalesOrderLine.id,
+            SalesOrderLine.fulfilled_qty,
+            SalesOrderLine.rate_per_pc,
+            SalesOrderReleaseLot.released_qty,
+            SalesOrderReleaseLot.status,
+        )
+        .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
+        .outerjoin(SalesOrderReleaseLot, SalesOrderReleaseLot.sales_order_line_id == SalesOrderLine.id)
+        .filter(SalesOrder.status != SalesOrderStatus.CLOSED),
+        SalesOrder.plant_id,
+        plant_scope,
+    ).all()
+    released_by_line: dict[str, dict[str, float]] = {}
+    for row in released_rows:
+        bucket = released_by_line.setdefault(
+            str(row.id),
+            {"fulfilled": float(row.fulfilled_qty or 0.0), "rate": float(row.rate_per_pc or 0.0), "released": 0.0},
+        )
+        if str(row.status or "").lower() != "cancelled":
+            bucket["released"] += float(row.released_qty or 0.0)
+    released_open_value = sum(
+        max(0.0, bucket["released"] - bucket["fulfilled"]) * bucket["rate"] for bucket in released_by_line.values()
+    )
+
+    customer_open_value = func.coalesce(
+        func.sum((SalesOrderLine.qty - SalesOrderLine.fulfilled_qty) * func.coalesce(SalesOrderLine.rate_per_pc, 0.0)),
+        0.0,
+    ).label("open_value")
+    customer_value_query = (
+        apply_plant_scope(
+            db.query(
+                SalesOrder.customer_id,
+                customer_open_value,
+            )
+            .join(SalesOrderLine, SalesOrderLine.sales_order_id == SalesOrder.id)
+            .filter(SalesOrder.status != SalesOrderStatus.CLOSED)
+            .group_by(SalesOrder.customer_id),
+            SalesOrder.plant_id,
+            plant_scope,
+        )
+        .order_by(customer_open_value.desc())
+        .limit(5)
+    )
+    open_value_by_customer = [
+        {"customer_id": str(row.customer_id), "open_value": round(float(row.open_value or 0.0), 2)}
+        for row in customer_value_query.all()
+        if float(row.open_value or 0.0) > 0
+    ]
+
+    return {
+        "draft_count": draft_count,
+        "ready_count": ready_count,
+        "approved_count": approved_count,
+        "planner_synced_count": planner_synced_count,
+        "open_order_count": open_order_count,
+        "total_order_count": total_order_count,
+        "open_qty": round(open_qty, 2),
+        "remaining_qty": round(max(open_qty, 0.0), 2),
+        "booked_value": round(booked_value, 2),
+        "open_order_book_value": round(open_order_book_value, 2),
+        "released_open_value": round(released_open_value, 2),
+        "dispatched_value": round(dispatched_value, 2),
+        "open_value_by_customer": open_value_by_customer,
+    }
+
+
+def _pending_filters(
+    *,
+    search: Optional[str],
+    customer_id: Optional[uuid.UUID],
+    source: Optional[str],
+    status: Optional[str],
+    product: Optional[str],
+    due_from: Optional[date],
+    due_to: Optional[date],
+    due_risk: Optional[str],
+    missing_schedule: Optional[bool],
+) -> dict:
+    return {
+        "search": search,
+        "customer_id": str(customer_id) if customer_id else None,
+        "source": source,
+        "status": status,
+        "product": product,
+        "due_from": due_from,
+        "due_to": due_to,
+        "due_risk": due_risk,
+        "missing_schedule": missing_schedule,
+    }
+
+
+@router.get("/pending")
+def list_pending_orders(
+    search: Optional[str] = Query(None, min_length=1, max_length=120),
+    customer_id: Optional[uuid.UUID] = Query(None),
+    source: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    product: Optional[str] = Query(None),
+    due_from: Optional[date] = Query(None),
+    due_to: Optional[date] = Query(None),
+    due_risk: Optional[str] = Query(None),
+    missing_schedule: Optional[bool] = Query(None),
+    sort: str = Query("due_date"),
+    direction: str = Query("asc"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    orders = load_open_orders(db, plant_scope)
+    return build_pending_workspace(
+        orders,
+        filters=_pending_filters(
+            search=search,
+            customer_id=customer_id,
+            source=source,
+            status=status,
+            product=product,
+            due_from=due_from,
+            due_to=due_to,
+            due_risk=due_risk,
+            missing_schedule=missing_schedule,
+        ),
+        limit=limit,
+        offset=offset,
+        sort=sort,
+        direction=direction,
+        plant_scope=plant_scope,
+    )
+
+
+@router.get("/pending/export")
+def export_pending_orders(
+    search: Optional[str] = Query(None, min_length=1, max_length=120),
+    customer_id: Optional[uuid.UUID] = Query(None),
+    source: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    product: Optional[str] = Query(None),
+    due_from: Optional[date] = Query(None),
+    due_to: Optional[date] = Query(None),
+    due_risk: Optional[str] = Query(None),
+    missing_schedule: Optional[bool] = Query(None),
+    sort: str = Query("due_date"),
+    direction: str = Query("asc"),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    orders = load_open_orders(db, plant_scope)
+    payload = build_pending_workspace(
+        orders,
+        filters=_pending_filters(
+            search=search,
+            customer_id=customer_id,
+            source=source,
+            status=status,
+            product=product,
+            due_from=due_from,
+            due_to=due_to,
+            due_risk=due_risk,
+            missing_schedule=missing_schedule,
+        ),
+        limit=10_000_000,
+        offset=0,
+        sort=sort,
+        direction=direction,
+        plant_scope=plant_scope,
+    )
+    csv_body = export_pending_csv(payload)
+    return StreamingResponse(
+        iter([csv_body]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=pending-orders.csv"},
+    )
+
+
+def _group_rows_by_line(rows: List[DeliveryScheduleRowInput]) -> dict[str, list[dict]]:
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(str(row.line_id), []).append(
+            {
+                "id": str(row.id) if row.id else None,
+                "line_id": str(row.line_id),
+                "delivery_date": row.delivery_date,
+                "quantity": row.quantity,
+                "status": row.status or "committed",
+            }
+        )
+    return grouped
+
+
+@router.get("/{order_id}/delivery-schedules")
+def get_order_delivery_schedules(
+    order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return list_order_schedules(order)
+
+
+@router.post("/{order_id}/delivery-schedules/preview")
+def preview_order_delivery_schedules(
+    order_id: uuid.UUID,
+    payload: DeliverySchedulePreviewPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    del current_user
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return preview_line_schedules(order, _group_rows_by_line(payload.rows))
+
+
+@router.post("/{order_id}/delivery-schedules/commit")
+def commit_order_delivery_schedules(
+    order_id: uuid.UUID,
+    payload: DeliveryScheduleCommitPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return commit_line_schedules(
+        db,
+        order=order,
+        proposed_by_line=_group_rows_by_line(payload.rows),
+        expected_revision=payload.expected_revision,
+        actor=str(current_user.get("sub") or "unknown"),
+        allocations=payload.allocations,
+    )
+
+
+@router.post("/{order_id}/schedule-entire-po/preview")
+def preview_schedule_entire_po(
+    order_id: uuid.UUID,
+    payload: ScheduleEntirePoPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    del current_user
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    splits = None
+    if payload.line_splits:
+        splits = {
+            line_id: [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in rows]
+            for line_id, rows in payload.line_splits.items()
+        }
+    return preview_entire_po(order, default_date=payload.default_date, line_splits=splits)
+
+
+@router.post("/{order_id}/schedule-entire-po/commit")
+def commit_schedule_entire_po(
+    order_id: uuid.UUID,
+    payload: ScheduleEntirePoPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    splits = None
+    if payload.line_splits:
+        splits = {
+            line_id: [item.model_dump() if hasattr(item, "model_dump") else item.dict() for item in rows]
+            for line_id, rows in payload.line_splits.items()
+        }
+    return commit_entire_po(
+        db,
+        order=order,
+        expected_revision=payload.expected_revision,
+        actor=str(current_user.get("sub") or "unknown"),
+        default_date=payload.default_date,
+        line_splits=splits,
+    )
+
+
+@router.patch("/{order_id}/delivery-schedules/{schedule_id}")
+def patch_delivery_schedule_row(
+    order_id: uuid.UUID,
+    schedule_id: uuid.UUID,
+    payload: DeliverySchedulePatchPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return mutate_schedule_row(
+        db,
+        order=order,
+        schedule_id=schedule_id,
+        updates=payload.model_dump() if hasattr(payload, "model_dump") else payload.dict(),
+        actor=str(current_user.get("sub") or "unknown"),
+    )
+
+
+@router.get("/open-demand")
+def list_open_demand(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """All in-scope open sales lines. Not the first page of /sales-orders."""
+    return collect_open_demand(db, plant_scope)
+
+
 
 
 @router.get("/{order_id}/timeline")
@@ -450,7 +1145,11 @@ def get_sales_order_timeline(
             message="Commercial demand entered into the queue.",
             created_at=order.created_at,
             actor=order.created_by,
-            metadata={"order_no": order.order_no, "status": order.status.value},
+            metadata={
+                "order_no": order.order_no,
+                "status": order.status.value,
+                "origin": getattr(order, "origin", None),
+            },
         )
     ]
     warnings = []
@@ -498,7 +1197,8 @@ def get_sales_order_timeline(
                 metadata={
                     "approved_spec_id": str(line.approved_spec_id),
                     "product_code": line.product_code,
-                    "parchment_color": line.parchment_color,
+                    "parchment_required": bool(getattr(line, "parchment_required", False)),
+                    "parchment_color": line.parchment_color if getattr(line, "parchment_required", False) else None,
                     "due_date": str(line.due_date),
                 },
             )
@@ -570,7 +1270,10 @@ def get_sales_order(
 ):
     query = apply_plant_scope(
         db.query(SalesOrder)
-        .options(joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots))
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
         .filter(SalesOrder.id == order_id),
         SalesOrder.plant_id,
         plant_scope,
@@ -609,10 +1312,14 @@ def update_sales_order(
 
     if payload.customer_id is not None:
         order.customer_id = payload.customer_id
+    if payload.origin is not None:
+        order.origin = payload.origin
     if payload.po_number is not None:
         order.po_number = payload.po_number
     if payload.po_date is not None:
         order.po_date = payload.po_date
+    if payload.internal_order_date is not None:
+        order.internal_order_date = payload.internal_order_date
     if payload.notes is not None:
         order.notes = payload.notes
 
@@ -628,21 +1335,37 @@ def update_sales_order(
     if payload.lines is not None:
         if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
             raise HTTPException(status_code=400, detail="Cannot edit lines after approval")
-        order.lines.clear()
-        db.flush()
-        for index, line in enumerate(payload.lines, start=1):
-            order.lines.append(
-                SalesOrderLine(
-                    line_no=line.line_no or index,
-                    approved_spec_id=line.approved_spec_id,
-                    product_code=(line.product_code or "").strip() or None,
-                    parchment_color=line.parchment_color,
-                    rate_per_pc=line.rate_per_pc,
-                    qty=line.qty,
-                    due_date=line.due_date,
-                    fulfilled_qty=0.0,
-                )
-            )
+        _upsert_order_lines(order, payload.lines)
+
+    working_lines = payload.lines if payload.lines is not None else [
+        SalesOrderLineInput(
+            id=line.id,
+            approved_spec_id=line.approved_spec_id,
+            line_no=int(line.line_no or 0) or None,
+            product_code=line.product_code,
+            parchment_required=bool(getattr(line, "parchment_required", False)),
+            parchment_color_id=getattr(line, "parchment_color_id", None),
+            parchment_color=line.parchment_color,
+            rate_per_pc=line.rate_per_pc,
+            qty=line.qty,
+            due_date=line.due_date,
+        )
+        for line in order.lines
+    ]
+    origin, po_number, po_date, internal_order_date = _validate_commercial_payload(
+        origin=order.origin,
+        customer_id=order.customer_id,
+        po_number=order.po_number,
+        po_date=order.po_date,
+        internal_order_date=order.internal_order_date,
+        lines=working_lines,
+        delivery_schedules=payload.delivery_schedules,
+    )
+    order.origin = origin
+    order.origin_review_required = origin == ORIGIN_REVIEW
+    order.po_number = po_number
+    order.po_date = po_date
+    order.internal_order_date = internal_order_date
 
     db.commit()
     db.refresh(order)
@@ -656,14 +1379,22 @@ def approve_sales_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Sales", "Planner"])),
 ):
-    order = db.query(SalesOrder).filter(
-        SalesOrder.id == order_id, SalesOrder.plant_id == plant_id
-    ).first()
+    order = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.lines))
+        .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
 
     if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
         raise HTTPException(status_code=400, detail="Only draft/submitted orders can be approved")
+
+    try:
+        validate_persisted_order(order)
+    except SalesCommercialError as exc:
+        raise _http_commercial(exc) from exc
 
     actor = str(current_user.get("actual_sub") or current_user.get("sub") or "").strip().lower()
     if str(order.created_by or "").strip().lower() == actor:
@@ -767,11 +1498,17 @@ def release_sales_order_line(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
+    # Lock the quantity-owning line row for the duration of the transaction so
+    # concurrent or retried releases serialize instead of each reading a stale
+    # unreleased balance and inserting a lot (audit finding S04 — over-allocation).
+    # FOR UPDATE OF sales_order_lines locks only the fulfillment row; a joinedload
+    # of the nullable release_lots side would make PostgreSQL reject the lock.
     line = (
         db.query(SalesOrderLine)
         .join(SalesOrder)
-        .options(joinedload(SalesOrderLine.sales_order), joinedload(SalesOrderLine.release_lots))
+        .options(joinedload(SalesOrderLine.sales_order))
         .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
+        .with_for_update(of=SalesOrderLine)
         .first()
     )
     if not line:
@@ -818,8 +1555,19 @@ def release_sales_order_line(
             "created_at": existing_lot.created_at,
         }
 
-    unreleased_qty = max(0.0, float(line.qty or 0.0) - _released_qty(line))
-    if payload.release_qty > unreleased_qty:
+    # Re-read the already-released quantity from committed rows *inside* the locked
+    # transaction (not from a possibly-stale relationship snapshot) before deciding
+    # whether this new lot fits within the unreleased balance.
+    already_released = (
+        db.query(func.coalesce(func.sum(SalesOrderReleaseLot.released_qty), 0.0))
+        .filter(
+            SalesOrderReleaseLot.sales_order_line_id == line.id,
+            func.lower(func.coalesce(SalesOrderReleaseLot.status, "")) != "cancelled",
+        )
+        .scalar()
+    )
+    unreleased_qty = max(0.0, float(line.qty or 0.0) - float(already_released or 0.0))
+    if payload.release_qty > unreleased_qty + 1e-9:
         raise HTTPException(status_code=400, detail=f"Release qty exceeds unreleased balance ({round(unreleased_qty, 2)})")
 
     lot = SalesOrderReleaseLot(
@@ -836,6 +1584,8 @@ def release_sales_order_line(
     )
     db.add(lot)
     db.flush()
+    if lot not in list(line.release_lots or []):
+        line.release_lots.append(lot)
     _sync_release_status(order)
     order.released_by = current_user.get("sub")
     order.released_at = order.released_at or datetime.utcnow()
