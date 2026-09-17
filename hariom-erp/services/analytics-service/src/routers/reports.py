@@ -484,6 +484,8 @@ def _quality_report(snapshot: dict[str, Any], start_day: date, end_day: date, gr
             "passed": passed,
             "failed": failed,
             "compliance_percent": round((passed / total * 100.0), 2) if total else 0.0,
+            "pass_rate": round((passed / total * 100.0), 2) if total else None,
+            "has_inspection_data": total > 0,
             "active_holds": len(active_holds),
         },
         "series": list(series.values()),

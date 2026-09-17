@@ -1,14 +1,19 @@
 "use client"
 
 import Link from "next/link"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dayjs from "dayjs"
-import { ArrowRight, ClipboardCheck, Factory, Layers3, PackageCheck, Search, ShieldCheck, TimerReset, Truck } from "lucide-react"
+import { ArrowRight, ClipboardCheck, Factory, PackageCheck, Search, ShieldCheck, TimerReset, Truck } from "lucide-react"
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
-import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
+import { useMachines, useJobCardAggregates, usePlanningJobCards } from "@/hooks/use-production"
+import { productionApi } from "@/lib/api"
+import { dueRiskLabel, overdueLabel } from "@/lib/due-risk"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { compactRef, jobCardRef } from "@/lib/job-card-display"
+
+const STAGE_TILES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -16,32 +21,38 @@ function formatDate(value?: string | null) {
   return parsed.isValid() ? parsed.format("DD MMM YYYY") : String(value)
 }
 
-function stageValue(job: any) {
-  return String(job.current_stage || job.stage || "UNASSIGNED").toUpperCase()
-}
-
-function activeQualityHolds(job: any) {
-  return Array.isArray(job?.quality_holds)
-    ? job.quality_holds.filter((hold: any) => String(hold?.status || "").toUpperCase() === "HOLD").length
-    : 0
+function dueBucketLabel(bucket?: string | null) {
+  if (bucket === "PRIORITY") return "Priority (3 plant days)"
+  if (bucket === "OVERDUE") return "Overdue"
+  return null
 }
 
 export default function JobCardsPage() {
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const stageFilter = String(searchParams?.get("stage") || "").trim().toUpperCase()
+  const dueFilter = String(searchParams?.get("due") || "").trim().toLowerCase()
+  const dueRiskParam = dueFilter === "priority" ? "PRIORITY" : dueFilter === "overdue" ? "OVERDUE" : undefined
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("ALL")
   const deferredSearch = useDeferredValue(search.trim())
   const machinesQuery = useMachines()
+  const aggregatesQuery = useJobCardAggregates()
 
   const jobCardsQuery = usePlanningJobCards(
     {
       limit: 250,
       ...(deferredSearch ? { search: deferredSearch } : {}),
       ...(status !== "ALL" ? { status } : {}),
+      ...(stageFilter ? { stage: stageFilter } : {}),
+      ...(dueRiskParam ? { due_risk: dueRiskParam } : {}),
     },
     true,
   )
 
   const jobCards = useMemo(() => (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []), [jobCardsQuery.data])
+  const aggregates = useMemo(() => (aggregatesQuery.data as Record<string, any>) || {}, [aggregatesQuery.data])
   const machineLabelMap = useMemo(
     () =>
       new Map(
@@ -53,21 +64,43 @@ export default function JobCardsPage() {
     [machinesQuery.data],
   )
 
-  const metrics = useMemo(() => {
-    const openCards = jobCards.filter((job: any) => String(job.status || "").toUpperCase() !== "COMPLETED")
-    const dueRisk = openCards.filter((job: any) => {
-      if (!job.due_date) return false
-      return dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day")
+  const stageCounts = useMemo(() => {
+    const fromServer = Array.isArray(aggregates.stage_counts) ? aggregates.stage_counts : []
+    const byStage = new Map(fromServer.map((row: any) => [String(row.stage).toUpperCase(), Number(row.count || 0)]))
+    return STAGE_TILES.map((stage) => ({ stage, count: Number(byStage.get(stage) || 0) }))
+  }, [aggregates])
+
+  const replaceQuery = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams?.toString() || "")
+    Object.entries(patch).forEach(([key, value]) => {
+      if (!value) next.delete(key)
+      else next.set(key, value)
     })
-    const dispatchReady = openCards.filter((job: any) => stageValue(job) === "DISPATCH")
-    const activeHolds = openCards.reduce((sum: number, job: any) => sum + activeQualityHolds(job), 0)
-    const blocked = openCards.filter((job: any) => Boolean(job.blocked_reason) || activeQualityHolds(job) > 0 || stageValue(job) === "QC")
-    const stageCounts = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"].map((stage) => ({
-      stage,
-      count: openCards.filter((job: any) => stageValue(job) === stage).length,
-    }))
-    return { openCards, dueRisk, dispatchReady, blocked, activeHolds, stageCounts }
-  }, [jobCards])
+    const query = next.toString()
+    router.push(query ? `${pathname}?${query}` : pathname, { scroll: false })
+  }
+
+  const visibleCards = jobCards.length
+  const priorityCount = Number(aggregates.due_priority || 0)
+  const overdueCount = Number(aggregates.due_overdue || 0)
+  const priorityDetail = aggregates.priority_label || dueRiskLabel()
+  const overdueDetail = aggregates.overdue_label || overdueLabel()
+
+  const exportCards = async () => {
+    const response = await productionApi.exportJobCards({
+      ...(deferredSearch ? { search: deferredSearch } : {}),
+      ...(status !== "ALL" ? { status } : {}),
+      ...(stageFilter ? { stage: stageFilter } : {}),
+      ...(dueRiskParam ? { due_risk: dueRiskParam } : {}),
+    })
+    const blob = new Blob([response.data], { type: "text/csv" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "job-cards.csv"
+    link.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="space-y-6">
@@ -75,13 +108,13 @@ export default function JobCardsPage() {
         appearance={MODULE_APPEARANCES.jobCards}
         badge="Job Card Truth"
         title="Execution-ready job cards, planner truth, and downstream floor visibility"
-        description="Recovered job-card queue with stage, machine, due-risk, and direct document links instead of the old stub planner page."
+        description="Stage and due-risk tiles are server totals for the authorized plant, not a page-sized sample. Click a stage to open that exact set."
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Visible Cards</p>
-              <p className="mt-2 text-3xl font-semibold">{jobCards.length}</p>
-              <p className="mt-1 text-xs text-emerald-100/80">Loaded from production planning service</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Open Cards</p>
+              <p className="mt-2 text-3xl font-semibold" data-testid="job-cards:open-count">{Number(aggregates.open_cards ?? visibleCards)}</p>
+              <p className="mt-1 text-xs text-emerald-100/80">Server aggregate across all job cards in plant scope</p>
             </div>
             <Link href="/planning/board?section=winder" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900">
               <Factory className="h-4 w-4" />
@@ -92,16 +125,22 @@ export default function JobCardsPage() {
       />
 
       <MetricRail className="2xl:grid-cols-5">
-        <MetricCard label="Open Cards" value={metrics.openCards.length} detail="Still active across production stages" icon={ClipboardCheck} tone="cyan" />
-        <MetricCard label="Due Risk" value={metrics.dueRisk.length} detail="Due today or tomorrow" icon={TimerReset} tone="amber" />
-        <MetricCard label="WIP Stages" value={metrics.stageCounts.filter((row) => row.count > 0).length} detail="Active stage buckets with open job cards" icon={Layers3} tone="violet" />
-        <MetricCard label="QC Holds" value={metrics.activeHolds} detail="Active holds attached to job cards" icon={ShieldCheck} tone={metrics.activeHolds ? "rose" : "emerald"} />
-        <MetricCard label="Dispatch Ready" value={metrics.dispatchReady.length} detail="Already at dispatch stage" icon={Truck} tone="emerald" />
+        <button type="button" className="text-left" onClick={() => replaceQuery({ due: null, stage: null })}>
+          <MetricCard label="Open Cards" value={Number(aggregates.open_cards ?? 0)} detail="Still active across production stages" icon={ClipboardCheck} tone="cyan" />
+        </button>
+        <button type="button" className="text-left" onClick={() => replaceQuery({ due: dueFilter === "priority" ? null : "priority", stage: null })}>
+          <MetricCard label="Priority (3 plant days)" value={priorityCount} detail={priorityDetail} icon={TimerReset} tone="amber" />
+        </button>
+        <button type="button" className="text-left" onClick={() => replaceQuery({ due: dueFilter === "overdue" ? null : "overdue", stage: null })}>
+          <MetricCard label="Overdue" value={overdueCount} detail={overdueDetail} icon={TimerReset} tone="rose" />
+        </button>
+        <MetricCard label="QC Holds" value={Number(aggregates.qc_holds ?? 0)} detail="Active holds attached to open job cards" icon={ShieldCheck} tone={aggregates.qc_holds ? "rose" : "emerald"} />
+        <MetricCard label="Dispatch Ready" value={Number(aggregates.dispatch_ready ?? 0)} detail="Already at dispatch stage" icon={Truck} tone="emerald" />
       </MetricRail>
 
       <Panel
         title="WIP and QC Movement Snapshot"
-        subtitle="Open production is grouped by stage so WIP movement, QC holds, and dispatch readiness are visible before opening a card."
+        subtitle="Open production is grouped by current stage. Tile counts are a full-scope server aggregate; the list below uses the same stage filter."
         actions={
           <div className="flex flex-wrap gap-2">
             <Link href="/inventory/production-issue" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300 hover:text-cyan-900">
@@ -115,28 +154,52 @@ export default function JobCardsPage() {
         }
       >
         <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
-          {metrics.stageCounts.map((row) => (
-            <div key={row.stage} className="rounded-[1.15rem] border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{row.stage.replace(/_/g, " ")}</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{row.count}</p>
-              <p className="mt-1 text-xs text-slate-500">
-                {row.stage === "QC" ? "Final gate cards" : row.stage === "DISPATCH" ? "Ready for dispatch check" : "WIP in this stage"}
-              </p>
-            </div>
-          ))}
+          {stageCounts.map((row) => {
+            const active = stageFilter === row.stage
+            const href = active ? "/production/job-cards" : `/production/job-cards?stage=${row.stage}`
+            return (
+              <Link
+                key={row.stage}
+                href={href}
+                data-testid={`job-cards:stage-tile:${row.stage}`}
+                className={`rounded-[1.15rem] border px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 ${
+                  active ? "border-cyan-400 bg-cyan-50" : "border-slate-200 bg-slate-50"
+                }`}
+              >
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{row.stage.replace(/_/g, " ")}</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">{row.count}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {row.stage === "QC" ? "Final gate cards" : row.stage === "DISPATCH" ? "Ready for dispatch check" : "Open cards in this stage"}
+                </p>
+              </Link>
+            )
+          })}
         </div>
-        {metrics.blocked.length ? (
+        {Number(aggregates.blocked || 0) ? (
           <div className="mt-4 rounded-[1.15rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-            {metrics.blocked.length} open card(s) have a blocker, active quality hold, or final QC stage. Use the quality desk before dispatch.
+            {aggregates.blocked} open card(s) have an active quality hold or final QC stage. Use the quality desk before dispatch.
           </div>
         ) : null}
       </Panel>
 
       <Panel
         title="Job Card Queue"
-        subtitle="Search across job card id, order id, product code, or customer snapshot."
+        subtitle="Search across job card id, order id, product code, or customer snapshot. Stage and due-risk filters are URL-driven."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            {stageFilter ? (
+              <button type="button" onClick={() => replaceQuery({ stage: null })} className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-800">
+                Stage {stageFilter} ×
+              </button>
+            ) : null}
+            {dueRiskParam ? (
+              <button type="button" onClick={() => replaceQuery({ due: null })} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">
+                {dueRiskParam === "PRIORITY" ? "Priority 3-day" : "Overdue"} ×
+              </button>
+            ) : null}
+            <button type="button" onClick={() => exportCards().catch(() => undefined)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700">
+              Export CSV
+            </button>
             <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
               <Search className="h-4 w-4 text-slate-400" />
               <input
@@ -180,7 +243,7 @@ export default function JobCardsPage() {
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {jobCards.map((job: any) => (
-                  <tr key={job.id}>
+                  <tr key={job.id} data-due-risk={job.due_risk_bucket || ""}>
                     <td className="px-4 py-4">
                       <div className="space-y-2">
                         <Link href={`/production/job-cards/${job.id}`} className="text-sm font-semibold text-slate-950 hover:text-cyan-700">
@@ -224,7 +287,7 @@ export default function JobCardsPage() {
                     <td className="px-4 py-4 text-sm text-slate-700">
                       <div>Due {formatDate(job.due_date)}</div>
                       <div className="mt-1 text-xs text-slate-500">
-                        {job.blocked_reason || job.planner_gate_reason || `${job.open_segment_count || 0} open segment(s)`}
+                        {dueBucketLabel(job.due_risk_bucket) || job.blocked_reason || job.planner_gate_reason || `${job.open_segment_count || 0} open segment(s)`}
                       </div>
                     </td>
                   </tr>

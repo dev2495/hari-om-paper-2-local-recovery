@@ -24,7 +24,7 @@ import { useOwnerPack } from "@/hooks/use-analytics"
 import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePlanningBoard } from "@/hooks/use-production"
-import { useSalesOrders } from "@/hooks/use-sales"
+import { useSalesOrderAggregates, useSalesOrders } from "@/hooks/use-sales"
 import { useAuditEvents, useSystemHealth } from "@/hooks/use-workspace"
 import { jobCardRef } from "@/lib/job-card-display"
 import { displayPlantScope } from "@/lib/plant-scope"
@@ -59,6 +59,7 @@ export function OwnerLandingPage() {
   const { activePlant } = useAuth()
   const { data: ownerPack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
   const { data: salesOrders } = useSalesOrders()
+  const { data: salesAggregates } = useSalesOrderAggregates()
   const { data: customers } = useCustomers()
   const { data: inventoryHealth } = useInventoryHealthSummary()
   const { data: planningBoard } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, true)
@@ -117,7 +118,7 @@ export function OwnerLandingPage() {
     value: (Array.isArray(stage.lanes) ? stage.lanes : []).reduce((sum: number, lane: any) => sum + Number(lane?.jobs?.length || 0), 0),
   }))
   const stageRows = stageRowsRaw
-  const openOrderCount = orders.filter((order: any) => openSalesValue(order) > 0).length
+  const openOrderCount = Number(salesAggregates?.open_order_count ?? orders.filter((order: any) => openSalesValue(order) > 0).length)
   const waterfall = [
     { label: "Booked", value: commercial.booked },
     { label: "Open", value: commercial.open },

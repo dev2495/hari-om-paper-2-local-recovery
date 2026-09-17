@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { ClipboardCheck, FlaskConical, LockKeyhole, ShieldCheck } from "lucide-react"
+import { CheckCircle2, ClipboardCheck, FlaskConical, LockKeyhole, ShieldCheck } from "lucide-react"
 import { useMemo } from "react"
 
 import { ExecutiveHero, MetricCard, MetricRail, Panel } from "@/components/erp/shell"
@@ -9,7 +9,7 @@ import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { useAuth } from "@/context/AuthContext"
 import { usePendingInventoryQuality } from "@/hooks/use-inventory"
-import { useQualityHolds, useQualityInspections } from "@/hooks/use-production"
+import { useQualityHolds, useQualityInspections, useQualitySummary } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
 function asArray(value: any) {
@@ -19,6 +19,7 @@ function asArray(value: any) {
 export default function QualityDeskHubPage() {
   useAuth()
   const inspectionsQuery = useQualityInspections({ limit: 120 })
+  const qualitySummaryQuery = useQualitySummary()
   const holdsQuery = useQualityHolds({ limit: 120 })
   const pendingQualityQuery = usePendingInventoryQuality()
   const inspections = useMemo(() => asArray(inspectionsQuery.data), [inspectionsQuery.data])
@@ -26,6 +27,10 @@ export default function QualityDeskHubPage() {
   const pendingQuality = useMemo(() => asArray(pendingQualityQuery.data), [pendingQualityQuery.data])
   const activeHolds = holds.filter((hold: any) => String(hold.status || "").toUpperCase() === "HOLD")
   const failedInspections = inspections.filter((row: any) => String(row.status || "").toUpperCase() === "FAIL")
+  const { data: qualitySummary } = qualitySummaryQuery
+  const inspectionCount = Number(qualitySummary?.inspection_count ?? inspections.length)
+  const passRate = qualitySummary?.pass_rate
+  const passRateDisplay = inspectionCount <= 0 || passRate == null ? "No data" : `${Number(passRate).toFixed(1)}%`
 
   return (
     <RoleGate allow={["QC", "PlantManager", "Store", "Dispatch", "Sales"]}>
@@ -42,12 +47,14 @@ export default function QualityDeskHubPage() {
                 Server-side evaluator
               </div>
               <p className="text-2xl font-semibold tracking-tight">{activeHolds.length} active hold(s)</p>
+              <p className="text-sm text-slate-200/80">Pass rate {passRateDisplay} across the current quality window.</p>
             </div>
           }
         />
         <QualityDeskNav />
         <MetricRail>
           <MetricCard label="Active Holds" value={activeHolds.length} detail="Dispatch-blocking quality decisions" icon={LockKeyhole} tone={activeHolds.length ? "rose" : "emerald"} />
+          <MetricCard label="Pass Rate" value={passRateDisplay} detail={inspectionCount ? "Latest inspection window" : "No inspections in plant scope"} icon={CheckCircle2} tone="cyan" />
           <MetricCard label="Failures" value={failedInspections.length} detail="Measured FAIL results" icon={ClipboardCheck} tone={failedInspections.length ? "amber" : "slate"} />
           <MetricCard label="Inward QC" value={pendingQuality.length} detail="Held material awaiting inspection" icon={FlaskConical} tone={pendingQuality.length ? "amber" : "emerald"} />
         </MetricRail>

@@ -8,7 +8,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useReadyJobs } from "@/hooks/use-dispatch"
 import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { usePlanningBoard, usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrders } from "@/hooks/use-sales"
+import { useSalesOrderAggregates } from "@/hooks/use-sales"
 
 function ActionLink({ href, title, detail }: { href: string; title: string; detail: string }) {
   return (
@@ -21,13 +21,12 @@ function ActionLink({ href, title, detail }: { href: string; title: string; deta
 
 export function OperationalDashboard({ roles }: { roles: string[] }) {
   const { activePlant } = useAuth()
-  const { data: salesOrders } = useSalesOrders()
+  const { data: salesAggregates } = useSalesOrderAggregates()
   const { data: board } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, Boolean(activePlant))
   const { data: jobCards } = usePlanningJobCards()
   const { data: inventoryHealth } = useInventoryHealthSummary()
   const { data: readyJobs } = useReadyJobs(activePlant)
 
-  const orderRows = Array.isArray(salesOrders) ? salesOrders : []
   const jobCardRows = Array.isArray(jobCards) ? jobCards : []
   const readyDispatchRows = Array.isArray(readyJobs) ? readyJobs : []
   const plannerSummary = (board as any)?.summary || {}
@@ -38,8 +37,8 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
     return sum + Number(unscheduledLane?.jobs?.length || 0)
   }, 0)
   const blockedJobs = jobCardRows.filter((card: any) => String(card.status || "").toUpperCase().includes("BLOCK")).length
-  const approvedOrders = orderRows.filter((order: any) => order.status === "approved").length
-  const draftOrders = orderRows.filter((order: any) => ["draft", "submitted"].includes(order.status)).length
+  const approvedOrders = Number(salesAggregates?.approved_count ?? salesAggregates?.ready_count ?? 0)
+  const draftOrders = Number(salesAggregates?.draft_count ?? 0)
   const lowStockItems = Number((inventoryHealth as any)?.summary?.low_stock_items || (inventoryHealth as any)?.low_stock_items || 0)
   const plannerRoles = ["Owner", "Admin", "Planner", "PlantManager"]
   const plannerView = plannerRoles.some((role) => roles.includes(role))

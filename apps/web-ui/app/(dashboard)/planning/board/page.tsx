@@ -38,6 +38,7 @@ import {
   useMachines,
   useSplitPlanningSegment,
 } from "@/hooks/use-production"
+import { classifyDueRisk, DUE_RISK_OVERDUE, DUE_RISK_PRIORITY } from "@/lib/due-risk"
 import { jobCardRef } from "@/lib/job-card-display"
 
 const SECTION_STAGE_MAP: Record<string, string> = {
@@ -452,9 +453,7 @@ export default function PlanningBoardPage() {
   )
   const allPlannerJobs = useMemo(() => [...queuedJobs, ...allVisibleJobs], [allVisibleJobs, queuedJobs])
   const dueRiskCount = useMemo(
-    () =>
-      allPlannerJobs.filter((job: any) => job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day"))
-        .length,
+    () => allPlannerJobs.filter((job: any) => classifyDueRisk(job.due_date) === DUE_RISK_PRIORITY).length,
     [allPlannerJobs],
   )
   const overloadedLaneCount = useMemo(
@@ -685,7 +684,7 @@ export default function PlanningBoardPage() {
       icon: Scissors,
     },
     {
-      label: "Due risk",
+      label: "Priority (3 plant days)",
       value: dueRiskCount,
       hint: `${overloadedLaneCount} lane alert(s)`,
       className: "border-rose-200 bg-rose-50/90 text-rose-950",
@@ -759,7 +758,7 @@ export default function PlanningBoardPage() {
     const rows = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"].map((stageName) => {
       const jobs = activeJobCards.filter((job: any) => String(job.current_stage || "").toUpperCase() === stageName)
       const blocked = jobs.filter((job: any) => Boolean(job.blocked_reason) || !job.planner_gate_ready)
-      const due = jobs.filter((job: any) => job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day"))
+      const due = jobs.filter((job: any) => classifyDueRisk(job.due_date) === DUE_RISK_PRIORITY)
       return {
         stage: stageName,
         jobs,
@@ -790,7 +789,7 @@ export default function PlanningBoardPage() {
   const plannerActionJobs = useMemo(
     () =>
       activeJobCards
-        .filter((job: any) => Boolean(job.blocked_reason) || !job.planner_gate_ready || (job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day")))
+        .filter((job: any) => Boolean(job.blocked_reason) || !job.planner_gate_ready || classifyDueRisk(job.due_date) === DUE_RISK_PRIORITY || classifyDueRisk(job.due_date) === DUE_RISK_OVERDUE)
         .slice(0, 8),
     [activeJobCards],
   )
@@ -1120,12 +1119,13 @@ export default function PlanningBoardPage() {
                 One planner view for owner and planner: active WIP by stage, stuck jobs, due pressure, scheduled vs unscheduled work, and what needs action before floor entry.
               </p>
             </div>
-            <div className="grid gap-2 sm:grid-cols-4 2xl:w-[42rem]">
+            <div className="grid gap-2 sm:grid-cols-5 2xl:w-[52rem]">
               {[
                 ["Active WIP", activeJobCards.length, "Not completed"],
                 ["Completed", completedJobCards.length, "Closed history"],
                 ["Blocked", activeJobCards.filter((job: any) => Boolean(job.blocked_reason) || !job.planner_gate_ready).length, "Needs action"],
-                ["Due risk", activeJobCards.filter((job: any) => job.due_date && dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day")).length, "Today/tomorrow"],
+                ["Priority (3 plant days)", activeJobCards.filter((job: any) => classifyDueRisk(job.due_date) === DUE_RISK_PRIORITY).length, "Today through today+2"],
+                ["Overdue", activeJobCards.filter((job: any) => classifyDueRisk(job.due_date) === DUE_RISK_OVERDUE).length, "Due before today"],
               ].map(([label, value, hint]) => (
                 <div key={String(label)} className="rounded-xl border border-white/80 bg-white/85 px-3 py-2 shadow-sm">
                   <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
@@ -1438,7 +1438,9 @@ export default function PlanningBoardPage() {
                           const perShiftCapacity = preferredCapacity > 0 ? preferredCapacity : 0
                           const capacityNeed = capacityNeedFor(section, job)
                           const mustSplit = perShiftCapacity > 0 && capacityNeed > perShiftCapacity
-                          const dueSoon = job.due_date ? dayjs(job.due_date).isBefore(dayjs().add(1, "day"), "day") : false
+                          const dueRisk = classifyDueRisk(job.due_date)
+                          const dueSoon = dueRisk === DUE_RISK_PRIORITY
+                          const overdue = dueRisk === DUE_RISK_OVERDUE
 
                           return (
                             <article
@@ -1472,7 +1474,8 @@ export default function PlanningBoardPage() {
                                     {formatWhole(job.segment_planned_qty)}
                                   </span>
                                   {mustSplit ? <span className="shrink-0 rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">Split</span> : null}
-                                  {dueSoon ? <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">Due</span> : null}
+                                  {dueSoon ? <span className="shrink-0 rounded-full bg-amber-50 px-1.5 py-0.5 text-[9px] font-bold text-amber-700">Priority</span> : null}
+                                  {overdue ? <span className="shrink-0 rounded-full bg-rose-50 px-1.5 py-0.5 text-[9px] font-bold text-rose-700">Overdue</span> : null}
                                   <GripVertical className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                                 </div>
                                 <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-slate-600">

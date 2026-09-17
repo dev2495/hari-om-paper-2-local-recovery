@@ -95,6 +95,7 @@ function fallbackTimeline(order: any) {
 
 function invalidateSalesQueries(queryClient: ReturnType<typeof useQueryClient>, orderId?: string) {
   queryClient.invalidateQueries({ queryKey: ["sales", "orders"] })
+  queryClient.invalidateQueries({ queryKey: ["sales", "order-aggregates"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
   if (orderId) {
     queryClient.invalidateQueries({ queryKey: ["sales", "order", orderId] })
@@ -143,6 +144,16 @@ export function useSalesOrders(params?: any) {
     queryFn: async () => {
       const { data } = await salesApi.getOrders(params)
       return normalizeOrdersPayload(data)
+    },
+  })
+}
+
+export function useSalesOrderAggregates() {
+  return useQuery({
+    queryKey: ["sales", "order-aggregates"],
+    queryFn: async () => {
+      const { data } = await salesApi.getOrderAggregates()
+      return data
     },
   })
 }

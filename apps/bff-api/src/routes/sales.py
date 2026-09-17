@@ -14,6 +14,11 @@ async def list_orders(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders", request, token)
 
 
+@router.get("/orders/aggregates")
+async def get_order_aggregates(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/aggregates", request, token)
+
+
 @router.post("/orders")
 async def create_order(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SALES_SERVICE_URL, "/sales-orders", request, token)

@@ -423,7 +423,37 @@ class JobCardPlannerSummary(BaseModel):
     selected_bamboo_length_mm: Optional[float] = None
     usable_length_mm: Optional[float] = None
     due_date: Optional[date] = None
+    due_risk_bucket: Optional[str] = None
     created_at: datetime
+
+
+class JobCardStageCount(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    count: int
+
+
+class JobCardAggregatesResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    as_of: datetime
+    timezone: str
+    plant_today: date
+    priority_start: date
+    priority_end: date
+    priority_label: str
+    overdue_label: str
+    open_cards: int
+    completed_cards: int
+    due_priority: int
+    due_overdue: int
+    dispatch_ready: int
+    qc_holds: int
+    blocked: int
+    stage_counts: list[JobCardStageCount]
+    priority_job_ids: list[str] = Field(default_factory=list)
+    overdue_job_ids: list[str] = Field(default_factory=list)
 
 
 class JobCardPlanningStage(BaseModel):
@@ -558,8 +588,10 @@ class ReleasePreflightLineResult(BaseModel):
     sales_order_line_id: UUID
     release_lot_id: Optional[UUID] = None
     release_qty: float
+    authorized_winders: list[dict[str, Any]] = Field(default_factory=list)
     compatible_winders: list[dict[str, Any]] = Field(default_factory=list)
     selected_winder_compatible: bool
+    compatibility_warning: Optional[str] = None
     blocker: Optional[str] = None
 
 

@@ -137,7 +137,7 @@ class JobCard(Base):
             name="ck_job_cards_status",
         ),
         CheckConstraint(
-            "current_stage IN ('WINDER','OVEN','PROCESS','PACKING','DONE')",
+            "current_stage IN ('SLITTING','WINDER','OVEN','PROCESS','PACKING','QC','DISPATCH','DONE')",
             name="ck_job_cards_current_stage",
         ),
         CheckConstraint("planned_qty > 0", name="ck_job_cards_qty_positive"),
@@ -178,7 +178,7 @@ class JobCardStage(Base):
     __table_args__ = (
         UniqueConstraint("job_card_id", "stage_type", name="uq_job_card_stage_type"),
         CheckConstraint(
-            "stage_type IN ('WINDER','OVEN','PROCESS','PACKING')",
+            "stage_type IN ('SLITTING','WINDER','OVEN','PROCESS','PACKING','QC','DISPATCH')",
             name="ck_job_card_stages_type",
         ),
         CheckConstraint(
