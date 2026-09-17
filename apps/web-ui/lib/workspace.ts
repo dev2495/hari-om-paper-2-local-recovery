@@ -74,7 +74,7 @@ export function landingPathForRole(role: string | null | undefined) {
 
 export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Owner: [
-    { href: "/reports/owner", label: "Owner Pack", detail: "Review KPI stack, OTIF, and exceptions." },
+    { href: "/sales-orders/pending", label: "Pending Orders", detail: "All open demand with server totals and export." },
     { href: "/planning/board?section=winder", label: "Planning Board", detail: "Check route loading and bottlenecks." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Validate active cards and stage completion." },
     { href: "/production/reconciliation", label: "Reconciliation", detail: "Close cost and material variances." },
@@ -98,7 +98,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Read authorized job and spec context." },
   ],
   Planner: [
-    { href: "/sales-orders", label: "Sales Queue", detail: "Review approvals and pending releases." },
+    { href: "/sales-orders/pending", label: "Pending Orders", detail: "All open demand with server totals and export." },
     { href: "/planning/board?section=winder", label: "Planning Workspace", detail: "Plan by stage, machine, and shift." },
     { href: "/planning/tracker", label: "Tracker", detail: "Monitor WIP and delays by stage." },
     { href: "/specifications/new", label: "Spec Sheet", detail: "Create recipe-backed specification sheets." },
@@ -118,8 +118,8 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
   Sales: [
     { href: "/sales-orders/new", label: "Create Sales Order", detail: "Capture PO demand and release needs." },
     { href: "/sales-orders", label: "Sales Orders", detail: "Approve, release, and track line items." },
+    { href: "/sales-orders/pending", label: "Pending Orders", detail: "All open demand with server totals and export." },
     { href: "/reports/sales", label: "Sales Reports", detail: "Track OTIF and delayed commitments." },
-    { href: "/logistics/dispatch", label: "Dispatch Status", detail: "Check commercial handoff status." },
   ],
   Operator: [
     { href: "/production/supervisor-entry", label: "QR / Stage Entry", detail: "Scan job card and enter stage output." },

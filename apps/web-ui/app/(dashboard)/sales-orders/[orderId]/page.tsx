@@ -8,6 +8,7 @@ import { useParams } from "next/navigation"
 
 import { ExecutiveHero, EmptyState, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
 import { ReleaseToQueueDialog } from "@/components/sales/release-to-queue-dialog"
+import { DeliverySchedulePanel } from "@/components/sales/delivery-schedule-panel"
 import { useApp } from "@/context/AppContext"
 import { useCustomers } from "@/hooks/use-master-data"
 import { usePlanningJobCards } from "@/hooks/use-production"
@@ -141,6 +142,9 @@ export default function SalesOrderDetailPage() {
                 Approve + Release
               </button>
             ) : null}
+            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold text-white">
+              Pending workspace
+            </Link>
             <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
@@ -326,6 +330,7 @@ export default function SalesOrderDetailPage() {
           ))}
         </div>
       </Panel>
+      <DeliverySchedulePanel order={order} />
       <ReleaseToQueueDialog
         order={order}
         selectedLineIds={selectedLineIds.length ? selectedLineIds : (order.lines || []).map((line: any) => String(line.id))}

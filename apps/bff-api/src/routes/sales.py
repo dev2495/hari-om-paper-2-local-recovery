@@ -19,6 +19,16 @@ async def get_order_aggregates(request: Request, token: str = Depends(get_token)
     return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/aggregates", request, token)
 
 
+@router.get("/orders/pending")
+async def list_pending_orders(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/pending", request, token)
+
+
+@router.get("/orders/pending/export")
+async def export_pending_orders(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/pending/export", request, token)
+
+
 @router.post("/orders")
 async def create_order(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SALES_SERVICE_URL, "/sales-orders", request, token)
@@ -49,6 +59,36 @@ async def get_order(order_id: str, request: Request, token: str = Depends(get_to
 @router.get("/orders/{order_id}/timeline")
 async def get_order_timeline(order_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/timeline", request, token)
+
+
+@router.get("/orders/{order_id}/delivery-schedules")
+async def get_order_delivery_schedules(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules", request, token)
+
+
+@router.post("/orders/{order_id}/delivery-schedules/preview")
+async def preview_order_delivery_schedules(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules/preview", request, token)
+
+
+@router.post("/orders/{order_id}/delivery-schedules/commit")
+async def commit_order_delivery_schedules(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules/commit", request, token)
+
+
+@router.patch("/orders/{order_id}/delivery-schedules/{schedule_id}")
+async def patch_order_delivery_schedule(order_id: str, schedule_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules/{schedule_id}", request, token)
+
+
+@router.post("/orders/{order_id}/schedule-entire-po/preview")
+async def preview_schedule_entire_po(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/schedule-entire-po/preview", request, token)
+
+
+@router.post("/orders/{order_id}/schedule-entire-po/commit")
+async def commit_schedule_entire_po(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/schedule-entire-po/commit", request, token)
 
 
 @router.put("/orders/{order_id}")
