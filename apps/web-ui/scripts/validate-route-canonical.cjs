@@ -29,6 +29,9 @@ const requiredRedirectPairs = [
   ['source: "/production/planner"', 'destination: "/planning/board"'],
   ['source: "/dispatch"', 'destination: "/logistics/dispatch"'],
   ['source: "/specs"', 'destination: "/specifications"'],
+  ['source: "/reports"', 'destination: "/analytics"'],
+  ['source: "/analytics/plants"', 'destination: "/reports/plants"'],
+  ['source: "/analytics/dispatch"', 'destination: "/reports/dispatch"'],
 ]
 
 for (const [source, destination] of requiredRedirectPairs) {

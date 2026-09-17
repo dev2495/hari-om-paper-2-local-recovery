@@ -70,6 +70,21 @@ const nextConfig = {
         destination: "/specifications/:path*",
         permanent: true,
       },
+      {
+        source: "/reports",
+        destination: "/analytics",
+        permanent: true,
+      },
+      {
+        source: "/analytics/plants",
+        destination: "/reports/plants",
+        permanent: true,
+      },
+      {
+        source: "/analytics/dispatch",
+        destination: "/reports/dispatch",
+        permanent: true,
+      },
     ]
   },
   async rewrites() {

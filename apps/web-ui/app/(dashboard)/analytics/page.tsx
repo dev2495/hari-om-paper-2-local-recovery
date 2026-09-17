@@ -4,7 +4,9 @@ import Link from "next/link"
 import { useMemo, useState } from "react"
 import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
+import { IntelligenceReportCatalog } from "@/components/reports/catalog"
 import { RoleGate } from "@/components/workspace/role-gate"
+import { LoadingState, ErrorState } from "@/components/workspace/query-state"
 import {
   DrillLink,
   FilterField,
@@ -25,7 +27,7 @@ import { usePlantScopeLabel } from "@/hooks/use-plant-scope-label"
 
 export default function AnalyticsLandingWrapper() {
   return (
-    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales", "Owner", "Admin"]}>
+    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales", "QC"]}>
       <AnalyticsLandingPage />
     </RoleGate>
   )
@@ -38,7 +40,7 @@ function AnalyticsLandingPage() {
   const today = new Date().toISOString().split("T")[0]
   const startDate = new Date(Date.now() - Number(period) * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
 
-  const { data: ownerPack, isLoading } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
+  const { data: ownerPack, isLoading, isError, refetch } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
   const { data: salesReport } = useSalesReport({ startDate, endDate: today, plant: activePlant || undefined, granularity: "day" })
   const { data: exceptionReport } = useExceptionReport({ startDate, endDate: today, plant: activePlant || undefined, granularity: "day" })
 
@@ -125,11 +127,11 @@ function AnalyticsLandingPage() {
   }
 
   return (
-    <div className="space-y-5 px-6 pb-10 pt-2" data-testid="analytics-landing-page">
+    <div className="space-y-5 pb-10 pt-2" data-testid="analytics-landing-page">
       <ReportHero
-        eyebrow="Analytics & KPIs"
-        title="Live snapshot · 12 KPIs · trend posture · anomaly insights."
-        description="The answer layer behind the reports surface. Click any KPI tile to drill into the underlying detail rows, or jump to a finished report from /reports."
+        eyebrow="Intelligence"
+        title="Live snapshot · 12 KPIs · finished reports."
+        description="One intelligence home for live KPIs and the finished report catalog. The old /reports hub now opens this page."
         accent="violet"
         chips={[
           { label: `${anomalies.length} anomalies`, tone: anomalies.length ? "warn" : "ok" },
@@ -142,6 +144,7 @@ function AnalyticsLandingPage() {
       <ReportFilterBar>
         <FilterField label="Period">
           <select
+            aria-label="Reporting period"
             value={period}
             onChange={(e) => setPeriod(e.target.value as any)}
             className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
@@ -157,10 +160,18 @@ function AnalyticsLandingPage() {
           </span>
         </FilterField>
         <span className="ml-auto" />
-        <Link href="/reports" className="text-sm font-semibold text-cyan-800 hover:underline">
-          Open reports landing →
-        </Link>
+        <span className="text-sm font-semibold text-slate-500">Finished reports are listed on this page.</span>
       </ReportFilterBar>
+
+      {isLoading ? <LoadingState label="Loading intelligence snapshot…" /> : null}
+      {isError ? (
+        <ErrorState
+          message="The intelligence snapshot could not be loaded. KPI tiles may be incomplete and must not be treated as zero."
+          onRetry={() => {
+            void refetch()
+          }}
+        />
+      ) : null}
 
       {/* Anomaly band */}
       {anomalies.length ? (
@@ -380,6 +391,8 @@ function AnalyticsLandingPage() {
           </tbody>
         </table>
       </Panel>
+
+      <IntelligenceReportCatalog />
     </div>
   )
 }

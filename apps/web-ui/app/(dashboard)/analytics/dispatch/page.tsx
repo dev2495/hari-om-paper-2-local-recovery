@@ -1,7 +1,5 @@
-"use client"
+import { redirect } from "next/navigation"
 
-import { ReportDetailPage } from "@/components/analytics/ReportDetailPage"
-
-export default function DispatchAnalyticsPage() {
-  return <ReportDetailPage type="dispatch" />
+export default function AnalyticsDispatchRedirectPage() {
+  redirect("/reports/dispatch")
 }

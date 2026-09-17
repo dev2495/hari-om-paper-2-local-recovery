@@ -34,6 +34,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
 import { cn } from "@/lib/utils"
+import { searchWorkspaceJumps } from "@/lib/workspace-jump"
 
 type NavLink = {
   name: string
@@ -192,18 +193,11 @@ const navigationUnits: NavGroup[] = [
     title: "Intelligence",
     items: [
       {
-        name: "Analytics",
+        name: "Intelligence",
         href: "/analytics",
         icon: LineChart,
-        description: "Shared KPI and production intelligence hub.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales"],
-      },
-      {
-        name: "Reports",
-        href: "/reports",
-        icon: FileText,
-        description: "Owner reporting, exceptions, and plant summaries.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
+        description: "Live KPIs and finished reports in one home.",
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales", "QC"],
       },
     ],
   },
@@ -332,15 +326,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [flatLinks, pathname])
 
   const quickMatches = useMemo(() => {
-    const needle = searchQuery.trim().toLowerCase()
-    if (!needle) return []
-    return flatLinks
-      .filter((item) => {
-        const haystack = `${item.name} ${item.href} ${item.description}`.toLowerCase()
-        return haystack.includes(needle)
-      })
-      .slice(0, 6)
-  }, [flatLinks, searchQuery])
+    return searchWorkspaceJumps(searchQuery, 8)
+  }, [searchQuery])
 
   const currentGroup = useMemo(
     () => visibleNavigationUnits.find((group) => group.items.some((item) => pageLink && item.href === pageLink.href)),
@@ -448,9 +435,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </div>
           </Link>
           <button
+            type="button"
             onClick={togglePinned}
+            aria-label={sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
             className={cn(
-              "absolute -right-3 top-5 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white text-slate-500 shadow-lg transition hover:border-cyan-200 hover:text-cyan-800",
+              "absolute -right-3 top-5 inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/80 bg-white text-slate-500 shadow-lg transition hover:border-cyan-200 hover:text-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             )}
             title={sidebarPinned ? "Unpin sidebar" : "Pin sidebar"}
           >
@@ -475,10 +464,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 return (
                   <button
                     key={item.href}
+                    type="button"
                     onClick={() => navigateTo(item.href)}
                     title={!sidebarExpanded ? item.name : undefined}
+                    aria-current={active ? "page" : undefined}
                     className={cn(
-                      "group flex w-full items-center gap-3 rounded-[1.15rem] text-left transition-all duration-200",
+                      "group flex w-full items-center gap-3 rounded-[1.15rem] text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       active
                         ? "bg-slate-100 text-slate-950 shadow-sm"
                         : "text-slate-500 hover:bg-slate-100/80 hover:text-cyan-950",
@@ -535,12 +526,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </div>
             <button
+              type="button"
               onClick={handleLogout}
               className={cn(
-                "rounded-full border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-rose-200 hover:text-rose-600",
+                "rounded-full border border-slate-200 bg-white p-2 text-slate-500 transition hover:border-rose-200 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 !sidebarExpanded && "hidden",
               )}
               title="Logout"
+              aria-label="Logout"
             >
               <LogOut className="h-4 w-4" />
             </button>
@@ -558,8 +551,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             )}
           >
             <button
+              type="button"
               onClick={() => setMobileNavOpen(true)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/80 bg-white/90 text-slate-700 shadow-sm lg:hidden"
+              aria-label="Open workspace navigation"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/80 bg-white/90 text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:hidden"
             >
               <Menu className="h-5 w-5" />
             </button>
@@ -582,11 +577,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               }}
             >
               <form onSubmit={handleSearchSubmit} className="relative">
-                <Search className="pointer-events-none absolute left-4 top-3 h-4 w-4 text-slate-400" />
+                <Search className="pointer-events-none absolute left-4 top-3 h-4 w-4 text-slate-400" aria-hidden="true" />
                 <Input
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search pages, flows, and workspaces..."
+                  placeholder="Jump to workspace"
+                  aria-label="Jump to workspace"
                   className="h-10 rounded-full border-white/80 bg-white/90 pl-11 pr-4 shadow-sm"
                 />
               </form>
@@ -596,11 +592,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   {quickMatches.map((item) => (
                     <button
                       key={item.href}
+                      type="button"
                       onClick={() => navigateTo(item.href)}
-                      className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-slate-50"
+                      className="flex w-full items-start gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-cyan-50 text-cyan-900">
-                        <item.icon className="h-4 w-4" />
+                        <Sparkles className="h-4 w-4" aria-hidden="true" />
                       </span>
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-semibold text-slate-900">{item.name}</span>
