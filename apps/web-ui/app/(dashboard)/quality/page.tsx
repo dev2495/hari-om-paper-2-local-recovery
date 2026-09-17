@@ -39,6 +39,7 @@ import {
   usePlanningJobCards,
   useQualityHolds,
   useQualityInspections,
+  useQualitySummary,
   useReleaseQualityHold,
 } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -143,6 +144,7 @@ export default function QualityLifecyclePage() {
 
   const jobCardsQuery = usePlanningJobCards({ limit: 200 })
   const inspectionsQuery = useQualityInspections({ limit: 120 })
+  const qualitySummaryQuery = useQualitySummary()
   const holdsQuery = useQualityHolds({ limit: 120 })
   const itemsQuery = useInventoryItems()
   const locationsQuery = useInventoryLocations()
@@ -185,9 +187,11 @@ export default function QualityLifecyclePage() {
 
   const activeHolds = holds.filter((hold: any) => String(hold.status || "").toUpperCase() === "HOLD")
   const releasedHolds = holds.filter((hold: any) => String(hold.status || "").toUpperCase() === "RELEASED")
+  const { data: qualitySummary } = qualitySummaryQuery
   const failedInspections = inspections.filter((row: any) => String(row.status || "").toUpperCase() === "FAIL")
-  const passedInspections = inspections.filter((row: any) => String(row.status || "").toUpperCase() === "PASS")
-  const passRate = inspections.length ? (passedInspections.length / inspections.length) * 100 : 100
+  const inspectionCount = Number(qualitySummary?.inspection_count ?? inspections.length)
+  const passRate = qualitySummary?.pass_rate
+  const passRateDisplay = inspectionCount <= 0 || passRate == null ? "No data" : `${Number(passRate).toFixed(1)}%`
   const openCustomerRejections = customerRejections.filter((row: any) => !row.closed_at && !["UNRESTRICTED", "SCRAP"].includes(String(row.status || "").toUpperCase()))
 
   const mutationPlantForJob = (jobId: string) => {
@@ -389,14 +393,14 @@ export default function QualityLifecyclePage() {
               Live QC Gate
             </div>
             <p className="text-2xl font-semibold tracking-tight">{activeHolds.length} active hold(s)</p>
-            <p className="text-sm text-slate-200/80">Pass rate {passRate.toFixed(1)}% across the current quality window.</p>
+            <p className="text-sm text-slate-200/80">Pass rate {passRateDisplay} across the current quality window.</p>
           </div>
         }
       />
 
       <MetricRail>
         <MetricCard label="Active Holds" value={activeHolds.length} detail="Dispatch-blocking quality decisions" icon={LockKeyhole} tone={activeHolds.length ? "rose" : "emerald"} />
-        <MetricCard label="Pass Rate" value={`${passRate.toFixed(1)}%`} detail="Latest inspection window" icon={CheckCircle2} tone="cyan" />
+        <MetricCard label="Pass Rate" value={passRateDisplay} detail={inspectionCount ? "Latest inspection window" : "No inspections in plant scope"} icon={CheckCircle2} tone="cyan" />
         <MetricCard label="Failures" value={failedInspections.length} detail="Auto-hold candidates from readings" icon={AlertTriangle} tone={failedInspections.length ? "amber" : "slate"} />
         <MetricCard label="Released Holds" value={releasedHolds.length} detail="Closed quality interventions" icon={UnlockKeyhole} tone="violet" />
         <MetricCard label="Inward QC" value={pendingQuality.length} detail="Held material awaiting release" icon={FlaskConical} tone={pendingQuality.length ? "amber" : "emerald"} />

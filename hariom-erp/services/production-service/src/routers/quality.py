@@ -7,11 +7,13 @@ import uuid
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
 from ..models import AuditEvent, JobCard, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
+from ..quality_metrics import quality_pass_rate
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/quality", tags=["quality"])
@@ -189,12 +191,56 @@ class HoldResponse(BaseModel):
     released_at: Optional[datetime] = None
 
 
+class QualitySummaryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    inspection_count: int
+    passed_count: int
+    failed_count: int
+    pass_rate: Optional[float] = None
+    active_holds: int
+    released_holds: int
+
+
+def _apply_quality_plant_scope(query, column, plant_scope: dict):
+    if plant_scope.get("scope_all"):
+        allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
+        if not allowed:
+            return query.filter(column.in_([]))
+        return query.filter(column.in_(allowed))
+    selected = plant_scope.get("selected_plant_id")
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+    return query.filter(column == _to_uuid(selected, field="plant_id"))
+
+
 class HoldReleaseResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     hold_id: uuid.UUID
     status: str
     released_at: datetime
+
+
+@router.get("/summary", response_model=QualitySummaryResponse)
+def get_quality_summary(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales"])),
+):
+    del current_user
+    inspections = _apply_quality_plant_scope(db.query(QualityInspection), QualityInspection.plant_id, plant_scope).all()
+    holds = _apply_quality_plant_scope(db.query(QualityHold), QualityHold.plant_id, plant_scope).all()
+    passed = sum(1 for row in inspections if str(row.status or "").upper() == "PASS")
+    failed = sum(1 for row in inspections if str(row.status or "").upper() == "FAIL")
+    return QualitySummaryResponse(
+        inspection_count=len(inspections),
+        passed_count=passed,
+        failed_count=failed,
+        pass_rate=quality_pass_rate(passed, len(inspections)),
+        active_holds=sum(1 for row in holds if str(row.status or "").upper() == "HOLD"),
+        released_holds=sum(1 for row in holds if str(row.status or "").upper() == "RELEASED"),
+    )
 
 
 @router.post("/inspections", response_model=InspectionResponse)
