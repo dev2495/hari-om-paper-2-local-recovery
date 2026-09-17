@@ -25,6 +25,7 @@ from ..models import (
     StockTransaction,
     TransactionType,
 )
+from ..quality_eval import evaluate_incoming_quality
 from ..services import get_batch_balance
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
@@ -588,31 +589,40 @@ def create_quality_inspection(
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store"])),
 ):
     stock_status: Optional[str] = None
-    material_type = payload.material_type
     batch: Optional[StockBatch] = None
     reel: Optional[PaperReel] = None
     rejection: Optional[CustomerRejection] = None
 
+    # The material type — and therefore which frozen template rules apply — is
+    # derived from the owned lot, never trusted from the request body. This closes
+    # the trust shortcut where a caller could select a permissive template.
     if payload.entity_type == "BATCH":
         batch = db.query(StockBatch).filter(StockBatch.id == payload.entity_id, StockBatch.plant_id == plant_id).first()
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
-        material_type = material_type or _material_type_for_item(batch.item)
+        material_type = _material_type_for_item(batch.item)
     elif payload.entity_type == "REEL":
         reel = _paper_reel_for_plant(db, plant_id, payload.entity_id)
-        material_type = material_type or "RAW_PAPER"
+        material_type = "RAW_PAPER"
     else:
         rejection = db.query(CustomerRejection).filter(CustomerRejection.id == payload.entity_id, CustomerRejection.plant_id == plant_id).first()
         if not rejection:
             raise HTTPException(status_code=404, detail="Customer rejection not found")
-        material_type = material_type or "FINISHED_GOOD"
+        material_type = "FINISHED_GOOD"
 
     material_type = normalize_material_type(material_type or "OTHER")
-    status = payload.status or ("FAIL" if payload.failures else "PASS")
-    if status == "PASS":
-        missing = _missing_required_parameters(db, plant_id, material_type, payload.readings or {})
-        if missing:
-            raise HTTPException(status_code=400, detail=f"QC pass requires readings: {', '.join(missing)}")
+
+    # SKIPPED is an explicit, permissioned exemption (NOT a measured PASS): it does
+    # not unlock stock. Every other verdict is COMPUTED from the frozen template
+    # rules and the recorded readings — the supplied status/failures are ignored.
+    if payload.status == "SKIPPED":
+        status = "SKIPPED"
+        computed_failures: list[dict[str, Any]] = []
+    else:
+        template_rows = _template_rows(db, plant_id, material_type)
+        evaluation = evaluate_incoming_quality(template_rows, payload.readings or {})
+        status = evaluation.status
+        computed_failures = evaluation.failures
 
     inspection = InventoryQualityInspection(
         plant_id=plant_id,
@@ -622,7 +632,7 @@ def create_quality_inspection(
         source=payload.source,
         status=status,
         readings=payload.readings or {},
-        failures=payload.failures or [],
+        failures=computed_failures,
         disposition=payload.disposition,
         notes=payload.notes,
         created_by=current_user.get("sub"),
