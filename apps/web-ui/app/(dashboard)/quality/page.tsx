@@ -42,6 +42,7 @@ import {
   useReleaseQualityHold,
 } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { RoleGate } from "@/components/workspace/role-gate"
 
 const STAGES = [
   { value: "WINDER", label: "Winder QC" },
@@ -376,6 +377,7 @@ export default function QualityLifecyclePage() {
   }
 
   return (
+    <RoleGate allow={["QC", "PlantManager", "Store", "Dispatch", "Sales"]}>
     <div className="space-y-6" data-testid="quality:page">
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.analytics}
@@ -899,5 +901,6 @@ export default function QualityLifecyclePage() {
         </div>
       </Panel>
     </div>
+    </RoleGate>
   )
 }
