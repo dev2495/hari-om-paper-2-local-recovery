@@ -1,7 +1,7 @@
 import enum
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Float, Date, DateTime, ForeignKey, Enum as SQLEnum, Text, UniqueConstraint
+from sqlalchemy import Column, String, Float, Integer, Date, DateTime, ForeignKey, Enum as SQLEnum, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from .database import Base
@@ -78,6 +78,22 @@ class SalesOrderReleaseLot(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     line = relationship("SalesOrderLine", back_populates="release_lots")
+
+
+class SalesOrderNumberCounter(Base):
+    """Atomic per-day allocator for the ``SO-YYYYMMDD-NNNN`` order reference.
+
+    The previous count-based allocator (``COUNT(*) + 1``) let two concurrent
+    creates read the same count and mint duplicate references (audit finding S03).
+    A single counter row per date key is bumped atomically with
+    ``INSERT ... ON CONFLICT DO UPDATE ... RETURNING`` so each caller receives a
+    distinct sequence value.
+    """
+
+    __tablename__ = "sales_order_number_counters"
+
+    date_key = Column(String(8), primary_key=True)
+    last_seq = Column(Integer, nullable=False, default=0)
 
 
 class SalesOrderDispatchLog(Base):

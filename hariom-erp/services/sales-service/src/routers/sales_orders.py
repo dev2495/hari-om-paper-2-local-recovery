@@ -5,12 +5,14 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
 from ..models import (
     SalesOrder,
     SalesOrderLine,
+    SalesOrderNumberCounter,
     SalesOrderReleaseLot,
     SalesOrderStatus,
     SalesOrderDispatchLog,
@@ -260,10 +262,25 @@ def _serialize_order(order: SalesOrder) -> dict:
 
 
 def _next_order_no(db: Session) -> str:
+    """Allocate the next ``SO-YYYYMMDD-NNNN`` reference atomically.
+
+    A single counter row per date key is incremented with an atomic upsert that
+    returns the new value, so concurrent creates can never collide on the same
+    sequence number. The reference format is unchanged from the count-based
+    allocator it replaces.
+    """
     date_part = datetime.utcnow().strftime("%Y%m%d")
-    like_pattern = f"SO-{date_part}-%"
-    count = db.query(SalesOrder).filter(SalesOrder.order_no.like(like_pattern)).count()
-    return f"SO-{date_part}-{count + 1:04d}"
+    stmt = (
+        pg_insert(SalesOrderNumberCounter)
+        .values(date_key=date_part, last_seq=1)
+        .on_conflict_do_update(
+            index_elements=[SalesOrderNumberCounter.date_key],
+            set_={"last_seq": SalesOrderNumberCounter.last_seq + 1},
+        )
+        .returning(SalesOrderNumberCounter.last_seq)
+    )
+    seq = db.execute(stmt).scalar_one()
+    return f"SO-{date_part}-{int(seq):04d}"
 
 
 def _sync_order_status(order: SalesOrder):
