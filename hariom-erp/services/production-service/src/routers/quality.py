@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..database import get_db
 from ..models import AuditEvent, JobCard, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
+from ..quality_eval import evaluate_job_stage, submission_error
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/quality", tags=["quality"])
@@ -120,33 +121,13 @@ def _record_audit_event(
 
 
 def _check_failures(stage_type: str, spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[dict[str, Any]]:
-    failures: list[dict[str, Any]] = []
-
-    def _number(value: Any) -> Optional[float]:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _check_range(label: str, reading_key: str, min_key: str, max_key: str) -> None:
-        value = _number(readings.get(reading_key))
-        minimum = _number(spec_snapshot.get(min_key))
-        maximum = _number(spec_snapshot.get(max_key))
-        if value is None or minimum is None or maximum is None:
-            return
-        if value < minimum or value > maximum:
-            failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
-
-    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
-        _check_range("ID", "id", "id_min_mm", "id_max_mm")
-        _check_range("OD", "od", "od_min_mm", "od_max_mm")
-        _check_range("Length", "length", "length_min_mm", "length_max_mm")
-        _check_range("Weight", "weight", "weight_min_g", "weight_max_g")
-        _check_range("CS", "cs", "cs_min_n", "cs_max_n")
-    if stage_type == "OVEN":
-        _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
-
-    return failures
+    evaluation = evaluate_job_stage(
+        stage=stage_type,
+        spec_snapshot=spec_snapshot or {},
+        readings=readings or {},
+        require_reasons_on_fail=False,
+    )
+    return list(evaluation.failures)
 
 
 def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
@@ -164,12 +145,20 @@ class InspectionCreate(BaseModel):
     job_card_id: uuid.UUID
     stage_type: str
     readings: dict[str, Any] = Field(default_factory=dict)
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    sample_id: Optional[str] = None
     create_hold_on_fail: bool = True
 
     @field_validator("stage_type")
     @classmethod
     def validate_stage_type(cls, value: str) -> str:
         return _normalize_stage(value)
+
+    @field_validator("sample_id")
+    @classmethod
+    def validate_sample_id(cls, value: Optional[str]) -> Optional[str]:
+        text = str(value or "").strip()
+        return text or None
 
 
 class InspectionResponse(BaseModel):
@@ -181,6 +170,10 @@ class InspectionResponse(BaseModel):
     status: str
     readings: dict[str, Any]
     failures: list[dict[str, Any]]
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    frozen_rules: list[dict[str, Any]] = Field(default_factory=list)
+    sample_id: Optional[str] = None
     created_at: datetime
     hold_id: Optional[uuid.UUID] = None
 
@@ -239,22 +232,40 @@ def create_inspection(
     )
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
-    if payload.stage_type == "QC":
-        missing = _missing_final_spec_qc_fields(job_card.spec_snapshot or {}, payload.readings or {})
+    evaluation = evaluate_job_stage(
+        stage=payload.stage_type,
+        spec_snapshot=job_card.spec_snapshot or {},
+        readings=payload.readings or {},
+        reasons=payload.reasons or {},
+        sample_id=payload.sample_id,
+        require_reasons_on_fail=True,
+    )
+    error = submission_error(evaluation)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    if payload.stage_type == "QC" and evaluation.verdict == "INCOMPLETE":
+        missing = [
+            row.label
+            for row in evaluation.parameter_results
+            if row.verdict == "INCOMPLETE"
+        ]
         if missing:
             raise HTTPException(
                 status_code=400,
                 detail=f"Final QC requires full spec readings: {', '.join(missing)}",
             )
 
-    failures = _check_failures(payload.stage_type, job_card.spec_snapshot or {}, payload.readings or {})
+    failures = list(evaluation.failures)
     inspection = QualityInspection(
         plant_id=plant_uuid,
         job_card_id=job_card.id,
         stage_type=payload.stage_type,
-        status="FAIL" if failures else "PASS",
+        status=evaluation.verdict,
         readings=payload.readings or {},
         failures=failures,
+        reasons=payload.reasons or {},
+        evaluation=evaluation.as_dict(),
+        sample_id=payload.sample_id,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
@@ -267,7 +278,7 @@ def create_inspection(
             job_card_id=job_card.id,
             stage_type=payload.stage_type,
             reason="; ".join(
-                f"{item['label']} out of range ({item['value']} not in {item['min']}..{item['max']})" for item in failures
+                str(item.get("message") or item.get("label") or "out of range") for item in failures
             ),
             status="HOLD",
             source_inspection_id=inspection.id,
@@ -293,6 +304,7 @@ def create_inspection(
             "status": inspection.status,
             "readings": payload.readings or {},
             "failures": failures,
+            "evaluation": evaluation.as_dict(),
         },
     )
     db.commit()
@@ -304,6 +316,10 @@ def create_inspection(
         status=inspection.status,
         readings=inspection.readings or {},
         failures=inspection.failures or [],
+        reasons=inspection.reasons or {},
+        evaluation=inspection.evaluation or evaluation.as_dict(),
+        frozen_rules=evaluation.frozen_rules,
+        sample_id=inspection.sample_id,
         created_at=inspection.created_at,
         hold_id=hold.id if hold else None,
     )
@@ -344,11 +360,64 @@ def list_inspections(
             status=row.status,
             readings=row.readings or {},
             failures=row.failures or [],
+            reasons=getattr(row, "reasons", None) or {},
+            evaluation=getattr(row, "evaluation", None) or {},
+            frozen_rules=((getattr(row, "evaluation", None) or {}).get("frozen_rules") or []),
+            sample_id=getattr(row, "sample_id", None),
             created_at=row.created_at,
             hold_id=None,
         )
         for row in rows
     ]
+
+
+@router.get("/job-cards/{job_card_id}/template")
+def get_frozen_qc_template(
+    job_card_id: uuid.UUID,
+    stage_type: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+):
+    query = db.query(JobCard).filter(JobCard.id == job_card_id)
+    if plant_scope.get("scope_all"):
+        allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
+        if allowed:
+            query = query.filter(JobCard.plant_id.in_(allowed))
+        else:
+            query = query.filter(JobCard.plant_id.in_([]))
+    else:
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+        query = query.filter(JobCard.plant_id == _to_uuid(selected, field="plant_id"))
+    job_card = query.first()
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    snapshot = job_card.spec_snapshot or {}
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    requested = _normalize_stage(stage_type) if stage_type else None
+    stages: dict[str, Any] = {}
+    for stage in ("WINDER", "OVEN", "PROCESS", "QC"):
+        if requested and requested != stage:
+            continue
+        evaluation = evaluate_job_stage(
+            stage=stage,
+            spec_snapshot=snapshot,
+            readings={},
+            require_reasons_on_fail=False,
+        )
+        stages[stage] = {
+            "parameters": evaluation.frozen_rules,
+            "verdict_if_blank": evaluation.verdict,
+        }
+    return {
+        "job_card_id": str(job_card.id),
+        "qc_profile": profile,
+        "profile_revision": profile.get("revision"),
+        "notching_applicable": bool(snapshot.get("notch_capability_required")),
+        "stages": stages,
+    }
 
 
 @router.post("/holds", response_model=HoldResponse)
