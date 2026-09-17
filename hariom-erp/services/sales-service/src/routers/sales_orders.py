@@ -4,7 +4,7 @@ import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
@@ -418,6 +418,68 @@ def list_sales_orders(
 
     orders = query.order_by(SalesOrder.created_at.desc()).offset(offset).limit(limit).all()
     return [_serialize_order(order) for order in orders]
+
+
+class SalesOrderAggregatesResponse(BaseModel):
+    draft_count: int
+    ready_count: int
+    approved_count: int
+    planner_synced_count: int
+    open_order_count: int
+    total_order_count: int
+    open_qty: float
+    remaining_qty: float
+
+
+@router.get("/aggregates", response_model=SalesOrderAggregatesResponse)
+def get_sales_order_aggregates(
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    base = apply_plant_scope(db.query(SalesOrder), SalesOrder.plant_id, plant_scope)
+    total_order_count = int(base.count() or 0)
+    draft_count = int(base.filter(SalesOrder.status.in_([SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED])).count() or 0)
+    ready_statuses = [
+        SalesOrderStatus.APPROVED,
+        SalesOrderStatus.RELEASED,
+        SalesOrderStatus.PARTIALLY_RELEASED,
+        SalesOrderStatus.PARTIALLY_DISPATCHED,
+    ]
+    ready_count = int(base.filter(SalesOrder.status.in_(ready_statuses)).count() or 0)
+    approved_count = int(base.filter(SalesOrder.status == SalesOrderStatus.APPROVED).count() or 0)
+    open_order_count = int(base.filter(SalesOrder.status != SalesOrderStatus.CLOSED).count() or 0)
+
+    open_qty_query = apply_plant_scope(
+        db.query(func.coalesce(func.sum(SalesOrderLine.qty - SalesOrderLine.fulfilled_qty), 0.0)).join(
+            SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+        ).filter(SalesOrder.status != SalesOrderStatus.CLOSED),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    open_qty = float(open_qty_query.scalar() or 0.0)
+
+    synced_query = apply_plant_scope(
+        db.query(func.count(func.distinct(SalesOrderReleaseLot.sales_order_id)))
+        .join(SalesOrder, SalesOrder.id == SalesOrderReleaseLot.sales_order_id)
+        .filter(SalesOrderReleaseLot.job_card_id.isnot(None))
+        .filter(func.lower(func.coalesce(SalesOrderReleaseLot.status, "")) != "cancelled"),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    planner_synced_count = int(synced_query.scalar() or 0)
+
+    return {
+        "draft_count": draft_count,
+        "ready_count": ready_count,
+        "approved_count": approved_count,
+        "planner_synced_count": planner_synced_count,
+        "open_order_count": open_order_count,
+        "total_order_count": total_order_count,
+        "open_qty": round(open_qty, 2),
+        "remaining_qty": round(max(open_qty, 0.0), 2),
+    }
 
 
 @router.get("/{order_id}/timeline")
