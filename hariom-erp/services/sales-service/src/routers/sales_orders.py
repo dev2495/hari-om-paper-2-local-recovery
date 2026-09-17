@@ -4,7 +4,7 @@ import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
@@ -767,11 +767,17 @@ def release_sales_order_line(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
+    # Lock the quantity-owning line row for the duration of the transaction so
+    # concurrent or retried releases serialize instead of each reading a stale
+    # unreleased balance and inserting a lot (audit finding S04 — over-allocation).
+    # FOR UPDATE OF sales_order_lines locks only the fulfillment row; a joinedload
+    # of the nullable release_lots side would make PostgreSQL reject the lock.
     line = (
         db.query(SalesOrderLine)
         .join(SalesOrder)
-        .options(joinedload(SalesOrderLine.sales_order), joinedload(SalesOrderLine.release_lots))
+        .options(joinedload(SalesOrderLine.sales_order))
         .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
+        .with_for_update(of=SalesOrderLine)
         .first()
     )
     if not line:
@@ -818,8 +824,19 @@ def release_sales_order_line(
             "created_at": existing_lot.created_at,
         }
 
-    unreleased_qty = max(0.0, float(line.qty or 0.0) - _released_qty(line))
-    if payload.release_qty > unreleased_qty:
+    # Re-read the already-released quantity from committed rows *inside* the locked
+    # transaction (not from a possibly-stale relationship snapshot) before deciding
+    # whether this new lot fits within the unreleased balance.
+    already_released = (
+        db.query(func.coalesce(func.sum(SalesOrderReleaseLot.released_qty), 0.0))
+        .filter(
+            SalesOrderReleaseLot.sales_order_line_id == line.id,
+            func.lower(func.coalesce(SalesOrderReleaseLot.status, "")) != "cancelled",
+        )
+        .scalar()
+    )
+    unreleased_qty = max(0.0, float(line.qty or 0.0) - float(already_released or 0.0))
+    if payload.release_qty > unreleased_qty + 1e-9:
         raise HTTPException(status_code=400, detail=f"Release qty exceeds unreleased balance ({round(unreleased_qty, 2)})")
 
     lot = SalesOrderReleaseLot(
