@@ -19,6 +19,7 @@ import {
   TimerReset,
 } from "lucide-react"
 
+import { KeyboardScheduleForm } from "@/components/planning/keyboard-schedule-form"
 import { EmptyState, StatusBadge } from "@/components/erp/shell"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import {
@@ -265,6 +266,7 @@ export default function PlanningBoardPage() {
   const { showToast } = useApp()
   const { activePlant, user, isLoading: authLoading } = useAuth()
   const [draggedJob, setDraggedJob] = useState<any | null>(null)
+  const [keyboardJob, setKeyboardJob] = useState<any | null>(null)
   const [splitDialogJob, setSplitDialogJob] = useState<any | null>(null)
   const [splitQty, setSplitQty] = useState("")
   const [queueFilter, setQueueFilter] = useState("all")
@@ -807,11 +809,11 @@ export default function PlanningBoardPage() {
     setHoverDetail({ job, label, x, y, placement: hasRoomRight ? "right" : "left" })
   }
 
-  async function handleDrop(target: DropTarget) {
-    if (!draggedJob) return
+  async function scheduleSegment(job: any, target: DropTarget) {
+    if (!job) return
     let preflightWarning = ""
     if (stage === "WINDER" && target.machine_id) {
-      const assignedWinder = draggedJob.assigned_winder_machine_id
+      const assignedWinder = job.assigned_winder_machine_id
       if (!assignedWinder) {
         preflightWarning = "No release winder was captured; planner is assigning this WINDER job manually."
       } else if (String(assignedWinder) !== String(target.machine_id)) {
@@ -822,7 +824,7 @@ export default function PlanningBoardPage() {
     }
     try {
       const response = await moveCard.mutateAsync({
-        segment_id: draggedJob.segment_id,
+        segment_id: job.segment_id,
         stage,
         machine_id: target.machine_id,
         plan_date: target.plan_date,
@@ -838,6 +840,11 @@ export default function PlanningBoardPage() {
     } finally {
       setDraggedJob(null)
     }
+  }
+
+  async function handleDrop(target: DropTarget) {
+    if (!draggedJob) return
+    await scheduleSegment(draggedJob, target)
   }
 
   async function handleSplit() {
@@ -1360,6 +1367,17 @@ export default function PlanningBoardPage() {
           </div>
         </section>
 
+        <KeyboardScheduleForm
+          jobs={queuedJobs}
+          machines={machineRows}
+          dates={[day0, day1, day2]}
+          shifts={plannerShifts.map((shift: any) => ({ code: String(shift.code || ""), label: shift.label }))}
+          selectedJob={keyboardJob}
+          onSelectJob={setKeyboardJob}
+          onSchedule={scheduleSegment}
+          busy={moveCard.isPending}
+        />
+
         {plannerView === "calendar" ? calendarBoard : (
         <div className="grid h-[calc(100vh-9rem)] min-h-[650px] gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
           <aside className="min-h-0">
@@ -1447,6 +1465,13 @@ export default function PlanningBoardPage() {
                               key={job.segment_id}
                               data-testid={`planner-card:${plannerJobCardId(job)}`}
                               draggable
+                              tabIndex={0}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault()
+                                  setKeyboardJob(job)
+                                }
+                              }}
                               onMouseEnter={(event) => showJobDetail(event, job, "Queue card")}
                               onMouseMove={(event) => showJobDetail(event, job, "Queue card")}
                               onMouseLeave={() => setHoverDetail(null)}
@@ -1664,6 +1689,13 @@ export default function PlanningBoardPage() {
                                       key={job.segment_id}
                                       data-testid={`planner-card:${plannerJobCardId(job)}`}
                                       draggable
+                                      tabIndex={0}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" || event.key === " ") {
+                                          event.preventDefault()
+                                          setKeyboardJob(job)
+                                        }
+                                      }}
                                       onMouseEnter={(event) => showJobDetail(event, job, "Pinned card")}
                                       onMouseMove={(event) => showJobDetail(event, job, "Pinned card")}
                                       onMouseLeave={() => setHoverDetail(null)}

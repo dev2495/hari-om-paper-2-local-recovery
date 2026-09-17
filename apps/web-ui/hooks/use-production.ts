@@ -133,6 +133,17 @@ export function useJobCardAggregates(enabled = true) {
   })
 }
 
+export function usePendingJobCardsByOrder(enabled = true) {
+  return useQuery({
+    queryKey: ["job-cards-pending-by-order"],
+    queryFn: async () => {
+      const { data } = await productionApi.getPendingJobCardsByOrder()
+      return data
+    },
+    enabled,
+  })
+}
+
 export function usePlanningJobCard(jobCardId?: string) {
   return useQuery({
     queryKey: ["planning-job-card", jobCardId],
