@@ -479,6 +479,99 @@ def ensure_runtime_schema() -> None:
 ensure_runtime_schema()
 
 
+def backfill_fail_accept_concession_eligibility() -> dict[str, int]:
+    """Classify pre-existing FAIL+ACCEPT inspections that never got a concession.
+
+    Historical rows could be FAIL with disposition=ACCEPT and unrestricted stock
+    because the inspection write path used to honor that shortcut. The concession
+    model forbids rewriting those to PASS. This backfill is idempotent: it only
+    touches rows whose eligibility_status is still null, marks them
+    NEEDS_CONCESSION_REVIEW, and blocks linked UNRESTRICTED stock.
+    """
+    counts = {
+        "inspections_marked": 0,
+        "batches_blocked": 0,
+        "reels_blocked": 0,
+        "rejections_blocked": 0,
+    }
+    statements = [
+        (
+            "inspections_marked",
+            """
+            UPDATE inventory_quality_inspections
+            SET eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+            WHERE status = 'FAIL'
+              AND UPPER(COALESCE(disposition, '')) = 'ACCEPT'
+              AND eligibility_status IS NULL
+              AND concession_approved_at IS NULL
+            """,
+        ),
+        (
+            "batches_blocked",
+            """
+            UPDATE stock_batch AS batch
+            SET stock_status = 'BLOCKED'
+            FROM inventory_quality_inspections AS inspection
+            WHERE inspection.entity_type = 'BATCH'
+              AND inspection.entity_id = batch.id
+              AND inspection.status = 'FAIL'
+              AND UPPER(COALESCE(inspection.disposition, '')) = 'ACCEPT'
+              AND inspection.eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+              AND inspection.concession_approved_at IS NULL
+              AND batch.stock_status = 'UNRESTRICTED'
+            """,
+        ),
+        (
+            "reels_blocked",
+            """
+            UPDATE paper_reels AS reel
+            SET stock_status = 'BLOCKED'
+            FROM inventory_quality_inspections AS inspection
+            WHERE inspection.entity_type = 'REEL'
+              AND inspection.entity_id = reel.id
+              AND inspection.status = 'FAIL'
+              AND UPPER(COALESCE(inspection.disposition, '')) = 'ACCEPT'
+              AND inspection.eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+              AND inspection.concession_approved_at IS NULL
+              AND reel.stock_status = 'UNRESTRICTED'
+            """,
+        ),
+        (
+            "rejections_blocked",
+            """
+            UPDATE customer_rejections AS rejection
+            SET status = 'BLOCKED'
+            FROM inventory_quality_inspections AS inspection
+            WHERE inspection.entity_type = 'CUSTOMER_REJECTION'
+              AND inspection.entity_id = rejection.id
+              AND inspection.status = 'FAIL'
+              AND UPPER(COALESCE(inspection.disposition, '')) = 'ACCEPT'
+              AND inspection.eligibility_status = 'NEEDS_CONCESSION_REVIEW'
+              AND inspection.concession_approved_at IS NULL
+              AND rejection.status = 'UNRESTRICTED'
+            """,
+        ),
+    ]
+    for key, statement in statements:
+        try:
+            with engine.begin() as connection:
+                result = connection.execute(text(statement))
+                counts[key] = int(result.rowcount or 0)
+        except Exception as exc:  # pragma: no cover - defensive migration guard
+            print(f"[schema-compat] skipped concession backfill {key}: {exc}")
+    print(
+        "[schema-compat] concession eligibility backfill: "
+        f"inspections={counts['inspections_marked']} "
+        f"batches={counts['batches_blocked']} "
+        f"reels={counts['reels_blocked']} "
+        f"rejections={counts['rejections_blocked']}"
+    )
+    return counts
+
+
+backfill_fail_accept_concession_eligibility()
+
+
 def seed_default_locations() -> None:
   """Seed practical store locations so inward screens never start with blank selects."""
   default_locations = (
