@@ -1,12 +1,14 @@
 "use client"
 
-import { useMemo } from "react"
+import { Suspense, useMemo } from "react"
 import Link from "next/link"
+import { useSearchParams } from "next/navigation"
 import { ArrowRight, ClipboardCheck, FilePlus2, PackageSearch, ShieldAlert, Truck } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import { ChartCard, CompactTable, FilterChip, KpiCard, PageIntro, formatCompactCurrency, formatCompactNumber } from "@/components/erp/premium-dashboard"
 import { useAuth } from "@/context/AuthContext"
+import { useMrpCoverage } from "@/hooks/use-analytics"
 import { useInventoryAging, useInventoryBalances, useInventoryValuationSummary } from "@/hooks/use-inventory"
 import { displayPlantScope } from "@/lib/plant-scope"
 
@@ -75,7 +77,30 @@ function recommendationFor(row: any) {
   }
 }
 
-export default function MrpAnalyticsPage() {
+function ViewSwitcher({ view }: { view: "reorder" | "demand" }) {
+  return (
+    <div className="flex flex-wrap gap-2" data-testid="mrp-view-switcher">
+      <Link
+        href="/analytics/mrp?view=reorder"
+        className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${
+          view === "reorder" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-600"
+        }`}
+      >
+        Reorder policy
+      </Link>
+      <Link
+        href="/analytics/mrp?view=demand"
+        className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${
+          view === "demand" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-600"
+        }`}
+      >
+        Demand / BOM coverage
+      </Link>
+    </div>
+  )
+}
+
+function ReorderPolicyView() {
   const { activePlant } = useAuth()
   const balancesQuery = useInventoryBalances()
   const valuationQuery = useInventoryValuationSummary()
@@ -112,15 +137,16 @@ export default function MrpAnalyticsPage() {
   const staleRows = Array.isArray(agingQuery.data?.slow_rows) ? agingQuery.data.slow_rows : []
 
   return (
-    <div className="space-y-5" data-testid="mrp-analytics-page">
+    <div className="space-y-5" data-testid="mrp-reorder-policy-view">
       {(balancesQuery.isError || valuationQuery.isError || agingQuery.isError) && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">Some inventory data could not be loaded. Values marked unavailable must not be treated as zero. Refresh to retry.</p>}
       <PageIntro
-        eyebrow="MRP"
-        title="Material reorder review"
-        description="Current stock compared with item reorder and safety policies. Review supplier commitments and actual demand before creating a purchase order."
+        eyebrow="MRP · Reorder policy"
+        title="Reorder policy review"
+        description="Current stock compared with item reorder and safety policies only. This is not demand-driven BOM coverage. Open the Demand / BOM coverage view for pending sales-order material requirements."
         actions={
           <>
             <FilterChip>{displayPlantScope(activePlant, "No plant selected")}</FilterChip>
+            <ViewSwitcher view="reorder" />
           </>
         }
         aside={
@@ -165,13 +191,16 @@ export default function MrpAnalyticsPage() {
 
         <ChartCard eyebrow="Purchase orders" title="Create a saved purchase order" description="Select a supplier and review quantities in the purchasing workspace. Saved orders are shared with the team and follow approval controls.">
           <Link href="/purchase" className="inline-flex rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white">Open purchasing →</Link>
-          <p className="mt-4 text-sm text-slate-600">Reorder suggestions are not committed orders. Missing policy means a recommendation cannot be calculated.</p>
+          <p className="mt-4 text-sm text-slate-600">Reorder suggestions are not committed orders and are not demand-driven shortages. Missing policy means a recommendation cannot be calculated.</p>
         </ChartCard>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <ChartCard eyebrow="Planning coverage" title="Demand forecast unavailable" description="This release checks reorder policy against current balances.">
-          <p className="text-sm leading-6 text-slate-600">Date-based stockout forecasts require approved demand, material recipes, scheduled receipts, and consumption history. No forecast is shown until these sources are connected.</p>
+        <ChartCard eyebrow="Planning coverage" title="This view does not compute sales-order demand" description="Reorder policy compared with current balances. Demand/BOM coverage is a separate view.">
+          <p className="text-sm leading-6 text-slate-600">Pending-order material requirements are expanded from canonical recipes in the Demand / BOM coverage view. They are not mixed into these reorder numbers.</p>
+          <Link href="/analytics/mrp?view=demand" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
+            Open demand / BOM coverage <ArrowRight className="h-4 w-4" />
+          </Link>
         </ChartCard>
 
         <ChartCard eyebrow="Slow-moving Inventory" title="Inventory offsets before new purchase" description="Rows that should be checked before accepting fresh stock.">
@@ -192,15 +221,15 @@ export default function MrpAnalyticsPage() {
         </ChartCard>
       </section>
 
-      <ChartCard eyebrow="Recommendations" title="Material recommendation table" description="Purchase candidates based on current inventory and implied target stock.">
+      <ChartCard eyebrow="Reorder policy table" title="Material recommendation table" description="Purchase candidates based on current inventory and item-master reorder targets. These numbers are not BOM shortfalls.">
         <CompactTable
           columns={[
             { key: "item_name", label: "Item" },
             { key: "type", label: "Type" },
             { key: "available", label: "Avail.", render: (row) => `${formatNumber(row.available, 2)} ${row.uom || "units"}` },
-            { key: "target", label: "Target", render: (row) => `${formatNumber(row.target, 2)} ${row.uom || "units"}` },
+            { key: "target", label: "Reorder target", render: (row) => `${formatNumber(row.target, 2)} ${row.uom || "units"}` },
             { key: "lead_days", label: "Lead" },
-            { key: "order_qty", label: "PO Qty", render: (row) => `${formatNumber(row.order_qty, 2)} ${row.uom || "units"}` },
+            { key: "order_qty", label: "Policy qty", render: (row) => `${formatNumber(row.order_qty, 2)} ${row.uom || "units"}` },
             { key: "status", label: "Status" },
           ]}
           rows={recommendations.slice(0, 24)}
@@ -208,5 +237,143 @@ export default function MrpAnalyticsPage() {
         />
       </ChartCard>
     </div>
+  )
+}
+
+function DemandCoverageView() {
+  const { activePlant } = useAuth()
+  const coverageQuery = useMrpCoverage(activePlant || undefined)
+  const coverage = coverageQuery.data || {}
+  const materials = Array.isArray(coverage.materials) ? coverage.materials : []
+  const demandSource = coverage.demand_source || {}
+  const chartRows = materials.slice(0, 10).map((row: any) => ({
+    item: row.item_code || row.label,
+    required: Number(row.remaining_requirement_qty || 0),
+    usable: Number(row.usable_qty || 0),
+    shortfall: Number(row.shortfall_qty || 0),
+  }))
+  const shortfallRows = materials.filter((row: any) => Number(row.shortfall_qty || 0) > 0)
+  const unknownCount = Number(coverage.unknown_line_count || 0)
+  const completeness = String(coverage.completeness || "UNKNOWN")
+
+  return (
+    <div className="space-y-5" data-testid="mrp-demand-coverage-view">
+      {coverageQuery.isError ? (
+        <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">
+          Demand/BOM coverage could not be loaded. Missing coverage is not a zero shortfall.
+        </p>
+      ) : null}
+      <PageIntro
+        eyebrow="MRP · Demand / BOM coverage"
+        title="Pending-order material coverage"
+        description="Gross remaining demand from every in-scope open sales line, expanded from canonical approved recipes. Usable stock is read from the inventory ledger. Reorder policy is shown for comparison and is not mixed into shortfall."
+        actions={
+          <>
+            <FilterChip>{displayPlantScope(activePlant, "No plant selected")}</FilterChip>
+            <ViewSwitcher view="demand" />
+          </>
+        }
+        aside={
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Open sales lines</p>
+              <p className="mt-2 text-2xl font-semibold">{formatCompactNumber(demandSource.total_open_lines || 0)}</p>
+            </div>
+            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 px-4 py-3">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Coverage state</p>
+              <p className="mt-2 text-2xl font-semibold">{completeness}</p>
+            </div>
+          </div>
+        }
+      />
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <KpiCard label="Open sales lines" value={formatCompactNumber(demandSource.total_open_lines || 0)} detail="All open lines, not the first sales page" icon={ClipboardCheck} tone="cyan" />
+        <KpiCard label="Materials with shortfall" value={formatCompactNumber(shortfallRows.length)} detail="Remaining BOM requirement minus usable stock" icon={PackageSearch} tone={shortfallRows.length ? "rose" : "emerald"} />
+        <KpiCard label="Unknown / unmapped lines" value={formatCompactNumber(unknownCount)} detail="Incomplete recipe or identity mapping — not treated as zero" icon={ShieldAlert} tone={unknownCount ? "amber" : "emerald"} />
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        {(coverage.notes || []).join(" ")}
+        {coverage.measure_set ? (
+          <span className="mt-2 block text-xs uppercase tracking-[0.12em] text-slate-500">
+            Demand: {coverage.measure_set.demand}. Available: {coverage.measure_set.available}. Reorder policy is a separate measure.
+          </span>
+        ) : null}
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1fr_430px]">
+        <ChartCard eyebrow="Time-phased coverage" title="Required vs usable vs shortfall" description="Canonical BOM expansion versus unrestricted usable stock. Reorder levels are not plotted here.">
+          <div className="h-[320px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartRows}>
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="item" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                <Tooltip formatter={(value: any) => formatNumber(value, 2)} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
+                <Bar dataKey="required" fill="#0e7490" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="usable" fill="#059669" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="shortfall" fill="#be123c" radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </ChartCard>
+        <ChartCard eyebrow="Purchase" title="Supplier commitments stay on Purchase" description="A calendar entry is a commitment, not a stock transaction. Create or receive POs in Purchase.">
+          <Link href="/purchase" className="inline-flex rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white">Open purchasing →</Link>
+          <p className="mt-4 text-sm text-slate-600">Open PO remainder is shown as supply due on each material row. It is not added into usable stock.</p>
+        </ChartCard>
+      </section>
+
+      <ChartCard eyebrow="Material coverage panel" title="Required vs available vs shortfall by material" description="Each row keeps demand, usable stock, QC-held, supply due, and reorder policy as separate fields.">
+        <CompactTable
+          columns={[
+            { key: "label", label: "Material", render: (row) => `${row.item_code || row.label || "-"}` },
+            { key: "remaining_requirement_qty", label: "Required", render: (row) => `${formatNumber(row.remaining_requirement_qty, 2)} ${row.uom || "KG"}` },
+            { key: "usable_qty", label: "Usable", render: (row) => `${formatNumber(row.usable_qty, 2)} ${row.uom || "KG"}` },
+            { key: "qc_held_qty", label: "QC-held", render: (row) => `${formatNumber(row.qc_held_qty, 2)}` },
+            { key: "supply_due_qty", label: "Supply due", render: (row) => `${formatNumber(row.supply_due_qty, 2)}` },
+            { key: "shortfall_qty", label: "Shortfall", render: (row) => `${formatNumber(row.shortfall_qty, 2)}` },
+            { key: "reorder_level", label: "Reorder (policy)", render: (row) => `${formatNumber(row.reorder_policy?.reorder_level, 2)}` },
+            { key: "first_shortage_bucket", label: "First short week", render: (row) => row.first_shortage_bucket || "—" },
+            { key: "confidence", label: "State" },
+          ]}
+          rows={materials}
+          emptyLabel="No coverage rows yet. Confirm open sales lines and approved recipes exist in this plant."
+        />
+      </ChartCard>
+
+      {unknownCount > 0 ? (
+        <ChartCard eyebrow="Needs mapping" title="Lines that are not treated as zero demand" description="Incomplete recipe, missing length, or unmapped paper identity.">
+          <CompactTable
+            columns={[
+              { key: "order_no", label: "Order" },
+              { key: "product_code", label: "Product" },
+              { key: "remaining_qty", label: "Remaining pcs", render: (row) => formatNumber(row.remaining_qty, 0) },
+              { key: "reason", label: "Reason" },
+            ]}
+            rows={coverage.unknown_or_unmapped_lines || []}
+            emptyLabel="No unknown lines."
+          />
+        </ChartCard>
+      ) : null}
+    </div>
+  )
+}
+
+function MrpAnalyticsPageInner() {
+  const searchParams = useSearchParams()
+  const view = searchParams.get("view") === "demand" ? "demand" : "reorder"
+  return (
+    <div className="space-y-5" data-testid="mrp-analytics-page">
+      {view === "demand" ? <DemandCoverageView /> : <ReorderPolicyView />}
+    </div>
+  )
+}
+
+export default function MrpAnalyticsPage() {
+  return (
+    <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading MRP views…</div>}>
+      <MrpAnalyticsPageInner />
+    </Suspense>
   )
 }

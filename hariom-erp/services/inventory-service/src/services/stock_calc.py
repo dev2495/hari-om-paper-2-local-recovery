@@ -9,6 +9,9 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 from ..models import ItemMaster, PaperReel, ReelIssue, ReelIssueStatus, Reservation, ReservationStatus, StockBatch, StockTransaction, TrackingMode
 
+USABLE_STOCK_STATUSES = frozenset({"UNRESTRICTED"})
+QC_HELD_STOCK_STATUSES = frozenset({"QC_HOLD"})
+
 
 def get_item_balance(item_id: str, db: Session) -> float:
     item = db.query(ItemMaster).filter(ItemMaster.id == item_id).first()
@@ -54,6 +57,33 @@ def get_dispatch_allocated_qty(
     batch_id: Optional[str] = None,
 ) -> float:
     return get_reserved_qty(db=db, item_id=item_id, batch_id=batch_id)
+
+
+def get_item_qty_for_statuses(item_id: str, db: Session, statuses: Sequence[str]) -> float:
+    """Physical quantity on the existing ledger, filtered by stock_status. Not a second ledger."""
+    wanted = {str(status).upper() for status in statuses}
+    item = db.query(ItemMaster).filter(ItemMaster.id == item_id).first()
+    if item and item.tracking_mode == TrackingMode.REEL:
+        result = db.query(func.sum(PaperReel.current_weight_kg)).filter(
+            PaperReel.paper_id == item_id,
+            PaperReel.stock_status.in_(wanted),
+        ).scalar()
+        return float(result or 0.0)
+    result = db.query(func.sum(StockTransaction.qty_change)).filter(
+        StockTransaction.item_id == item_id,
+        StockTransaction.stock_status.in_(wanted),
+    ).scalar()
+    return float(result or 0.0)
+
+
+def get_usable_item_qty(item_id: str, db: Session) -> float:
+    unrestricted = get_item_qty_for_statuses(item_id, db, USABLE_STOCK_STATUSES)
+    reserved = get_reserved_qty(db=db, item_id=item_id)
+    return round(max(0.0, unrestricted - reserved), 2)
+
+
+def get_qc_held_item_qty(item_id: str, db: Session) -> float:
+    return round(get_item_qty_for_statuses(item_id, db, QC_HELD_STOCK_STATUSES), 2)
 
 
 def get_available_item_qty(item_id: str, db: Session) -> float:
@@ -250,6 +280,8 @@ def get_all_items_balance(
         physical = get_item_balance(str(item.id), db)
         reserved = get_reserved_qty(db=db, item_id=str(item.id))
         available = physical - reserved
+        usable = get_usable_item_qty(str(item.id), db)
+        qc_held = get_qc_held_item_qty(str(item.id), db)
         batch_cost, batch_cost_source = get_batch_weighted_cost(str(item.id), db)
         item_cost = float(getattr(item, "unit_cost", 0.0) or 0.0)
         resolved_cost = batch_cost if batch_cost > 0 else item_cost
@@ -271,6 +303,8 @@ def get_all_items_balance(
                 "reserved_qty": round(reserved, 2),
                 "dispatch_allocated_qty": round(reserved, 2),
                 "available_qty": round(available, 2),
+                "usable_qty": usable,
+                "qc_held_qty": qc_held,
             }
         )
 

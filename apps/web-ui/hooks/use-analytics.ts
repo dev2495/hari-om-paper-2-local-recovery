@@ -58,6 +58,8 @@ export const analyticsApi = {
     api.get("/api/analytics/deep/item-velocity", { params: withDefinedParams(params) }),
   getSchedulerStatus: () =>
     api.get("/api/analytics/scheduler/status"),
+  getMrpCoverage: (params?: any) =>
+    api.get("/api/analytics/mrp/coverage", { params: withDefinedParams(params) }),
 }
 
 export function useDashboardOverview(plant?: string) {
@@ -439,5 +441,15 @@ export function useOwnerPack(params?: any, options?: { enabled?: boolean }) {
       return data
     },
     enabled: options?.enabled !== false,
+  })
+}
+
+export function useMrpCoverage(plant?: string) {
+  return useQuery({
+    queryKey: ["analytics", "mrp-coverage", plant],
+    queryFn: async () => {
+      const { data } = await analyticsApi.getMrpCoverage(plant ? { plant } : undefined)
+      return data
+    },
   })
 }
