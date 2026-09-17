@@ -25,7 +25,7 @@ import { useOwnerPack } from "@/hooks/use-analytics"
 import { useReadyJobs } from "@/hooks/use-dispatch"
 import { useInventoryHealthSummary } from "@/hooks/use-inventory"
 import { usePlanningBoard, usePlanningJobCards } from "@/hooks/use-production"
-import { useSalesOrders } from "@/hooks/use-sales"
+import { useSalesOrderAggregates, useSalesOrders } from "@/hooks/use-sales"
 import { ERP_CHART_THEME, MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { jobCardRef } from "@/lib/job-card-display"
 import { LANDING_LABELS, LANDING_QUICK_ACTIONS, type LandingRole } from "@/lib/workspace"
@@ -160,6 +160,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
     enabled: canUseOwnerPack && Boolean(activePlant),
   })
   const { data: salesOrders } = useSalesOrders()
+  const { data: salesAggregates } = useSalesOrderAggregates()
   const { data: planningBoard } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, Boolean(activePlant))
   const { data: jobCards } = usePlanningJobCards()
   const { data: inventoryHealth } = useInventoryHealthSummary()
@@ -186,6 +187,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
   const activeQcHolds = Number(ownerHeadline.active_qc_holds || activeHolds.length || 0)
   const backlogOrders = Number(
     ownerHeadline.backlog_orders ||
+      salesAggregates?.ready_count ||
       orderRows.filter((row: any) => ["partially_released", "released", "partially_dispatched"].includes(row.status)).length ||
       0,
   )

@@ -309,6 +309,7 @@ export const specApi = {
 
 export const salesApi = {
   getOrders: (params?: any) => api.get("/api/sales/orders", { params }),
+  getOrderAggregates: () => api.get("/api/sales/orders/aggregates"),
   createOrder: (data: any) => api.post("/api/sales/orders", data),
   getOrder: (id: string) => api.get(`/api/sales/orders/${id}`),
   getOrderTimeline: (id: string) => api.get(`/api/sales/orders/${id}/timeline`),
@@ -350,6 +351,8 @@ export const productionApi = {
     api.post(`/api/production/sales-orders/${salesOrderId}/release-sync`, data, withPlantHeader(plantId)),
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
   getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params: clampPlanningListParams(params) }),
+  getJobCardAggregates: () => api.get("/api/production/job-cards/aggregates"),
+  exportJobCards: (params?: any) => api.get("/api/production/job-cards/export", { params, responseType: "blob" }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
   getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {
@@ -370,6 +373,7 @@ export const productionApi = {
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
   getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),
+  getQualitySummary: () => api.get("/api/production/quality/summary"),
   createQualityInspection: (data: any, plantId?: string) =>
     api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),
   getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),

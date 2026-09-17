@@ -186,7 +186,7 @@ def _production_execution_snapshot(
     merged = {
         "trends": [],
         "scrap": [],
-        "live_wip": {"kpis": {"live_jobs": 0, "blocked_jobs": 0, "completed_jobs": 0, "overdue_jobs": 0}, "wip_by_stage": [], "rows": []},
+        "live_wip": {"kpis": {"live_jobs": 0, "blocked_jobs": 0, "completed_jobs": 0, "overdue_jobs": 0, "priority_jobs": 0}, "wip_by_stage": [], "rows": []},
         "oee": [],
     }
     for snapshot in snapshots:
@@ -196,7 +196,7 @@ def _production_execution_snapshot(
             bucket["scrap"] += float(row.get("scrap") or 0.0)
         merged["scrap"].extend(snapshot.get("scrap") or [])
         live = snapshot.get("live_wip") or {}
-        for key in ["live_jobs", "blocked_jobs", "completed_jobs", "overdue_jobs"]:
+        for key in ["live_jobs", "blocked_jobs", "completed_jobs", "overdue_jobs", "priority_jobs"]:
             merged["live_wip"]["kpis"][key] += int(((live.get("kpis") or {}).get(key)) or 0)
         for row in live.get("rows") or []:
             live_rows.append(row)

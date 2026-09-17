@@ -2,7 +2,6 @@
 
 import dayjs from "dayjs"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
 import {
   ArrowRightLeft,
   CheckCircle2,
@@ -40,6 +39,7 @@ import {
 import {
   useApproveSalesOrder,
   useReleaseSalesOrderLine,
+  useSalesOrderAggregates,
   useSalesOrders,
 } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -56,7 +56,9 @@ type ReleaseDraftRow = {
   release_qty: string
   winder_machine_id: string
   mode: "new" | "resume"
+  authorized_winders: ReleaseMachine[]
   compatible_winders: ReleaseMachine[]
+  compatibility_warning: string | null
   blocker: string | null
 }
 
@@ -100,7 +102,9 @@ function buildReleaseRows(order: any, selectedLineIds: string[], defaultMachineI
           release_qty: Number(lot.release_qty || 0).toFixed(0),
           winder_machine_id: String(lot.winder_machine_id || defaultMachineId),
           mode: "resume" as const,
+          authorized_winders: [],
           compatible_winders: [],
+          compatibility_warning: null,
           blocker: null,
         }))
       }
@@ -114,7 +118,9 @@ function buildReleaseRows(order: any, selectedLineIds: string[], defaultMachineI
         release_qty: releaseRemainingQty.toFixed(0),
         winder_machine_id: defaultMachineId,
         mode: "new" as const,
+        authorized_winders: [],
         compatible_winders: [],
+        compatibility_warning: null,
         blocker: null,
       }]
     })
@@ -126,7 +132,6 @@ function orderPlantId(order: any) {
 }
 
 export default function SalesOrdersPage() {
-  const router = useRouter()
   const { showToast } = useApp()
   const { setActivePlant } = useAuth()
   const [search, setSearch] = useState("")
@@ -135,6 +140,13 @@ export default function SalesOrdersPage() {
   const [releaseDialogOrder, setReleaseDialogOrder] = useState<any | null>(null)
   const [releaseDraftRows, setReleaseDraftRows] = useState<ReleaseDraftRow[]>([])
   const [releaseMachinesLoadingOrderId, setReleaseMachinesLoadingOrderId] = useState<string | null>(null)
+  const [releaseOutcome, setReleaseOutcome] = useState<{
+    orderId: string
+    winderMachineId: string
+    lotIds: string[]
+    jobCardIds: string[]
+    syncPending: boolean
+  } | null>(null)
   const [statusFilter, setStatusFilter] = useState("open")
   const [pageSize, setPageSize] = useState(10)
   const [pageIndex, setPageIndex] = useState(0)
@@ -153,6 +165,7 @@ export default function SalesOrdersPage() {
   )
 
   const ordersQuery = useSalesOrders(salesQueryParams)
+  const aggregatesQuery = useSalesOrderAggregates()
   const customersQuery = useCustomers()
   const jobCardsQuery = usePlanningJobCards({ limit: 250 })
 
@@ -191,21 +204,13 @@ export default function SalesOrdersPage() {
   const serverRows = useMemo(() => (Array.isArray(ordersQuery.data) ? ordersQuery.data : []), [ordersQuery.data])
   const hasNextPage = serverRows.length > pageSize
   const orders = useMemo(() => serverRows.slice(0, pageSize), [serverRows, pageSize])
-
-  const metrics = useMemo(() => {
-    const draftOrders = orders.filter((order: any) => order.status === "draft" || order.status === "submitted")
-    const readyOrders = orders.filter((order: any) =>
-      ["approved", "released", "partially_released", "partially_dispatched"].includes(order.status),
-    )
-    const syncedOrders = orders.filter((order: any) => (jobsByOrderId.get(String(order.id)) || []).length > 0)
-    const openQty = orders.reduce((sum: number, order: any) => sum + Number(order.remaining_qty || 0), 0)
-    return {
-      draftOrders,
-      readyOrders,
-      syncedOrders,
-      openQty,
-    }
-  }, [jobsByOrderId, orders])
+  const aggregates = aggregatesQuery.data || {}
+  const metrics = {
+    draftOrders: Number(aggregates.draft_count || 0),
+    readyOrders: Number(aggregates.ready_count || 0),
+    syncedOrders: Number(aggregates.planner_synced_count || 0),
+    openQty: Number(aggregates.open_qty || 0),
+  }
 
   const updateSelectedLines = (orderId: string, lineId: string, checked: boolean) => {
     setSelectedLines((current) => {
@@ -259,15 +264,19 @@ export default function SalesOrdersPage() {
             String(entry.sales_order_line_id) === row.sales_order_line_id &&
             String(entry.release_lot_id || "") === (row.mode === "resume" ? row.release_lot_id : ""),
         )
-        const compatibleWinders = Array.isArray(result?.compatible_winders) ? result.compatible_winders : []
-        const selectedWinder = result?.selected_winder_compatible
+        const authorizedWinders = Array.isArray(result?.authorized_winders) && result.authorized_winders.length
+          ? result.authorized_winders
+          : Array.isArray(result?.compatible_winders) ? result.compatible_winders : []
+        const selectedWinder = authorizedWinders.some((machine: ReleaseMachine) => String(machine.id) === row.winder_machine_id)
           ? row.winder_machine_id
-          : String(compatibleWinders[0]?.id || "")
+          : String(authorizedWinders[0]?.id || "")
         return {
           ...row,
-          compatible_winders: compatibleWinders,
+          authorized_winders: authorizedWinders,
+          compatible_winders: Array.isArray(result?.compatible_winders) ? result.compatible_winders : [],
           winder_machine_id: selectedWinder,
-          blocker: compatibleWinders.length > 0 ? null : String(result?.blocker || "No compatible winder is available."),
+          compatibility_warning: result?.compatibility_warning || null,
+          blocker: authorizedWinders.length > 0 ? (result?.blocker || null) : String(result?.blocker || "No authorized same-plant winder queue is available."),
         }
       })
       setReleaseDialogOrder(order)
@@ -283,6 +292,7 @@ export default function SalesOrdersPage() {
   const closeReleaseDialog = () => {
     setReleaseDialogOrder(null)
     setReleaseDraftRows([])
+    setReleaseOutcome(null)
   }
 
   const updateReleaseDraftRow = (releaseLotId: string, patch: Partial<ReleaseDraftRow>) => {
@@ -381,32 +391,48 @@ export default function SalesOrdersPage() {
         ))
       }
 
-      const response = await releaseSync.mutateAsync({
-        salesOrderId: String(releaseDialogOrder.id),
-        plantId: orderPlantId(releaseDialogOrder),
-        data: {
-          line_ids: persistedRows.map((row) => row.sales_order_line_id),
-          release_rows: persistedRows.map((row) => ({
-            release_lot_id: row.release_lot_id,
-            sales_order_line_id: row.sales_order_line_id,
-            release_qty: row.release_qty,
-            winder_machine_id: row.winder_machine_id,
-            product_code: row.product_code || null,
-          })),
-        },
-      })
-
-      const jobCardIds = Array.isArray(response?.data?.line_results)
-        ? response.data.line_results.map((row: any) => String(row.job_card_id)).filter(Boolean)
-        : []
+      let jobCardIds: string[] = []
+      let syncPending = false
+      try {
+        const response = await releaseSync.mutateAsync({
+          salesOrderId: String(releaseDialogOrder.id),
+          plantId: orderPlantId(releaseDialogOrder),
+          data: {
+            line_ids: persistedRows.map((row) => row.sales_order_line_id),
+            release_rows: persistedRows.map((row) => ({
+              release_lot_id: row.release_lot_id,
+              sales_order_line_id: row.sales_order_line_id,
+              release_qty: row.release_qty,
+              winder_machine_id: row.winder_machine_id,
+              product_code: row.product_code || null,
+            })),
+          },
+        })
+        jobCardIds = Array.isArray(response?.data?.line_results)
+          ? response.data.line_results.map((row: any) => String(row.job_card_id)).filter(Boolean)
+          : []
+        syncPending = jobCardIds.length === 0
+      } catch {
+        syncPending = true
+      }
 
       setSelectedLines((current) => ({ ...current, [String(releaseDialogOrder.id)]: [] }))
       setSyncResults((current) => ({ ...current, [String(releaseDialogOrder.id)]: jobCardIds }))
-      showToast(`Released ${persistedRows.length} line bucket(s) into planner.`, "success")
       const releasedPlantId = orderPlantId(releaseDialogOrder)
       if (releasedPlantId) setActivePlant(releasedPlantId)
-      closeReleaseDialog()
-      router.push(`/planning/board?section=winder&order_id=${releaseDialogOrder.id}`)
+      setReleaseOutcome({
+        orderId: String(releaseDialogOrder.id),
+        winderMachineId: String(persistedRows[0]?.winder_machine_id || ""),
+        lotIds: persistedRows.map((row) => String(row.release_lot_id)),
+        jobCardIds,
+        syncPending,
+      })
+      showToast(
+        syncPending
+          ? "Release recorded — planning synchronization pending."
+          : `Released ${persistedRows.length} line bucket(s) into the selected winder queue.`,
+        syncPending ? "error" : "success",
+      )
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Release sync failed."
       showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
@@ -425,7 +451,7 @@ export default function SalesOrdersPage() {
             <div className="space-y-3">
               <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Release Discipline</p>
-                <p className="mt-2 text-3xl font-semibold">{metrics.readyOrders.length}</p>
+                <p className="mt-2 text-3xl font-semibold">{metrics.readyOrders}</p>
                 <p className="mt-1 text-xs text-emerald-100/80">Orders ready for line-level release planning</p>
               </div>
               <Link
@@ -442,29 +468,29 @@ export default function SalesOrdersPage() {
         <MetricRail>
           <MetricCard
             label="Draft Queue"
-            value={metrics.draftOrders.length}
+            value={metrics.draftOrders}
             detail="Draft orders awaiting commercial approval"
             icon={CheckCircle2}
             tone="amber"
           />
           <MetricCard
             label="Release Ready"
-            value={metrics.readyOrders.length}
+            value={metrics.readyOrders}
             detail="Approved rows waiting for winder selection"
             icon={ArrowRightLeft}
             tone="cyan"
           />
           <MetricCard
             label="Planner Synced"
-            value={metrics.syncedOrders.length}
-            detail="Visible orders already mapped to job cards"
+            value={metrics.syncedOrders}
+            detail="Orders already mapped to job cards"
             icon={ClipboardCheck}
             tone="emerald"
           />
           <MetricCard
             label="Open Qty"
             value={metrics.openQty.toFixed(0)}
-            detail="Pieces still open in this loaded window"
+            detail="Pieces still open across all in-scope orders"
             icon={Factory}
             tone="violet"
           />
@@ -768,14 +794,45 @@ export default function SalesOrdersPage() {
                 <div>
                   <DialogTitle className="text-xl text-slate-950 sm:text-2xl">Release to planning</DialogTitle>
                   <DialogDescription className="mt-1 max-w-3xl text-sm leading-5 text-slate-600">
-                    Make one safe production cut from this PO. Only winders that cover the approved specification are available.
+                    Choose the authorized same-plant winder queue. Mandrel, geometry, and capacity mismatch is advisory and does not block admission.
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
 
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {releaseDialogOrder ? (
+              {releaseOutcome ? (
+                <section className="space-y-4 px-5 py-6 sm:px-7" data-testid="sales-orders:release-next-step">
+                  {releaseOutcome.syncPending ? (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                      Release recorded — planning synchronization pending. Do not create a second release; retry the handoff from this lot.
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+                      Lot created. Next step is the selected winder queue, not a fresh planner dump.
+                    </div>
+                  )}
+                  <p className="text-sm text-slate-600">
+                    Release lots: {releaseOutcome.lotIds.map((id) => id.slice(0, 8)).join(", ") || "recorded"}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Link
+                      href={`/planning/board?section=winder&machine_id=${releaseOutcome.winderMachineId}&order_id=${releaseOutcome.orderId}`}
+                      className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
+                      data-testid="sales-orders:open-winder-queue"
+                    >
+                      Open this winder queue
+                    </Link>
+                    <Link
+                      href={`/sales-orders/${releaseOutcome.orderId}`}
+                      className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                    >
+                      Stay on this order
+                    </Link>
+                  </div>
+                </section>
+              ) : null}
+              {releaseDialogOrder && !releaseOutcome ? (
                 <section className="border-b border-slate-200 bg-white px-5 py-4 sm:px-7">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
@@ -810,6 +867,7 @@ export default function SalesOrdersPage() {
                 </section>
               ) : null}
 
+              {!releaseOutcome ? (
               <div className="space-y-3 px-5 py-5 sm:px-7">
                 {releaseDraftRows.map((row) => {
                   const line = releaseDialogOrder?.lines?.find((entry: any) => String(entry.id) === row.sales_order_line_id)
@@ -818,12 +876,12 @@ export default function SalesOrdersPage() {
                   const quarterQty = Math.max(1, Math.floor(row.remaining_qty / 4))
                   const releaseQty = Number(row.release_qty || 0)
                   const balanceAfter = row.mode === "resume" ? 0 : Math.max(row.remaining_qty - releaseQty, 0)
-                  const selectedMachine = row.compatible_winders.find((machine) => String(machine.id) === row.winder_machine_id)
+                  const selectedMachine = (row.authorized_winders.length ? row.authorized_winders : row.compatible_winders).find((machine) => String(machine.id) === row.winder_machine_id)
                   const rowIssue = row.blocker || (
                     releaseQty <= 0 || releaseQty > row.remaining_qty
                       ? `Line ${line?.line_no || "-"}: quantity must be between 1 and ${row.remaining_qty.toFixed(0)} pcs`
                       : !row.winder_machine_id
-                        ? `Line ${line?.line_no || "-"}: select a compatible winder`
+                        ? `Line ${line?.line_no || "-"}: select a winder queue`
                         : null
                   )
                   return (
@@ -889,10 +947,14 @@ export default function SalesOrdersPage() {
 
                         <div>
                           <div className="flex items-center justify-between gap-3">
-                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Starting winder</label>
-                            {!rowIssue && row.winder_machine_id ? (
+                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Winder queue</label>
+                            {row.compatibility_warning ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                                Advisory mismatch
+                              </span>
+                            ) : row.winder_machine_id ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Compatible
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Queue ready
                               </span>
                             ) : null}
                           </div>
@@ -902,8 +964,8 @@ export default function SalesOrdersPage() {
                             onChange={(event) => updateReleaseDraftRow(row.release_lot_id, { winder_machine_id: event.target.value, blocker: null })}
                             className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900"
                           >
-                            <option value="">Select compatible winder</option>
-                            {row.compatible_winders.map((machine) => (
+                            <option value="">Select winder queue</option>
+                            {(row.authorized_winders.length ? row.authorized_winders : row.compatible_winders).map((machine) => (
                               <option key={machine.id} value={machine.id}>
                                 {machine.code || machine.name} · {machine.capacity_value || "-"} {formatCapacityUnit(machine.capacity_unit || machine.capacity_type)}
                               </option>
@@ -912,9 +974,10 @@ export default function SalesOrdersPage() {
                           {selectedMachine ? (
                             <p className="mt-2 text-[11px] leading-4 text-slate-500">
                               ID {selectedMachine.id_min_mm || "-"}–{selectedMachine.id_max_mm || "-"} · OD {selectedMachine.od_min_mm || "-"}–{selectedMachine.od_max_mm || "-"} · Length {selectedMachine.length_min_mm || "-"}–{selectedMachine.length_max_mm || "-"} mm
+                              {row.compatibility_warning ? ` · ${row.compatibility_warning}` : ""}
                             </p>
                           ) : (
-                            <p className="mt-2 text-[11px] leading-4 text-slate-500">Only live, active, specification-compatible machines appear.</p>
+                            <p className="mt-2 text-[11px] leading-4 text-slate-500">Any authorized same-plant winder queue can be selected. Geometry mismatch is advisory only.</p>
                           )}
                         </div>
 
@@ -940,9 +1003,22 @@ export default function SalesOrdersPage() {
                   )
                 })}
               </div>
+              ) : null}
             </div>
 
             <DialogFooter className="shrink-0 items-center border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:justify-between sm:px-7 sm:space-x-0">
+              {releaseOutcome ? (
+                <div className="flex w-full justify-end">
+                  <button
+                    type="button"
+                    onClick={closeReleaseDialog}
+                    className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Close
+                  </button>
+                </div>
+              ) : (
+              <>
               <div className="mb-3 flex items-center gap-2 text-sm sm:mb-0">
                 {releaseSummary.blockers > 0 ? (
                   <span className="font-semibold text-rose-700">{releaseSummary.blockers} blocker{releaseSummary.blockers === 1 ? "" : "s"} to resolve</span>
@@ -976,6 +1052,8 @@ export default function SalesOrdersPage() {
                       : `Release ${releaseSummary.totalQty.toFixed(0)} pcs`}
                 </button>
               </div>
+              </>
+              )}
             </DialogFooter>
           </div>
         </DialogContent>

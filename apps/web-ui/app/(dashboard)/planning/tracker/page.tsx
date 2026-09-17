@@ -10,6 +10,7 @@ import { EmptyState, ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge }
 import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
 import { useSalesOrders } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { classifyDueRisk, DUE_RISK_OVERDUE, DUE_RISK_PRIORITY, dueRiskLabel, overdueLabel } from "@/lib/due-risk"
 import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
 function formatDate(value?: string | null) {
@@ -75,7 +76,8 @@ export default function PlanningTrackerPage() {
         .map((value) => dayjs(value))
         .filter((value) => value.isValid())
         .sort((a, b) => a.valueOf() - b.valueOf())[0]
-      const dueRisk = earliestDue ? earliestDue.isBefore(dayjs().add(2, "day"), "day") : false
+      const dueRisk = classifyDueRisk(earliestDue?.format("YYYY-MM-DD") || null) === DUE_RISK_PRIORITY
+      const overdue = classifyDueRisk(earliestDue?.format("YYYY-MM-DD") || null) === DUE_RISK_OVERDUE
       const releasedQty = linkedJobs.reduce((sum: number, job: any) => sum + numberValue(job.planned_qty ?? job.segment_planned_qty), 0)
       const orderQty = numberValue(order.total_qty)
       const fulfilledQty = numberValue(order.fulfilled_qty)
@@ -101,6 +103,7 @@ export default function PlanningTrackerPage() {
         stageCounts,
         stageSummary: stageLabel(stageCounts),
         dueRisk,
+        overdue,
         earliestDue: earliestDue?.toISOString() || null,
         orderQty,
         releasedQty,
@@ -138,6 +141,7 @@ export default function PlanningTrackerPage() {
       unreleased: trackerRows.filter((row: any) => row.linkedJobs.length === 0),
       blocked: trackerRows.filter((row: any) => row.blockedJobs.length > 0),
       dueRisk: trackerRows.filter((row: any) => row.dueRisk),
+      overdue: trackerRows.filter((row: any) => row.overdue),
       dispatchReady: trackerRows.filter((row: any) => row.dispatchJobs.length > 0),
     }
   }, [trackerRows])
@@ -165,7 +169,8 @@ export default function PlanningTrackerPage() {
         <MetricCard label="Open Orders" value={metrics.openOrders.length} detail="Sales orders not fully completed" icon={ClipboardList} tone="cyan" />
         <MetricCard label="Not Released" value={metrics.unreleased.length} detail="Commercial demand without job cards" icon={Factory} tone="amber" />
         <MetricCard label="Blocked" value={metrics.blocked.length} detail="Any linked job card carrying a hold" icon={AlertTriangle} tone="rose" />
-        <MetricCard label="Due Risk" value={metrics.dueRisk.length} detail="Due date inside the near window" icon={TimerReset} tone="amber" />
+        <MetricCard label="Priority (3 plant days)" value={metrics.dueRisk.length} detail={dueRiskLabel()} icon={TimerReset} tone="amber" />
+        <MetricCard label="Overdue" value={metrics.overdue.length} detail={overdueLabel()} icon={TimerReset} tone="rose" />
         <MetricCard label="Dispatch Ready" value={metrics.dispatchReady.length} detail="At least one linked card is at dispatch" icon={Truck} tone="emerald" />
       </MetricRail>
 
@@ -270,7 +275,10 @@ export default function PlanningTrackerPage() {
                       )}
                     </td>
                     <td className="px-4 py-4 text-sm text-slate-700">
-                      <div className={row.dueRisk ? "font-semibold text-amber-700" : ""}>Due {formatDate(row.earliestDue)}</div>
+                      <div className={row.overdue ? "font-semibold text-rose-700" : row.dueRisk ? "font-semibold text-amber-700" : ""}>
+                        Due {formatDate(row.earliestDue)}
+                        {row.overdue ? " · Overdue" : row.dueRisk ? " · Priority" : ""}
+                      </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <Link href={`/sales-orders/${row.order.id}`} className="text-xs font-black text-cyan-800 hover:text-cyan-950">
                           View SO

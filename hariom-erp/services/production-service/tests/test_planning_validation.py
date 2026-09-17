@@ -17,6 +17,7 @@ from src.routers.planning import (
     _quality_failures_for_stage,
     _routing_stages_from_snapshot,
     _validate_machine_compatibility,
+    _validate_winder_queue_identity,
     preflight_sales_order_release,
 )
 from src.schemas.planning import AssignMachinePayload, ReleasePreflightPayload, SalesOrderCreate, StageOutputPayload
@@ -82,7 +83,7 @@ class PlanningValidationTests(unittest.TestCase):
     @patch("src.routers.planning._fetch_spec")
     @patch("src.routers.planning._fetch_stage_machines")
     @patch("src.routers.planning._fetch_sales_order")
-    def test_release_preflight_returns_only_compatible_winders(self, fetch_order, fetch_machines, fetch_spec):
+    def test_release_preflight_lists_authorized_winders_including_geometry_mismatch(self, fetch_order, fetch_machines, fetch_spec):
         order_id = UUID("00000000-0000-0000-0000-000000000701")
         line_id = UUID("00000000-0000-0000-0000-000000000702")
         compatible = {**_machine(), "id": "00000000-0000-0000-0000-000000000703", "code": "W-OK", "status": "UP"}
@@ -115,13 +116,14 @@ class PlanningValidationTests(unittest.TestCase):
         )
 
         self.assertTrue(result.ready)
+        self.assertEqual(sorted(row["code"] for row in result.line_results[0].authorized_winders), ["W-OK", "W-SHORT"])
         self.assertEqual([row["code"] for row in result.line_results[0].compatible_winders], ["W-OK"])
         self.assertTrue(result.line_results[0].selected_winder_compatible)
 
     @patch("src.routers.planning._fetch_spec")
     @patch("src.routers.planning._fetch_stage_machines")
     @patch("src.routers.planning._fetch_sales_order")
-    def test_release_preflight_blocks_incompatible_selected_winder(self, fetch_order, fetch_machines, fetch_spec):
+    def test_release_preflight_accepts_incompatible_selected_winder_as_advisory(self, fetch_order, fetch_machines, fetch_spec):
         order_id = UUID("00000000-0000-0000-0000-000000000711")
         line_id = UUID("00000000-0000-0000-0000-000000000712")
         incompatible = {**_machine(), "id": "00000000-0000-0000-0000-000000000713", "code": "W-SHORT", "status": "UP", "length_max_mm": 140}
@@ -152,9 +154,63 @@ class PlanningValidationTests(unittest.TestCase):
             current_user={"token": "test"},
         )
 
-        self.assertFalse(result.ready)
+        self.assertTrue(result.ready)
+        self.assertEqual([row["code"] for row in result.line_results[0].authorized_winders], ["W-SHORT"])
         self.assertEqual(result.line_results[0].compatible_winders, [])
-        self.assertIn("no active winder", str(result.line_results[0].blocker).lower())
+        self.assertFalse(result.line_results[0].selected_winder_compatible)
+        self.assertIsNone(result.line_results[0].blocker)
+        self.assertTrue(result.line_results[0].compatibility_warning)
+
+    def test_winder_queue_identity_accepts_same_plant_winder_despite_geometry(self):
+        machine = _machine()
+        machine["id"] = "00000000-0000-0000-0000-000000000713"
+        machine["length_max_mm"] = 10
+        _validate_winder_queue_identity(machine, "00000000-0000-0000-0000-0000000000a1")
+
+    def test_winder_queue_identity_rejects_other_department(self):
+        machine = _machine()
+        machine["id"] = "00000000-0000-0000-0000-000000000714"
+        machine["department"] = "OVEN"
+        with self.assertRaises(HTTPException) as exc:
+            _validate_winder_queue_identity(machine, "00000000-0000-0000-0000-0000000000a1")
+        self.assertEqual(exc.exception.status_code, 400)
+
+    @patch("src.routers.planning._fetch_spec")
+    @patch("src.routers.planning._fetch_stage_machines")
+    @patch("src.routers.planning._fetch_sales_order")
+    def test_release_preflight_still_rejects_over_release_quantity(self, fetch_order, fetch_machines, fetch_spec):
+        order_id = UUID("00000000-0000-0000-0000-000000000721")
+        line_id = UUID("00000000-0000-0000-0000-000000000722")
+        winder = {**_machine(), "id": "00000000-0000-0000-0000-000000000723", "code": "W-OK", "status": "UP"}
+        fetch_order.return_value = {
+            "id": str(order_id),
+            "status": "approved",
+            "priority": "NORMAL",
+            "lines": [{
+                "id": str(line_id),
+                "line_no": 1,
+                "approved_spec_id": "00000000-0000-0000-0000-000000000725",
+                "release_remaining_qty": 10,
+                "release_lots": [],
+            }],
+        }
+        fetch_machines.return_value = [winder]
+        fetch_spec.return_value = {**_snapshot(), "id": "00000000-0000-0000-0000-000000000725", "status": "approved", "active": True}
+        payload = ReleasePreflightPayload(release_rows=[{
+            "sales_order_line_id": str(line_id),
+            "release_qty": 25,
+            "winder_machine_id": winder["id"],
+        }])
+
+        with self.assertRaises(HTTPException) as exc:
+            preflight_sales_order_release(
+                order_id,
+                payload,
+                plant_id="00000000-0000-0000-0000-0000000000a1",
+                current_user={"token": "test"},
+            )
+        self.assertEqual(exc.exception.status_code, 400)
+        self.assertIn("available balance", str(exc.exception.detail).lower())
 
     def test_planner_gate_context_blocks_unscheduled_stage(self):
         context = _planner_gate_context(
