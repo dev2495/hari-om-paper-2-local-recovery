@@ -137,8 +137,8 @@ def ensure_runtime_schema() -> None:
         )
         connection.execute(
             text(
-                "UPDATE global_spec_defaults SET adhesive_percent = 12.5 "
-                "WHERE adhesive_percent IS NULL OR adhesive_percent = 15.0"
+                "ALTER TABLE IF EXISTS specification_sheet "
+                "ADD COLUMN IF NOT EXISTS qc_profile JSON"
             )
         )
 

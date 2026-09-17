@@ -379,11 +379,24 @@ class PlanningValidationTests(unittest.TestCase):
     def test_quality_failures_detect_out_of_range_oven_moisture(self):
         failures = _quality_failures_for_stage(
             "OVEN",
-            {"moisture_min_pct": 5, "moisture_max_pct": 7},
-            {"moisture_after": 9},
+            {
+                "qc_profile": {
+                    "stages": {
+                        "OVEN": {
+                            "parameters": [
+                                {"code": "pre_weight", "min": 200, "max": 260, "unit": "g", "required": False},
+                                {"code": "post_weight", "min": 180, "max": 240, "unit": "g", "required": False},
+                                {"code": "pre_moisture", "min": 8, "max": 12, "unit": "%", "required": False},
+                                {"code": "post_moisture", "label": "Post-moisture", "min": 5, "max": 7, "unit": "%"},
+                            ]
+                        }
+                    }
+                }
+            },
+            {"post_moisture": 9, "moisture_after": 9},
         )
         self.assertEqual(len(failures), 1)
-        self.assertEqual(failures[0]["label"], "Moisture")
+        self.assertEqual(failures[0]["label"], "Post-moisture")
 
     def test_unassigned_queue_sequence_ignores_plan_date_and_shift_filters(self):
         db = _FakeSession(scalar_value=4)

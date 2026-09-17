@@ -30,6 +30,7 @@ class SpecificationSheet(Base):
     cs_max_n = Column(Float, nullable=True)
     moisture_min_pct = Column(Float, nullable=True)
     moisture_max_pct = Column(Float, nullable=True)
+    qc_profile = Column(JSON, nullable=True)
     
     # Crush Strength
     required_cs = Column(Float, nullable=False)

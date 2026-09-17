@@ -388,6 +388,23 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_approved_at TIMESTAMP")
     )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS item_master ADD COLUMN IF NOT EXISTS quality_profile JSONB")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS reasons JSONB DEFAULT '{}'::jsonb")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS evaluation JSONB DEFAULT '{}'::jsonb")
+    )
+    connection.execute(text("ALTER TABLE IF EXISTS inventory_quality_inspections DROP CONSTRAINT IF EXISTS ck_inventory_qc_status"))
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS inventory_quality_inspections "
+        "ADD CONSTRAINT ck_inventory_qc_status "
+        "CHECK (status IN ('PENDING','PASS','FAIL','SKIPPED','INCOMPLETE','INVALID','NOT_REQUIRED'))"
+      )
+    )
 
 
 ensure_runtime_schema()

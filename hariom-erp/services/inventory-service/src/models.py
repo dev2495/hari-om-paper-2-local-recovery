@@ -239,6 +239,7 @@ class ItemMaster(Base):
     reorder_level = Column(Float, nullable=False, default=0.0)
     safety_stock = Column(Float, nullable=False, default=0.0)
     lead_time_days = Column(Float, nullable=False, default=0.0)
+    quality_profile = Column(JSON, nullable=True)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     active = Column(SQLEnum("true", "false", name="boolean_enum"), default="true")
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -350,6 +351,8 @@ class InventoryQualityInspection(Base):
     failures = Column(JSON, nullable=False, default=list)
     disposition = Column(String(40), nullable=True)
     notes = Column(Text, nullable=True)
+    reasons = Column(JSON, nullable=False, default=dict)
+    evaluation = Column(JSON, nullable=False, default=dict)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     eligibility_status = Column(String(40), nullable=True)
@@ -360,7 +363,7 @@ class InventoryQualityInspection(Base):
     __table_args__ = (
         CheckConstraint("entity_type IN ('BATCH','REEL','CUSTOMER_REJECTION')", name="ck_inventory_qc_entity_type"),
         CheckConstraint("source IN ('INWARD','CUSTOMER_REJECTION','PROCESS_STAGE')", name="ck_inventory_qc_source"),
-        CheckConstraint("status IN ('PENDING','PASS','FAIL','SKIPPED')", name="ck_inventory_qc_status"),
+        CheckConstraint("status IN ('PENDING','PASS','FAIL','SKIPPED','INCOMPLETE','INVALID','NOT_REQUIRED')", name="ck_inventory_qc_status"),
     )
 
 

@@ -75,6 +75,7 @@ def get_current_user_claims(token: str = Depends(get_token)) -> dict:
 
     payload["roles"] = _dedupe(roles)
     payload["effective_roles"] = payload["roles"]
+    payload["permissions"] = _dedupe(_to_list(payload.get("permissions")))
     payload["plant_id"] = token_plant_id
     normalized_allowed = []
     for plant_value in allowed_plants:
@@ -88,6 +89,24 @@ def get_current_user_claims(token: str = Depends(get_token)) -> dict:
     payload["is_acting_session"] = bool(payload.get("is_acting_session"))
     payload["is_owner"] = bool(set(payload["roles"]) & SUPER_ROLES)
     return payload
+
+
+def require_capability(*capabilities: str):
+    needed = {str(item).strip() for item in capabilities if str(item).strip()}
+
+    def _dependency(current_user: dict = Depends(get_current_user_claims)) -> dict:
+        roles = set(current_user.get("roles") or [])
+        if roles & SUPER_ROLES:
+            return current_user
+        permissions = set(current_user.get("permissions") or [])
+        if needed and permissions.intersection(needed):
+            return current_user
+        raise HTTPException(
+            status_code=403,
+            detail="This report requires a capability this role does not hold.",
+        )
+
+    return _dependency
 
 def get_plant_scope(
     current_user: dict = Depends(get_current_user_claims),

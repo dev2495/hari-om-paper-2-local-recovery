@@ -37,6 +37,7 @@ from ..models import (
     ShiftMaterialLedger,
     StageQueueOrder,
 )
+from ..quality_eval import evaluate_job_stage, evaluate_stage_quality, submission_error
 from ..schemas.planning import (
     AssignMachinePayload,
     BoardMovePayload,
@@ -69,7 +70,6 @@ from ..schemas.planning import (
     StageSegmentSplitPayload,
     StageOutputPayload,
 )
-from ..quality_eval import evaluate_stage_quality
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(tags=["planning"])
@@ -2316,6 +2316,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "packing_instructions": _packing_instructions(dynamic_map),
         "adhesive_components_json": dynamic_map.get("adhesive_components_json"),
         "recipe_sheet_json": dynamic_map.get("recipe_sheet_json"),
+        "qc_profile": spec.get("qc_profile") if isinstance(spec.get("qc_profile"), dict) else {},
     }
 
 
@@ -3109,8 +3110,19 @@ def _create_or_sync_job_card_for_line(
 
 
 def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], quality_checks: dict[str, Any]) -> list[dict[str, Any]]:
-    """Backward-compatible failures list; routed through the shared typed evaluator."""
-    return evaluate_stage_quality(stage_type, spec_snapshot or {}, quality_checks or {}).failures
+    """Failures via frozen-range evaluator, with spec-snapshot typed fallback."""
+    readings = {key: value for key, value in (quality_checks or {}).items() if key not in {"reasons", "sample_id"}} if isinstance(quality_checks, dict) else {}
+    evaluation = evaluate_job_stage(
+        stage=stage_type,
+        spec_snapshot=spec_snapshot or {},
+        readings=readings or quality_checks or {},
+        reasons=(quality_checks or {}).get("reasons") if isinstance(quality_checks, dict) else None,
+        sample_id=(quality_checks or {}).get("sample_id") if isinstance(quality_checks, dict) else None,
+        require_reasons_on_fail=False,
+    )
+    if evaluation.failures:
+        return list(evaluation.failures)
+    return evaluate_stage_quality(stage_type, spec_snapshot or {}, readings or quality_checks or {}).failures
 
 
 def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
@@ -3276,14 +3288,28 @@ def _sync_quality_artifacts(
     quality_payload = dict(stage.quality_checks or {})
     if not quality_payload:
         return []
-    evaluation = evaluate_stage_quality(selected_stage, job_card.spec_snapshot or {}, quality_payload)
+    readings = {key: value for key, value in quality_payload.items() if key not in {"reasons", "sample_id"}}
+    evaluation = evaluate_job_stage(
+        stage=selected_stage,
+        spec_snapshot=job_card.spec_snapshot or {},
+        readings=readings,
+        reasons=quality_payload.get("reasons"),
+        sample_id=quality_payload.get("sample_id"),
+        require_reasons_on_fail=True,
+    )
+    error = submission_error(evaluation)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
     inspection = QualityInspection(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        status=evaluation.status,
-        readings=quality_payload,
-        failures=evaluation.failures,
+        status=evaluation.verdict,
+        readings=readings,
+        failures=list(evaluation.failures),
+        reasons=quality_payload.get("reasons") or {},
+        evaluation=evaluation.as_dict(),
+        sample_id=str(quality_payload.get("sample_id") or "").strip() or None,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
@@ -3291,13 +3317,13 @@ def _sync_quality_artifacts(
     # A concrete out-of-range failure or untrustworthy (non-finite) reading opens
     # a hold that blocks the next movement; incomplete readings are recorded as
     # evidence (status INCOMPLETE) but do not fabricate a PASS.
-    if evaluation.status not in {"FAIL", "INVALID"}:
+    if evaluation.verdict not in {"FAIL", "INVALID"}:
         return []
     hold = QualityHold(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        reason=evaluation.issue_summary() or f"{selected_stage} inspection {evaluation.status}",
+        reason=evaluation.issue_summary() or f"{selected_stage} inspection {evaluation.verdict}",
         status="HOLD",
         source_inspection_id=inspection.id,
         created_by=current_user.get("sub"),

@@ -53,6 +53,16 @@ async def update_specification(spec_id: str, request: Request, token: str = Depe
     return response
 
 
+@router.put("/specifications/{spec_id}/qc-profile")
+async def upsert_specification_qc_profile(spec_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/qc-profile", request, token)
+
+
+@router.get("/qc-parameter-dictionary")
+async def get_qc_parameter_dictionary(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/qc-parameter-dictionary", request, token)
+
+
 @router.post("/specifications/{spec_id}/submit-review")
 async def submit_specification_for_review(spec_id: str, request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/submit-review", request, token)

@@ -90,6 +90,7 @@ class ItemResponse(BaseModel):
     safety_stock: float | None = 0
     lead_time_days: float | None = 0
     spec_id: uuid.UUID | None = None
+    quality_profile: dict | None = None
     plant_id: str
     active: str
     created_at: datetime
@@ -338,6 +339,35 @@ def get_item(
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     return item
+
+
+class ItemQualityProfileUpdate(BaseModel):
+    quality_profile: dict
+    setup_status: Optional[str] = None
+
+
+@router.put("/{item_id}/quality-profile", response_model=ItemResponse)
+def upsert_item_quality_profile(
+    item_id: uuid.UUID,
+    payload: ItemQualityProfileUpdate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "Store"])),
+):
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    profile = dict(payload.quality_profile or {})
+    if payload.setup_status:
+        profile["setup_status"] = str(payload.setup_status).strip().lower()
+        profile["status"] = profile["setup_status"]
+    parameters = profile.get("parameters")
+    if parameters is not None and not isinstance(parameters, list):
+        raise HTTPException(status_code=400, detail="quality_profile.parameters must be a list")
+    db_item.quality_profile = profile
+    db.commit()
+    db.refresh(db_item)
+    return db_item
 
 
 @router.delete("/{item_id}")

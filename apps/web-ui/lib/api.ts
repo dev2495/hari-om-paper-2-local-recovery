@@ -283,6 +283,9 @@ export const specApi = {
     api.post(`/api/spec/specifications/${id}/approve`, data, withPlantHeader(plantId)),
   obsoleteSpec: (id: string, data?: any, plantId?: string) =>
     api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}, withPlantHeader(plantId)),
+  upsertSpecQcProfile: (id: string, data: any, plantId?: string) =>
+    api.put(`/api/spec/specifications/${id}/qc-profile`, data, withPlantHeader(plantId)),
+  getQcParameterDictionary: () => api.get("/api/spec/qc-parameter-dictionary"),
   getConstants: () => api.get("/api/spec/constants"),
   getDefaults: (plantId?: string) => api.get("/api/spec/defaults", withPlantHeader(plantId)),
   updateDefaults: (data: any, plantId?: string) => api.put("/api/spec/defaults", data, withPlantHeader(plantId)),
@@ -371,6 +374,8 @@ export const productionApi = {
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
   getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),
+  getJobQcTemplate: (jobCardId: string, params?: any, plantId?: string) =>
+    api.get(`/api/production/quality/job-cards/${jobCardId}/template`, { params, ...(withPlantHeader(plantId) || {}) }),
   createQualityInspection: (data: any, plantId?: string) =>
     api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),
   getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),
@@ -435,6 +440,7 @@ export const inventoryApi = {
   getItems: () => api.get("/api/inventory/items"),
   createItem: (data: any) => api.post("/api/inventory/items", data),
   updateItem: (id: string, data: any) => api.put(`/api/inventory/items/${id}`, data),
+  upsertItemQualityProfile: (id: string, data: any) => api.put(`/api/inventory/items/${id}/quality-profile`, data),
   deleteItem: (id: string) => api.delete(`/api/inventory/items/${id}`),
   getBalances: () => api.get("/api/inventory/balance"),
   getItemBalance: (itemId: string) => api.get(`/api/inventory/balance/${itemId}`),
