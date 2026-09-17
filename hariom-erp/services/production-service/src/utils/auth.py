@@ -54,8 +54,97 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
 
     payload["roles"] = roles
     payload["permissions"] = permissions
+    allowed_plants = payload.get("allowed_plants") or payload.get("allowed_plant_ids") or []
+    if not isinstance(allowed_plants, list):
+        allowed_plants = [allowed_plants] if allowed_plants else []
+    allowed_plants = [str(plant).strip() for plant in allowed_plants if str(plant).strip()]
+    if not allowed_plants and payload.get("plant_id"):
+        allowed_plants = [str(payload.get("plant_id"))]
+    payload["allowed_plants"] = [_normalize_plant_scope(plant) or plant for plant in allowed_plants]
+    if payload.get("plant_id"):
+        payload["plant_id"] = _normalize_plant_scope(str(payload.get("plant_id"))) or payload.get("plant_id")
     payload["token"] = token
     return payload
+
+
+def _plant_in_allowed(requested: str, allowed: list[str]) -> bool:
+    requested_norm = _normalize_plant_scope(requested)
+    for plant in allowed:
+        if requested_norm and requested_norm == _normalize_plant_scope(plant):
+            return True
+    return False
+
+
+def _resolve_scope(
+    current_user: dict,
+    requested_plant_id: Optional[str],
+    allow_all: bool,
+) -> dict:
+    user_roles = set(current_user.get("roles", []))
+    is_owner = bool(user_roles & SUPER_ROLES)
+    token_plant_id = _normalize_plant_scope(str(current_user.get("plant_id") or "").strip())
+    allowed_plants = [
+        _normalize_plant_scope(str(plant).strip())
+        for plant in (current_user.get("allowed_plants") or [])
+        if str(plant or "").strip()
+    ]
+    allowed_plants = [plant for plant in allowed_plants if plant]
+    if not allowed_plants and token_plant_id:
+        allowed_plants = [token_plant_id]
+
+    raw_requested = str(requested_plant_id or "").strip()
+    if raw_requested.upper() == "ALL":
+        if not allow_all:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select one concrete plant for this write action",
+            )
+        if not allowed_plants:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="ALL-plants views require an explicit allowed plant set; unresolved plant is not defaulted to Plant A",
+            )
+        return {
+            "selected_plant_id": None,
+            "scope_all": True,
+            "allowed_plants": allowed_plants,
+            "is_owner": is_owner,
+        }
+
+    requested = _normalize_plant_scope(raw_requested) if raw_requested else ""
+    if not requested:
+        if is_owner and allow_all:
+            if not allowed_plants:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="ALL-plants views require an explicit allowed plant set; unresolved plant is not defaulted to Plant A",
+                )
+            return {
+                "selected_plant_id": None,
+                "scope_all": True,
+                "allowed_plants": allowed_plants,
+                "is_owner": is_owner,
+            }
+        requested = token_plant_id or (allowed_plants[0] if allowed_plants else "")
+
+    if not requested:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User has no assigned plant context",
+        )
+
+    if not _plant_in_allowed(requested, allowed_plants):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cross-plant access is not permitted",
+        )
+
+    return {
+        "selected_plant_id": requested,
+        "scope_all": False,
+        "allowed_plants": allowed_plants,
+        "is_owner": is_owner,
+    }
 
 
 def get_current_plant(
@@ -63,62 +152,18 @@ def get_current_plant(
     plant_id: Optional[str] = Query(None),
     x_plant_id: Optional[str] = Header(None, alias="X-Plant-ID")
 ) -> str:
-    user_roles = set(current_user.get("roles", []))
-
-    requested = _normalize_plant_scope(str(plant_id or x_plant_id or "").strip())
-    if requested:
-        if requested.upper() == "ALL":
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Select one concrete plant for planner write actions",
-            )
-        if user_roles.intersection(PLANNER_SCOPE_ROLES):
-            return requested
-
-    # Default to user's assigned plant
-    plant_id = current_user.get("plant_id")
-    if not plant_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User has no assigned plant"
-        )
-    return plant_id
+    requested = plant_id or x_plant_id
+    scope = _resolve_scope(current_user=current_user, requested_plant_id=requested, allow_all=False)
+    return scope["selected_plant_id"]
 
 
 def get_current_plant_scope(
     current_user: dict = Depends(get_current_user),
     x_plant_id: Optional[str] = Header(None, alias="X-Plant-ID"),
+    plant_id: Optional[str] = Query(None),
 ) -> dict:
-    user_roles = set(current_user.get("roles", []))
-    default_plant = current_user.get("plant_id")
-    if not default_plant:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User has no assigned plant"
-        )
-
-    requested = _normalize_plant_scope((x_plant_id or default_plant).strip())
-    elevated_roles = PLANNER_SCOPE_ROLES
-
-    if requested.upper() == "ALL":
-        if user_roles.intersection(elevated_roles):
-            return {
-                "scope_all": True,
-                "selected_plant_id": None,
-                "allowed_plants": [],
-            }
-        return {
-            "scope_all": False,
-            "selected_plant_id": default_plant,
-            "allowed_plants": [default_plant],
-        }
-
-    selected = requested if user_roles.intersection(elevated_roles) else _normalize_plant_scope(default_plant)
-    return {
-        "scope_all": False,
-        "selected_plant_id": selected,
-        "allowed_plants": [selected],
-    }
+    requested = plant_id or x_plant_id
+    return _resolve_scope(current_user=current_user, requested_plant_id=requested, allow_all=True)
 
 
 def require_role(required_roles: list[str]):

@@ -74,7 +74,12 @@ def get_current_plant(request: Request, current_user: models.User = Depends(get_
         return requested_plant
     if getattr(current_user, "plant", None) and current_user.plant and current_user.plant.code:
         return current_user.plant.code
-    return str(current_user.plant_id) if current_user.plant_id else "PLANT_A"
+    if current_user.plant_id:
+        return str(current_user.plant_id)
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A",
+    )
 
 
 def require_role(allowed_roles: Iterable[str]) -> Callable[..., models.User]:

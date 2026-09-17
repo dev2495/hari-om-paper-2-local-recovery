@@ -352,12 +352,37 @@ class InventoryQualityInspection(Base):
     notes = Column(Text, nullable=True)
     created_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    eligibility_status = Column(String(40), nullable=True)
+    concession_reason = Column(Text, nullable=True)
+    concession_approved_by = Column(String(200), nullable=True)
+    concession_approved_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
         CheckConstraint("entity_type IN ('BATCH','REEL','CUSTOMER_REJECTION')", name="ck_inventory_qc_entity_type"),
         CheckConstraint("source IN ('INWARD','CUSTOMER_REJECTION','PROCESS_STAGE')", name="ck_inventory_qc_source"),
         CheckConstraint("status IN ('PENDING','PASS','FAIL','SKIPPED')", name="ck_inventory_qc_status"),
     )
+
+
+class InventoryQualityConcession(Base):
+    __tablename__ = "inventory_quality_concessions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    inspection_id = Column(UUID(as_uuid=True), ForeignKey("inventory_quality_inspections.id"), nullable=False, index=True)
+    entity_type = Column(String(40), nullable=False, index=True)
+    entity_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    measured_status = Column(String(20), nullable=False, default="FAIL")
+    eligibility_status = Column(String(40), nullable=False, default="RELEASED_BY_CONCESSION")
+    disposition = Column(String(40), nullable=True)
+    stock_status_before = Column(String(40), nullable=True)
+    stock_status_after = Column(String(40), nullable=True)
+    hold_released = Column(Boolean, nullable=False, default=False)
+    reason = Column(Text, nullable=False)
+    quantity = Column(Float, nullable=True)
+    inspector_id = Column(String(200), nullable=True)
+    approved_by = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class CustomerRejection(Base):

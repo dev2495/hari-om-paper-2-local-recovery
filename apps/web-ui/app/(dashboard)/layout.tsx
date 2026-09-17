@@ -83,7 +83,7 @@ const navigationUnits: NavGroup[] = [
         href: "/production/job-cards",
         icon: Factory,
         description: "Release truth, execution packets, and printable cards.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Operator"],
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "Operator"],
       },
       {
         name: "Planner",
@@ -104,7 +104,7 @@ const navigationUnits: NavGroup[] = [
         href: "/quality",
         icon: ShieldCheck,
         description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
-        roles: ["Owner", "Admin", "PlantManager", "Dispatch", "Store", "Sales"],
+        roles: ["Owner", "Admin", "PlantManager", "QC", "Dispatch", "Store", "Sales"],
       },
       {
         name: "Reconciliation",
@@ -189,7 +189,7 @@ const navigationUnits: NavGroup[] = [
         href: "/reports",
         icon: FileText,
         description: "Owner reporting, exceptions, and plant summaries.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales"],
+        roles: ["Owner", "Admin", "Planner", "PlantManager", "QC", "Store", "Dispatch", "Sales"],
       },
     ],
   },

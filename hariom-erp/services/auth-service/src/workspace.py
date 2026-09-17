@@ -6,6 +6,7 @@ LANDING_PRIORITY = [
     "Owner",
     "Admin",
     "PlantManager",
+    "QC",
     "Planner",
     "Store",
     "Dispatch",
@@ -33,7 +34,7 @@ ROLE_TO_LANDING = {
     "Sales": "Sales",
     "SOMaker": "Sales",
     "SOApprover": "Sales",
-    "QC": "PlantManager",
+    "QC": "QC",
 }
 
 LEGACY_ROLE_NAMES = sorted({role for role in ROLE_TO_LANDING if role not in BUSINESS_ROLE_SET})
@@ -42,6 +43,7 @@ LANDING_LABELS = {
     "Owner": "Owner",
     "Admin": "Admin",
     "PlantManager": "Plant Manager",
+    "QC": "Quality Control",
     "Planner": "Planner",
     "Store": "Store",
     "Dispatch": "Dispatch",
@@ -71,6 +73,7 @@ ROLE_CAPABILITIES = {
             "supplier:manage",
             "location:manage",
             "system:manage",
+            "qc:disposition:approve",
         ],
     },
     "Admin": {
@@ -94,6 +97,7 @@ ROLE_CAPABILITIES = {
             "supplier:manage",
             "location:manage",
             "system:manage",
+            "qc:disposition:approve",
         ],
     },
     "Sales": {
@@ -107,6 +111,15 @@ ROLE_CAPABILITIES = {
     "PlantManager": {
         "summary": "Supervisor entry, machine execution, stage completion, QC holds, and reconciliation.",
         "permissions": ["production:entry", "production:close", "inventory:reserve", "analytics:view", "reports:view"],
+    },
+    "QC": {
+        "summary": "Assigned item, spec, job, and receipt quality context; inspections; holds; proposed dispositions; and permitted quality reports.",
+        "permissions": [
+            "qc:inspect",
+            "qc:hold:create",
+            "qc:disposition:propose",
+            "reports:view",
+        ],
     },
     "Store": {
         "summary": "RM inward, reel issue, locations, stock risk, opening load, and stock close support.",
@@ -126,6 +139,7 @@ OVERRIDE_RIGHTS = [
     {"key": "sales", "label": "Sales order rights", "roles": ["Sales"]},
     {"key": "planner", "label": "Planner board rights", "roles": ["Planner"]},
     {"key": "plant_floor", "label": "Supervisor / plant floor rights", "roles": ["PlantManager"]},
+    {"key": "qc", "label": "Quality control rights", "roles": ["QC"]},
     {"key": "store", "label": "Inventory and stock-close rights", "roles": ["Store"]},
     {"key": "dispatch", "label": "Dispatch rights", "roles": ["Dispatch"]},
     {"key": "operator", "label": "QR operator rights", "roles": ["Operator"]},

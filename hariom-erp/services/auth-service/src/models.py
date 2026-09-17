@@ -94,11 +94,37 @@ class Notification(Base):
     href = Column(String(255), nullable=True)
     role_context = Column(String(80), nullable=True)
     payload = Column(Text, nullable=True)
+    plant_id = Column(String(64), nullable=True, index=True)
+    event_id = Column(String(120), nullable=True, index=True)
+    delivery_status = Column(String(30), nullable=False, default="DELIVERED")
+    delivered_at = Column(DateTime, nullable=True)
     is_read = Column(Boolean, nullable=False, default=False, index=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
 
     user = relationship("User", foreign_keys=[user_id])
     actor_user = relationship("User", foreign_keys=[actor_user_id])
+    delivery_logs = relationship("NotificationDeliveryLog", back_populates="notification")
+
+
+class NotificationDeliveryLog(Base):
+    """Durable in-app delivery evidence. External email is an optional adapter, not required."""
+
+    __tablename__ = "notification_delivery_log"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    notification_id = Column(UUID(as_uuid=True), ForeignKey("notifications.id", ondelete="CASCADE"), nullable=True, index=True)
+    event_id = Column(String(120), nullable=True, index=True)
+    event_type = Column(String(80), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    plant_id = Column(String(64), nullable=True, index=True)
+    channel = Column(String(40), nullable=False, default="in_app")
+    status = Column(String(30), nullable=False, default="DELIVERED")
+    role_context = Column(String(80), nullable=True)
+    detail = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow, index=True)
+
+    notification = relationship("Notification", back_populates="delivery_logs")
+    user = relationship("User", foreign_keys=[user_id])
 
 
 class AuditEvent(Base):

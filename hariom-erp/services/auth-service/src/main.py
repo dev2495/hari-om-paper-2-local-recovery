@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 import os
 
 from .database import SessionLocal, engine
@@ -19,6 +20,17 @@ app.include_router(audit_events.router)
 app.include_router(plants.router)
 
 models.Base.metadata.create_all(bind=engine)
+
+
+def ensure_runtime_schema() -> None:
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS plant_id VARCHAR(64)"))
+        connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS event_id VARCHAR(120)"))
+        connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS delivery_status VARCHAR(30) DEFAULT 'DELIVERED'"))
+        connection.execute(text("ALTER TABLE IF EXISTS notifications ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP"))
+
+
+ensure_runtime_schema()
 
 
 def env_flag(name: str, default: bool = False) -> bool:
