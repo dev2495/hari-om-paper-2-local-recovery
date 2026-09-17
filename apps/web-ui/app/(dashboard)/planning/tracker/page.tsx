@@ -11,6 +11,7 @@ import { useMachines, usePlanningJobCards } from "@/hooks/use-production"
 import { useSalesOrders } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { classifyDueRisk, DUE_RISK_OVERDUE, DUE_RISK_PRIORITY, dueRiskLabel, overdueLabel } from "@/lib/due-risk"
+import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
 function formatDate(value?: string | null) {
   if (!value) return "-"

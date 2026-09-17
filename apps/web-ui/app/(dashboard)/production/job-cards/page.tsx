@@ -52,7 +52,7 @@ export default function JobCardsPage() {
   )
 
   const jobCards = useMemo(() => (Array.isArray(jobCardsQuery.data) ? jobCardsQuery.data : []), [jobCardsQuery.data])
-  const aggregates = useMemo(() => aggregatesQuery.data || {}, [aggregatesQuery.data])
+  const aggregates = useMemo(() => (aggregatesQuery.data as Record<string, any>) || {}, [aggregatesQuery.data])
   const machineLabelMap = useMemo(
     () =>
       new Map(
@@ -67,7 +67,7 @@ export default function JobCardsPage() {
   const stageCounts = useMemo(() => {
     const fromServer = Array.isArray(aggregates.stage_counts) ? aggregates.stage_counts : []
     const byStage = new Map(fromServer.map((row: any) => [String(row.stage).toUpperCase(), Number(row.count || 0)]))
-    return STAGE_TILES.map((stage) => ({ stage, count: byStage.get(stage) || 0 }))
+    return STAGE_TILES.map((stage) => ({ stage, count: Number(byStage.get(stage) || 0) }))
   }, [aggregates])
 
   const replaceQuery = (patch: Record<string, string | null>) => {
