@@ -30,6 +30,68 @@ def _ensure_schema_compatibility():
         connection.execute(
             text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS po_date DATE")
         )
+        connection.execute(
+            text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS origin VARCHAR(20)")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS origin_review_required BOOLEAN DEFAULT FALSE")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS internal_order_date DATE")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS parchment_required BOOLEAN")
+        )
+        connection.execute(
+            text("ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS parchment_color_id UUID")
+        )
+        # Historical origin: a blank PO number is not evidence the order was internal.
+        connection.execute(
+            text(
+                """
+                UPDATE sales_orders
+                SET origin = 'CUSTOMER_PO', origin_review_required = FALSE
+                WHERE origin IS NULL
+                  AND po_number IS NOT NULL
+                  AND btrim(po_number) <> ''
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE sales_orders
+                SET origin = 'REVIEW', origin_review_required = TRUE
+                WHERE origin IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text("ALTER TABLE sales_orders ALTER COLUMN origin SET DEFAULT 'CUSTOMER_PO'")
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE sales_order_lines
+                SET parchment_required = TRUE
+                WHERE parchment_required IS NULL
+                  AND parchment_color IS NOT NULL
+                  AND btrim(parchment_color) <> ''
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE sales_order_lines
+                SET parchment_required = FALSE
+                WHERE parchment_required IS NULL
+                """
+            )
+        )
+        connection.execute(
+            text("ALTER TABLE sales_order_lines ALTER COLUMN parchment_required SET DEFAULT FALSE")
+        )
 
 
 _ensure_schema_compatibility()

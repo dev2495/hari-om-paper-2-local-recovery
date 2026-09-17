@@ -15,6 +15,16 @@ from ..models import (
     SalesOrderStatus,
     SalesOrderDispatchLog,
 )
+from ..commercial import (
+    ORIGIN_CUSTOMER_PO,
+    ORIGIN_REVIEW,
+    SalesCommercialError,
+    validate_delivery_schedule_input,
+    validate_origin_and_external_po,
+    validate_order_lines_delivery_dates,
+    validate_persisted_order,
+    resolve_parchment_variant,
+)
 from ..utils.auth import (
     apply_plant_scope,
     get_current_plant,
@@ -29,30 +39,46 @@ router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 
 class SalesOrderLineInput(BaseModel):
+    id: Optional[uuid.UUID] = None
     approved_spec_id: uuid.UUID
     line_no: Optional[int] = None
     product_code: Optional[str] = None
+    parchment_required: Optional[bool] = None
+    parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str] = None
     rate_per_pc: Optional[float] = Field(default=None, ge=0)
     qty: float = Field(..., gt=0)
     due_date: date
 
 
+class DeliveryScheduleInput(BaseModel):
+    """Dated quantity row. Validated with the same R05 rule as line delivery dates."""
+    line_no: Optional[int] = None
+    delivery_date: date
+    qty: float = Field(..., gt=0)
+
+
 class SalesOrderCreate(BaseModel):
     customer_id: uuid.UUID
+    origin: Optional[str] = None
     po_number: Optional[str] = None
     po_date: Optional[date] = None
+    internal_order_date: Optional[date] = None
     notes: Optional[str] = None
     lines: List[SalesOrderLineInput] = Field(..., min_length=1)
+    delivery_schedules: Optional[List[DeliveryScheduleInput]] = None
 
 
 class SalesOrderUpdate(BaseModel):
     customer_id: Optional[uuid.UUID] = None
+    origin: Optional[str] = None
     po_number: Optional[str] = None
     po_date: Optional[date] = None
+    internal_order_date: Optional[date] = None
     notes: Optional[str] = None
     status: Optional[str] = None
     lines: Optional[List[SalesOrderLineInput]] = None
+    delivery_schedules: Optional[List[DeliveryScheduleInput]] = None
 
 
 class DispatchValidationPayload(BaseModel):
@@ -124,6 +150,8 @@ class SalesOrderLineResponse(BaseModel):
     line_no: int
     approved_spec_id: uuid.UUID
     product_code: Optional[str]
+    parchment_required: bool = False
+    parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str]
     rate_per_pc: Optional[float]
     qty: float
@@ -141,8 +169,11 @@ class SalesOrderResponse(BaseModel):
     order_no: str
     plant_id: str
     customer_id: uuid.UUID
+    origin: str = ORIGIN_CUSTOMER_PO
+    origin_review_required: bool = False
     po_number: Optional[str]
     po_date: Optional[date]
+    internal_order_date: Optional[date] = None
     notes: Optional[str]
     status: str
     created_by: str
@@ -197,12 +228,17 @@ def _timeline_event(
 def _serialize_line(line: SalesOrderLine) -> dict:
     release_lots = [lot for lot in getattr(line, "release_lots", []) if str(lot.status or "").lower() != "cancelled"]
     released_qty = sum(float(lot.released_qty or 0.0) for lot in release_lots)
+    parchment_required = bool(getattr(line, "parchment_required", False))
+    parchment_color = getattr(line, "parchment_color", None) if parchment_required else None
+    parchment_color_id = getattr(line, "parchment_color_id", None) if parchment_required else None
     return {
         "id": line.id,
         "line_no": int(line.line_no or 1),
         "approved_spec_id": line.approved_spec_id,
         "product_code": line.product_code,
-        "parchment_color": line.parchment_color,
+        "parchment_required": parchment_required,
+        "parchment_color_id": parchment_color_id,
+        "parchment_color": parchment_color,
         "rate_per_pc": line.rate_per_pc,
         "qty": line.qty,
         "due_date": line.due_date,
@@ -240,12 +276,16 @@ def _serialize_line(line: SalesOrderLine) -> dict:
 
 
 def _serialize_order(order: SalesOrder) -> dict:
+    origin = str(getattr(order, "origin", None) or ORIGIN_CUSTOMER_PO)
     return {
         "id": order.id,
         "order_no": order.order_no,
         "customer_id": order.customer_id,
+        "origin": origin,
+        "origin_review_required": bool(getattr(order, "origin_review_required", False)) or origin == ORIGIN_REVIEW,
         "po_number": order.po_number,
         "po_date": order.po_date,
+        "internal_order_date": getattr(order, "internal_order_date", None),
         "notes": order.notes,
         "status": order.status.value,
         "created_by": order.created_by,
@@ -304,6 +344,94 @@ def _sync_release_status(order: SalesOrder):
         order.status = SalesOrderStatus.RELEASED
 
 
+def _http_commercial(exc: SalesCommercialError) -> HTTPException:
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+def _apply_line_fields(target: SalesOrderLine, incoming: SalesOrderLineInput, index: int) -> None:
+    required, color_id, color = resolve_parchment_variant(
+        parchment_required=incoming.parchment_required,
+        parchment_color=incoming.parchment_color,
+        parchment_color_id=incoming.parchment_color_id,
+        line_no=incoming.line_no or index,
+    )
+    target.line_no = incoming.line_no or index
+    target.approved_spec_id = incoming.approved_spec_id
+    target.product_code = (incoming.product_code or "").strip() or None
+    target.parchment_required = required
+    target.parchment_color_id = color_id
+    target.parchment_color = color
+    target.rate_per_pc = incoming.rate_per_pc
+    target.qty = incoming.qty
+    target.due_date = incoming.due_date
+
+
+def _upsert_order_lines(order: SalesOrder, lines: List[SalesOrderLineInput]) -> None:
+    existing = {str(line.id): line for line in list(order.lines)}
+    kept: set[str] = set()
+    for index, incoming in enumerate(lines, start=1):
+        target = None
+        if incoming.id is not None and str(incoming.id) in existing:
+            target = existing[str(incoming.id)]
+            kept.add(str(incoming.id))
+        if target is None:
+            target = SalesOrderLine(fulfilled_qty=0.0)
+            order.lines.append(target)
+        _apply_line_fields(target, incoming, index)
+    for line_id, line in existing.items():
+        if line_id in kept:
+            continue
+        if _released_qty(line) > 0 or float(line.fulfilled_qty or 0.0) > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot remove line {int(line.line_no or 0)} after release or dispatch",
+            )
+        order.lines.remove(line)
+
+
+def _validate_commercial_payload(
+    *,
+    origin: Optional[str],
+    customer_id,
+    po_number: Optional[str],
+    po_date,
+    internal_order_date,
+    lines: List[SalesOrderLineInput],
+    delivery_schedules: Optional[List[DeliveryScheduleInput]] = None,
+):
+    try:
+        resolved_origin, resolved_po_number, resolved_po_date, resolved_internal_date = validate_origin_and_external_po(
+            origin=origin or ORIGIN_CUSTOMER_PO,
+            customer_id=customer_id,
+            po_number=po_number,
+            po_date=po_date,
+            internal_order_date=internal_order_date,
+        )
+        validate_order_lines_delivery_dates(
+            origin=resolved_origin,
+            customer_po_date=resolved_po_date,
+            lines=lines,
+        )
+        validate_delivery_schedule_input(
+            origin=resolved_origin,
+            customer_po_date=resolved_po_date,
+            schedule_rows=[
+                {"line_no": row.line_no, "delivery_date": row.delivery_date, "qty": row.qty}
+                for row in (delivery_schedules or [])
+            ],
+        )
+        for index, line in enumerate(lines, start=1):
+            resolve_parchment_variant(
+                parchment_required=line.parchment_required,
+                parchment_color=line.parchment_color,
+                parchment_color_id=line.parchment_color_id,
+                line_no=line.line_no or index,
+            )
+    except SalesCommercialError as exc:
+        raise _http_commercial(exc) from exc
+    return resolved_origin, resolved_po_number, resolved_po_date, resolved_internal_date
+
+
 @router.post("", response_model=SalesOrderResponse)
 def create_sales_order(
     payload: SalesOrderCreate,
@@ -314,11 +442,24 @@ def create_sales_order(
     if not payload.lines:
         raise HTTPException(status_code=400, detail="At least one line is required")
 
-    order = SalesOrder(
-        order_no=_next_order_no(db),
+    origin, po_number, po_date, internal_order_date = _validate_commercial_payload(
+        origin=payload.origin,
         customer_id=payload.customer_id,
         po_number=payload.po_number,
         po_date=payload.po_date,
+        internal_order_date=payload.internal_order_date,
+        lines=payload.lines,
+        delivery_schedules=payload.delivery_schedules,
+    )
+
+    order = SalesOrder(
+        order_no=_next_order_no(db),
+        customer_id=payload.customer_id,
+        origin=origin,
+        origin_review_required=origin == ORIGIN_REVIEW,
+        po_number=po_number,
+        po_date=po_date,
+        internal_order_date=internal_order_date,
         notes=payload.notes,
         plant_id=plant_id,
         status=SalesOrderStatus.DRAFT,
@@ -328,19 +469,12 @@ def create_sales_order(
     db.flush()
 
     for index, line in enumerate(payload.lines, start=1):
-        db.add(
-            SalesOrderLine(
-                sales_order_id=order.id,
-                line_no=line.line_no or index,
-                approved_spec_id=line.approved_spec_id,
-                product_code=(line.product_code or "").strip() or None,
-                parchment_color=line.parchment_color,
-                rate_per_pc=line.rate_per_pc,
-                qty=line.qty,
-                due_date=line.due_date,
-                fulfilled_qty=0.0,
-            )
+        target = SalesOrderLine(
+            sales_order_id=order.id,
+            fulfilled_qty=0.0,
         )
+        _apply_line_fields(target, line, index)
+        db.add(target)
 
     db.commit()
     db.refresh(order)
@@ -366,6 +500,37 @@ def create_sales_order(
     except Exception:
         pass
     return _serialize_order(order)
+
+
+class SalesOrderBulkImport(BaseModel):
+    orders: List[SalesOrderCreate] = Field(..., min_length=1)
+
+
+@router.post("/import", response_model=List[SalesOrderResponse])
+def bulk_import_sales_orders(
+    payload: SalesOrderBulkImport,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Sales"])),
+):
+    """Bulk create uses the same commercial contract as single-order create (R05/R08/R10)."""
+    if not payload.orders:
+        raise HTTPException(status_code=400, detail="At least one sales order is required")
+    for index, row in enumerate(payload.orders, start=1):
+        try:
+            _validate_commercial_payload(
+                origin=row.origin,
+                customer_id=row.customer_id,
+                po_number=row.po_number,
+                po_date=row.po_date,
+                internal_order_date=row.internal_order_date,
+                lines=row.lines,
+                delivery_schedules=row.delivery_schedules,
+            )
+        except HTTPException as exc:
+            detail = exc.detail
+            raise HTTPException(status_code=400, detail=f"Import row {index}: {detail}") from exc
+    return [create_sales_order(row, db, plant_id, current_user) for row in payload.orders]
 
 
 @router.get("", response_model=List[SalesOrderResponse])
@@ -406,6 +571,7 @@ def list_sales_orders(
         clauses = [
             SalesOrder.order_no.ilike(needle),
             SalesOrder.po_number.ilike(needle),
+            SalesOrder.origin.ilike(needle),
             SalesOrder.notes.ilike(needle),
             SalesOrder.lines.any(SalesOrderLine.product_code.ilike(needle)),
             SalesOrder.lines.any(SalesOrderLine.parchment_color.ilike(needle)),
@@ -450,7 +616,11 @@ def get_sales_order_timeline(
             message="Commercial demand entered into the queue.",
             created_at=order.created_at,
             actor=order.created_by,
-            metadata={"order_no": order.order_no, "status": order.status.value},
+            metadata={
+                "order_no": order.order_no,
+                "status": order.status.value,
+                "origin": getattr(order, "origin", None),
+            },
         )
     ]
     warnings = []
@@ -498,7 +668,8 @@ def get_sales_order_timeline(
                 metadata={
                     "approved_spec_id": str(line.approved_spec_id),
                     "product_code": line.product_code,
-                    "parchment_color": line.parchment_color,
+                    "parchment_required": bool(getattr(line, "parchment_required", False)),
+                    "parchment_color": line.parchment_color if getattr(line, "parchment_required", False) else None,
                     "due_date": str(line.due_date),
                 },
             )
@@ -609,10 +780,14 @@ def update_sales_order(
 
     if payload.customer_id is not None:
         order.customer_id = payload.customer_id
+    if payload.origin is not None:
+        order.origin = payload.origin
     if payload.po_number is not None:
         order.po_number = payload.po_number
     if payload.po_date is not None:
         order.po_date = payload.po_date
+    if payload.internal_order_date is not None:
+        order.internal_order_date = payload.internal_order_date
     if payload.notes is not None:
         order.notes = payload.notes
 
@@ -628,21 +803,37 @@ def update_sales_order(
     if payload.lines is not None:
         if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
             raise HTTPException(status_code=400, detail="Cannot edit lines after approval")
-        order.lines.clear()
-        db.flush()
-        for index, line in enumerate(payload.lines, start=1):
-            order.lines.append(
-                SalesOrderLine(
-                    line_no=line.line_no or index,
-                    approved_spec_id=line.approved_spec_id,
-                    product_code=(line.product_code or "").strip() or None,
-                    parchment_color=line.parchment_color,
-                    rate_per_pc=line.rate_per_pc,
-                    qty=line.qty,
-                    due_date=line.due_date,
-                    fulfilled_qty=0.0,
-                )
-            )
+        _upsert_order_lines(order, payload.lines)
+
+    working_lines = payload.lines if payload.lines is not None else [
+        SalesOrderLineInput(
+            id=line.id,
+            approved_spec_id=line.approved_spec_id,
+            line_no=int(line.line_no or 0) or None,
+            product_code=line.product_code,
+            parchment_required=bool(getattr(line, "parchment_required", False)),
+            parchment_color_id=getattr(line, "parchment_color_id", None),
+            parchment_color=line.parchment_color,
+            rate_per_pc=line.rate_per_pc,
+            qty=line.qty,
+            due_date=line.due_date,
+        )
+        for line in order.lines
+    ]
+    origin, po_number, po_date, internal_order_date = _validate_commercial_payload(
+        origin=order.origin,
+        customer_id=order.customer_id,
+        po_number=order.po_number,
+        po_date=order.po_date,
+        internal_order_date=order.internal_order_date,
+        lines=working_lines,
+        delivery_schedules=payload.delivery_schedules,
+    )
+    order.origin = origin
+    order.origin_review_required = origin == ORIGIN_REVIEW
+    order.po_number = po_number
+    order.po_date = po_date
+    order.internal_order_date = internal_order_date
 
     db.commit()
     db.refresh(order)
@@ -656,14 +847,22 @@ def approve_sales_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Sales", "Planner"])),
 ):
-    order = db.query(SalesOrder).filter(
-        SalesOrder.id == order_id, SalesOrder.plant_id == plant_id
-    ).first()
+    order = (
+        db.query(SalesOrder)
+        .options(joinedload(SalesOrder.lines))
+        .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
+        .first()
+    )
     if not order:
         raise HTTPException(status_code=404, detail="Sales order not found")
 
     if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
         raise HTTPException(status_code=400, detail="Only draft/submitted orders can be approved")
+
+    try:
+        validate_persisted_order(order)
+    except SalesCommercialError as exc:
+        raise _http_commercial(exc) from exc
 
     actor = str(current_user.get("actual_sub") or current_user.get("sub") or "").strip().lower()
     if str(order.created_by or "").strip().lower() == actor:

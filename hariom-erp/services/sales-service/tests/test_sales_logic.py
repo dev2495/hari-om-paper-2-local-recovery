@@ -32,6 +32,8 @@ def test_sales_line_serializer_exposes_dispatch_lineage_and_correct_balances():
         line_no=1,
         approved_spec_id=uuid.uuid4(),
         product_code="TUBE-01",
+        parchment_required=False,
+        parchment_color_id=None,
         parchment_color=None,
         rate_per_pc=12.5,
         qty=100.0,
@@ -69,6 +71,55 @@ def test_sales_line_serializer_exposes_dispatch_lineage_and_correct_balances():
     assert payload["release_remaining_qty"] == 20.0
     assert payload["dispatch_logs"][0]["dispatch_line_ref"] == "DISPATCH-REQUEST:stable-1"
     assert payload["dispatch_logs"][0]["qty"] == 35.0
+    assert payload["parchment_required"] is False
+    assert payload["parchment_color"] is None
+
+
+def test_sales_line_serializer_hides_stale_parchment_color_when_not_required():
+    line = SimpleNamespace(
+        id=uuid.uuid4(),
+        sales_order_id=uuid.uuid4(),
+        line_no=1,
+        approved_spec_id=uuid.uuid4(),
+        product_code="TUBE-01",
+        parchment_required=False,
+        parchment_color_id=uuid.uuid4(),
+        parchment_color="Should not resurface",
+        rate_per_pc=None,
+        qty=10.0,
+        due_date=date(2026, 7, 31),
+        fulfilled_qty=0.0,
+        release_lots=[],
+        dispatch_logs=[],
+    )
+    payload = _serialize_line(line)
+    assert payload["parchment_required"] is False
+    assert payload["parchment_color"] is None
+    assert payload["parchment_color_id"] is None
+
+
+def test_sales_line_serializer_round_trips_required_parchment():
+    color_id = uuid.uuid4()
+    line = SimpleNamespace(
+        id=uuid.uuid4(),
+        sales_order_id=uuid.uuid4(),
+        line_no=1,
+        approved_spec_id=uuid.uuid4(),
+        product_code="TUBE-01",
+        parchment_required=True,
+        parchment_color_id=color_id,
+        parchment_color="Natural",
+        rate_per_pc=None,
+        qty=10.0,
+        due_date=date(2026, 7, 31),
+        fulfilled_qty=0.0,
+        release_lots=[],
+        dispatch_logs=[],
+    )
+    payload = _serialize_line(line)
+    assert payload["parchment_required"] is True
+    assert payload["parchment_color"] == "Natural"
+    assert payload["parchment_color_id"] == color_id
 
 
 def test_later_release_preserves_partial_dispatch_status():
