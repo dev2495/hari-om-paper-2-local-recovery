@@ -58,6 +58,11 @@ const LANDING_COPY: Record<LandingRole, LandingCopy> = {
     title: "Machine loading, route pressure, and floor exceptions for the current plant scope",
     description: "Schedule the route, clear bottlenecks, and keep the shop floor moving with real queue and exception signals.",
   },
+  QC: {
+    badge: "Quality Control Workspace",
+    title: "Inspections, holds, and proposed dispositions for the authorized plant",
+    description: "Read assigned item, spec, job, and receipt context. Sign inspections and create holds without user-admin, sales-approval, or stock-adjust powers.",
+  },
   Planner: {
     badge: "Planner Workspace",
     title: "Order release, specification readiness, and schedule pressure across the execution spine",
@@ -89,6 +94,7 @@ const ROLE_ICONS = {
   Owner: ReceiptText,
   Admin: ShieldAlert,
   PlantManager: Factory,
+  QC: FlaskConical,
   Planner: ClipboardCheck,
   Store: Warehouse,
   Dispatch: Truck,
@@ -224,6 +230,12 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
       { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Cards held away from clean flow", icon: ShieldAlert, tone: "rose" },
       { label: "Schedule Adherence", value: formatMetric(commonMetrics.scheduleAdherence, "%", 1), detail: "Planned vs actual completion", icon: ClipboardCheck, tone: "amber" },
       { label: "Ready Dispatches", value: formatMetric(commonMetrics.readyDispatchCount), detail: "FG jobs waiting to move", icon: Truck, tone: "emerald" },
+    ],
+    QC: [
+      { label: "QC Holds", value: formatMetric(commonMetrics.activeQcHolds), detail: "Active holds in the authorized plant", icon: FlaskConical, tone: "amber" },
+      { label: "Blocked Jobs", value: formatMetric(commonMetrics.blockedJobs), detail: "Jobs waiting on quality clearance", icon: ShieldAlert, tone: "rose" },
+      { label: "Open Job Cards", value: formatMetric(commonMetrics.activeJobCards), detail: "Authorized job context for inspection", icon: ClipboardCheck, tone: "cyan" },
+      { label: "Notifications", value: formatMetric(notificationItems.length), detail: "Plant-scoped quality alerts", icon: Bell, tone: "violet" },
     ],
     Planner: [
       { label: "Backlog Orders", value: formatMetric(commonMetrics.backlogOrders), detail: "Released demand still moving through the system", icon: ShoppingCart, tone: "cyan" },

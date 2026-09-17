@@ -755,7 +755,34 @@ async def create_inventory_quality_inspection(request: Request, token: str = Dep
         message="A held inward item was inspected and its stock status was updated.",
         href="/quality",
         recipient_roles=["Owner", "Admin", "PlantManager", "QC", "Store"],
-        payload={"inspection_id": str(payload.get("id") or ""), "entity_id": str(payload.get("entity_id") or "")},
+        payload={
+            "inspection_id": str(payload.get("id") or ""),
+            "entity_id": str(payload.get("entity_id") or ""),
+            "plant_id": request.headers.get("X-Plant-ID"),
+        },
+    )
+    return response
+
+
+@router.post("/quality/concessions")
+async def create_inventory_quality_concession(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/concessions", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="QC_CONCESSION_APPROVED",
+        title="Quality concession recorded",
+        message="A FAIL inspection received a permissioned concession. Measured status remains FAIL.",
+        href="/quality",
+        recipient_roles=["Owner", "Admin", "QC", "Store"],
+        payload={
+            "inspection_id": str(payload.get("inspection_id") or ""),
+            "plant_id": request.headers.get("X-Plant-ID"),
+            "measured_status": payload.get("measured_status"),
+            "hold_released": payload.get("hold_released"),
+            "event_id": f"qc-concession:{payload.get('inspection_id')}",
+        },
     )
     return response
 

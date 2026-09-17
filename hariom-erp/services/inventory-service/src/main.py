@@ -376,6 +376,18 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("UPDATE customer_rejections SET attachment_refs = '[]' WHERE attachment_refs IS NULL")
     )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS eligibility_status VARCHAR(40)")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_reason TEXT")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_approved_by VARCHAR(200)")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS concession_approved_at TIMESTAMP")
+    )
 
 
 ensure_runtime_schema()

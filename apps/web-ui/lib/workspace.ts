@@ -2,6 +2,7 @@ export type LandingRole =
   | "Owner"
   | "Admin"
   | "PlantManager"
+  | "QC"
   | "Planner"
   | "Store"
   | "Dispatch"
@@ -18,6 +19,7 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Owner: "Owner",
   Admin: "Admin",
   PlantManager: "Plant Manager",
+  QC: "Quality Control",
   Planner: "Planner",
   Store: "Store",
   Dispatch: "Dispatch",
@@ -25,7 +27,7 @@ export const LANDING_LABELS: Record<LandingRole, string> = {
   Operator: "Operator",
 }
 
-export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "Planner", "Store", "Dispatch", "Sales", "Operator"]
+export const ROLE_PRIORITY: LandingRole[] = ["Owner", "Admin", "PlantManager", "QC", "Planner", "Store", "Dispatch", "Sales", "Operator"]
 
 // Legacy role aliases are normalized here only so old auth/session rows land on a canonical workspace.
 // User-facing navigation policy should use the condensed role matrix above.
@@ -35,7 +37,7 @@ export const ROLE_TO_LANDING: Record<string, LandingRole> = {
   PlantManager: "PlantManager",
   SupervisorEntry: "PlantManager",
   Production: "PlantManager",
-  QC: "PlantManager",
+  QC: "QC",
   Planner: "Planner",
   Store: "Store",
   Dispatch: "Dispatch",
@@ -61,6 +63,7 @@ export function landingPathForRole(role: string | null | undefined) {
   const landingRole = ROLE_TO_LANDING[String(role || "")] || resolveLandingRole(role ? [role] : [])
   if (landingRole === "Owner") return "/landing/owner"
   if (landingRole === "Admin") return "/landing/admin"
+  if (landingRole === "QC") return "/landing/qc"
   if (landingRole === "Planner") return "/planning/board/winder"
   if (landingRole === "PlantManager") return "/planning/tracker"
   if (landingRole === "Sales") return "/sales-orders"
@@ -87,6 +90,12 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/quality", label: "Quality Desk", detail: "Log inspections and release active holds." },
     { href: "/production/job-cards", label: "Job Cards", detail: "Track cards through the production spine." },
     { href: "/logistics/dispatch", label: "Dispatch Ready", detail: "Confirm finished jobs ready for handoff." },
+  ],
+  QC: [
+    { href: "/quality", label: "Quality Desk", detail: "Enter inspections, create holds, and propose dispositions." },
+    { href: "/production/job-cards", label: "Assigned Job Cards", detail: "Read authorized job and spec context." },
+    { href: "/analytics/quality", label: "Quality Reports", detail: "Run permitted quality reports for this plant." },
+    { href: "/inventory/raw-material-inward", label: "Inward Context", detail: "Read receipt lots waiting for inspection." },
   ],
   Planner: [
     { href: "/sales-orders", label: "Sales Queue", detail: "Review approvals and pending releases." },

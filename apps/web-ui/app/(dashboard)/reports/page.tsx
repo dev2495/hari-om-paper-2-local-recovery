@@ -133,7 +133,7 @@ const AUDIENCE_ORDER: AudienceFilter[] = ["owner", "operations", "commercial", "
 
 export default function ReportsHubPageWrapper() {
   return (
-    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales", "Owner", "Admin"]}>
+    <RoleGate allow={["PlantManager", "Planner", "Store", "Dispatch", "Sales", "Owner", "Admin", "QC"]}>
       <ReportsLandingPage />
     </RoleGate>
   )

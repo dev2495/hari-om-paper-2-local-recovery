@@ -505,6 +505,7 @@ export const inventoryApi = {
   getPendingQuality: () => api.get("/api/inventory/quality/pending"),
   getInventoryQualityInspections: (params?: any) => api.get("/api/inventory/quality/inspections", { params }),
   createInventoryQualityInspection: (data: any) => api.post("/api/inventory/quality/inspections", data),
+  createInventoryQualityConcession: (data: any) => api.post("/api/inventory/quality/concessions", data),
   getCustomerRejections: (params?: any) => api.get("/api/inventory/quality/customer-rejections", { params }),
   createCustomerRejection: (data: any) => api.post("/api/inventory/quality/customer-rejections", data),
   disposeCustomerRejection: (id: string, data: any) =>

@@ -25,6 +25,10 @@ class NotificationEventCreate(BaseModel):
     exclude_user_ids: list[uuid.UUID] = Field(default_factory=list)
     actor_user_id: uuid.UUID | None = None
     role_context: str | None = None
+    plant_id: str | None = None
+    required_permissions: list[str] = Field(default_factory=list)
+    assigned_user_ids: list[uuid.UUID] = Field(default_factory=list)
+    event_id: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -137,6 +141,10 @@ def ingest_event(
         actor_user_id=payload.actor_user_id,
         role_context=payload.role_context,
         payload=payload.payload,
+        plant_id=payload.plant_id,
+        required_permissions=payload.required_permissions,
+        assigned_user_ids=payload.assigned_user_ids,
+        event_id=payload.event_id,
     )
     db.commit()
     return {"created": created}

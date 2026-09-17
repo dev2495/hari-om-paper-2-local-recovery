@@ -3674,11 +3674,14 @@ def _update_sales_order_completion(db: Session, sales_order: SalesOrder) -> None
 def _apply_plant_scope_filter(query, column, plant_scope: dict):
     if plant_scope.get("scope_all"):
         allowed_plants = plant_scope.get("allowed_plants") or []
-        if allowed_plants:
-            allowed_uuids = [_to_uuid(value) for value in allowed_plants]
-            return query.filter(column.in_(allowed_uuids))
-        return query
-    return query.filter(column == _to_uuid(plant_scope["selected_plant_id"]))
+        if not allowed_plants:
+            return query.filter(column.in_([]))
+        allowed_uuids = [_to_uuid(value) for value in allowed_plants]
+        return query.filter(column.in_(allowed_uuids))
+    selected = plant_scope.get("selected_plant_id")
+    if not selected:
+        raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+    return query.filter(column == _to_uuid(selected))
 
 
 def _carry_forward_lookup(db: Session, plant_scope: dict) -> dict[str, dict[str, Optional[str]]]:
@@ -4885,7 +4888,7 @@ def list_planning_job_cards(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)
@@ -5021,7 +5024,7 @@ def get_planning_job_card(
     job_card_id: uuid.UUID,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
-    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store"])),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Sales", "Dispatch", "Store", "QC"])),
 ):
     query = (
         db.query(JobCard, SalesOrder)

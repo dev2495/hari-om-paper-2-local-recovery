@@ -120,10 +120,9 @@ class InwardResponse(BaseModel):
 
 
 def _plant_filters(plant_scope: dict) -> tuple[list[str], list[uuid.UUID]]:
-    if plant_scope.get("scope_all"):
-        plant_strings = [str(value) for value in (plant_scope.get("allowed_plants") or [])]
-    else:
-        plant_strings = [str(plant_scope.get("selected_plant_id") or "PLANT_A")]
+    from ..utils.auth import authorized_plant_ids
+
+    plant_strings = authorized_plant_ids(plant_scope)
     plant_uuids: list[uuid.UUID] = []
     for value in plant_strings:
         try:
