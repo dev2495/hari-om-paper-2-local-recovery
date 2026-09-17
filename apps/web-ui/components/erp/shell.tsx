@@ -1,11 +1,12 @@
 "use client"
 
-import { Download, FileDown, LucideIcon, Printer, TrendingUp } from "lucide-react"
+import { Download, FileDown, LucideIcon, Printer } from "lucide-react"
 import Link from "next/link"
 import type { ReactNode } from "react"
 
 import { getAppearance, MODULE_APPEARANCES, type ModuleAppearance } from "@/lib/erp-appearance"
 import { cn } from "@/lib/utils"
+import { PageHeader } from "@/components/workspace/page-header"
 
 export function ExecutiveHero({
   appearance,
@@ -25,49 +26,17 @@ export function ExecutiveHero({
   testId?: string
 }) {
   const resolvedAppearance = appearance || MODULE_APPEARANCES.dashboard
-  const Icon = resolvedAppearance.icon
   return (
-    <section
-      data-testid={testId}
-      className={cn(
-        "overflow-hidden rounded-[2rem] border border-white/50 bg-gradient-to-br p-6 shadow-[0_30px_90px_-40px_rgba(15,23,42,0.5)]",
-        resolvedAppearance.surface,
-      )}
-    >
-      <div className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="space-y-4">
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/75 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-700 shadow-sm">
-            <Icon className="h-3.5 w-3.5" />
-            {badge || resolvedAppearance.eyebrow}
-          </div>
-          <div>
-            <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
-              {title || resolvedAppearance.title}
-            </h1>
-            <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-700">
-              {description || resolvedAppearance.description}
-            </p>
-          </div>
-          {actions ? <div className="flex flex-wrap items-center gap-3">{actions}</div> : null}
-        </div>
-        <div className={cn("rounded-[1.6rem] bg-gradient-to-br p-[1px] shadow-xl", resolvedAppearance.accent)}>
-          <div className="h-full rounded-[1.55rem] bg-slate-950/90 p-5 text-white">
-            {aside || (
-              <div className="space-y-3">
-                <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-cyan-100">
-                  <TrendingUp className="h-3.5 w-3.5" />
-                  Premium View
-                </div>
-                <p className="text-xl font-semibold tracking-tight">Sharper KPIs, clearer exceptions, faster operator scanning.</p>
-                <p className="text-sm text-slate-200/80">
-                  One consistent executive shell across planning, inventory, reports, and dispatch.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </section>
+    <PageHeader
+      variant="hero"
+      appearance={resolvedAppearance}
+      title={title || resolvedAppearance.title}
+      description={description || resolvedAppearance.description}
+      badge={badge}
+      actions={actions}
+      aside={aside}
+      testId={testId}
+    />
   )
 }
 
