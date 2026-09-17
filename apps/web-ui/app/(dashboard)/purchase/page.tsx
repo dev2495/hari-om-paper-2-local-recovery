@@ -197,18 +197,6 @@ export default function PurchaseFlowPage() {
       queryClient.invalidateQueries({ queryKey: ["purchase", "schedules"] })
     },
   })
-  const updateReceiptQc = useMutation({
-    mutationFn: async ({ lineId, status }: { lineId: string; status: "PASS" | "HOLD" }) =>
-      purchaseApi.updateReceiptQc(lineId, {
-        status,
-        notes: status === "PASS" ? "Incoming QC cleared from purchase desk." : "Incoming QC hold from purchase desk.",
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["purchase", "receipts"] })
-      queryClient.invalidateQueries({ queryKey: ["inventory-balances"] })
-      queryClient.invalidateQueries({ queryKey: ["inventory-stock-statement"] })
-    },
-  })
 
   if (!concretePlant) {
     return (
@@ -391,9 +379,9 @@ export default function PurchaseFlowPage() {
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-cyan-100/80">Purchase to GRN control</p>
-            <h1 className="mt-2 text-2xl font-semibold">Purchase orders, GRN stock posting, and incoming QC.</h1>
+            <h1 className="mt-2 text-2xl font-semibold">Purchase orders, GRN stock posting, and supplier schedules.</h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">
-              Create vendor-linked purchase orders, approve buying, then post GRN into priced inventory batches that stay on QC hold until cleared.
+              Create vendor-linked purchase orders, approve buying, then post GRN into priced inventory batches. Incoming QC verdicts stay with QC/inventory; this desk cannot set PASS or UNRESTRICTED.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -802,24 +790,9 @@ export default function PurchaseFlowPage() {
                     </button>
                   ) : null}
                   {section.title === "Incoming QC" ? (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={updateReceiptQc.isPending}
-                        onClick={() => updateReceiptQc.mutate({ lineId: String(row.id), status: "PASS" })}
-                        className="inline-flex h-8 items-center rounded-lg bg-emerald-700 px-3 text-xs font-semibold text-white disabled:opacity-60"
-                      >
-                        Pass QC
-                      </button>
-                      <button
-                        type="button"
-                        disabled={updateReceiptQc.isPending}
-                        onClick={() => updateReceiptQc.mutate({ lineId: String(row.id), status: "HOLD" })}
-                        className="inline-flex h-8 items-center rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-900 disabled:opacity-60"
-                      >
-                        Hold
-                      </button>
-                    </div>
+                    <p className="mt-2 text-xs text-slate-500" data-testid="purchase-qc-no-pass-shortcut">
+                      Pending for QC/inventory. Purchase cannot set PASS or UNRESTRICTED.
+                    </p>
                   ) : null}
                 </div>
               ))}
