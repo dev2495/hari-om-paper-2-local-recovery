@@ -44,6 +44,12 @@ import {
 } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { type ReleaseMachine } from "@/lib/sales-release"
+import {
+  isInternalOrigin,
+  parchmentLineLabel,
+  salesOrderOriginLabel,
+  salesOrderReferenceLabel,
+} from "@/lib/sales-order-entry"
 
 type SyncResultMap = Record<string, string[]>
 
@@ -542,13 +548,13 @@ export default function SalesOrdersPage() {
                   >
                     <div className="grid gap-0 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
                       <div className="border-b border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_100%)] p-6 xl:border-b-0 xl:border-r">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Customer PO</p>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{salesOrderOriginLabel(order.origin)}</p>
                         <Link
                           href={`/sales-orders/${order.id}`}
                           data-testid="sales-orders:detail-link"
                           className="mt-3 block text-[1.8rem] font-semibold leading-tight tracking-tight text-slate-950 transition-colors duration-200 hover:text-cyan-700"
                         >
-                          {order.po_number || order.order_no || order.id}
+                          {salesOrderReferenceLabel(order)}
                         </Link>
                         <p className="mt-3 text-sm font-semibold text-slate-900">{resolveCustomerLabel(order, customerMap)}</p>
                         <p className="mt-1 text-sm text-slate-500">
@@ -567,9 +573,13 @@ export default function SalesOrdersPage() {
                         </div>
 
                         <div className="mt-5 text-sm text-slate-600">
-                          <p>PO date {formatDate(order.po_date || order.created_at)}</p>
+                          <p>
+                            {isInternalOrigin(order.origin)
+                              ? `Internal order date ${formatDate(order.internal_order_date)}`
+                              : `Customer PO Date ${formatDate(order.po_date)}`}
+                          </p>
                           <p className="mt-1">
-                            Earliest due{" "}
+                            Earliest delivery{" "}
                             {formatDate(
                               [...(order.lines || [])]
                                 .map((line: any) => line.due_date)
@@ -623,8 +633,8 @@ export default function SalesOrdersPage() {
                                   <span className="mt-2 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
                                     <span>Ordered {Number(line.qty || 0).toFixed(0)} pcs</span>
                                     <span>Remaining {releaseRemainingQty.toFixed(0)} pcs</span>
-                                    <span>Due {formatDate(line.due_date)}</span>
-                                    <span>{line.parchment_color ? `Parchment ${line.parchment_color}` : "No parchment note"}</span>
+                                    <span>Delivery {formatDate(line.due_date)}</span>
+                                    <span>{parchmentLineLabel(line)}</span>
                                   </span>
                                 </span>
                               </label>
@@ -844,7 +854,7 @@ export default function SalesOrdersPage() {
                           <h4 className="mt-2 truncate text-lg font-semibold text-slate-950">{row.product_code || "No product code"}</h4>
                           <p className="mt-1 text-sm text-slate-600">Due {formatDate(row.due_date)}</p>
                           <p className="mt-1 text-xs text-slate-500">
-                            {line?.parchment_color ? `Parchment: ${line.parchment_color}` : "No parchment condition"}
+                            {parchmentLineLabel(line || {})}
                           </p>
                         </div>
 
