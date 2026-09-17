@@ -420,6 +420,30 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("CREATE INDEX IF NOT EXISTS ix_purchase_line_schedules_line ON purchase_line_schedules (purchase_order_line_id)")
     )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS purchase_line_schedules ADD COLUMN IF NOT EXISTS current_expected_date DATE")
+    )
+    connection.execute(
+      text(
+        "DO $$ BEGIN "
+        "IF EXISTS ("
+        "SELECT 1 FROM information_schema.columns "
+        "WHERE table_name = 'purchase_line_schedules' AND column_name = 'current_date'"
+        ") THEN "
+        "UPDATE purchase_line_schedules "
+        "SET current_expected_date = COALESCE(current_expected_date, \"current_date\", promised_date) "
+        "WHERE current_expected_date IS NULL; "
+        "END IF; "
+        "END $$;"
+      )
+    )
+    connection.execute(
+      text(
+        "UPDATE purchase_line_schedules "
+        "SET current_expected_date = COALESCE(current_expected_date, promised_date) "
+        "WHERE current_expected_date IS NULL"
+      )
+    )
 
 
 ensure_runtime_schema()
