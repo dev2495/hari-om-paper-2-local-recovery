@@ -69,6 +69,7 @@ from ..schemas.planning import (
     StageSegmentSplitPayload,
     StageOutputPayload,
 )
+from ..quality_eval import evaluate_stage_quality
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(tags=["planning"])
@@ -2925,6 +2926,73 @@ def _create_or_sync_job_card_for_line(
         .first()
     )
 
+    if existing is not None:
+        # Release-sync is idempotent. Replaying the same release identity/payload
+        # must return the existing job reference untouched — it must never rebuild
+        # frozen snapshots or reset winding placement back into today's queue
+        # (invariants 4/5, plan 6.3). A replay that carries a *different* quantity
+        # or spec identity is not an ordinary retry: it requires a named
+        # amendment/replan command and is rejected here with a structured conflict
+        # so started, split, scheduled and completed work is never silently reset.
+        same_spec = existing.spec_id == line_spec_id
+        same_qty = abs(float(existing.planned_qty or 0.0) - float(planned_qty)) <= 1e-6
+        same_winder = existing.assigned_winder_machine_id == winder_machine_id
+        existing_product = (existing.product_code or None)
+        incoming_product = (product_code or None)
+        same_product = existing_product == incoming_product
+
+        if same_spec and same_qty and same_winder and same_product:
+            _record_audit_event(
+                db=db,
+                plant_id=plant_uuid,
+                entity_type="job_card",
+                entity_id=existing.id,
+                action="release_sync_replay_noop",
+                actor_id=current_user.get("sub"),
+                actor_role=_current_actor_role(current_user),
+                job_card_id=existing.id,
+                payload={
+                    "sales_order_line_id": str(line_id),
+                    "release_lot_id": str(release_lot_id),
+                    "planned_qty": float(existing.planned_qty or 0.0),
+                    "status": existing.status,
+                    "current_stage": existing.current_stage,
+                    "result": "noop",
+                },
+            )
+            return existing, False
+
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "release_replay_conflict",
+                "message": (
+                    "Release lot is already linked to a job card with a different "
+                    "quantity or specification. Use the amendment/replan workflow "
+                    "instead of replaying the release sync."
+                ),
+                "release_lot_id": str(release_lot_id),
+                "job_card_id": str(existing.id),
+                "conflicts": {
+                    "quantity_changed": not same_qty,
+                    "spec_changed": not same_spec,
+                    "winder_changed": not same_winder,
+                    "product_changed": not same_product,
+                },
+                "existing": {
+                    "planned_qty": float(existing.planned_qty or 0.0),
+                    "spec_id": str(existing.spec_id),
+                    "assigned_winder_machine_id": (
+                        str(existing.assigned_winder_machine_id)
+                        if existing.assigned_winder_machine_id
+                        else None
+                    ),
+                    "status": existing.status,
+                    "current_stage": existing.current_stage,
+                },
+            },
+        )
+
     spec = _fetch_spec(line_spec_id, token, plant_id)
     line_payload = {**line, "product_code": product_code or line.get("product_code")}
     spec_snapshot, routing_snapshot, material_plan_snapshot, requires_slitting = _build_job_card_snapshots(
@@ -2985,57 +3053,9 @@ def _create_or_sync_job_card_for_line(
         target_segment.sequence_no = 1
         _sync_stage_row_from_segments(winder_stage, _all_stage_segments(db, job_card.id, "WINDER"))
 
-    if existing:
-        before_payload = {
-            "planned_qty": float(existing.planned_qty or 0.0),
-            "current_stage": existing.current_stage,
-            "status": existing.status,
-        }
-        existing.spec_id = line_spec_id
-        existing.spec_snapshot = spec_snapshot
-        existing.routing_snapshot = routing_snapshot
-        existing.material_plan_snapshot = material_plan_snapshot
-        existing.release_lot_id = release_lot_id
-        existing.released_qty = planned_qty
-        existing.assigned_winder_machine_id = winder_machine_id
-        existing.product_code = product_code
-        existing.planned_qty = planned_qty
-        existing.requires_slitting = requires_slitting
-        if existing.status != "COMPLETED":
-            existing.current_stage = first_stage if existing.current_stage == "DONE" else existing.current_stage
-            existing.status = "PLANNED"
-        queue_created = _ensure_job_card_stages(
-            db=db,
-            job_card=existing,
-            routing_stages=routing_stages,
-            first_stage=first_stage,
-        )
-        _record_audit_event(
-            db=db,
-            plant_id=plant_uuid,
-            entity_type="job_card",
-            entity_id=existing.id,
-            action="release_sync_refresh",
-            actor_id=current_user.get("sub"),
-            actor_role=_current_actor_role(current_user),
-            job_card_id=existing.id,
-            payload={
-                "sales_order_id": str(sales_order.id),
-                "sales_order_line_id": str(line_id),
-                "release_lot_id": str(release_lot_id),
-                "first_stage": first_stage,
-                "queue_created": queue_created,
-            },
-            before_payload=before_payload,
-            after_payload={
-                "planned_qty": float(existing.planned_qty or 0.0),
-                "current_stage": existing.current_stage,
-                "status": existing.status,
-            },
-        )
-        _reset_winder_to_release_queue(existing)
-        return existing, queue_created
-
+    # An existing job for this release lot is handled above as an idempotent
+    # no-op (identical replay) or a structured conflict (changed identity), so
+    # reaching this point always means a brand-new job card is being created.
     job_card = JobCard(
         plant_id=plant_uuid,
         sales_order_id=sales_order.id,
@@ -3089,34 +3109,8 @@ def _create_or_sync_job_card_for_line(
 
 
 def _quality_failures_for_stage(stage_type: str, spec_snapshot: dict[str, Any], quality_checks: dict[str, Any]) -> list[dict[str, Any]]:
-    checks = dict(quality_checks or {})
-    failures: list[dict[str, Any]] = []
-    stage_type = stage_type.upper()
-
-    def _number(value: Any) -> Optional[float]:
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
-    def _check_range(label: str, key: str, min_key: str, max_key: str) -> None:
-        value = _number(checks.get(key))
-        minimum = _number(spec_snapshot.get(min_key))
-        maximum = _number(spec_snapshot.get(max_key))
-        if value is None or minimum is None or maximum is None:
-            return
-        if value < minimum or value > maximum:
-            failures.append({"label": label, "value": value, "min": minimum, "max": maximum})
-
-    if stage_type in {"WINDER", "PROCESS", "PACKING", "QC"}:
-        _check_range("ID", "id", "id_min_mm", "id_max_mm")
-        _check_range("OD", "od", "od_min_mm", "od_max_mm")
-        _check_range("Length", "length", "length_min_mm", "length_max_mm")
-        _check_range("Weight", "weight", "weight_min_g", "weight_max_g")
-        _check_range("CS", "cs", "cs_min_n", "cs_max_n")
-    if stage_type == "OVEN":
-        _check_range("Moisture", "moisture_after", "moisture_min_pct", "moisture_max_pct")
-    return failures
+    """Backward-compatible failures list; routed through the shared typed evaluator."""
+    return evaluate_stage_quality(stage_type, spec_snapshot or {}, quality_checks or {}).failures
 
 
 def _missing_final_spec_qc_fields(spec_snapshot: dict[str, Any], readings: dict[str, Any]) -> list[str]:
@@ -3282,27 +3276,28 @@ def _sync_quality_artifacts(
     quality_payload = dict(stage.quality_checks or {})
     if not quality_payload:
         return []
-    failures = _quality_failures_for_stage(selected_stage, job_card.spec_snapshot or {}, quality_payload)
+    evaluation = evaluate_stage_quality(selected_stage, job_card.spec_snapshot or {}, quality_payload)
     inspection = QualityInspection(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        status="FAIL" if failures else "PASS",
+        status=evaluation.status,
         readings=quality_payload,
-        failures=failures,
+        failures=evaluation.failures,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
     db.flush()
-    if not failures:
+    # A concrete out-of-range failure or untrustworthy (non-finite) reading opens
+    # a hold that blocks the next movement; incomplete readings are recorded as
+    # evidence (status INCOMPLETE) but do not fabricate a PASS.
+    if evaluation.status not in {"FAIL", "INVALID"}:
         return []
     hold = QualityHold(
         plant_id=plant_id,
         job_card_id=job_card.id,
         stage_type=selected_stage,
-        reason="; ".join(
-            f"{item['label']} out of range ({item['value']} not in {item['min']}..{item['max']})" for item in failures
-        ),
+        reason=evaluation.issue_summary() or f"{selected_stage} inspection {evaluation.status}",
         status="HOLD",
         source_inspection_id=inspection.id,
         created_by=current_user.get("sub"),
