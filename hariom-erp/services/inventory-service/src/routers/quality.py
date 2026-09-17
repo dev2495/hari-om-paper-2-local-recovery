@@ -28,6 +28,7 @@ from ..models import (
 )
 from ..services import get_batch_balance
 from ..utils.auth import authorized_plant_ids, get_current_plant, get_current_plant_scope, require_role
+from ..quality_eval import evaluate_incoming, submission_error
 
 router = APIRouter(prefix="/inventory/quality", tags=["inventory-quality"])
 
@@ -88,10 +89,9 @@ def require_concession_authority(current_user: dict, *, inspector_id: Optional[s
 
 
 def measured_inspection_status(*, supplied_status: Optional[str], failures: list[dict[str, Any]]) -> str:
+    del supplied_status
     if failures:
         return "FAIL"
-    if supplied_status:
-        return str(supplied_status).strip().upper()
     return "PASS"
 
 
@@ -266,6 +266,7 @@ class QualityInspectionCreate(BaseModel):
     status: Optional[str] = None
     readings: dict[str, Any] = Field(default_factory=dict)
     failures: list[dict[str, Any]] = Field(default_factory=list)
+    reasons: dict[str, Any] = Field(default_factory=dict)
     disposition: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -324,6 +325,9 @@ class QualityInspectionResponse(BaseModel):
     concession_approved_at: Optional[datetime] = None
     stock_status: Optional[str] = None
     notes: Optional[str] = None
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    evaluation: dict[str, Any] = Field(default_factory=dict)
+    ignored_client_status: Optional[str] = None
     created_at: datetime
 
 
@@ -339,6 +343,8 @@ class PendingQualityItem(BaseModel):
     supplier_or_customer: Optional[str] = None
     created_at: Optional[datetime] = None
     source: str
+    item_id: Optional[uuid.UUID] = None
+    quality_profile: Optional[dict[str, Any]] = None
 
 
 class CustomerRejectionCreate(BaseModel):
@@ -451,6 +457,9 @@ def _inspection_response(row: InventoryQualityInspection, stock_status: Optional
         concession_approved_at=getattr(row, "concession_approved_at", None),
         stock_status=stock_status,
         notes=row.notes,
+        reasons=dict(getattr(row, "reasons", None) or {}),
+        evaluation=dict(getattr(row, "evaluation", None) or {}),
+        ignored_client_status=None,
         created_at=row.created_at,
     )
 
@@ -574,6 +583,8 @@ def list_pending_quality(
                 supplier_or_customer=batch.supplier_name_snapshot,
                 created_at=batch.created_at,
                 source="INWARD",
+                item_id=item.id if item else None,
+                quality_profile=getattr(item, "quality_profile", None) if item else None,
             )
         )
 
@@ -590,6 +601,7 @@ def list_pending_quality(
             .all()
         )
         for reel in reels:
+            paper = getattr(reel, "paper", None)
             rows.append(
                 PendingQualityItem(
                     entity_type="REEL",
@@ -601,6 +613,8 @@ def list_pending_quality(
                     supplier_or_customer=reel.supplier_name_snapshot or reel.supplier_name,
                     created_at=reel.created_at,
                     source="INWARD",
+                    item_id=paper.id if paper else getattr(reel, "paper_id", None),
+                    quality_profile=getattr(paper, "quality_profile", None) if paper else None,
                 )
             )
 
@@ -612,6 +626,7 @@ def list_pending_quality(
         .all()
     )
     for rejection in rejections:
+        item = getattr(rejection, "item", None)
         rows.append(
             PendingQualityItem(
                 entity_type="CUSTOMER_REJECTION",
@@ -623,6 +638,8 @@ def list_pending_quality(
                 supplier_or_customer=rejection.customer_name,
                 created_at=rejection.created_at,
                 source="CUSTOMER_REJECTION",
+                item_id=rejection.item_id,
+                quality_profile=getattr(item, "quality_profile", None) if item else None,
             )
         )
 
@@ -657,12 +674,30 @@ def create_quality_inspection(
         material_type = material_type or "FINISHED_GOOD"
 
     material_type = normalize_material_type(material_type or "OTHER")
-    status = measured_inspection_status(supplied_status=payload.status, failures=list(payload.failures or []))
-    reject_fail_accept_shortcut(status, payload.disposition)
-    if status == "PASS":
-        missing = _missing_required_parameters(db, plant_id, material_type, payload.readings or {})
-        if missing:
-            raise HTTPException(status_code=400, detail=f"QC pass requires readings: {', '.join(missing)}")
+    item: Optional[ItemMaster] = None
+    if batch is not None:
+        item = batch.item
+    elif reel is not None:
+        item = db.query(ItemMaster).filter(ItemMaster.id == reel.paper_id, ItemMaster.plant_id == plant_id).first()
+    elif rejection is not None:
+        item = rejection.item
+
+    profile = getattr(item, "quality_profile", None) if item is not None else None
+    evaluation = evaluate_incoming(
+        profile=profile,
+        readings=payload.readings or {},
+        reasons=payload.reasons or {},
+        require_reasons_on_fail=True,
+    )
+    error = submission_error(evaluation)
+    if error:
+        raise HTTPException(status_code=400, detail=error)
+    status = evaluation.verdict
+    if status == "NOT_REQUIRED":
+        status = "SKIPPED"
+    # Client-authored status/failures/disposition never decide the measured result
+    # and cannot unrestrict stock from this measurement command.
+    reject_fail_accept_shortcut(status, None)
 
     inspection = InventoryQualityInspection(
         plant_id=plant_id,
@@ -672,8 +707,10 @@ def create_quality_inspection(
         source=payload.source,
         status=status,
         readings=payload.readings or {},
-        failures=payload.failures or [],
-        disposition=payload.disposition,
+        failures=list(evaluation.failures),
+        reasons=payload.reasons or {},
+        evaluation=evaluation.as_dict(),
+        disposition=None,
         notes=payload.notes,
         created_by=current_user.get("sub"),
     )
@@ -681,28 +718,24 @@ def create_quality_inspection(
     db.flush()
 
     if batch:
-        if status == "PASS":
-            batch.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
-        elif status == "FAIL":
-            batch.stock_status = stock_status_for_disposition(payload.disposition or "BLOCK")
+        if status == "FAIL":
+            batch.stock_status = "QC_HOLD"
         stock_status = batch.stock_status
     elif reel:
-        if status == "PASS":
-            reel.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
-        elif status == "FAIL":
-            reel.stock_status = stock_status_for_disposition(payload.disposition or "BLOCK")
+        if status == "FAIL":
+            reel.stock_status = "QC_HOLD"
         stock_status = reel.stock_status
     elif rejection:
         rejection.qc_inspection_id = inspection.id
-        if status == "PASS":
-            rejection.status = stock_status_for_disposition(payload.disposition or "ACCEPT")
-        elif status == "FAIL":
-            rejection.status = stock_status_for_disposition(payload.disposition or "BLOCK")
+        if status == "FAIL":
+            rejection.status = "QC_HOLD"
         stock_status = rejection.status
 
     db.commit()
     db.refresh(inspection)
-    return _inspection_response(inspection, stock_status=stock_status)
+    response = _inspection_response(inspection, stock_status=stock_status)
+    response.ignored_client_status = payload.status
+    return response
 
 
 class QualityConcessionCreate(BaseModel):
