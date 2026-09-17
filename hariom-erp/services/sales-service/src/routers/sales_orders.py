@@ -898,6 +898,8 @@ def release_sales_order_line(
     )
     db.add(lot)
     db.flush()
+    if lot not in list(line.release_lots or []):
+        line.release_lots.append(lot)
     _sync_release_status(order)
     order.released_by = current_user.get("sub")
     order.released_at = order.released_at or datetime.utcnow()
