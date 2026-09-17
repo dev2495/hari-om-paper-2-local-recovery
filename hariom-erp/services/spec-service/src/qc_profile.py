@@ -174,7 +174,7 @@ def normalize_qc_profile(raw: Any, *, previous: Optional[dict[str, Any]] = None)
     except (TypeError, ValueError):
         revision = 1
     normalized = {
-        "status": "draft",
+        "status": incoming.get("status") or previous.get("status") or "draft",
         "revision": revision,
         "stages": merged_stages,
         "method_notes": _clean_text(incoming.get("method_notes") or previous.get("method_notes")),
@@ -182,7 +182,8 @@ def normalize_qc_profile(raw: Any, *, previous: Optional[dict[str, Any]] = None)
         if "notching_applicable" in incoming
         else previous.get("notching_applicable"),
     }
-    normalized["status"] = profile_status(normalized) if incoming.get("status") not in {"approved", "pending_review"} else incoming.get("status")
-    if incoming.get("status") == "draft":
-        normalized["status"] = "draft"
+    if incoming.get("status") in {"approved", "pending_review", "draft"}:
+        normalized["status"] = incoming.get("status")
+    else:
+        normalized["status"] = profile_status(normalized)
     return normalized
