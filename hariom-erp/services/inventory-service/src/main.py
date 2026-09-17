@@ -384,7 +384,7 @@ def ensure_runtime_schema() -> None:
         "purchase_order_line_id UUID NOT NULL REFERENCES purchase_order_lines(id), "
         "scheduled_qty DOUBLE PRECISION NOT NULL, "
         "promised_date DATE NOT NULL, "
-        "current_date DATE NOT NULL, "
+        "current_expected_date DATE NOT NULL, "
         "confirmation_status VARCHAR(20) NOT NULL DEFAULT 'TENTATIVE', "
         "notes VARCHAR(500), "
         "created_by VARCHAR(200) NOT NULL, "

@@ -878,7 +878,7 @@ class PurchaseLineSchedule(Base):
     purchase_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=False, index=True)
     scheduled_qty = Column(Float, nullable=False)
     promised_date = Column(Date, nullable=False)
-    current_date = Column(Date, nullable=False)
+    current_date = Column("current_expected_date", Date, nullable=False)
     confirmation_status = Column(String(20), nullable=False, default="TENTATIVE")
     notes = Column(String(500), nullable=True)
     created_by = Column(String(200), nullable=False)
