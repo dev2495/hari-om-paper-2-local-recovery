@@ -46,11 +46,38 @@ def _normalize_stage(value: str) -> str:
     return normalized
 
 
+CONCESSION_PERMISSION = "qc:disposition:approve"
+CONCESSION_ROLES = {"Owner", "Admin"}
+
+
 def _current_actor_role(current_user: dict) -> Optional[str]:
     user_roles = set(current_user.get("roles", []))
     if user_roles:
         return str(list(user_roles)[0])
     return None
+
+
+def _require_concession_authority(current_user: dict, *, inspector_id: Optional[str]) -> None:
+    actor = str(
+        current_user.get("sub")
+        or current_user.get("actor_identity")
+        or current_user.get("user_id")
+        or ""
+    ).strip()
+    inspector = str(inspector_id or "").strip()
+    if actor and inspector and actor == inspector:
+        raise HTTPException(
+            status_code=403,
+            detail="Concession approval requires a second person; the inspector cannot authorize their own FAIL.",
+        )
+    roles = set(current_user.get("roles") or [])
+    permissions = set(current_user.get("permissions") or [])
+    if CONCESSION_PERMISSION in permissions or roles.intersection(CONCESSION_ROLES):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Releasing a FAIL result requires the qc:disposition:approve capability.",
+    )
 
 
 def _json_hash(value: Any) -> Optional[str]:
@@ -295,10 +322,15 @@ def list_inspections(
     query = db.query(QualityInspection)
     if plant_scope.get("scope_all"):
         allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
-        if allowed:
+        if not allowed:
+            query = query.filter(QualityInspection.plant_id.in_([]))
+        else:
             query = query.filter(QualityInspection.plant_id.in_(allowed))
     else:
-        query = query.filter(QualityInspection.plant_id == _to_uuid(plant_scope["selected_plant_id"], field="plant_id"))
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+        query = query.filter(QualityInspection.plant_id == _to_uuid(selected, field="plant_id"))
     if job_card_id:
         query = query.filter(QualityInspection.job_card_id == job_card_id)
     if status:
@@ -388,10 +420,15 @@ def list_holds(
     query = db.query(QualityHold)
     if plant_scope.get("scope_all"):
         allowed = [_to_uuid(value, field="plant_id") for value in (plant_scope.get("allowed_plants") or [])]
-        if allowed:
+        if not allowed:
+            query = query.filter(QualityHold.plant_id.in_([]))
+        else:
             query = query.filter(QualityHold.plant_id.in_(allowed))
     else:
-        query = query.filter(QualityHold.plant_id == _to_uuid(plant_scope["selected_plant_id"], field="plant_id"))
+        selected = plant_scope.get("selected_plant_id")
+        if not selected:
+            raise HTTPException(status_code=400, detail="Select one concrete plant. Unresolved plant is not defaulted to Plant A")
+        query = query.filter(QualityHold.plant_id == _to_uuid(selected, field="plant_id"))
     if job_card_id:
         query = query.filter(QualityHold.job_card_id == job_card_id)
     if status:
@@ -432,6 +469,15 @@ def release_hold(
         raise HTTPException(status_code=404, detail="Quality hold not found")
     if hold.status != "HOLD":
         raise HTTPException(status_code=400, detail="Only active holds can be released")
+
+    source_inspection = None
+    if hold.source_inspection_id:
+        source_inspection = db.query(QualityInspection).filter(QualityInspection.id == hold.source_inspection_id).first()
+    if source_inspection is not None and str(source_inspection.status or "").upper() == "FAIL":
+        _require_concession_authority(
+            current_user,
+            inspector_id=source_inspection.created_by or hold.created_by,
+        )
 
     before_payload = {"status": hold.status, "released_at": str(hold.released_at) if hold.released_at else None}
     hold.status = "RELEASED"
