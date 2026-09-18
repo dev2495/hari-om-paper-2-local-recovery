@@ -84,6 +84,7 @@ test("supervisor job card uses physical tool assignment controls", async ({ page
   await expect(firstJobCard).toBeVisible()
   await firstJobCard.click()
 
+  await expect(page.getByTestId("physical-tool-issue")).toBeVisible()
   await expect(page.getByText(/Physical Tool Issue|Physical Tools/i).first()).toBeVisible()
   await expect(page.getByText(/Tool QR asset IDs/i)).toHaveCount(0)
   await page.screenshot({ path: path.join(workspaceRoot, "reports", "job-card-tooling-browser.png"), fullPage: true })

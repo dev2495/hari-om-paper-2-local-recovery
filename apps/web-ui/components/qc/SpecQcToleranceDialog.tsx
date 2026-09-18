@@ -69,6 +69,18 @@ export function SpecQcToleranceDialog({
     }
   }, [open, initialProfile, context.notching])
 
+  useEffect(() => {
+    if (!open) return undefined
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return
+      event.preventDefault()
+      event.stopPropagation()
+      onBack()
+    }
+    window.addEventListener("keydown", onKey, true)
+    return () => window.removeEventListener("keydown", onKey, true)
+  }, [open, onBack])
+
   const stageRows = profile.stages[stage]?.parameters || []
 
   const summary = useMemo(
@@ -103,9 +115,7 @@ export function SpecQcToleranceDialog({
       data-testid="spec-qc-tolerance-dialog"
       role="dialog"
       aria-modal="true"
-      onKeyDown={(event) => {
-        if (event.key === "Escape") onBack()
-      }}
+      tabIndex={-1}
     >
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
         <div className="border-b border-slate-200 px-6 py-4">
