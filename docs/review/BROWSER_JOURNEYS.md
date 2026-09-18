@@ -5,9 +5,9 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `yO-4tO8AIjEk88hPrVkEW` (QCT-031 incomplete-draft save)
-- Full Chromium project this wave: **25 passed / 0 failed** (`--workers=1`, ~1.5m) — `output/playwright/yO-4tO8AIjEk88hPrVkEW-full/` and `reports/nverify-wave-exec/pw_chromium_yO-4tO8AIjEk88hPrVkEW.txt`
-- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029, QCT-030, QCT-031)
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `k27eP26jMMBcNXZRNOfEk` (QCT-033 save-key; QCT-035 list Add quality parameters)
+- Full Chromium project this wave: **27 passed / 0 failed** (`--workers=1`, ~1.5m) — `output/playwright/k27eP26jMMBcNXZRNOfEk-full/`
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029, QCT-030, QCT-031, QCT-033, QCT-035)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
   2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`

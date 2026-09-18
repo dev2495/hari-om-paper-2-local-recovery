@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 66,
-      "NOT_RUN": 102,
+      "PASS": 70,
+      "NOT_RUN": 98,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 32,
-      "EXACT_EXECUTED": 66,
+      "EXACT_EXECUTED": 70,
       "LIMITATION": 3,
-      "NONE": 79,
+      "NONE": 75,
       "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2180,13 +2180,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct033_034_live.py::test_qct033_matching_replay_returns_original_changed_payload_conflicts",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
-      "bj": [],
+      "bj": [
+        "BJ11"
+      ],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Live nverify: matching save_operation_key replays the same spec id; changed id min 74 vs 76 returns 409 SAVE_KEY_CONFLICT; one customer row remains unapproved. Chromium double-click Save draft \u2014 QC incomplete on BUILD_ID k27eP26jMMBcNXZRNOfEk does not create a second spec."
     },
     {
       "id": "QCT-034",
@@ -2199,13 +2204,15 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct033_034_live.py::test_qct034_stale_editor_cannot_overwrite_newer_revision"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Two writers on nverify specdb: first QC upsert expected_revision=1 stores min 76.4 and write_revision=2; stale expected_revision=1 with min 70 returns 409 STALE_REVISION current_revision 2; stored min stays 76.4."
     },
     {
       "id": "QCT-035",
@@ -2217,13 +2224,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct035_036_live.py::test_qct035_approved_spec_qc_draft_keeps_spec_and_recipe_ids",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
-      "bj": [],
+      "bj": [
+        "BJ11"
+      ],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Approved spec with no QC profile: list Add quality parameters opens the same editor; QC-only save keeps spec id, recipe id, and approved status; qc_profile is draft not a new spec. Chromium BUILD_ID k27eP26jMMBcNXZRNOfEk."
     },
     {
       "id": "QCT-036",
@@ -2235,13 +2247,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct035_036_live.py::test_qct036_role_matrix_and_retired_spec_cannot_mutate",
+        "apps/web-ui/__tests__/qc-measurement.test.ts"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Author/QC can draft; Sales viewer 403 on mutate; QC cannot approve; Admin approve then Create QC revision stays same spec id with draft superseding revision; obsolete/inactive upsert 400. List labels: Add quality parameters / Complete quality setup / Review quality parameters / View pending / View quality parameters / Create QC revision."
     },
     {
       "id": "QCT-037",
@@ -4468,7 +4483,9 @@
         "QCT-029",
         "QCT-030",
         "QCT-031",
-        "QCT-032"
+        "QCT-032",
+        "QCT-033",
+        "QCT-034"
       ],
       "limitations": []
     },
@@ -4476,13 +4493,16 @@
       "id": "QCR-08",
       "title": "Existing-spec Add/Complete/View/Revise actions",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-035",
         "QCT-036",
         "QCT-037"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-035",
+        "QCT-036"
+      ],
       "limitations": []
     },
     {
@@ -4867,7 +4887,9 @@
       "linked_pass": [
         "QCT-014",
         "QCT-025",
-        "QCT-032"
+        "QCT-032",
+        "QCT-033",
+        "QCT-034"
       ],
       "limitations": []
     },

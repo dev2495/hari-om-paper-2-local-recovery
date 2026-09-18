@@ -730,6 +730,43 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Live nverify specdb: create_spec with QC draft flushes then commit raises OperationalError; marker spec/qc rows are absent afterward; no orphaned approved profile.",
     },
+    "QCT-033": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct033_034_live.py::test_qct033_matching_replay_returns_original_changed_payload_conflicts",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "bj": ["BJ11"],
+        "notes": "Live nverify: matching save_operation_key replays the same spec id; changed id min 74 vs 76 returns 409 SAVE_KEY_CONFLICT; one customer row remains unapproved. Chromium double-click Save draft — QC incomplete on BUILD_ID k27eP26jMMBcNXZRNOfEk does not create a second spec.",
+    },
+    "QCT-034": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct033_034_live.py::test_qct034_stale_editor_cannot_overwrite_newer_revision",
+        ],
+        "notes": "Two writers on nverify specdb: first QC upsert expected_revision=1 stores min 76.4 and write_revision=2; stale expected_revision=1 with min 70 returns 409 STALE_REVISION current_revision 2; stored min stays 76.4.",
+    },
+    "QCT-035": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct035_036_live.py::test_qct035_approved_spec_qc_draft_keeps_spec_and_recipe_ids",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "bj": ["BJ11"],
+        "notes": "Approved spec with no QC profile: list Add quality parameters opens the same editor; QC-only save keeps spec id, recipe id, and approved status; qc_profile is draft not a new spec. Chromium BUILD_ID k27eP26jMMBcNXZRNOfEk.",
+    },
+    "QCT-036": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct035_036_live.py::test_qct036_role_matrix_and_retired_spec_cannot_mutate",
+            "apps/web-ui/__tests__/qc-measurement.test.ts",
+        ],
+        "notes": "Author/QC can draft; Sales viewer 403 on mutate; QC cannot approve; Admin approve then Create QC revision stays same spec id with draft superseding revision; obsolete/inactive upsert 400. List labels: Add quality parameters / Complete quality setup / Review quality parameters / View pending / View quality parameters / Create QC revision.",
+    },
     "QCT-040": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
