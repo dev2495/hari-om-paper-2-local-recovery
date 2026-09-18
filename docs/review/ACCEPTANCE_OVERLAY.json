@@ -7,13 +7,13 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 79,
-      "NOT_RUN": 89,
+      "PASS": 81,
+      "NOT_RUN": 87,
       "LIMITATION": 3
     },
     "coverage": {
-      "PARTIAL": 30,
-      "EXACT_EXECUTED": 79,
+      "PARTIAL": 28,
+      "EXACT_EXECUTED": 81,
       "LIMITATION": 3,
       "NONE": 68,
       "UNIT_ONLY": 5,
@@ -2466,10 +2466,12 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "apps/web-ui/e2e/correction-journeys.spec.cjs"
+        "production-service/tests/test_original_qct046_live.py::test_qct046_blank_job_print_has_frozen_stage_rules",
+        "apps/web-ui/__tests__/qc-measurement.test.ts",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [
         "RR33"
@@ -2478,7 +2480,7 @@
         "BJ12"
       ],
       "limitation": null,
-      "notes": "Chromium print keeps samples and kg vs g. Multi-page all-stage paired-oven print NOT_RUN."
+      "notes": "Blank CREATED job Chromium print on BUILD_ID Y6UYiRh5YVC2OXjR_TPZF: three pages winding/oven/process, four winding plus two process sample rows, paired oven pre/post weight and moisture with Allowed headers beside fields, writable blank boxes, print overflow visible and page-break-after, empty StageQc has no PASS."
     },
     {
       "id": "QCT-047",
@@ -2491,17 +2493,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "apps/web-ui/e2e/correction-journeys.spec.cjs"
+        "production-service/tests/test_original_qct046_live.py::test_qct047_signed_print_keeps_old_label_after_dictionary_change",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [],
       "bj": [
         "BJ12"
       ],
       "limitation": null,
-      "notes": "Completed print captured. Newer-profile historical freeze print NOT_RUN."
+      "notes": "Signed WINDER Height 120 under rev A; later approved profile changes Height unit to cm, method Dict-B, bounds 10\u201314 (canonical label stays Height). Print keeps Height 118\u2013122 mm, rev A, reading 120; does not show cm, Dict-B, or 14."
     },
     {
       "id": "QCT-048",
@@ -4588,12 +4591,15 @@
       "id": "QCR-12",
       "title": "Updated blank and completed job-card print",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-046",
         "QCT-047"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-046",
+        "QCT-047"
+      ],
       "limitations": []
     },
     {
@@ -4674,7 +4680,8 @@
         "QCT-020",
         "QCT-037",
         "QCT-039",
-        "QCT-043"
+        "QCT-043",
+        "QCT-047"
       ],
       "limitations": []
     },

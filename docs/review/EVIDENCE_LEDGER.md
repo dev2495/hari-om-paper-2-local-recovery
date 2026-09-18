@@ -13,25 +13,41 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | `a24b843` QCT-045 FAIL feedback; parent `76ca2ba` QCT-043/044 |
-| Served BUILD_ID | `HpyC8zTCwPorWtmZba6jZ` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **33/33 PASS** on this BUILD_ID (`--workers=1`, 1.7m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ this overlay |
+| Served product | `df3a0ca` QCT-046/047 print freeze; parent `a24b843` QCT-045 |
+| Served BUILD_ID | `Y6UYiRh5YVC2OXjR_TPZF` at `http://127.0.0.1:23000` |
+| BJ re-run | Chromium project **35/35 PASS** on this BUILD_ID (`--workers=1`, 1.7m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 79 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 89 |
+| Original 56/192 overlay | PASS 81 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 87 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `HpyC8zTCwPorWtmZba6jZ` pid **46816** (launcher 46783)
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Y6UYiRh5YVC2OXjR_TPZF` pid **51784** (launcher 51750)
 - BFF `http://127.0.0.1:24000` pid **40362**, inventory **2331** :28005, production **40354** :28004, sales **2337** :28008
 - Auth **90290** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `25e870e` / product `a24b843`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-046/047 live blank + signed print freeze | 2 passed | isolated production + spec HTTP approve unit/method change |
+| qc-measurement unit | 13 passed | empty reading is not PASS; print pages/writable/overflow source |
+| QCT-046 Chromium | 1 passed | three pages, 4+2 samples, paired oven Allowed, writable blanks, no PASS, print page-break |
+| QCT-047 Chromium | 1 passed | Height 118–122 mm rev A after live cm/Dict-B 10–14 |
+| Chromium original-partials | 16 passed | prior 14 plus QCT-046/047 |
+| Chromium full project | 35 passed | BUILD_ID `Y6UYiRh5YVC2OXjR_TPZF` workers=1 1.7m Chrome channel |
+
+Fixes patched with those tests:
+
+1. Job-card print is three paginated sides (winding/oven/process) with `overflow: visible`, writable blank sample/pair boxes, Allowed headers beside fields, and no PASS on empty StageQc (QCT-046).
+2. Signed print keeps frozen Height 118–122 mm and rev A after a later approved profile changes unit to cm, method to Dict-B, and bounds to 10–14 (QCT-047). Spec GET still canonicalizes Height; dictionary change is the persisted unit/method.
 
 Wave after overlay `df3cc14` / product `096ca77`:
 
