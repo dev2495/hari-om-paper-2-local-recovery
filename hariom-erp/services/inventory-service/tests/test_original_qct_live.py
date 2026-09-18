@@ -8,6 +8,7 @@ from datetime import date
 import pytest
 from fastapi import HTTPException
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 URL = os.environ.get("HARI_OM_INVENTORY_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
 if os.environ.get("HARI_OM_LIVE_PG") != "1" or "hariom_nverify" not in URL:
@@ -22,6 +23,7 @@ from src.models import (
     ItemMaster,
     ItemType,
     StockBatch,
+    StockTransaction,
     TrackingMode,
     UOM,
 )
@@ -42,8 +44,9 @@ from src.routers.purchase import (
     approve_purchase_order,
     create_purchase_order,
     post_grn,
+    retry_incoming_qc_tasks,
 )
-from src.routers.quality import QualityInspectionCreate, create_quality_inspection, list_quality_templates
+from src.routers.quality import QualityInspectionCreate, consume_destructive_sample, create_quality_inspection, list_quality_templates, DestructiveSampleConsume
 from src.services.stock_calc import get_usable_item_qty
 
 PLANT = "PLANT_A"
@@ -74,6 +77,7 @@ def setup_module() -> None:
                 "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED'))"
             )
         )
+        connection.execute(text("ALTER TABLE IF EXISTS purchase_order_lines ADD COLUMN IF NOT EXISTS qty_rejected DOUBLE PRECISION DEFAULT 0"))
         for preset in QC_TEMPLATE_PRESETS:
             connection.execute(
                 text(
@@ -562,8 +566,104 @@ def test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold(monk
         assert len(batches) == 1
         assert batches[0].stock_status == "QC_HOLD"
         assert batches[0].inward_metadata["incoming_qc_task"]["status"] == "PENDING"
+        assert batches[0].inward_metadata["incoming_qc_task"]["delivery_status"] == "PENDING"
+        assert batches[0].inward_metadata["incoming_qc_task"].get("outbox_event_id")
         assert get_usable_item_qty(str(item.id), db) == 0
         inspections = db.query(InventoryQualityInspection).filter(InventoryQualityInspection.entity_id == batches[0].id).all()
         assert inspections == []
+        first_retry = retry_incoming_qc_tasks(db=db, plant_id=PLANT, current_user=_user("qc", roles=("QC",)))
+        assert first_retry["delivered"] >= 1
+        db.refresh(batches[0])
+        assert batches[0].inward_metadata["incoming_qc_task"]["delivery_status"] == "DELIVERED"
+        assert batches[0].stock_status == "QC_HOLD"
+        event_id = batches[0].inward_metadata["incoming_qc_task"].get("outbox_event_id")
+        second_retry = retry_incoming_qc_tasks(db=db, plant_id=PLANT, current_user=_user("qc", roles=("QC",)))
+        assert event_id
+        assert event_id not in (second_retry.get("delivered_ids") or [])
+        assert db.query(StockBatch).filter(StockBatch.item_id == item.id).count() == 1
     finally:
         db.close()
+
+
+def test_qct028_destructive_sample_coverage_is_not_consumption_and_replays_once():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item = _item(db, suffix, ItemType.RAW_PAPER)
+        loc = _location(db, suffix)
+        profile = _approved_gsm()
+        profile["destructive_sample"] = {"enabled": True, "qty": 1}
+        item.quality_profile = profile
+        flag_modified(item, "quality_profile")
+        db.flush()
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-DS-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Sample Mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5, incoming_qc_required=False)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
+        grn = post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-DS-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=20, location_id=loc.id, sample_count=3)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        batch_id = uuid.UUID(grn["lines"][0]["batch_id"])
+        inspection = create_quality_inspection(
+            QualityInspectionCreate(
+                entity_type="BATCH",
+                entity_id=batch_id,
+                source="INWARD",
+                readings={"gsm": 190},
+                sample_count=3,
+                status="PASS",
+                disposition="ACCEPT",
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("qc", roles=("QC",)),
+        )
+        inspection_id = inspection.id if hasattr(inspection, "id") else uuid.UUID(str(inspection["id"]))
+        coverage = (getattr(inspection, "evaluation", None) or {}).get("sample_count") or 3
+        first = consume_destructive_sample(
+            inspection_id,
+            DestructiveSampleConsume(qty=1),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("qc", roles=("QC",)),
+        )
+        assert first["idempotent"] is False
+        assert first["consumed_qty"] == 1
+        assert first["sample_coverage"] == coverage or first["sample_coverage"] == 3
+        assert first["consumed_qty"] != first["sample_coverage"]
+        replay = consume_destructive_sample(
+            inspection_id,
+            DestructiveSampleConsume(qty=1),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("qc", roles=("QC",)),
+        )
+        assert replay["idempotent"] is True
+        assert replay["transaction_id"] == first["transaction_id"]
+        tx_count = (
+            db.query(StockTransaction)
+            .filter(StockTransaction.external_ref == f"SAMPLE:{inspection_id}")
+            .count()
+        )
+        assert tx_count == 1
+    finally:
+        db.close()
+

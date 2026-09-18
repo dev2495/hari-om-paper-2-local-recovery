@@ -1221,6 +1221,99 @@ def list_quality_inspections(
     return [_inspection_response(row) for row in rows]
 
 
+class DestructiveSampleConsume(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    qty: float = Field(gt=0)
+
+
+@router.post("/inspections/{inspection_id}/consume-sample")
+def consume_destructive_sample(
+    inspection_id: uuid.UUID,
+    payload: DestructiveSampleConsume,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC"])),
+):
+    from ..services.stock_calc import get_batch_balance, get_usable_item_qty
+
+    inspection = (
+        db.query(InventoryQualityInspection)
+        .filter(InventoryQualityInspection.id == inspection_id, InventoryQualityInspection.plant_id == plant_id)
+        .first()
+    )
+    if inspection is None:
+        raise HTTPException(status_code=404, detail="Quality inspection not found")
+    if str(inspection.entity_type or "").upper() != "BATCH":
+        raise HTTPException(status_code=400, detail="Destructive sample consumption applies to batch inspections")
+    batch = db.query(StockBatch).filter(StockBatch.id == inspection.entity_id, StockBatch.plant_id == plant_id).first()
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Inspected batch not found")
+    item = db.query(ItemMaster).filter(ItemMaster.id == batch.item_id).first()
+    profile = (item.quality_profile if item is not None else None) or {}
+    policy = profile.get("destructive_sample") if isinstance(profile, dict) else None
+    if not isinstance(policy, dict) or not policy.get("enabled"):
+        raise HTTPException(status_code=400, detail="No approved destructive sample policy on this item")
+    approved_qty = float(policy.get("qty") or 0.0)
+    if approved_qty <= 0:
+        raise HTTPException(status_code=400, detail="Destructive sample policy quantity must be positive")
+    if abs(float(payload.qty) - approved_qty) > 1e-9:
+        raise HTTPException(status_code=400, detail="Consumption quantity must match the approved destructive sample policy")
+    coverage = (inspection.evaluation or {}).get("sample_count")
+    if coverage is None:
+        coverage = (batch.inward_metadata or {}).get("sample_count")
+    external_ref = f"SAMPLE:{inspection.id}"
+    existing = (
+        db.query(StockTransaction)
+        .filter(StockTransaction.external_ref == external_ref, StockTransaction.plant_id == plant_id)
+        .first()
+    )
+    if existing:
+        return {
+            "inspection_id": str(inspection.id),
+            "transaction_id": str(existing.id),
+            "sample_coverage": coverage,
+            "consumed_qty": abs(float(existing.qty_change or 0.0)),
+            "idempotent": True,
+            "usable_qty": get_usable_item_qty(str(batch.item_id), db),
+        }
+    balance = get_batch_balance(str(batch.id), db)
+    if float(payload.qty) - balance > 1e-9:
+        raise HTTPException(status_code=400, detail="Destructive sample exceeds remaining batch quantity")
+    txn = StockTransaction(
+        item_id=batch.item_id,
+        batch_id=batch.id,
+        transaction_type=TransactionType.ADJUSTMENT,
+        effective_date=date.today(),
+        qty_change=-float(payload.qty),
+        reference_type=ReferenceType.ADJUSTMENT,
+        reference_id=inspection.id,
+        plant_id=plant_id,
+        location_id=batch.location_id,
+        stock_status=batch.stock_status,
+        movement_metadata={
+            "kind": "DESTRUCTIVE_SAMPLE",
+            "sample_coverage": coverage,
+            "consumed_qty": float(payload.qty),
+            "policy_qty": approved_qty,
+        },
+        external_ref=external_ref,
+    )
+    db.add(txn)
+    db.commit()
+    db.refresh(txn)
+    return {
+        "inspection_id": str(inspection.id),
+        "transaction_id": str(txn.id),
+        "sample_coverage": coverage,
+        "consumed_qty": float(payload.qty),
+        "idempotent": False,
+        "usable_qty": get_usable_item_qty(str(batch.item_id), db),
+        "sample_coverage_field": "evaluation.sample_count",
+        "consumed_field": "stock_transaction.qty_change",
+    }
+
+
 @router.post("/customer-rejections", response_model=CustomerRejectionResponse)
 def create_customer_rejection(
     payload: CustomerRejectionCreate,

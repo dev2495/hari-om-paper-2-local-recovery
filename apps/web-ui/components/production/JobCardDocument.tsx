@@ -608,6 +608,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   }
   const parchmentFamily = documentSnapshot?.header?.parchment_family || "-"
   const parchmentPattern = documentSnapshot?.header?.parchment_pattern || documentSnapshot?.header?.color || "-"
+  const parchmentResolution = String(documentSnapshot?.header?.parchment_resolution || card?.spec_snapshot?.parchment_resolution || "").toUpperCase()
+  const parchmentConflict = documentSnapshot?.header?.parchment_conflict || card?.spec_snapshot?.parchment_conflict || null
+  const approvedParchmentColor = documentSnapshot?.header?.approved_parchment_color || card?.spec_snapshot?.parchment_color || parchmentPattern
   const tubeDryWeightG = Number(
     manufacturingSpec?.tube_dry_weight_g ??
       documentSnapshot?.header?.tube_dry_weight_g ??
@@ -1200,6 +1203,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               </div>
             </section>
             {renderCurrentStageSection(currentStage)}
+            <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm" data-testid="physical-tool-issue">
+              {renderToolAssignment(currentStage)}
+            </section>
           </div>
           <div className="space-y-4">
             <section className="rounded-[1.4rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -1356,6 +1362,13 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Parchment Pattern</div><div className="mt-1 text-sm font-semibold text-slate-900">{parchmentPattern}</div><div className="mt-1 text-xs text-slate-500">{parchmentFamily} family</div></div>
+                {parchmentResolution === "CONFLICT" ? (
+                  <div data-testid="parchment-conflict-banner" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-amber-800">Parchment / spec mismatch</div>
+                    <div className="mt-1 text-sm font-semibold text-amber-950">Controlled conflict — approved recipe parchment was not rewritten.</div>
+                    <div className="mt-1 text-xs text-amber-900">Recipe {String(approvedParchmentColor || "—")} · Ordered {String(parchmentConflict?.ordered_color || documentSnapshot?.header?.ordered_parchment_color || "—")}</div>
+                  </div>
+                ) : null}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Notch</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.notch_type || "No notch"}</div><div className="mt-1 text-xs text-slate-500">Distance {documentSnapshot?.setup_tooling?.notch_distance || "-"} · Depth {documentSnapshot?.setup_tooling?.notch_depth || "-"} · Direction {documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div><div className="mt-1 text-xs text-slate-500">Blade {documentSnapshot?.setup_tooling?.blade || "-"} · Holder {documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || "-"} · Punch {documentSnapshot?.setup_tooling?.punch || "-"}</div></div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Packing</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.packing_instructions || "Packed by route stage when required"}</div><div className="mt-1 text-xs text-slate-500">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.box_size || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} / box</div></div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Bamboo Math</div><div className="mt-1 text-sm font-semibold text-slate-900">{formatNumber(documentSnapshot?.header?.target_bamboo_count, 0)} bamboo target · {formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)} pcs/bamboo</div><div className="mt-1 text-xs text-slate-500">{formatNumber(selectedBambooLength, 0)} mm selected · {formatNumber(usableBambooLength, 0)} mm usable · {formatNumber(trimLossMm, 0)} mm trim</div></div>
@@ -1850,6 +1863,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
           {renderSimpleField(stage, "Cycle Time", "cycle_time")}
           {renderShiftPicker(stage)}
+          {renderToolAssignment(stage)}
         </div>
         {renderLateEntryWarning(stage)}
 

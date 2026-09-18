@@ -27,13 +27,17 @@ from src.routers.sales_orders import (
     SalesOrderCreate,
     SalesOrderLineInput,
     SalesOrderLineReleasePayload,
+    BulkReleaseLinePayload,
     approve_sales_order,
+    bulk_release_sales_order_lines,
     create_sales_order,
+    get_sales_order,
+    list_sales_orders,
     release_sales_order,
     release_sales_order_line,
     sync_release_lot_job_card,
 )
-from src.schedule_service import commit_entire_po, list_order_schedules, mutate_schedule_row
+from src.schedule_service import commit_entire_po, group_move_remainder, list_order_schedules, mutate_schedule_row
 
 Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 PLANT = "PLANT-1"
@@ -210,6 +214,47 @@ def test_rel11_status_only_header_release_does_not_invent_release_qty():
         pending = serialize_pending_order(order, plant_today())
         assert sum(float(line["released_qty"]) for line in pending["lines"]) == 5
         assert pending["unreleased_qty"] == 7
+        listed = list_sales_orders(
+            status=None,
+            status_group=None,
+            customer_id=None,
+            search=None,
+            limit=500,
+            offset=0,
+            db=db,
+            plant_scope={},
+            current_user=_user("planner-1", roles=("Planner",)),
+        )
+        listed_row = next(row for row in listed if str(row.get("id")) == str(order.id))
+        listed_status = listed_row["status"]
+        assert listed_status in {"RELEASED", "released", "PARTIALLY_RELEASED", "partially_released"}
+        detail = get_sales_order(
+            order.id,
+            db=db,
+            plant_scope={},
+            current_user=_user("planner-1", roles=("Planner",)),
+        )
+        detail_released = sum(float(line.get("released_qty") if isinstance(line, dict) else line.released_qty) for line in (detail["lines"] if isinstance(detail, dict) else detail.lines))
+        assert detail_released == 5
+        other = _create_approved(db, lines=[_line(qty=8)], po="REL11B")
+        bulk = bulk_release_sales_order_lines(
+            [
+                BulkReleaseLinePayload(
+                    line_id=other.lines[0].id,
+                    release_qty=3,
+                    winder_machine_id=uuid.uuid4(),
+                )
+            ],
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("planner-1", roles=("Planner",)),
+        )
+        assert bulk["policy"] == "line_release"
+        assert abs(float(bulk["lots"][0]["release_qty"]) - 3) < 1e-9
+        db.refresh(other)
+        pending_other = serialize_pending_order(other, plant_today())
+        assert sum(float(line["released_qty"]) for line in pending_other["lines"]) == 3
+        assert pending_other["unreleased_qty"] == 5
     finally:
         db.close()
 
@@ -362,6 +407,36 @@ def test_plan04_locked_or_delivered_history_cannot_move_only_editable_remainder(
         assert str(moved["delivery_date"])[:10] == "2026-10-02"
         db.refresh(locked)
         assert locked.delivery_date == date(2026, 9, 18)
+        released = release_sales_order_line(
+            line.id,
+            SalesOrderLineReleasePayload(release_qty=40, winder_machine_id=uuid.uuid4()),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("planner-1", roles=("Planner",)),
+        )
+        sync_release_lot_job_card(
+            uuid.UUID(str(released["release_lot_id"])),
+            ReleaseLotJobCardSyncPayload(job_card_id=uuid.uuid4()),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("planner-1", roles=("Planner",)),
+        )
+        db.refresh(order)
+        grouped = group_move_remainder(
+            db,
+            order=order,
+            day_delta=5,
+            expected_revision=int(order.schedule_revision or 0),
+            actor="planner-a",
+        )
+        db.refresh(locked)
+        db.refresh(remainder)
+        assert locked.delivery_date == date(2026, 9, 18)
+        assert any(item.get("reason") == "dispatched_or_locked" for item in grouped["kept"])
+        moved_ids = {item["id"] for item in grouped["moved"]}
+        assert str(remainder.id) in moved_ids
+        assert str(locked.id) not in moved_ids
+        assert remainder.delivery_date == date(2026, 10, 7)
     finally:
         db.close()
 

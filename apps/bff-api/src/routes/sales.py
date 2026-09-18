@@ -86,6 +86,18 @@ async def patch_order_delivery_schedule(order_id: str, schedule_id: str, request
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules/{schedule_id}", request, token)
 
 
+@router.post("/orders/{order_id}/delivery-schedules/group-move")
+async def group_move_order_remainder(order_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        SALES_SERVICE_URL, f"/sales-orders/{order_id}/delivery-schedules/group-move", request, token
+    )
+
+
+@router.post("/orders/release-bulk")
+async def bulk_release_order_lines(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, "/sales-orders/release-bulk", request, token)
+
+
 @router.post("/orders/{order_id}/schedule-entire-po/preview")
 async def preview_schedule_entire_po(order_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/schedule-entire-po/preview", request, token)

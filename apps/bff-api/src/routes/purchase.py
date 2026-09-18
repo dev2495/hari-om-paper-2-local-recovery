@@ -5,6 +5,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from src.middleware.auth import get_token
+from src.services.books_guard import assert_not_backdated
 from src.services.http_client import proxy_to_service
 from src.services.workspace import emit_from_response, response_body_json
 
@@ -53,7 +54,24 @@ async def approve_purchase_order(po_id: str, request: Request, token: str = Depe
 
 @router.post("/orders/{po_id}/grn")
 async def post_purchase_grn(po_id: str, request: Request, token: str = Depends(get_token)):
-    response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/orders/{po_id}/grn", request, token)
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict):
+        await assert_not_backdated(
+            token,
+            plant_id,
+            effective_date=body.get("received_date") or body.get("effective_date") or body.get("date"),
+        )
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/purchase/orders/{po_id}/grn",
+        request,
+        token,
+        json_body=body if body else None,
+    )
     payload = response_body_json(response) or {}
     await emit_from_response(
         response,
@@ -66,6 +84,21 @@ async def post_purchase_grn(po_id: str, request: Request, token: str = Depends(g
         payload={"purchase_order_id": po_id, "grn_id": str(payload.get("id") or "")},
     )
     return response
+
+
+@router.post("/orders/{po_id}/lines/{line_id}/reject-remainder")
+async def reject_purchase_remainder(po_id: str, line_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/purchase/orders/{po_id}/lines/{line_id}/reject-remainder",
+        request,
+        token,
+    )
+
+
+@router.post("/qc-tasks/retry")
+async def retry_incoming_qc_tasks(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/qc-tasks/retry", request, token)
 
 
 @router.get("/receipts")

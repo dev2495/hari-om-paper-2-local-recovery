@@ -862,6 +862,7 @@ class PurchaseOrderLine(Base):
     item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
     qty_ordered = Column(Float, nullable=False)
     qty_received = Column(Float, nullable=False, default=0.0)
+    qty_rejected = Column(Float, nullable=False, default=0.0)
     unit_cost = Column(Float, nullable=False)
     incoming_qc_required = Column(Boolean, nullable=False, default=True)
     line_status = Column(String(20), nullable=False, default="OPEN")
@@ -876,8 +877,9 @@ class PurchaseOrderLine(Base):
     __table_args__ = (
         CheckConstraint("qty_ordered > 0", name="ck_purchase_order_lines_qty_ordered_positive"),
         CheckConstraint("qty_received >= 0", name="ck_purchase_order_lines_qty_received_nonnegative"),
+        CheckConstraint("qty_rejected >= 0", name="ck_purchase_order_lines_qty_rejected_nonnegative"),
         CheckConstraint("unit_cost >= 0", name="ck_purchase_order_lines_unit_cost_nonnegative"),
-        CheckConstraint("line_status IN ('OPEN','PARTIAL','CLOSED')", name="ck_purchase_order_lines_status"),
+        CheckConstraint("line_status IN ('OPEN','PARTIAL','CLOSED','REJECTED')", name="ck_purchase_order_lines_status"),
     )
 
 

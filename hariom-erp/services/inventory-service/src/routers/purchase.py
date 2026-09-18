@@ -28,6 +28,7 @@ from ..models import (
     TransactionType,
 )
 from ..quality_eval import exemption_scope_applies
+from ..quality_task_queue import enqueue_incoming_qc_task, retry_incoming_qc_task_deliveries
 from ..quality_pin import pin_quality_profile_metadata
 from ..services.po_qualifier import parse_po_qualifier, qualifier_conflicts_item
 from ..services.purchase_workbook import (
@@ -57,12 +58,16 @@ def _actor(current_user: dict) -> str:
     )
 
 
-def _line_status(qty_ordered: float, qty_received: float) -> str:
+def _line_status(qty_ordered: float, qty_received: float, qty_rejected: float = 0.0) -> str:
     ordered = float(qty_ordered or 0.0)
     received = float(qty_received or 0.0)
-    if received <= 0:
+    rejected = float(qty_rejected or 0.0)
+    if received <= 0 and rejected <= 0:
         return "OPEN"
-    if received + 1e-9 >= ordered:
+    accounted = received + rejected
+    if rejected > 0 and received <= 0 and accounted + 1e-9 >= ordered:
+        return "REJECTED"
+    if accounted + 1e-9 >= ordered:
         return "CLOSED"
     return "PARTIAL"
 
@@ -70,7 +75,7 @@ def _line_status(qty_ordered: float, qty_received: float) -> str:
 def _po_status(line_statuses: list[str]) -> str:
     if line_statuses and all(status == "CLOSED" for status in line_statuses):
         return "RECEIVED"
-    if any(status in {"PARTIAL", "CLOSED"} for status in line_statuses):
+    if any(status in {"PARTIAL", "CLOSED", "REJECTED"} for status in line_statuses):
         return "PARTIALLY_RECEIVED"
     return "APPROVED"
 
@@ -259,6 +264,22 @@ class ReceiptEvidenceCreate(BaseModel):
     batch_id: uuid.UUID
 
 
+class RejectRemainderPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    qty_rejected: float = Field(gt=0)
+    disposition: str = "REJECT"
+    replacement_qty: Optional[float] = Field(default=None, gt=0)
+
+    @field_validator("disposition")
+    @classmethod
+    def validate_disposition(cls, value: str) -> str:
+        normalized = value.strip().upper()
+        if normalized not in {"REJECT", "REPLACE"}:
+            raise ValueError("disposition must be REJECT or REPLACE")
+        return normalized
+
+
 def _order_for_plant(db: Session, po_id: uuid.UUID, plant_id: str) -> PurchaseOrder:
     order = (
         db.query(PurchaseOrder)
@@ -302,6 +323,16 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "uom": (line.item.uom.value if line.item and hasattr(line.item.uom, "value") else (str(line.item.uom) if line.item else None)),
                 "qty_ordered": float(line.qty_ordered or 0.0),
                 "qty_received": float(line.qty_received or 0.0),
+                "qty_rejected": float(getattr(line, "qty_rejected", 0.0) or 0.0),
+                "qty_open": round(
+                    max(
+                        0.0,
+                        float(line.qty_ordered or 0.0)
+                        - float(line.qty_received or 0.0)
+                        - float(getattr(line, "qty_rejected", 0.0) or 0.0),
+                    ),
+                    6,
+                ),
                 "unit_cost": float(line.unit_cost or 0.0),
                 "incoming_qc_required": bool(line.incoming_qc_required),
                 "line_status": line.line_status,
@@ -574,7 +605,11 @@ def post_grn(
         po_line = lines_by_id.get(line_payload.po_line_id)
         if not po_line:
             raise HTTPException(status_code=404, detail=f"PO line not found for GRN line {idx}")
-        remaining = float(po_line.qty_ordered or 0.0) - float(po_line.qty_received or 0.0)
+        remaining = (
+            float(po_line.qty_ordered or 0.0)
+            - float(po_line.qty_received or 0.0)
+            - float(getattr(po_line, "qty_rejected", 0.0) or 0.0)
+        )
         if line_payload.qty_received > remaining + 1e-9:
             raise HTTPException(status_code=400, detail=f"GRN quantity exceeds PO balance for line {idx}")
 
@@ -613,7 +648,10 @@ def post_grn(
         inward_metadata["incoming_qc_task"] = {
             "status": qc_status,
             "notification_status": "PENDING" if qc_status == "PENDING" else qc_status,
+            "delivery_status": "PENDING" if qc_status == "PENDING" else qc_status,
         }
+        if qc_status == "PENDING":
+            inward_metadata["incoming_qc_task"]["outbox_event_id"] = None
         batch = StockBatch(
             item_id=po_line.item_id,
             batch_no=batch_no,
@@ -671,6 +709,18 @@ def post_grn(
         )
         db.add(receipt_line)
         db.flush()
+        if qc_status == "PENDING":
+            event_id = enqueue_incoming_qc_task(
+                db,
+                plant_id=plant_id,
+                receipt_id=str(receipt.id),
+                batch_id=str(batch.id),
+                grn_no=grn_no,
+                po_no=order.po_no,
+            )
+            inward_metadata["incoming_qc_task"]["outbox_event_id"] = event_id
+            batch.inward_metadata = dict(inward_metadata)
+            flag_modified(batch, "inward_metadata")
         allocation_payload = None
         if line_payload.schedule_id:
             schedule = db.query(PurchaseLineSchedule).filter(
@@ -693,7 +743,9 @@ def post_grn(
                 "idempotent": replayed,
             }
         po_line.qty_received = float(po_line.qty_received or 0.0) + float(line_payload.qty_received)
-        po_line.line_status = _line_status(po_line.qty_ordered, po_line.qty_received)
+        po_line.line_status = _line_status(
+            po_line.qty_ordered, po_line.qty_received, getattr(po_line, "qty_rejected", 0.0)
+        )
         response_lines.append(
             {
                 "po_line_id": str(po_line.id),
@@ -747,6 +799,136 @@ def post_grn(
         "order_status": order.status,
         "lines": response_lines,
     }
+
+
+@router.post("/orders/{po_id}/lines/{line_id}/reject-remainder")
+def reject_purchase_remainder(
+    po_id: uuid.UUID,
+    line_id: uuid.UUID,
+    payload: RejectRemainderPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager"])),
+):
+    order = (
+        db.query(PurchaseOrder)
+        .filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id)
+        .with_for_update()
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
+        raise HTTPException(status_code=400, detail="Only approved purchase orders can record a rejected remainder")
+    po_line = next((line for line in (order.lines or []) if line.id == line_id), None)
+    if po_line is None:
+        raise HTTPException(status_code=404, detail="Purchase order line not found")
+    remaining = (
+        float(po_line.qty_ordered or 0.0)
+        - float(po_line.qty_received or 0.0)
+        - float(getattr(po_line, "qty_rejected", 0.0) or 0.0)
+    )
+    if payload.qty_rejected - remaining > 1e-9:
+        raise HTTPException(status_code=400, detail="Rejected quantity exceeds open PO remainder")
+    if payload.disposition == "REPLACE" and not payload.replacement_qty:
+        raise HTTPException(status_code=400, detail="Replacement disposition requires replacement_qty")
+    usable_before = None
+    try:
+        from ..services.stock_calc import get_usable_item_qty
+
+        usable_before = get_usable_item_qty(str(po_line.item_id), db)
+    except Exception:
+        usable_before = None
+    po_line.qty_rejected = float(getattr(po_line, "qty_rejected", 0.0) or 0.0) + float(payload.qty_rejected)
+    po_line.line_status = _line_status(po_line.qty_ordered, po_line.qty_received, po_line.qty_rejected)
+    metadata = dict(po_line.metadata_json or {})
+    metadata["rejected_remainder"] = {
+        "qty": float(po_line.qty_rejected or 0.0),
+        "disposition": payload.disposition,
+        "actor": _actor(current_user),
+    }
+    po_line.metadata_json = metadata
+    flag_modified(po_line, "metadata_json")
+    open_after = (
+        float(po_line.qty_ordered or 0.0)
+        - float(po_line.qty_received or 0.0)
+        - float(po_line.qty_rejected or 0.0)
+    )
+    for schedule in list(po_line.schedules or []):
+        if str(schedule.confirmation_status or "").upper() == "CANCELLED":
+            continue
+        allocated = round(sum(float(row.allocated_qty or 0.0) for row in (schedule.allocations or [])), 6)
+        leftover = max(0.0, float(schedule.scheduled_qty or 0.0) - allocated)
+        if leftover > 1e-9 and open_after <= 1e-9:
+            schedule.confirmation_status = "CANCELLED"
+            schedule.cancelled_at = datetime.utcnow()
+            schedule.notes = (schedule.notes or "") + " | remainder rejected"
+    replacement_line_id = None
+    if payload.disposition == "REPLACE":
+        replacement = PurchaseOrderLine(
+            purchase_order_id=order.id,
+            item_id=po_line.item_id,
+            qty_ordered=float(payload.replacement_qty),
+            qty_received=0.0,
+            qty_rejected=0.0,
+            unit_cost=po_line.unit_cost,
+            incoming_qc_required=po_line.incoming_qc_required,
+            line_status="OPEN",
+            notes=f"Replacement for rejected remainder of line {po_line.id}",
+            metadata_json={"replacement_of_line_id": str(po_line.id), "not_stock": True},
+        )
+        db.add(replacement)
+        db.flush()
+        replacement_line_id = str(replacement.id)
+    order.status = _po_status([line.line_status for line in order.lines or []])
+    db.commit()
+    db.refresh(order)
+    usable_after = usable_before
+    try:
+        from ..services.stock_calc import get_usable_item_qty
+
+        usable_after = get_usable_item_qty(str(po_line.item_id), db)
+    except Exception:
+        pass
+    return {
+        **_serialize_order(order),
+        "rejected_line_id": str(po_line.id),
+        "qty_rejected": float(po_line.qty_rejected or 0.0),
+        "qty_received": float(po_line.qty_received or 0.0),
+        "qty_open": round(max(0.0, open_after), 6),
+        "replacement_line_id": replacement_line_id,
+        "usable_stock_unchanged": usable_before is None or abs(float(usable_before) - float(usable_after or 0.0)) < 1e-9,
+    }
+
+
+@router.post("/qc-tasks/retry")
+def retry_incoming_qc_tasks(
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "QC"])),
+):
+    del plant_id
+
+    def _deliver(body: dict) -> None:
+        payload = body.get("payload") or {}
+        batch_id = payload.get("batch_id")
+        if not batch_id:
+            return
+        batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(str(batch_id))).first()
+        if batch is None:
+            return
+        metadata = dict(batch.inward_metadata or {})
+        task = dict(metadata.get("incoming_qc_task") or {})
+        task["notification_status"] = "DELIVERED"
+        task["delivery_status"] = "DELIVERED"
+        task["delivered_by"] = _actor(current_user)
+        metadata["incoming_qc_task"] = task
+        batch.inward_metadata = metadata
+        flag_modified(batch, "inward_metadata")
+
+    result = retry_incoming_qc_task_deliveries(db, deliver=_deliver)
+    db.commit()
+    return result
 
 
 @router.get("/receipts")

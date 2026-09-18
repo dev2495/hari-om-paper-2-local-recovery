@@ -2606,6 +2606,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               {isEditable ? (
                 <button
                   type="button"
+                  data-testid="spec-sheet-save-draft"
                   onClick={handleSave}
                   disabled={!canSaveDraft || createSpecSheet.isPending || updateSpecSheet.isPending}
                   className="rounded-lg bg-[#102832] px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#183946] disabled:cursor-not-allowed disabled:opacity-50"
@@ -2716,6 +2717,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     <FieldLabel>Client / Party Name</FieldLabel>
                     {isEditable ? (
                       <SmartSelect
+                        testId="spec-sheet-customer"
                         value={form.customerId}
                         options={customerOptions}
                         placeholder="Select customer"

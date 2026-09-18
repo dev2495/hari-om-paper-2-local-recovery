@@ -38,6 +38,7 @@ from ..pending_workspace import (
 from ..schedule_service import (
     commit_entire_po,
     commit_line_schedules,
+    group_move_remainder,
     list_order_schedules,
     load_order_for_schedule,
     mutate_schedule_row,
@@ -741,6 +742,19 @@ class DeliverySchedulePatchPayload(BaseModel):
     status: Optional[str] = None
 
 
+class GroupMoveRemainderPayload(BaseModel):
+    day_delta: int
+    expected_revision: int = 0
+
+
+class BulkReleaseLinePayload(BaseModel):
+    line_id: uuid.UUID
+    release_qty: float = Field(..., gt=0)
+    winder_machine_id: uuid.UUID
+    product_code: Optional[str] = None
+    release_lot_id: Optional[uuid.UUID] = None
+
+
 @router.get("/aggregates", response_model=SalesOrderAggregatesResponse)
 def get_sales_order_aggregates(
     db: Session = Depends(get_db),
@@ -1116,6 +1130,52 @@ def patch_delivery_schedule_row(
         updates=payload.model_dump() if hasattr(payload, "model_dump") else payload.dict(),
         actor=str(current_user.get("sub") or "unknown"),
     )
+
+
+@router.post("/{order_id}/delivery-schedules/group-move")
+def group_move_order_remainder(
+    order_id: uuid.UUID,
+    payload: GroupMoveRemainderPayload,
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    order = load_order_for_schedule(db, order_id, plant_scope)
+    return group_move_remainder(
+        db,
+        order=order,
+        day_delta=payload.day_delta,
+        expected_revision=payload.expected_revision,
+        actor=str(current_user.get("sub") or "unknown"),
+    )
+
+
+@router.post("/release-bulk")
+def bulk_release_sales_order_lines(
+    payload: List[BulkReleaseLinePayload],
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
+):
+    if not payload:
+        raise HTTPException(status_code=400, detail="Bulk release requires at least one line")
+    lots = []
+    for item in payload:
+        lots.append(
+            release_sales_order_line(
+                item.line_id,
+                SalesOrderLineReleasePayload(
+                    release_qty=item.release_qty,
+                    winder_machine_id=item.winder_machine_id,
+                    product_code=item.product_code,
+                    release_lot_id=item.release_lot_id,
+                ),
+                db=db,
+                plant_id=plant_id,
+                current_user=current_user,
+            )
+        )
+    return {"lots": lots, "count": len(lots), "policy": "line_release"}
 
 
 @router.get("/open-demand")

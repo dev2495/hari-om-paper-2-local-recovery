@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import HTTPException
@@ -564,3 +564,89 @@ def mutate_schedule_row(
     locked.schedule_revision = int(locked.schedule_revision or 0) + 1
     db.commit()
     return serialize_schedule_row(row)
+
+
+def group_move_remainder(
+    db: Session,
+    *,
+    order: SalesOrder,
+    day_delta: int,
+    expected_revision: int,
+    actor: str,
+) -> dict[str, Any]:
+    """Shift only editable remainder dates. Dispatched/started history stays put."""
+
+    del actor
+    if int(day_delta) == 0:
+        raise HTTPException(status_code=400, detail="day_delta must be a non-zero day shift")
+    locked = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == order.id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if not locked:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    db.refresh(locked)
+    current_revision = int(locked.schedule_revision or 0)
+    if int(expected_revision) != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "STALE_PREVIEW",
+                "message": "Schedule revision changed since preview. Reload and review again.",
+                "current_revision": current_revision,
+            },
+        )
+    order = (
+        db.query(SalesOrder)
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
+        .filter(SalesOrder.id == order.id)
+        .populate_existing()
+        .first()
+    )
+    moved: list[dict[str, Any]] = []
+    kept: list[dict[str, Any]] = []
+    for line in order.lines or []:
+        started_qty = round(
+            sum(
+                float(lot.released_qty or 0.0)
+                for lot in (line.release_lots or [])
+                if getattr(lot, "job_card_id", None)
+            ),
+            4,
+        )
+        remaining_started = max(started_qty, 0.0)
+        rows = sorted(
+            [row for row in (line.delivery_schedules or []) if str(row.status or "").lower() != "cancelled"],
+            key=lambda row: (row.delivery_date, str(row.id)),
+        )
+        for row in rows:
+            status = str(row.status or "").lower()
+            qty = float(row.quantity or 0.0)
+            if is_immutable_status(status):
+                remaining_started = round(max(0.0, remaining_started - qty), 4)
+                kept.append(serialize_schedule_row(row) | {"reason": "dispatched_or_locked"})
+                continue
+            if remaining_started > 1e-9:
+                remaining_started = round(max(0.0, remaining_started - qty), 4)
+                kept.append(serialize_schedule_row(row) | {"reason": "started"})
+                continue
+            row.delivery_date = row.delivery_date + timedelta(days=int(day_delta))
+            row.updated_at = datetime.utcnow()
+            moved.append(serialize_schedule_row(row))
+    locked.schedule_revision = current_revision + 1
+    db.commit()
+    return {
+        "order_id": str(order.id),
+        "day_delta": int(day_delta),
+        "schedule_revision": int(locked.schedule_revision),
+        "moved": moved,
+        "kept": kept,
+        "calendar": "customer_delivery",
+        "message": "Only editable remainder moved. Fulfilled and started history was not rewritten.",
+    }

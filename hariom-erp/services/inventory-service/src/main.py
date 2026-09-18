@@ -449,6 +449,16 @@ def ensure_runtime_schema() -> None:
         "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED'))"
       )
     )
+    connection.execute(text("ALTER TABLE IF EXISTS purchase_order_lines ADD COLUMN IF NOT EXISTS qty_rejected DOUBLE PRECISION DEFAULT 0"))
+    connection.execute(text("UPDATE purchase_order_lines SET qty_rejected = 0 WHERE qty_rejected IS NULL"))
+    connection.execute(text("ALTER TABLE IF EXISTS purchase_order_lines DROP CONSTRAINT IF EXISTS ck_purchase_order_lines_status"))
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS purchase_order_lines "
+        "ADD CONSTRAINT ck_purchase_order_lines_status "
+        "CHECK (line_status IN ('OPEN','PARTIAL','CLOSED','REJECTED'))"
+      )
+    )
     connection.execute(
       text(
         "CREATE TABLE IF NOT EXISTS purchase_line_schedules ("

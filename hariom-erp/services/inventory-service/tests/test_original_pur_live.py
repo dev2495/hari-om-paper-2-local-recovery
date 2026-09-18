@@ -52,7 +52,10 @@ from src.routers.purchase import (
     post_grn,
     preview_purchase_workbook,
     print_purchase_order,
+    reject_purchase_remainder,
+    retry_incoming_qc_tasks,
     update_receipt_line_qc,
+    RejectRemainderPayload,
 )
 from src.routers.dispatch import DispatchCreate, create_dispatch
 from src.routers.quality import QualityInspectionCreate, create_quality_inspection
@@ -71,6 +74,15 @@ def setup_module() -> None:
         connection.execute(text("ALTER TABLE IF EXISTS item_master DROP CONSTRAINT IF EXISTS item_master_item_code_key"))
         connection.execute(text("DROP INDEX IF EXISTS item_master_item_code_key"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_item_master_plant_code ON item_master (plant_id, item_code)"))
+        connection.execute(text("ALTER TABLE IF EXISTS purchase_order_lines ADD COLUMN IF NOT EXISTS qty_rejected DOUBLE PRECISION DEFAULT 0"))
+        connection.execute(text("ALTER TABLE IF EXISTS purchase_order_lines DROP CONSTRAINT IF EXISTS ck_purchase_order_lines_status"))
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS purchase_order_lines "
+                "ADD CONSTRAINT ck_purchase_order_lines_status "
+                "CHECK (line_status IN ('OPEN','PARTIAL','CLOSED','REJECTED'))"
+            )
+        )
         for value in ("PACKAGING", "TOOL", "OTHER"):
             connection.execute(
                 text(
@@ -531,7 +543,7 @@ def test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close():
                 po_no=f"PO-PR-{suffix}",
                 supplier_id=uuid.uuid4(),
                 supplier_name="Partial Mills",
-                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=8)],
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=8, incoming_qc_required=False)],
             ),
             db=db,
             plant_id=PLANT,
@@ -556,7 +568,30 @@ def test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close():
         remaining = float(order.lines[0].qty_ordered) - float(order.lines[0].qty_received)
         assert abs(remaining - 40) < 1e-9
         assert order.lines[0].line_status != "CLOSED"
-        assert "REJECTED" not in {"OPEN", "PARTIAL", "CLOSED"}
+        rejected = reject_purchase_remainder(
+            po_id,
+            order.lines[0].id,
+            RejectRemainderPayload(qty_rejected=40, disposition="REPLACE", replacement_qty=40),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        db.refresh(order)
+        line = next(row for row in order.lines if row.id == order.lines[0].id)
+        assert abs(float(line.qty_rejected or 0) - 40) < 1e-9
+        assert abs(float(line.qty_received or 0) - 60) < 1e-9
+        open_qty = float(line.qty_ordered) - float(line.qty_received) - float(line.qty_rejected)
+        assert abs(open_qty) < 1e-9
+        assert line.line_status in {"CLOSED", "PARTIAL"}
+        assert rejected["replacement_line_id"]
+        replacement = next(row for row in order.lines if str(row.id) == rejected["replacement_line_id"])
+        assert replacement.line_status == "OPEN"
+        assert abs(float(replacement.qty_ordered) - 40) < 1e-9
+        assert abs(float(replacement.qty_received or 0)) < 1e-9
+        assert (replacement.metadata_json or {}).get("not_stock") is True
+        assert get_usable_item_qty(str(item.id), db) == 60
+        receipts = db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == order.id).count()
+        assert receipts == 1
     finally:
         db.close()
 
@@ -1108,5 +1143,55 @@ def test_reg04_isolated_target_build_reports_measured_concurrency():
     assert all(isinstance(row, str) and row.startswith("PO-R4-") for row in results), results
     assert len(set(results)) == 8
     assert elapsed_ms < 15000
+
+
+def test_plan05_supplier_dates_do_not_post_stock_or_receipt():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, _loc = _item_and_location(db, suffix)
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-P5-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Calendar Mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=80, unit_cost=6)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        line_id = uuid.UUID(created["lines"][0]["id"])
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        before_tx = db.query(StockTransaction).filter(StockTransaction.item_id == item.id).count()
+        before_grn = db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == po_id).count()
+        committed = commit_supplier_schedules(
+            po_id,
+            SupplierScheduleCommit(
+                rows=[
+                    SupplierScheduleRowIn(
+                        purchase_order_line_id=line_id,
+                        scheduled_qty=80,
+                        promised_date=date(2026, 10, 12),
+                        confirmation_status="CONFIRMED",
+                    )
+                ]
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        assert committed["ledger"] is False
+        after_tx = db.query(StockTransaction).filter(StockTransaction.item_id == item.id).count()
+        after_grn = db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == po_id).count()
+        assert after_tx == before_tx == 0
+        assert after_grn == before_grn == 0
+        assert get_usable_item_qty(str(item.id), db) == 0
+        order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+        assert order.status == "APPROVED"
+    finally:
+        db.close()
+
 
 
