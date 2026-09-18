@@ -5,7 +5,8 @@ Branch: `cursor/ui-polish-nav-c5f9`
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
 Chromium / harness SHA: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`  
-Local HEAD before this execution cycle: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8f`
+Local HEAD before this execution cycle: `5187a640ac86123806d79b0160f022346a3745a5`
+Product commit this cycle: `1e397887c5bf1d88d7d22c014f5bbd8dd1eda4ba`
 
 ## Compact evidence index
 
@@ -16,14 +17,14 @@ Local HEAD before this execution cycle: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8
 | Served product SHA | `d071d122ae8725431195804cc33779c4ff1e75a6` |
 | Served BUILD_ID | `Yz4l4-NEecxcN4k1Xtf_H` at `http://127.0.0.1:23000` |
 | Test-harness SHA | `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e only vs product SHA) |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `83e0b54` ⊂ `6f50a76` ⊂ this follow-up |
-| Path-scoped product after `d071d12` | e2e harness + this cycle’s backend/evaluator/sales/production/spec source |
-| Inventory/production/shared after `faee2ab` | **changed this cycle** (evaluator + production release replay). `faee2ab` images are stale vs current source. |
-| Schema | create_all, no `alembic_version`. Tables 10/23/8/8/22/32/1. Column MD5 from prior nverify fingerprint: auth `6e1a0fb8…`, master `3a17e392…`, spec `685d8ed8…`, sales `ece79600…`, production `7977a259…`, inventory `9f88e793…`, analytics `735e355c…`. No migration this cycle. |
-| Images | `hariom-nverify-inventory:faee2ab` id `sha256:eef5d9c383457d8a4d5314317422d7c936a0510b1e3c75f5b6612b242b04e842`; `hariom-nverify-production:faee2ab` id `sha256:e17529ec1aa42e4ef30df53b7c134eb4a6839fa8800b1baae35ed24e8eebd546` — **not rebuilt** after evaluator change |
-| Browser | Playwright 1.59.1, Chrome channel: BJ 15/15 plus theme 6/6. WebKit BLOCKED. Safari.app BLOCKED. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ this overlay commit |
+| Path-scoped product after `d071d12` | e2e harness + backend/evaluator/sales/production/spec/planning/purchase source |
+| Inventory/production/shared after `faee2ab` | **changed** (evaluator, parchment, capacity, GRN pin, incoming PASS usable sync). `faee2ab` images are stale. |
+| Schema | create_all, no `alembic_version`. No migration this cycle. GRN `inward_metadata` JSON pin only. |
+| Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **not rebuilt** |
+| Browser | Playwright 1.59.1 Chrome: BJ 15/15, theme 6/6, PLAN-09 1/1. WebKit BLOCKED. Safari.app BLOCKED. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 23 / PARTIAL 23 / LIMITATION 3 / NOT_RUN 143 |
+| Original 56/192 overlay | PASS 28 / PARTIAL 29 / LIMITATION 3 / NOT_RUN 132 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
@@ -33,11 +34,31 @@ Local HEAD before this execution cycle: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - node v26.5.0, Playwright 1.59.1, python 3.11.15
 - `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Manifest: `hariom-erp/runtime-verify/runtime_manifest.json` last consistency PASS 29/29 at 2026-09-18T17:11:38 (harness SHA `5dd8b9b`)
+- Isolated production HTTP pid **70283** :28004 and inventory pid **70284** :28005 after this wave. JWT sha256 prefix `c0f8ce9c6baa035a` matches auth. Foreign 13000 pid 69663 left running.
 
 ## This cycle — executable original cases
 
-Wave2 after `c53b1f5` (logs `reports/nverify-c53b-exec/`):
+Wave after `5187a64` (logs `reports/nverify-5187a-exec/`):
+
+| Suite | Result | Log |
+| --- | --- | --- |
+| PLAN-06/07/08 + capacity guardrails + COMM-08 units | 50 passed | `prod_plan_unit.txt` |
+| QC-01 roles + QC-02 plant scope | 7 passed | pytest `test_original_qc_roles` / `test_qc_plant_scope` |
+| inventory pin + schedules + usable unit | 8 passed | `inv_unit.txt` |
+| PUR-01/02/03/04/05 + QCT-015 live | 7 passed | `pur_live.txt` |
+| PLAN-09 Chromium keyboard/390px | 1 passed ~3.1s | `plan09_pw.txt` |
+
+Fixes patched before or with those tests:
+
+1. Missing capacity policy returned no warning (looked feasible) → `MISSING_CAPACITY_POLICY_WARNING`.
+2. Oven assignment ignored used capacity (`available_capacity = full shift`, and OVEN was outside the split path) → OVEN in `CAPACITY_SPLIT_STAGES`, remaining capacity enforced.
+3. Holiday dates were included in the 30-day horizon → `_future_stage_slots` skips `closed_dates`; board/move warn `CLOSED_DATE_WARNING`.
+4. GRN lots did not pin the item quality profile → `pin_quality_profile_metadata` on each receipt batch.
+5. Incoming QC PASS flipped the batch but left inward transactions `QC_HOLD`, so usable qty stayed 0 → inward QC_HOLD txs follow the PASS stock status.
+
+Prior wave2 logs remain under `reports/nverify-c53b-exec/` and `reports/nverify-6f50a-exec/`.
+
+## Prior waves
 
 | Suite | Result | Log |
 | --- | --- | --- |
@@ -76,7 +97,7 @@ See `docs/review/RECOVERY_REHEARSAL.md`. Repeat at `20260918T140252Z`: rowcount 
 
 Retained BJ01–BJ12 Chromium 15 passed (`output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/`).
 
-Theme add-on Chromium + chromium-dark 6 passed (`output/playwright/6f50a76d65b5715427b57ec05e53b0ce12d4ea8f-theme/`).
+PLAN-09 Chromium 1 passed (`reports/nverify-5187a-exec/plan09_pw.txt`).
 
 WebKit BLOCKED (incomplete browser install). Safari.app BLOCKED (`safaridriver --enable` needs owner password).
 
@@ -84,7 +105,7 @@ WebKit BLOCKED (incomplete browser install). Safari.app BLOCKED (`safaridriver -
 
 | Gate | Status |
 | --- | --- |
-| Original 192 overlay PASS | 18 of 192; 152 still NOT_RUN |
+| Original 192 overlay PASS | 28 of 192; 132 still NOT_RUN; 29 PARTIAL; 3 LIMITATION |
 | BJ13 Safari / dual product theme | NOT_RUN / BLOCKED |
 | QCT-120 full client cycle UAT | NOT_RUN |
 | QCT-125 / RR36 release sign-off, main merge, deploy | NOT_RUN |

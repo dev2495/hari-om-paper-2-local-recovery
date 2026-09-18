@@ -143,6 +143,55 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Customer calendar save leaves APPROVED, zero released/fulfilled, no lots. Supplier dates and inventory postings NOT_RUN.",
     },
+    "PLAN-06": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_plan_capacity.py::test_plan06_stage_units_convert_metres_batches_and_tubes",
+            "production-service/tests/test_original_plan_capacity.py::test_plan06_missing_capacity_policy_is_not_labelled_feasible",
+            "production-service/tests/test_capacity_guardrails.py::CapacityGuardrailTests::test_planned_load_converts_winder_tubes_to_meter_capacity",
+        ],
+        "notes": "WINDER metres, OVEN batches and PROCESS tubes use stage units; missing capacity policy is warned as not feasible.",
+    },
+    "PLAN-07": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "production-service/tests/test_original_plan_capacity.py::test_plan07_closed_dates_are_skipped_and_horizon_remainder_stays_finite",
+        ],
+        "notes": "Holiday dates skipped in 30-day slots; closed-date warning; CAPACITY_OVERFLOW remainder already kept. Live plant-holiday HTTP placement NOT_RUN.",
+    },
+    "PLAN-08": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "production-service/tests/test_original_plan_capacity.py::test_plan08_shared_oven_batch_capacity_cannot_be_overbooked",
+        ],
+        "notes": "Third oven allocation with zero remaining batch/bamboo capacity is 0. Live two-job-then-third board schedule NOT_RUN. Oven now uses remaining capacity, not a full-shift reset.",
+    },
+    "PLAN-09": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": ["apps/web-ui/e2e/planner-keyboard-narrow.spec.cjs"],
+        "bj": ["BJ03"],
+        "notes": "Chromium 390px planner: keyboard schedule form visible, Tab/Escape, overflow <48px. Same scheduleSegment path as drag. WebKit/Safari NOT_RUN.",
+    },
+    "PUR-01": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_schedule",
+        ],
+        "notes": "Live six-line PO keeps tax/payment/freight terms, UOM, qualifiers; no gst_amount and no schedules invented. Tool SKU is tool_assets, not a PO item type.",
+    },
+    "PUR-02": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_pur02_supplier_line_splits_stay_on_calendar_and_cannot_over_schedule",
+        ],
+        "notes": "40+60 supplier splits persist on promised dates; further 10 over-schedule is 400. Calendar rows are not ledger.",
+    },
     "PUR-03": {
         "overlay_status": "PASS",
         "coverage": "EXACT_EXECUTED",
@@ -151,6 +200,22 @@ SPECIAL: dict[str, dict] = {
             "inventory-service/tests/test_original_pur_live.py::test_pur03_concurrent_remaining_balance_cannot_double_inward",
         ],
         "notes": "Same GRN key idempotent; over-receipt 400; remaining 60 posts; concurrent remaining cannot double inward.",
+    },
+    "PUR-04": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_pur04_qc_required_receipt_stays_held_until_pass",
+        ],
+        "notes": "QC-required GRN is QC_HOLD; usable 0; purchase-desk PASS 403; WIP issue 400 until QC PASS then UNRESTRICTED/usable 50.",
+    },
+    "PUR-05": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close",
+        ],
+        "notes": "60 of 100 posts PARTIAL with remainder 40. Rejected remainder is not a first-class PO line status.",
     },
     "COMM-01": {
         "overlay_status": "PARTIAL",
@@ -448,6 +513,16 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Inventory evaluate_incoming and production evaluate_job_stage share golden 200/199.999/blank; three packaged copies SHA-identical.",
     },
+    "QCT-015": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_qct015_two_same_category_items_pin_their_own_bounds_on_receipt",
+            "inventory-service/tests/test_quality_pin.py::test_qct015_pin_keeps_per_item_bounds_not_a_shared_category_preset",
+        ],
+        "rr": ["RR15"],
+        "notes": "Two RAW_PAPER items pin 180-200 vs 80-100 on their own GRN lots; later master edit does not rewrite the first pin.",
+    },
     "QCT-043": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
@@ -545,23 +620,23 @@ SPECIAL: dict[str, dict] = {
         "notes": "first_shortage_bucket exists in gross estimate. Time-phased purchasing is not implemented.",
     },
     "QC-01": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
         "mapped_tests": [
+            "production-service/tests/test_original_qc_roles.py::test_qc01_qc_role_can_record_evidence_planner_and_sales_cannot",
             "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role",
-            "auth-service/tests/test_qc_role_identity.py::test_qc_is_not_aliased_to_plant_manager",
         ],
-        "notes": "QC is a canonical role, not PlantManager. Sign-in landing/menu/deep-link NOT_RUN.",
+        "notes": "create_inspection role list: QC allowed, Planner/Sales 403. Live create/submit and sign-in landing/menu NOT_RUN. PlantManager/Production can still record stage QC.",
     },
     "QC-02": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "PARTIAL",
         "coverage": "PARTIAL",
         "mapped_tests": [
             "production-service/tests/test_qc_plant_scope.py",
             "apps/web-ui/e2e/release-gate.spec.cjs",
         ],
         "bj": ["BJ06"],
-        "notes": "Role/plant guards in Chromium and QC write plant scope. Full QC-token admin/sales-approval matrix NOT_RUN.",
+        "notes": "QC write requires a concrete plant and cannot target the other plant. Full QC-token admin/sales-approval matrix NOT_RUN.",
     },
     "QCT-111": {
         "overlay_status": "NOT_RUN",

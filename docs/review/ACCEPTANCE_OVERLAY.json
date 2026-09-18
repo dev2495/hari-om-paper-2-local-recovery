@@ -6,17 +6,17 @@
     "original_tests": 192,
     "original_requirements": 56,
     "overlay_status": {
-      "PARTIAL": 23,
-      "PASS": 23,
-      "NOT_RUN": 143,
+      "PARTIAL": 29,
+      "PASS": 28,
+      "NOT_RUN": 132,
       "LIMITATION": 3
     },
     "coverage": {
-      "PARTIAL": 36,
-      "EXACT_EXECUTED": 23,
-      "NONE": 117,
+      "PARTIAL": 41,
+      "EXACT_EXECUTED": 28,
       "LIMITATION": 3,
-      "UNIT_ONLY": 6,
+      "NONE": 108,
+      "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
       "PROCESS": 1,
@@ -658,13 +658,17 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_plan_capacity.py::test_plan06_stage_units_convert_metres_batches_and_tubes",
+        "production-service/tests/test_original_plan_capacity.py::test_plan06_missing_capacity_policy_is_not_labelled_feasible",
+        "production-service/tests/test_capacity_guardrails.py::CapacityGuardrailTests::test_planned_load_converts_winder_tubes_to_meter_capacity"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "WINDER metres, OVEN batches and PROCESS tubes use stage units; missing capacity policy is warned as not feasible."
     },
     {
       "id": "PLAN-07",
@@ -677,13 +681,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_original_plan_capacity.py::test_plan07_closed_dates_are_skipped_and_horizon_remainder_stays_finite"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Holiday dates skipped in 30-day slots; closed-date warning; CAPACITY_OVERFLOW remainder already kept. Live plant-holiday HTTP placement NOT_RUN."
     },
     {
       "id": "PLAN-08",
@@ -696,13 +702,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_original_plan_capacity.py::test_plan08_shared_oven_batch_capacity_cannot_be_overbooked"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Third oven allocation with zero remaining batch/bamboo capacity is 0. Live two-job-then-third board schedule NOT_RUN. Oven now uses remaining capacity, not a full-shift reset."
     },
     {
       "id": "PLAN-09",
@@ -715,13 +723,17 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "apps/web-ui/e2e/planner-keyboard-narrow.spec.cjs"
+      ],
       "rr": [],
-      "bj": [],
+      "bj": [
+        "BJ03"
+      ],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Chromium 390px planner: keyboard schedule form visible, Tab/Escape, overflow <48px. Same scheduleSegment path as drag. WebKit/Safari NOT_RUN."
     },
     {
       "id": "DEM-01",
@@ -902,13 +914,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_pur_live.py::test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_schedule"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Live six-line PO keeps tax/payment/freight terms, UOM, qualifiers; no gst_amount and no schedules invented. Tool SKU is tool_assets, not a PO item type."
     },
     {
       "id": "PUR-02",
@@ -921,13 +935,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_pur_live.py::test_pur02_supplier_line_splits_stay_on_calendar_and_cannot_over_schedule"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "40+60 supplier splits persist on promised dates; further 10 over-schedule is 400. Calendar rows are not ledger."
     },
     {
       "id": "PUR-03",
@@ -963,13 +979,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_pur_live.py::test_pur04_qc_required_receipt_stays_held_until_pass"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "QC-required GRN is QC_HOLD; usable 0; purchase-desk PASS 403; WIP issue 400 until QC PASS then UNRESTRICTED/usable 50."
     },
     {
       "id": "PUR-05",
@@ -982,13 +1000,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_pur_live.py::test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "60 of 100 posts PARTIAL with remainder 40. Rejected remainder is not a first-class PO line status."
     },
     {
       "id": "PUR-06",
@@ -1057,16 +1077,16 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "UNIT_ONLY",
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
       "mapped_tests": [
-        "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role",
-        "auth-service/tests/test_qc_role_identity.py::test_qc_is_not_aliased_to_plant_manager"
+        "production-service/tests/test_original_qc_roles.py::test_qc01_qc_role_can_record_evidence_planner_and_sales_cannot",
+        "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "QC is a canonical role, not PlantManager. Sign-in landing/menu/deep-link NOT_RUN."
+      "notes": "create_inspection role list: QC allowed, Planner/Sales 403. Live create/submit and sign-in landing/menu NOT_RUN. PlantManager/Production can still record stage QC."
     },
     {
       "id": "QC-02",
@@ -1078,7 +1098,7 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "coverage": "PARTIAL",
       "mapped_tests": [
         "production-service/tests/test_qc_plant_scope.py",
@@ -1089,7 +1109,7 @@
         "BJ06"
       ],
       "limitation": null,
-      "notes": "Role/plant guards in Chromium and QC write plant scope. Full QC-token admin/sales-approval matrix NOT_RUN."
+      "notes": "QC write requires a concrete plant and cannot target the other plant. Full QC-token admin/sales-approval matrix NOT_RUN."
     },
     {
       "id": "QC-03",
@@ -1714,13 +1734,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
-      "rr": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_pur_live.py::test_qct015_two_same_category_items_pin_their_own_bounds_on_receipt",
+        "inventory-service/tests/test_quality_pin.py::test_qct015_pin_keeps_per_item_bounds_not_a_shared_category_preset"
+      ],
+      "rr": [
+        "RR15"
+      ],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Two RAW_PAPER items pin 180-200 vs 80-100 on their own GRN lots; later master edit does not rewrite the first pin."
     },
     {
       "id": "QCT-016",
@@ -3987,7 +4012,7 @@
       "id": "R12",
       "title": "Add QC role",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "PUR-04",
         "QC-01",
@@ -3995,7 +4020,9 @@
         "QC-08",
         "QC-09"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "PUR-04"
+      ],
       "limitations": []
     },
     {
@@ -4112,7 +4139,9 @@
         "REL-09",
         "PLAN-01",
         "PLAN-02",
-        "PLAN-03"
+        "PLAN-03",
+        "PLAN-06",
+        "PLAN-09"
       ],
       "limitations": []
     },
@@ -4132,7 +4161,9 @@
         "PUR-08"
       ],
       "linked_pass": [
-        "PUR-03"
+        "PUR-02",
+        "PUR-03",
+        "PUR-04"
       ],
       "limitations": []
     },
@@ -4212,7 +4243,7 @@
       "id": "QCR-03",
       "title": "Item-specific inward quality setup",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-015",
         "QCT-016",
@@ -4221,7 +4252,9 @@
         "QCT-019",
         "QCT-020"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-015"
+      ],
       "limitations": []
     },
     {
@@ -4739,7 +4772,11 @@
         "PLAN-01",
         "PLAN-02",
         "PLAN-03",
-        "PUR-03"
+        "PLAN-06",
+        "PLAN-09",
+        "PUR-02",
+        "PUR-03",
+        "PUR-04"
       ],
       "limitations": [
         "GROSS_ESTIMATE"

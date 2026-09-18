@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8f` working tree (product served from `d071d12`; harness `5dd8b9b`)  
+Local candidate: `1e397887c5bf1d88d7d22c014f5bbd8dd1eda4ba` (started from `5187a64`; product served from `d071d12`; harness `5dd8b9b`)  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.
@@ -42,10 +42,10 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR31 | Notification create does not crash on plantless QC event | PASS | auth live plantless path |
 | RR32 | Spec QC dialog keeps product context, dialog role, Escape | PASS | BJ11 |
 | RR33 | Job-card print/actuals: samples in quality_checks; kg separate from g | PASS | BJ12 |
-| RR34 | Shared evaluator import from packaged `shared/` | STALE | `faee2ab` image had `/app/shared/hariom_quality_eval.py`; source copies changed this cycle |
-| RR35 | Service artifact boots with packaged evaluator | STALE | `hariom-nverify-inv-rr35` / `hariom-nverify-prod-rr35` not rebuilt after evaluator change |
+| RR34 | Shared evaluator import from packaged `shared/` | STALE | `faee2ab` image had `/app/shared/hariom_quality_eval.py`; planning/purchase/quality source also changed this cycle |
+| RR35 | Service artifact boots with packaged evaluator | STALE | `hariom-nverify-inv-rr35` / `hariom-nverify-prod-rr35` not rebuilt after evaluator or this-cycle source change |
 | RR36 | Main-targeted PR + original 192-case mapping | NOT_RUN | Owner-gated. This pass does not merge, retarget, or deploy |
 
 ## Original 192 V2 suite
 
-Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 23, PARTIAL 23, LIMITATION 3, NOT_RUN 143. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
+Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 28, PARTIAL 29, LIMITATION 3, NOT_RUN 132. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
