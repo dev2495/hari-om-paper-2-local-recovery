@@ -14,7 +14,7 @@
 - Isolated 7-DB dump/restore into `hariom_nverify_restore_*` PASS for rowcounts/holds/outbox (11.06s). That is **not** production-backup proof and **not** interrupted pending-op replay. See `docs/review/RECOVERY_REHEARSAL.md`.
 - Push: blocked. `railway.toml` and `hariom-erp/render.yaml` exist; Railway/Render GitHub-app production auto-deploy is not proven disconnected.
 - AWS live: **not deployed**. Do not guess hosts from known_hosts `3.6.77.159` / `13.232.191.84`. Downloads key listing denied.
-- Isolated production HTTP pid **75652** on 28004, inventory pid **75654** on 28005, BFF pid **75656** on 24000 after this wave’s source change (venv-verify). Foreign 13000 left running. Next BUILD_ID still `Yz4l4-NEecxcN4k1Xtf_H`.
+- Isolated production HTTP pid **77256** on 28004, inventory pid **77258** on 28005, BFF pid **77260** on 24000 after this wave’s source change (venv-verify). Foreign 13000 left running. Next BUILD_ID still `Yz4l4-NEecxcN4k1Xtf_H`.
 - Merge/deploy/PR retarget: not authorized
 - Not 100% production-ready.
 
