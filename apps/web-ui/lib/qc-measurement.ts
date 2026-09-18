@@ -6,6 +6,7 @@ export type QcParameterDef = {
   unit: string
   pairGroup?: string
   conditional?: string
+  basisHint?: string
 }
 
 export type QcParameterRule = {
@@ -15,41 +16,43 @@ export type QcParameterRule = {
   method?: string | null
   specimen?: string | null
   sampling?: string | null
+  basis_hint?: string | null
   min?: number | null
   max?: number | null
   inclusive_min?: boolean
   inclusive_max?: boolean
   required?: boolean
-  applicable?: boolean
+  applicable?: boolean | null
   pair_group?: string | null
   conditional?: string | null
+  applicability_label?: string | null
 }
 
 export const QC_STAGE_PARAMETERS: Record<QcStageKey, QcParameterDef[]> = {
   WINDER: [
-    { code: "id", label: "I.D.", unit: "mm" },
-    { code: "od", label: "O.D.", unit: "mm" },
-    { code: "height", label: "Height", unit: "mm" },
-    { code: "weight", label: "Weight", unit: "g" },
-    { code: "cs", label: "C.S.", unit: "N" },
+    { code: "id", label: "I.D.", unit: "mm", basisHint: "Winding I.D." },
+    { code: "od", label: "O.D.", unit: "mm", basisHint: "Winding O.D." },
+    { code: "height", label: "Height", unit: "mm", basisHint: "Height at winding" },
+    { code: "weight", label: "Weight", unit: "g", basisHint: "Winding specimen" },
+    { code: "cs", label: "C.S.", unit: "N", basisHint: "Winding C.S." },
   ],
   OVEN: [
-    { code: "pre_weight", label: "Pre-weight", unit: "g", pairGroup: "oven_sample" },
-    { code: "post_weight", label: "Post-weight", unit: "g", pairGroup: "oven_sample" },
-    { code: "pre_moisture", label: "Pre-moisture", unit: "%", pairGroup: "oven_sample" },
-    { code: "post_moisture", label: "Post-moisture", unit: "%", pairGroup: "oven_sample" },
+    { code: "pre_weight", label: "Pre-weight", unit: "g", pairGroup: "oven_sample", basisHint: "Oven pre-weight specimen" },
+    { code: "post_weight", label: "Post-weight", unit: "g", pairGroup: "oven_sample", basisHint: "Oven post-weight specimen" },
+    { code: "pre_moisture", label: "Pre-moisture", unit: "%", pairGroup: "oven_sample", basisHint: "Oven pre-moisture specimen" },
+    { code: "post_moisture", label: "Post-moisture", unit: "%", pairGroup: "oven_sample", basisHint: "Oven post-moisture specimen" },
   ],
   PROCESS: [
-    { code: "height", label: "Height", unit: "mm" },
-    { code: "weight", label: "Weight", unit: "g" },
-    { code: "cs", label: "C.S.", unit: "N" },
-    { code: "notch_distance", label: "Notch distance", unit: "mm", conditional: "notching" },
-    { code: "notch_depth", label: "Notch depth", unit: "mm", conditional: "notching" },
-    { code: "moisture", label: "Moisture", unit: "%" },
+    { code: "height", label: "Height", unit: "mm", basisHint: "Finished height" },
+    { code: "weight", label: "Weight", unit: "g", basisHint: "Finished specimen" },
+    { code: "cs", label: "C.S.", unit: "N", basisHint: "Finished C.S." },
+    { code: "notch_distance", label: "Notch distance", unit: "mm", conditional: "notching", basisHint: "Process notch distance" },
+    { code: "notch_depth", label: "Notch depth", unit: "mm", conditional: "notching", basisHint: "Process notch depth" },
+    { code: "moisture", label: "Moisture", unit: "%", basisHint: "Finished moisture" },
   ],
 }
 
-export function emptyQcProfile(notchingApplicable = false) {
+export function emptyQcProfile(notchingApplicable: boolean | null = null) {
   const stages: Record<string, { parameters: QcParameterRule[] }> = {}
   for (const [stage, defs] of Object.entries(QC_STAGE_PARAMETERS)) {
     stages[stage] = {
@@ -60,6 +63,7 @@ export function emptyQcProfile(notchingApplicable = false) {
         method: "",
         specimen: "",
         sampling: "",
+        basis_hint: item.basisHint || null,
         min: null,
         max: null,
         inclusive_min: true,
@@ -75,6 +79,7 @@ export function emptyQcProfile(notchingApplicable = false) {
     status: "draft",
     revision: 1,
     notching_applicable: notchingApplicable,
+    notching_review_required: notchingApplicable == null,
     stages,
   }
 }
@@ -99,6 +104,10 @@ export function qcSetupStatus(profile: any): "missing" | "draft" | "complete" | 
     }
     for (const row of parameters) {
       if (row.applicable === false) continue
+      if (row.applicable == null && row.conditional === "notching") {
+        complete = false
+        continue
+      }
       if (row.min != null || row.max != null) anyBounds = true
       if (row.required !== false && row.min == null && row.max == null) complete = false
     }
@@ -117,6 +126,10 @@ export function qcMissingFieldLabels(profile: any): string[] {
     for (const def of defs) {
       const row = byCode[def.code] || {}
       if (row.applicable === false) continue
+      if (row.applicable == null && def.conditional === "notching") {
+        labels.push(def.label)
+        continue
+      }
       if (row.min == null && row.max == null) labels.push(def.label)
     }
   }
@@ -179,7 +192,8 @@ export function qcRowActions(args: {
 }
 
 export function formatAllowedRange(rule: Pick<QcParameterRule, "min" | "max" | "unit" | "applicable"> | null | undefined) {
-  if (!rule || rule.applicable === false) return "Not applicable"
+  if (!rule) return "Not applicable"
+  if (rule.applicable === false) return "NOT APPLICABLE"
   if (rule.min == null && rule.max == null) return "Allowed: not configured"
   const unit = rule.unit ? ` ${rule.unit}` : ""
   if (rule.min != null && rule.max != null) return `Allowed: ${rule.min}–${rule.max}${unit}`
@@ -195,7 +209,8 @@ export function frozenStageRules(profile: any, stage: QcStageKey): QcParameterRu
     unit: item.unit,
     min: null,
     max: null,
-    applicable: item.conditional !== "notching",
+    applicable: item.conditional === "notching" ? null : true,
+    basis_hint: item.basisHint || null,
     required: true,
     pair_group: item.pairGroup,
     conditional: item.conditional,

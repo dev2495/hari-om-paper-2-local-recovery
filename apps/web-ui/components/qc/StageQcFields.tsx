@@ -45,11 +45,15 @@ export function StageQcFields({
         </label>
       ) : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {rules.filter((rule) => rule.applicable !== false).map((rule) => (
+        {rules.map((rule) => (
           <div key={rule.code} className="rounded-2xl border border-slate-200 bg-white p-3">
             <label className="space-y-1">
               <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{rule.label}</span>
-              {editable ? (
+              {rule.applicable === false ? (
+                <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-na-${rule.code}`}>
+                  NOT APPLICABLE
+                </div>
+              ) : editable ? (
                 <input
                   type="number"
                   step="0.001"
@@ -64,12 +68,12 @@ export function StageQcFields({
             <p className="mt-2 text-xs font-semibold text-slate-600" data-testid={`allowed-${rule.code}`}>
               {formatAllowedRange(rule)}
             </p>
-            {rule.method || rule.specimen || rule.sampling ? (
+            {rule.method || rule.specimen || rule.sampling || rule.basis_hint ? (
               <p className="mt-1 text-[11px] text-slate-500">
-                {[rule.method, rule.specimen, rule.sampling].filter(Boolean).join(" · ")}
+                {[rule.method, rule.specimen, rule.sampling, rule.basis_hint].filter(Boolean).join(" · ")}
               </p>
             ) : null}
-            {showReasons ? (
+            {showReasons && rule.applicable !== false ? (
               <label className="mt-2 block space-y-1">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Reason if FAIL</span>
                 {editable ? (

@@ -32,11 +32,20 @@ test("winding uses Height not Length and oven/process keep client fields", () =>
     QC_STAGE_PARAMETERS.PROCESS.map((row) => row.code),
     ["height", "weight", "cs", "notch_distance", "notch_depth", "moisture"],
   )
+  assert.deepEqual(QC_STAGE_PARAMETERS.WINDER.map((row) => row.label), ["I.D.", "O.D.", "Height", "Weight", "C.S."])
+  assert.deepEqual(QC_STAGE_PARAMETERS.OVEN.map((row) => row.label), ["Pre-weight", "Post-weight", "Pre-moisture", "Post-moisture"])
+  assert.deepEqual(
+    QC_STAGE_PARAMETERS.PROCESS.map((row) => row.label),
+    ["Height", "Weight", "C.S.", "Notch distance", "Notch depth", "Moisture"],
+  )
+  assert.equal(QC_STAGE_PARAMETERS.WINDER.find((row) => row.code === "height")?.basisHint, "Height at winding")
+  assert.equal(QC_STAGE_PARAMETERS.PROCESS.find((row) => row.code === "height")?.basisHint, "Finished height")
 })
 
 test("frozen allowed range never invents a band", () => {
   assert.equal(formatAllowedRange({ min: 118, max: 122, unit: "mm" }), "Allowed: 118–122 mm")
   assert.equal(formatAllowedRange({ min: null, max: null, unit: "mm" }), "Allowed: not configured")
+  assert.equal(formatAllowedRange({ min: 0, max: 0, unit: "mm", applicable: false }), "NOT APPLICABLE")
   assert.equal(qcActionLabel(qcSetupStatus(null)), "Add quality parameters")
   assert.equal(qcActionLabel(qcSetupStatus({ status: "draft", stages: { WINDER: { parameters: [{ code: "id", min: 1, max: 2, required: true }] } } })), "Complete quality setup")
 })
@@ -114,6 +123,13 @@ test("spec dialog and remaining shells keep product context and shared headers",
   const specs = readFileSync(resolve(process.cwd(), "app/(dashboard)/specifications/page.tsx"), "utf8")
   assert.match(dialog, /targetWeight/)
   assert.match(dialog, /role="dialog"/)
+  assert.match(dialog, /spec-qc-stage-\$\{item\.key\}/)
+  assert.match(dialog, /Stage basis:/)
+  assert.match(dialog, /spec-qc-basis-\$\{stage\}-\$\{row\.code\}/)
+  const measurement = readFileSync(resolve(process.cwd(), "lib/qc-measurement.ts"), "utf8")
+  assert.match(measurement, /Height at winding/)
+  assert.match(measurement, /Finished height/)
+  assert.match(measurement, /NOT APPLICABLE/)
   assert.match(inventory, /PageHeader/)
   assert.match(logistics, /PageHeader/)
   assert.match(specs, /PageHeader/)

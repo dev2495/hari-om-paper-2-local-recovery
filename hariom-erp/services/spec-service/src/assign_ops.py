@@ -45,24 +45,29 @@ def template_requires_notching(profile: dict[str, Any]) -> bool:
 
 def target_notching_state(spec: SpecificationSheet) -> Optional[bool]:
     profile = _profile_dict(spec.qc_profile)
-    if "notching_applicable" in profile:
+    if "notching_applicable" in profile and profile.get("notching_applicable") is not None:
         return bool(profile.get("notching_applicable"))
     stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else {}
     process = stages.get("PROCESS") if isinstance(stages, dict) else {}
     parameters = process.get("parameters") if isinstance(process, dict) else []
     saw_notch = False
-    applicable = False
+    any_true = False
+    any_unknown = False
+    any_false = False
     for row in parameters or []:
         if not isinstance(row, dict) or str(row.get("code") or "") not in NOTCH_CODES:
             continue
         saw_notch = True
         if row.get("applicable") is False:
-            continue
-        applicable = True
-    if saw_notch and not applicable:
-        return False
-    if applicable:
+            any_false = True
+        elif row.get("applicable") is True:
+            any_true = True
+        else:
+            any_unknown = True
+    if any_true:
         return True
+    if saw_notch and any_false and not any_true and not any_unknown:
+        return False
     return None
 
 

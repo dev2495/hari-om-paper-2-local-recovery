@@ -16,7 +16,7 @@ type SpecQcToleranceDialogProps = {
     recipe?: string
     ply?: string
     parchment?: string
-    notching?: boolean
+    notching?: boolean | null
   }
   initialProfile?: any
   saving?: boolean
@@ -32,22 +32,45 @@ const STAGES: { key: QcStageKey; label: string }[] = [
   { key: "PROCESS", label: "Process" },
 ]
 
-function cloneProfile(profile: any, notching: boolean) {
-  const base = emptyQcProfile(notching)
+function cloneProfile(profile: any, notching: boolean | null) {
+  const resolvedNotching =
+    profile && "notching_applicable" in (profile || {})
+      ? (profile.notching_applicable as boolean | null)
+      : notching
+  const base = emptyQcProfile(resolvedNotching ?? null)
   const incoming = profile?.stages || {}
-  for (const stage of Object.keys(base.stages)) {
+  for (const stage of Object.keys(base.stages) as QcStageKey[]) {
+    const defs = QC_STAGE_PARAMETERS[stage] || []
     const incomingRows = Array.isArray(incoming[stage]?.parameters) ? incoming[stage].parameters : []
     const byCode = Object.fromEntries(incomingRows.map((row: any) => [row.code, row]))
-    base.stages[stage].parameters = base.stages[stage].parameters.map((row) => ({
-      ...row,
-      ...(byCode[row.code] || {}),
-      code: row.code,
-      label: byCode[row.code]?.label || row.label,
-      unit: byCode[row.code]?.unit || row.unit,
-    }))
+    base.stages[stage].parameters = base.stages[stage].parameters.map((row) => {
+      const incomingRow = byCode[row.code] || {}
+      const def = defs.find((item) => item.code === row.code)
+      return {
+        ...row,
+        ...incomingRow,
+        code: row.code,
+        label: def?.label || row.label,
+        unit: incomingRow.unit || row.unit,
+        basis_hint: def?.basisHint || row.basis_hint,
+        pair_group: row.pair_group,
+        conditional: row.conditional,
+        applicable:
+          row.conditional === "notching"
+            ? resolvedNotching === false
+              ? false
+              : resolvedNotching === true
+                ? incomingRow.applicable !== false
+                : incomingRow.applicable ?? null
+            : incomingRow.applicable !== false,
+        min: row.conditional === "notching" && resolvedNotching === false ? null : incomingRow.min ?? row.min,
+        max: row.conditional === "notching" && resolvedNotching === false ? null : incomingRow.max ?? row.max,
+      }
+    })
   }
   if (profile?.revision) base.revision = profile.revision
-  base.notching_applicable = notching
+  base.notching_applicable = resolvedNotching ?? null
+  base.notching_review_required = Boolean(profile?.notching_review_required) || resolvedNotching == null
   return base
 }
 
@@ -62,14 +85,14 @@ export function SpecQcToleranceDialog({
   onSaveComplete,
 }: SpecQcToleranceDialogProps) {
   const [stage, setStage] = useState<QcStageKey>("WINDER")
-  const [profile, setProfile] = useState(() => cloneProfile(initialProfile, Boolean(context.notching)))
+  const [profile, setProfile] = useState(() => cloneProfile(initialProfile, context.notching ?? null))
   const profileRef = useRef(profile)
   profileRef.current = profile
 
   useEffect(() => {
     if (open) {
       setStage("WINDER")
-      setProfile(cloneProfile(initialProfile, Boolean(context.notching)))
+      setProfile(cloneProfile(initialProfile, context.notching ?? null))
     }
   }, [open, initialProfile, context.notching])
 
@@ -113,6 +136,34 @@ export function SpecQcToleranceDialog({
     }))
   }
 
+  function setNotchingState(next: "unknown" | "true" | "false") {
+    const flag = next === "unknown" ? null : next === "true"
+    setProfile((current: any) => ({
+      ...current,
+      notching_applicable: flag,
+      notching_review_required: flag == null,
+      stages: {
+        ...current.stages,
+        PROCESS: {
+          parameters: (current.stages.PROCESS?.parameters || []).map((row: any) =>
+            row.conditional === "notching"
+              ? {
+                  ...row,
+                  applicable: flag,
+                  min: flag === false ? null : row.min,
+                  max: flag === false ? null : row.max,
+                }
+              : row,
+          ),
+        },
+      },
+    }))
+  }
+
+  const notchingState =
+    profile.notching_applicable === true ? "true" : profile.notching_applicable === false ? "false" : "unknown"
+  const needsNotchingReview = profile.notching_applicable == null || Boolean(profile.notching_review_required)
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
@@ -135,12 +186,18 @@ export function SpecQcToleranceDialog({
             Final product limits stay on the spec sheet. Winding / oven / process ranges are entered here and frozen onto job cards. No invented ± bands.
           </p>
           <p className="mt-1 text-xs font-semibold text-slate-700">{summary}</p>
+          {needsNotchingReview ? (
+            <p className="mt-2 text-xs font-semibold text-amber-800" data-testid="spec-qc-notching-review">
+              Notching applicability needs review. Do not store zero or skip automatically.
+            </p>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2 border-b border-slate-100 px-6 py-3">
           {STAGES.map((item) => (
             <button
               key={item.key}
               type="button"
+              data-testid={`spec-qc-stage-${item.key}`}
               onClick={() => setStage(item.key)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
                 stage === item.key ? "border-cyan-300 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-500"
@@ -151,6 +208,21 @@ export function SpecQcToleranceDialog({
           ))}
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
+          {stage === "PROCESS" ? (
+            <label className="mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notching</span>
+              <select
+                data-testid="spec-qc-notching-state"
+                className="h-10 rounded-xl border border-slate-200 px-2"
+                value={notchingState}
+                onChange={(event) => setNotchingState(event.target.value as "unknown" | "true" | "false")}
+              >
+                <option value="unknown">Unknown — needs review</option>
+                <option value="false">Verified not notched</option>
+                <option value="true">Verified notched</option>
+              </select>
+            </label>
+          ) : null}
           <table className="w-full border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 text-left text-[11px] uppercase tracking-[0.14em] text-slate-500">
@@ -165,16 +237,18 @@ export function SpecQcToleranceDialog({
               </tr>
             </thead>
             <tbody>
-              {stageRows.map((row: any) => (
-                <tr key={row.code}>
-                  <td className="border border-slate-200 px-2 py-2 font-semibold text-slate-900">
+              {stageRows.map((row: any) => {
+                const notApplicable = row.applicable === false
+                return (
+                <tr key={row.code} data-testid={`spec-qc-row-${stage}-${row.code}`}>
+                  <td className="border border-slate-200 px-2 py-2 font-semibold text-slate-900" data-testid={`spec-qc-param-label-${stage}-${row.code}`}>
                     {row.label}
                     {row.conditional === "notching" ? (
                       <label className="mt-1 flex items-center gap-2 text-[11px] font-medium text-slate-500">
                         <input
                           type="checkbox"
-                          checked={row.applicable !== false}
-                          onChange={(event) => updateRow(row.code, { applicable: event.target.checked })}
+                          checked={row.applicable === true}
+                          onChange={(event) => updateRow(row.code, { applicable: event.target.checked, min: event.target.checked ? row.min : null, max: event.target.checked ? row.max : null })}
                         />
                         Applicable
                       </label>
@@ -187,20 +261,47 @@ export function SpecQcToleranceDialog({
                     <input className="h-10 w-full rounded-xl border border-slate-200 px-2" value={row.method || ""} onChange={(event) => updateRow(row.code, { method: event.target.value })} />
                   </td>
                   <td className="border border-slate-200 px-2 py-2">
-                    <input className="h-10 w-full rounded-xl border border-slate-200 px-2" value={row.specimen || ""} onChange={(event) => updateRow(row.code, { specimen: event.target.value })} />
+                    <input
+                      className="h-10 w-full rounded-xl border border-slate-200 px-2"
+                      value={row.specimen || ""}
+                      placeholder={row.basis_hint || ""}
+                      onChange={(event) => updateRow(row.code, { specimen: event.target.value })}
+                    />
+                    {row.basis_hint ? (
+                      <p className="mt-1 text-[11px] text-slate-500" data-testid={`spec-qc-basis-${stage}-${row.code}`}>
+                        Stage basis: {row.basis_hint}
+                      </p>
+                    ) : null}
                   </td>
                   <td className="border border-slate-200 px-2 py-2">
                     <input className="h-10 w-full rounded-xl border border-slate-200 px-2" value={row.sampling || ""} onChange={(event) => updateRow(row.code, { sampling: event.target.value })} />
                   </td>
                   <td className="border border-slate-200 px-2 py-2">
-                    <input className="h-10 w-24 rounded-xl border border-slate-200 px-2" type="number" step="0.001" value={row.min ?? ""} onChange={(event) => updateRow(row.code, { min: event.target.value === "" ? null : Number(event.target.value) })} />
+                    <input
+                      className="h-10 w-24 rounded-xl border border-slate-200 px-2"
+                      type="number"
+                      step="0.001"
+                      disabled={notApplicable}
+                      value={notApplicable ? "" : row.min ?? ""}
+                      onChange={(event) => updateRow(row.code, { min: event.target.value === "" ? null : Number(event.target.value) })}
+                    />
                   </td>
                   <td className="border border-slate-200 px-2 py-2">
-                    <input className="h-10 w-24 rounded-xl border border-slate-200 px-2" type="number" step="0.001" value={row.max ?? ""} onChange={(event) => updateRow(row.code, { max: event.target.value === "" ? null : Number(event.target.value) })} />
+                    <input
+                      className="h-10 w-24 rounded-xl border border-slate-200 px-2"
+                      type="number"
+                      step="0.001"
+                      disabled={notApplicable}
+                      value={notApplicable ? "" : row.max ?? ""}
+                      onChange={(event) => updateRow(row.code, { max: event.target.value === "" ? null : Number(event.target.value) })}
+                    />
                   </td>
-                  <td className="border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600">{formatAllowedRange(row)}</td>
+                  <td className="border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600" data-testid={`spec-qc-frozen-${stage}-${row.code}`}>
+                    {formatAllowedRange(row)}
+                  </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
           {stage === "OVEN" ? (
@@ -211,6 +312,11 @@ export function SpecQcToleranceDialog({
           {stage === "WINDER" ? (
             <p className="mt-3 text-xs text-slate-500">
               Winding uses Height, not Length, and does not copy finished-product ID/OD/CS bands automatically.
+            </p>
+          ) : null}
+          {stage === "PROCESS" ? (
+            <p className="mt-3 text-xs text-slate-500">
+              Process Height/Weight use the finished specimen basis. Those finals are not copied into winding.
             </p>
           ) : null}
         </div>

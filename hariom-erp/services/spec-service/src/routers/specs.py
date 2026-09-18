@@ -66,7 +66,13 @@ from ..final_limits import (
     project_onto_profile,
     reject_qc_contractual_final,
 )
-from ..qc_profile import QcProfileError, normalize_qc_profile, profile_status
+from ..qc_profile import (
+    QcProfileError,
+    normalize_qc_profile,
+    notching_review_required,
+    profile_status,
+    project_qc_read_contract,
+)
 
 router = APIRouter(prefix="/specs", tags=["specifications"])
 settings = get_settings()
@@ -650,6 +656,12 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
     canonical = canonical_from_spec(spec)
     payload["final_limits"] = canonical
     payload["qc_profile"] = project_onto_profile(payload["qc_profile"], canonical)
+    payload["qc_profile"] = project_qc_read_contract(
+        payload["qc_profile"],
+        spec,
+        dynamic_map=dynamic_map,
+    )
+    payload["qc_setup_status"] = profile_status(payload["qc_profile"] if isinstance(payload["qc_profile"], dict) else None)
     return payload
 
 
@@ -992,13 +1004,14 @@ def create_spec(
 def get_qc_parameter_dictionary(
     current_user: dict = Depends(get_current_user),
 ):
-    from ..qc_profile import STAGE_PARAMETER_DEFS, empty_qc_profile
+    from ..qc_profile import STAGE_PARAMETER_DEFS, empty_qc_profile, EXACT_STAGE_LABELS
 
     return {
         "stages": {
             stage: [dict(item) for item in rows]
             for stage, rows in STAGE_PARAMETER_DEFS.items()
         },
+        "client_labels": {stage: list(labels) for stage, labels in EXACT_STAGE_LABELS.items()},
         "empty_profile": empty_qc_profile(),
     }
 
@@ -1251,6 +1264,14 @@ def upsert_spec_qc_profile(
             status_code=403,
             detail="Approved QC status requires the dedicated approve command. JSON save cannot self-approve.",
         )
+    if notching_review_required(normalized, spec) and payload.status == "complete":
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "NOTCHING_REVIEW_REQUIRED",
+                "message": "Unknown or changed notching cannot be completed. Decide applicability; do not store zero or skip automatically.",
+            },
+        )
     if payload.status in {"draft", "complete", "pending_review"}:
         normalized["status"] = payload.status
     spec.qc_profile = normalized
@@ -1297,6 +1318,14 @@ def approve_spec_qc_profile(
         normalized = normalize_qc_profile(current, previous=current, mutating=True, allow_approved=True)
     except QcProfileError as exc:
         raise HTTPException(status_code=400, detail={"code": exc.code, "message": exc.message}) from exc
+    if notching_review_required(normalized, spec):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "NOTCHING_REVIEW_REQUIRED",
+                "message": "Unknown or changed notching cannot be approved as NOT APPLICABLE or skipped.",
+            },
+        )
     computed = profile_status({**normalized, "status": "complete"})
     if computed not in {"complete", "approved"}:
         raise HTTPException(status_code=400, detail="QC profile is incomplete and cannot be approved.")

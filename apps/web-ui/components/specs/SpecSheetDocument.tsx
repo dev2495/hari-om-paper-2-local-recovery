@@ -2608,7 +2608,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               : undefined,
             ply: recipeTotalPlyCount ? String(recipeTotalPlyCount) : undefined,
             parchment: form.parchmentAllowed ? (form.parchmentColor || "required") : "not used",
-            notching: Boolean(form.dynamicValues?.notch_type || form.dynamicValues?.notch_distance_mm || form.dynamicValues?.notch_depth_mm),
+            notching: qcProfile && Object.prototype.hasOwnProperty.call(qcProfile, "notching_applicable")
+              ? qcProfile.notching_applicable
+              : (form.dynamicValues?.notch_type || form.dynamicValues?.notch_distance_mm || form.dynamicValues?.notch_depth_mm)
+                ? true
+                : null,
           }}
           initialProfile={qcProfile}
           saving={createSpecSheet.isPending || updateSpecSheet.isPending || upsertSpecQcProfile.isPending || upsertSpecQcProfile.isPending}
