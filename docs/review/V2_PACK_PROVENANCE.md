@@ -4,7 +4,7 @@
 **Overlay (current evidence, not the original statuses):** `docs/review/ACCEPTANCE_OVERLAY.json`  
 **Additive RR01–RR36:** `docs/review/RR_REGRESSION_CHECKLIST.md`  
 **Additive BJ01–BJ13:** `docs/review/BROWSER_JOURNEYS.json`  
-**Checkpoint SHA this update:** recorded at local HEAD after this documentation commit.
+**Checkpoint SHA this update:** overlay regenerated after the 6f50a76 execution cycle (PASS 18 / PARTIAL 19 / LIMITATION 3 / NOT_RUN 152).
 
 ## What was restored
 

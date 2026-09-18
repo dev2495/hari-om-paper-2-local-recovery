@@ -2,17 +2,17 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (product served from `d071d12`; later commits docs/e2e/tests)  
+Local candidate: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8f` working tree (product served from `d071d12`; harness `5dd8b9b`)  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
-Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate.
+Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.
 
 | ID | Finding | Status | Proof |
 | --- | --- | --- | --- |
 | RR01 | Partial concession keeps residual lot + independent hold | PASS | inventory live `test_live_postgres_rr.py` |
 | RR02 | Zero / negative / excess / unspecified concession qty rejected | PASS | live `test_zero_unspecified_and_excess_concession_rejected`; unit `test_rr02_zero_negative_excess_unspecified_rejected` |
 | RR03 | Concurrent concession cannot double-release | PASS | two-thread live workers: one ok, one 400; residual 400 on hold |
-| RR04 | Client `create_hold_on_fail=false` cannot suppress hold | PASS | production live + typed validator suite (61 passed) |
+| RR04 | Client `create_hold_on_fail=false` cannot suppress hold | PASS | production live + typed validator suite |
 | RR05 | FAIL without reason persists; final submit still blocked | PASS | inventory live `test_fail_without_reason_persists_pending` |
 | RR06 | Collector keeps every winding sample | PASS | production quality_eval tests |
 | RR07 | Whitespace is missing; kg not copied into g | PASS | production quality tests + BJ12 print |
@@ -27,8 +27,8 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR16 | Store/QC JSON cannot self-approve | CODE | unit profile tests |
 | RR17 | Approved edit opens new draft and keeps snapshot | CODE | unit profile tests |
 | RR18 | Approve requires matching revision + Owner/Admin | CODE | spec approve unit tests |
-| RR19 | Inverted / malformed bounds rejected | CODE | spec + eval unit tests |
-| RR20 | Categorical FAIL vs approved options; oven PRE-only; pair mismatch | PASS | production `test_quality_eval.py` in the 61 |
+| RR19 | Inverted / malformed bounds rejected | PASS | spec `test_qc_profile.py` plus original QCT-005 related units |
+| RR20 | Categorical FAIL vs approved options; oven PRE-only; pair mismatch | PASS | `test_original_qct_evaluator.py` QCT-009 + production `test_quality_eval.py` |
 | RR21 | Independent holds survive another inspection's concession | PASS | inventory live |
 | RR22 | Measured FAIL is never rewritten to PASS | PASS | inventory live fail-without-reason stays FAIL |
 | RR23 | Customer-rejection partial partition refused | CODE | `PARTIAL_REJECTION_UNSUPPORTED` — not a completed feature |
@@ -42,10 +42,10 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR31 | Notification create does not crash on plantless QC event | PASS | auth live plantless path |
 | RR32 | Spec QC dialog keeps product context, dialog role, Escape | PASS | BJ11 |
 | RR33 | Job-card print/actuals: samples in quality_checks; kg separate from g | PASS | BJ12 |
-| RR34 | Shared evaluator import from packaged `shared/` | PASS | Docker module file `/app/shared/hariom_quality_eval.py`, mounts `[]` |
-| RR35 | Service artifact boots with packaged evaluator | PASS | `hariom-nverify-inv-rr35` / `hariom-nverify-prod-rr35` health + `evaluate_parameter` PASS |
+| RR34 | Shared evaluator import from packaged `shared/` | STALE | `faee2ab` image had `/app/shared/hariom_quality_eval.py`; source copies changed this cycle |
+| RR35 | Service artifact boots with packaged evaluator | STALE | `hariom-nverify-inv-rr35` / `hariom-nverify-prod-rr35` not rebuilt after evaluator change |
 | RR36 | Main-targeted PR + original 192-case mapping | NOT_RUN | Owner-gated. This pass does not merge, retarget, or deploy |
 
 ## Original 192 V2 suite
 
-Definitions restored under `docs/review/baseline-v2/`. Overlay PASS is only `QCT-027` and `QCT-052`. The other 190 original cases remain `NOT_RUN`. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
+Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 18, PARTIAL 19, LIMITATION 3, NOT_RUN 152. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.

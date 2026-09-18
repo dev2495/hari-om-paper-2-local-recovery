@@ -100,14 +100,14 @@ SPECIAL: dict[str, dict] = {
         "notes": "Direct notification create is plant-scoped. Inward-failure event plus working deep link NOT_RUN.",
     },
     "PLAN-01": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "PARTIAL",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_plan01_three_line_multi_date_schedule_accounts_for_every_qty",
             "sales-service/tests/test_live_postgres_rr.py::test_schedule_100_with_existing_40_appends_60",
-            "sales-service/tests/test_pending_and_schedules.py::test_schedule_entire_po_appends_remaining_without_replacing_committed",
         ],
         "rr": ["RR08"],
-        "notes": "Single-line 100/40/60 append proven. Three-line multi-date whole-PO UI NOT_RUN.",
+        "notes": "Live PG three-line 100/40/60 over five dated rows; quantities conserved. Calendar UI still NOT_RUN.",
     },
     "PLAN-03": {
         "overlay_status": "NOT_RUN",
@@ -118,109 +118,268 @@ SPECIAL: dict[str, dict] = {
         "rr": ["RR13", "RR14"],
         "notes": "Two overlapping schedule commits: one 200, one 409. Calendar planner UI NOT_RUN.",
     },
+    "COMM-01": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": ["apps/web-ui/e2e/theme-a11y-print.spec.cjs"],
+        "bj": ["BJ08"],
+        "notes": "Chromium light/dark: Customer PO Date and Delivery Date labels on compact New sales order form. Saved-order print round-trip NOT_RUN.",
+    },
     "COMM-02": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
         "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_comm02_api_rejects_equal_and_earlier_without_partial_save",
             "sales-service/tests/test_sales_commercial.py::test_delivery_date_must_be_strictly_later_than_customer_po_date",
             "sales-service/tests/test_live_postgres_rr.py::test_equal_or_earlier_delivery_date_is_rejected",
         ],
         "rr": ["RR09"],
-        "notes": "Helper plus live schedule commit/patch reject equal/earlier dates. Full UI+API+import matrix remains CODE/NOT_RUN until all paths are listed.",
+        "notes": "Live create API rejects equal/earlier without inserting; later date saved. Direct UI date attempts NOT_RUN.",
     },
     "COMM-03": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
         "mapped_tests": [
-            "sales-service/tests/test_sales_commercial.py::test_delivery_date_must_be_strictly_later_than_customer_po_date"
+            "sales-service/tests/test_original_comm_live.py::test_comm03_header_date_change_does_not_silently_move_commitments",
+            "sales-service/tests/test_sales_commercial.py::test_header_date_change_revalidates_every_line",
         ],
         "rr": ["RR09"],
-        "notes": "Header edit reloads stored schedules in update_sales_order. Draft multi-row invalidation UI NOT_RUN.",
+        "notes": "Header PO-date change is validated before apply; lines/schedules are not moved. Review-flag UX (vs hard reject) NOT_RUN.",
+    },
+    "COMM-04": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_comm04_internal_order_clears_external_po_and_needs_second_approver"
+        ],
+        "notes": "Live internal create clears invented PO/date; same-person approve 403; second person approves. Release+dispatch of that order NOT_RUN.",
+    },
+    "COMM-05": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_comm05_review_origin_cannot_be_approved_and_is_not_rewritten",
+            "sales-service/tests/test_sales_commercial.py::test_blank_historical_po_is_review_not_guessed_internal",
+        ],
+        "notes": "Blank PO classifies REVIEW not INTERNAL; approval blocked. Historical table backfill job NOT_RUN.",
     },
     "COMM-06": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
         "mapped_tests": [
-            "sales-service/tests/test_sales_logic.py::test_sales_line_serializer_round_trips_required_parchment"
+            "sales-service/tests/test_original_comm_live.py::test_comm06_07_parchment_boolean_round_trips_and_uncheck_clears_stale"
         ],
-        "notes": "Serializer round-trip. Release/BOM/print path NOT_RUN as this original case.",
+        "notes": "Live create persists boolean+variant. Release/BOM/print downstream NOT_RUN.",
     },
     "COMM-07": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
         "mapped_tests": [
-            "sales-service/tests/test_sales_logic.py::test_sales_line_serializer_hides_stale_parchment_color_when_not_required"
+            "sales-service/tests/test_original_comm_live.py::test_comm06_07_parchment_boolean_round_trips_and_uncheck_clears_stale"
         ],
-        "notes": "Stale color hidden when unchecked. Full reload/edit UI NOT_RUN.",
+        "notes": "Uncheck saves false/null; stale color/id cleared. Silent BOM alteration path NOT_RUN.",
+    },
+    "COMM-09": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_comm09_stable_line_ids_on_edit_and_remove"
+        ],
+        "notes": "Draft update-by-id keeps UUID; other line removed. Schedule-linked removal/reconcile NOT_RUN.",
     },
     "COMM-10": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "PARTIAL",
         "coverage": "PARTIAL",
-        "mapped_tests": ["apps/web-ui/e2e/release-gate.spec.cjs", "apps/web-ui/__tests__/sales-order-entry.test.ts"],
+        "mapped_tests": ["apps/web-ui/e2e/theme-a11y-print.spec.cjs"],
         "bj": ["BJ04", "BJ08"],
-        "notes": "Sales workspace operable in Chromium. Explicit hero/readiness/banner absence assertions NOT_RUN.",
+        "notes": "Chromium compact header; Release Readiness / Sales PO Entry absent. Full add/remove/approval action matrix NOT_RUN.",
     },
     "COMM-11": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
-        "mapped_tests": ["sales-service/tests/test_sales_logic.py::test_order_number_counter_jumps_past_preexisting_max"],
-        "notes": "Counter jumps past preexisting max. Many concurrent creates with realistic DB settings NOT_RUN.",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_comm11_concurrent_order_numbers_are_unique"
+        ],
+        "notes": "Eight concurrent live creates on hariom_nverify_salesdb; unique SO-YYYYMMDD-NNNN; no lost success.",
+    },
+    "COMM-12": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_comm12_bulk_import_and_old_payload_use_server_date_rule"
+        ],
+        "notes": "Bulk-import API rejects equal dates. Binary old-client payload NOT_RUN.",
     },
     "REL-01": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "PARTIAL",
         "coverage": "PARTIAL",
-        "mapped_tests": ["apps/web-ui/e2e/release-gate.spec.cjs"],
+        "mapped_tests": [
+            "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_release_preflight_accepts_incompatible_selected_winder_as_advisory"
+        ],
         "bj": ["BJ04", "BJ05"],
-        "notes": "Chromium sales release to winder queue succeeded. Mandrel-mismatch admission fixture NOT_RUN.",
+        "notes": "Preflight ready with geometry warning, no blocker. Live job actually queued under mismatch NOT_RUN this pass.",
+    },
+    "REL-02": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_rel02_wrong_plant_or_missing_identity_is_rejected",
+            "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_winder_queue_identity_rejects_other_department",
+        ],
+        "notes": "Wrong plant, missing id, other department rejected. Full no-lot side-effect proof on HTTP NOT_RUN.",
+    },
+    "REL-03": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_rel03_zero_negative_excess_and_unapproved_release_rejected"
+        ],
+        "notes": "Zero/negative/inf rejected; unapproved 400; bounded 4 of 10 succeeds. Unauthorized-role token matrix NOT_RUN.",
+    },
+    "REL-04": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_rel_replay.py::test_rel04_rel05_same_release_replay_is_noop_after_schedule_and_start"
+        ],
+        "notes": "Live replay after scheduled/started winding is noop; plan_date/shift/actuals/snapshot unchanged.",
+    },
+    "REL-05": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_rel_replay.py::test_rel05_completed_replay_does_not_reopen"
+        ],
+        "notes": "Completed job replay returns same card; stage stays COMPLETED; current_stage stays DONE.",
+    },
+    "REL-06": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "sales-service/tests/test_original_comm_live.py::test_rel06_concurrent_releases_stay_bounded"
+        ],
+        "notes": "Two concurrent 7+7 against remaining 10: one ok, one err; stored released qty stays 7.",
     },
     "REL-08": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "RELATED",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
-            "production-service/tests/test_dispatch_idempotency.py::test_same_request_id_with_different_hash_is_conflict"
+            "production-service/tests/test_original_rel_replay.py::test_rel08_changed_quantity_or_spec_conflicts_and_leaves_original"
         ],
-        "notes": "Dispatch idempotency mismatch proven. Release-key mismatch NOT_RUN.",
+        "notes": "Replay with changed qty/spec is 409 release_replay_conflict; original snapshot/qty unchanged.",
+    },
+    "REL-10": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_rel10_queue_admission_allows_maintenance_while_execution_still_blocks"
+        ],
+        "notes": "Queue identity accepts MAINT winder; execution compatibility still rejects MAINT.",
     },
     "QCT-001": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
-            "production-service/tests/test_quality_eval.py::test_winder_in_range_is_pass",
-            "production-service/tests/test_quality_eval.py::test_winder_out_of_range_fail_requires_reason",
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct001_two_sided_inclusive_and_exclusive_endpoints"
         ],
         "rr": ["RR19"],
-        "notes": "In-range/out-of-range evaluator. Inclusive/exclusive endpoint matrix NOT_RUN.",
+        "notes": "Inclusive and exclusive endpoints; just-outside FAIL; no implicit epsilon.",
+    },
+    "QCT-002": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct002_minimum_only_never_disables_when_max_missing"
+        ],
+        "notes": "Minimum-only rule still fails below min when max is absent.",
+    },
+    "QCT-003": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct003_maximum_only_enforced_independently"
+        ],
+        "notes": "Exclusive maximum independent of missing minimum.",
     },
     "QCT-005": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
-        "mapped_tests": ["spec-service/tests/test_qc_profile.py::test_inverted_and_malformed_bounds_are_rejected"],
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "spec-service/tests/test_qc_profile.py::test_inverted_and_malformed_bounds_are_rejected",
+            "spec-service/tests/test_qc_profile.py::test_unsafe_rule_expression_is_rejected",
+            "spec-service/tests/test_qc_profile.py::test_empty_categorical_accept_set_is_rejected",
+        ],
         "rr": ["RR19"],
-        "notes": "Inverted/malformed bounds rejected on normalize. Full approve-path denial NOT_RUN.",
+        "notes": "Normalize rejects inverted, malformed, empty accept-set, unsafe formula. Live approve HTTP NOT_RUN.",
     },
     "QCT-006": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
-        "mapped_tests": ["production-service/tests/test_quality_eval.py::test_blank_and_invalid_never_pass"],
-        "rr": ["RR07"],
-        "notes": "Blank/invalid never PASS in evaluator. Every adapter path NOT_RUN.",
-    },
-    "QCT-007": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
         "mapped_tests": [
-            "production-service/tests/test_quality_eval.py::test_blank_and_invalid_never_pass",
-            "apps/web-ui/__tests__/qc-measurement.test.ts",
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct006_malformed_and_non_finite_never_pass"
         ],
         "rr": ["RR07"],
-        "notes": "Whitespace is missing, not zero, in collector/evaluator. Full request-pair matrix NOT_RUN.",
+        "notes": "Blank/text/NaN/inf/bool never PASS on evaluate_parameter. Legacy incoming_quality adapter still collapses missing to FAIL.",
+    },
+    "QCT-007": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct007_zero_is_evaluated_and_missing_is_incomplete"
+        ],
+        "rr": ["RR07"],
+        "notes": "Numeric zero is zero; omitted/whitespace is INCOMPLETE.",
+    },
+    "QCT-008": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct008_rounding_edge_stays_fail_with_explanatory_precision"
+        ],
+        "notes": "55.0001 stays FAIL with allowed display. UI/export extra precision NOT_RUN.",
     },
     "QCT-009": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "UNIT_ONLY",
-        "mapped_tests": ["production-service/tests/test_quality_eval.py::test_categorical_fail_uses_approved_outcomes"],
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct009_categorical_and_boolean_unknowns_are_invalid"
+        ],
         "rr": ["RR20"],
-        "notes": "Categorical FAIL vs approved options. Boolean/unknown-option matrix NOT_RUN.",
+        "notes": "Approved PASS/FAIL tokens; unknown BLEED is INVALID not measured PASS.",
+    },
+    "QCT-010": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct010_descriptive_only_is_observation_not_measured_pass"
+        ],
+        "notes": "Text-only profile is OBSERVATION_ONLY, not measured PASS.",
+    },
+    "QCT-011": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct011_kg_alias_does_not_satisfy_gram_rule"
+        ],
+        "notes": "kg batch alias does not satisfy per-specimen gram pre_weight.",
+    },
+    "QCT-013": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct013_evaluator_does_not_execute_payload_code",
+            "spec-service/tests/test_qc_profile.py::test_unsafe_rule_expression_is_rejected",
+        ],
+        "notes": "Formula/expression keys rejected on normalize; payload code string is INVALID, not executed.",
+    },
+    "QCT-014": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct014_incoming_and_job_adapters_share_golden_numeric_contract",
+            "hariom-erp/shared/tests/test_original_qct_evaluator.py::test_qct014_packaged_evaluator_copies_are_byte_identical",
+        ],
+        "notes": "Inventory evaluate_incoming and production evaluate_job_stage share golden 200/199.999/blank; three packaged copies SHA-identical.",
     },
     "QCT-043": {
         "overlay_status": "NOT_RUN",
@@ -293,7 +452,7 @@ SPECIAL: dict[str, dict] = {
         "notes": "Pending workspace is server-side, not first page. 501-order / 250-job original scale NOT_RUN.",
     },
     "DEM-02": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "LIMITATION",
         "coverage": "LIMITATION",
         "limitation": "GROSS_ESTIMATE",
         "mapped_tests": ["analytics-service/tests/test_demand_coverage.py::test_coverage_keeps_demand_available_and_reorder_separate"],
@@ -311,7 +470,7 @@ SPECIAL: dict[str, dict] = {
         "notes": "UOM mismatch is UNKNOWN; GSM-in-name is not a substitute. Full grade/width/form matrix NOT_RUN.",
     },
     "DEM-06": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "LIMITATION",
         "coverage": "LIMITATION",
         "limitation": "GROSS_ESTIMATE",
         "mapped_tests": ["analytics-service/tests/test_demand_coverage.py::test_coverage_keeps_demand_available_and_reorder_separate"],
@@ -344,7 +503,7 @@ SPECIAL: dict[str, dict] = {
         "notes": "Role identity unit. Seed/migration/restart sequence NOT_RUN.",
     },
     "QCT-107": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "LIMITATION",
         "coverage": "LIMITATION",
         "limitation": "PARTIAL_REJECTION_UNSUPPORTED",
         "rr": ["RR23"],
@@ -374,10 +533,10 @@ SPECIAL: dict[str, dict] = {
         "notes": "Isolated single-DB dump/restore is not plant-level quantity reconciliation of restored production data.",
     },
     "QCT-123": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "PARTIAL",
         "coverage": "RELATED",
-        "mapped_tests": ["isolated dump/restore rehearsal of hariom_nverify_salesdb"],
-        "notes": "Cross-service pending holds/outbox/barrier recovery NOT_RUN.",
+        "mapped_tests": ["docs/review/scripts/seven_db_restore_rehearsal.sh"],
+        "notes": "Isolated 7-DB dump/restore into hariom_nverify_restore_* rowcount PASS; holds/outbox preserved. Not production backup and not interrupted cross-service operation replay.",
     },
     "REG-02": {
         "overlay_status": "NOT_RUN",
@@ -385,9 +544,10 @@ SPECIAL: dict[str, dict] = {
         "notes": "Same as QCT-119. Isolated nverify dump is not migrated production data.",
     },
     "REG-03": {
-        "overlay_status": "NOT_RUN",
+        "overlay_status": "PARTIAL",
         "coverage": "RELATED",
-        "notes": "Same as QCT-123.",
+        "mapped_tests": ["docs/review/scripts/seven_db_restore_rehearsal.sh"],
+        "notes": "Same isolated 7-DB rehearsal as QCT-123. Not production-backup proof.",
     },
     "REG-04": {
         "overlay_status": "NOT_RUN",
@@ -400,9 +560,12 @@ SPECIAL: dict[str, dict] = {
         "notes": "Original ID-creation incident reproduction still required with recorded build/console/request.",
     },
     "NAV-01": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "NONE",
-        "notes": "Three-day priority predicate across tile/list/report/export NOT_RUN.",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "production-service/tests/test_due_risk.py::DueRiskPredicateTests::test_plant_midnight_boundary_keeps_overdue_separate"
+        ],
+        "notes": "Asia/Kolkata midnight overdue vs today..+2 vs +3. Tile/list/report/export identity NOT_RUN.",
     },
     "NAV-02": {
         "overlay_status": "NOT_RUN",

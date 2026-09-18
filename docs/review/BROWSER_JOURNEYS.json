@@ -7,6 +7,13 @@
     "result": "15 passed",
     "artifacts": "output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/"
   },
+  "last_theme_run": {
+    "command": "PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000 PLAYWRIGHT_CHROME_CHANNEL=chrome ./node_modules/.bin/playwright test --config playwright.config.cjs --project=chromium --project=chromium-dark e2e/theme-a11y-print.spec.cjs --workers=1",
+    "result": "6 passed (3 light + 3 dark)",
+    "artifacts": "output/playwright/6f50a76d65b5715427b57ec05e53b0ce12d4ea8f-theme/",
+    "webkit": "BLOCKED incomplete playwright install webkit",
+    "safari_app": "BLOCKED safaridriver --enable requires owner admin password"
+  },
   "journeys": [
     {
       "id": "BJ01",
@@ -97,7 +104,8 @@
       "spec": "human-UAT",
       "title": "Safari on client devices; both implemented visual themes beyond print tones",
       "layer": "human-UAT",
-      "status": "NOT_RUN"
+      "status": "NOT_RUN",
+      "blocked_automation": "safaridriver --enable requires owner admin password; Playwright WebKit install incomplete"
     }
   ]
 }
