@@ -209,6 +209,15 @@ test("blank print keeps writable spaces and does not treat empty as PASS", () =>
   assert.doesNotMatch(jobCard, /max-height: 287mm/)
 })
 
+test("complete job card submit keeps hidden-stage form state in source", () => {
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")
+  assert.match(page, /quality-card-submit/)
+  assert.match(page, /quality-stage-tabs/)
+  assert.match(page, /quality-card-issues/)
+  assert.match(page, /visible_stage/)
+  assert.doesNotMatch(page, /setReadings\(\{\}\)/)
+})
+
 test("oven PRE checkpoint marks post fields not yet due", () => {
   const fields = readFileSync(resolve(process.cwd(), "components/qc/StageQcFields.tsx"), "utf8")
   const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")

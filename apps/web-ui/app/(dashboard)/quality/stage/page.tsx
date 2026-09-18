@@ -9,7 +9,7 @@ import { RoleGate } from "@/components/workspace/role-gate"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
-import { useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
+import { useCompleteJobCardQc, useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { frozenStageRules, inspectionProfileRevision, type QcStageKey } from "@/lib/qc-measurement"
 
@@ -18,6 +18,17 @@ const STAGES: { value: QcStageKey; label: string }[] = [
   { value: "OVEN", label: "Oven" },
   { value: "PROCESS", label: "Process" },
 ]
+
+type StageDraft = {
+  readings: Record<string, string>
+  reasons: Record<string, string>
+  sampleId: string
+  ovenCheckpoint: "PRE" | "POST"
+}
+
+function emptyDraft(): StageDraft {
+  return { readings: {}, reasons: {}, sampleId: "", ovenCheckpoint: "PRE" }
+}
 
 function asArray(value: any) {
   if (Array.isArray(value)) return value
@@ -46,19 +57,50 @@ function plantForJob(job: any) {
   return value && value.toUpperCase() !== "ALL" ? value : undefined
 }
 
+function numericReadings(stageType: QcStageKey, draft: StageDraft) {
+  const numeric: Record<string, string | number> = Object.fromEntries(
+    Object.entries(draft.readings)
+      .filter(([key, value]) => {
+        if (String(value).trim() === "") return false
+        if (stageType === "OVEN" && draft.ovenCheckpoint === "PRE" && String(key).startsWith("post_")) return false
+        if (stageType === "OVEN" && draft.ovenCheckpoint === "POST" && (key === "pre_weight" || key === "pre_moisture")) return false
+        return true
+      })
+      .map(([key, value]) => {
+        const number = Number(value)
+        return [key, Number.isFinite(number) ? number : value]
+      }),
+  )
+  if (stageType === "OVEN") {
+    numeric.oven_checkpoint = draft.ovenCheckpoint
+    if (draft.sampleId) {
+      numeric.sample_id = draft.sampleId
+      if (draft.ovenCheckpoint === "PRE") numeric.pre_specimen_id = draft.sampleId
+      if (draft.ovenCheckpoint === "POST") {
+        numeric.post_specimen_id = draft.sampleId
+        numeric.pre_specimen_id = draft.sampleId
+      }
+    }
+  }
+  return numeric
+}
+
 export default function StageQualityPage() {
   const { showToast } = useApp()
   const { activePlant } = useAuth()
   const [search, setSearch] = useState("")
   const [selectedJobId, setSelectedJobId] = useState("")
   const [stageType, setStageType] = useState<QcStageKey>("WINDER")
-  const [readings, setReadings] = useState<Record<string, string>>({})
-  const [reasons, setReasons] = useState<Record<string, string>>({})
-  const [sampleId, setSampleId] = useState("")
-  const [ovenCheckpoint, setOvenCheckpoint] = useState<"PRE" | "POST">("PRE")
+  const [drafts, setDrafts] = useState<Record<QcStageKey, StageDraft>>({
+    WINDER: emptyDraft(),
+    OVEN: emptyDraft(),
+    PROCESS: emptyDraft(),
+  })
   const [lastVerdict, setLastVerdict] = useState("")
+  const [cardIssues, setCardIssues] = useState<any[]>([])
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
+  const completeCard = useCompleteJobCardQc()
   const jobs = useMemo(() => asArray(jobCardsQuery.data), [jobCardsQuery.data])
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
   const plantId = plantForJob(selectedJob) || (activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined)
@@ -69,8 +111,9 @@ export default function StageQualityPage() {
     ? stageBlock.parameters
     : frozenStageRules(snapshotProfile, stageType)
   const profileRevision = inspectionProfileRevision(null, snapshotProfile || templateQuery.data)
+  const draft = drafts[stageType]
   const checkpoint = stageType === "OVEN"
-    ? (ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
+    ? (draft.ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
     : STAGES.find((stage) => stage.value === stageType)?.label
 
   const filteredJobs = useMemo(() => {
@@ -78,6 +121,14 @@ export default function StageQualityPage() {
     const rows = needle ? jobs.filter((job: any) => jobMatchesSearch(job, needle)) : jobs
     return rows.slice(0, 80)
   }, [jobs, search])
+
+  const updateDraft = (stage: QcStageKey, patch: Partial<StageDraft> | ((current: StageDraft) => StageDraft)) => {
+    setDrafts((current) => {
+      const prior = current[stage] || emptyDraft()
+      const next = typeof patch === "function" ? patch(prior) : { ...prior, ...patch }
+      return { ...current, [stage]: next }
+    })
+  }
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -90,57 +141,70 @@ export default function StageQualityPage() {
       return
     }
     try {
-      const numericReadings = Object.fromEntries(
-        Object.entries(readings)
-          .filter(([key, value]) => {
-            if (String(value).trim() === "") return false
-            if (stageType === "OVEN" && ovenCheckpoint === "PRE" && String(key).startsWith("post_")) return false
-            if (stageType === "OVEN" && ovenCheckpoint === "POST" && (key === "pre_weight" || key === "pre_moisture")) return false
-            return true
-          })
-          .map(([key, value]) => {
-            const number = Number(value)
-            return [key, Number.isFinite(number) ? number : value]
-          }),
-      )
-      if (stageType === "OVEN") {
-        numericReadings.oven_checkpoint = ovenCheckpoint
-        if (sampleId) {
-          numericReadings.sample_id = sampleId
-          if (ovenCheckpoint === "PRE") numericReadings.pre_specimen_id = sampleId
-          if (ovenCheckpoint === "POST") {
-            numericReadings.post_specimen_id = sampleId
-            numericReadings.pre_specimen_id = sampleId
-          }
-        }
-      }
       const response = await createInspection.mutateAsync({
         plantId,
         data: {
           job_card_id: selectedJobId,
           stage_type: stageType,
-          readings: numericReadings,
-          reasons,
-          sample_id: sampleId || undefined,
+          readings: numericReadings(stageType, draft),
+          reasons: draft.reasons,
+          sample_id: draft.sampleId || undefined,
           create_hold_on_fail: true,
         },
       })
       const status = String(response?.data?.status || "")
       setLastVerdict(status)
       showToast(`Server verdict: ${status}`, status === "FAIL" || status === "INCOMPLETE" || status === "INVALID" ? "error" : "success")
-      setReadings((current) => {
-        if (stageType !== "OVEN") return {}
-        const next: Record<string, string> = {}
-        if (ovenCheckpoint === "PRE") {
-          for (const [key, value] of Object.entries(current)) {
-            if (String(key).startsWith("pre_")) next[key] = value
+      updateDraft(stageType, (current) => {
+        if (stageType !== "OVEN") return { ...emptyDraft(), sampleId: current.sampleId }
+        const nextReadings: Record<string, string> = {}
+        if (current.ovenCheckpoint === "PRE") {
+          for (const [key, value] of Object.entries(current.readings)) {
+            if (String(key).startsWith("pre_")) nextReadings[key] = value
           }
         }
-        return next
+        return { ...current, readings: nextReadings, reasons: {} }
       })
-      setReasons({})
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Inspection save failed."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    }
+  }
+
+  const handleCompleteCard = async () => {
+    if (!selectedJobId) {
+      showToast("Select a job card before submitting the complete card.", "error")
+      return
+    }
+    if (!plantId) {
+      showToast("Switch to the job plant before submitting the complete card.", "error")
+      return
+    }
+    try {
+      const response = await completeCard.mutateAsync({
+        jobCardId: selectedJobId,
+        plantId,
+        data: {
+          visible_stage: stageType,
+          stages: STAGES.map((stage) => ({
+            stage_type: stage.value,
+            readings: numericReadings(stage.value, drafts[stage.value]),
+            reasons: drafts[stage.value].reasons,
+            sample_id: drafts[stage.value].sampleId || undefined,
+          })),
+        },
+      })
+      const body = response?.data || {}
+      const issues = asArray(body.issues)
+      setCardIssues(issues)
+      const accepted = Boolean(body.accepted)
+      setLastVerdict(accepted ? "PASS" : "INCOMPLETE")
+      showToast(
+        accepted ? "Complete job card accepted." : `Server returned ${issues.length} stage/sample issue(s). Form data was kept.`,
+        accepted ? "success" : "error",
+      )
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Complete job card submit failed."
       showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
     }
   }
@@ -180,8 +244,9 @@ export default function StageQualityPage() {
                   value={selectedJobId}
                   onChange={(event) => {
                     setSelectedJobId(event.target.value)
-                    setReadings({})
-                    setReasons({})
+                    setDrafts({ WINDER: emptyDraft(), OVEN: emptyDraft(), PROCESS: emptyDraft() })
+                    setLastVerdict("")
+                    setCardIssues([])
                   }}
                   data-testid="quality-stage-job"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
@@ -198,10 +263,6 @@ export default function StageQualityPage() {
                   value={stageType}
                   onChange={(event) => {
                     setStageType(event.target.value as QcStageKey)
-                    setReadings({})
-                    setReasons({})
-                    setSampleId("")
-                    setOvenCheckpoint("PRE")
                     setLastVerdict("")
                   }}
                   data-testid="quality-stage-type"
@@ -213,24 +274,41 @@ export default function StageQualityPage() {
                 </select>
               </label>
             </div>
+            <div className="flex flex-wrap gap-2" data-testid="quality-stage-tabs">
+              {STAGES.map((stage) => (
+                <button
+                  key={stage.value}
+                  type="button"
+                  data-testid={`quality-stage-tab-${stage.value}`}
+                  aria-pressed={stageType === stage.value}
+                  onClick={() => {
+                    setStageType(stage.value)
+                    setLastVerdict("")
+                  }}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold ${
+                    stageType === stage.value ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-800"
+                  }`}
+                >
+                  {stage.label}
+                </button>
+              ))}
+            </div>
             {stageType === "OVEN" ? (
               <label className="block space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Oven checkpoint</span>
                 <select
-                  value={ovenCheckpoint}
+                  value={draft.ovenCheckpoint}
                   onChange={(event) => {
-                    setOvenCheckpoint(event.target.value as "PRE" | "POST")
+                    const next = event.target.value as "PRE" | "POST"
                     setLastVerdict("")
-                    if (event.target.value === "POST") {
-                      setReadings((current) => {
-                        const next: Record<string, string> = {}
-                        for (const [key, value] of Object.entries(current)) {
-                          if (key === "pre_weight" || key === "pre_moisture") continue
-                          next[key] = value
-                        }
-                        return next
-                      })
-                    }
+                    updateDraft("OVEN", (current) => {
+                      const readings = { ...current.readings }
+                      if (next === "POST") {
+                        delete readings.pre_weight
+                        delete readings.pre_moisture
+                      }
+                      return { ...current, ovenCheckpoint: next, readings }
+                    })
                   }}
                   data-testid="quality-stage-checkpoint"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm md:max-w-sm"
@@ -246,16 +324,16 @@ export default function StageQualityPage() {
             {selectedJobId ? (
               <StageQcFields
                 rules={rules}
-                readings={readings}
-                reasons={reasons}
-                sampleId={sampleId}
+                readings={draft.readings}
+                reasons={draft.reasons}
+                sampleId={draft.sampleId}
                 paired={stageType === "OVEN"}
                 profileRevision={profileRevision}
                 checkpoint={checkpoint}
-                dueTiming={stageType === "OVEN" ? ovenCheckpoint : null}
-                onReadingChange={(code, value) => setReadings((current) => ({ ...current, [code]: value }))}
-                onReasonChange={(code, value) => setReasons((current) => ({ ...current, [code]: value }))}
-                onSampleIdChange={setSampleId}
+                dueTiming={stageType === "OVEN" ? draft.ovenCheckpoint : null}
+                onReadingChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, readings: { ...current.readings, [code]: value } }))}
+                onReasonChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, reasons: { ...current.reasons, [code]: value } }))}
+                onSampleIdChange={(value) => updateDraft(stageType, { sampleId: value })}
               />
             ) : (
               <EmptyState label="Select a job card to load frozen Allowed ranges." />
@@ -265,14 +343,41 @@ export default function StageQualityPage() {
                 {lastVerdict}
               </div>
             ) : null}
-            <button
-              type="submit"
-              data-testid="quality-stage-submit"
-              disabled={!selectedJobId || createInspection.isPending}
-              className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              Submit stage readings
-            </button>
+            {cardIssues.length ? (
+              <ul className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-800" data-testid="quality-card-issues">
+                {cardIssues.map((issue, index) => (
+                  <li
+                    key={`${issue.stage}-${issue.parameter}-${issue.sample || ""}-${index}`}
+                    data-testid={`quality-card-issue-${issue.stage}-${issue.parameter}`}
+                  >
+                    {issue.stage} / {issue.parameter}
+                    {issue.sample ? ` / sample ${issue.sample}` : ""}: {issue.outcome}
+                    {issue.approved_rule ? ` (${issue.approved_rule})` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="submit"
+                data-testid="quality-stage-submit"
+                disabled={!selectedJobId || createInspection.isPending}
+                className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+              >
+                Submit stage readings
+              </button>
+              <button
+                type="button"
+                data-testid="quality-card-submit"
+                disabled={!selectedJobId || completeCard.isPending}
+                onClick={() => {
+                  void handleCompleteCard()
+                }}
+                className="rounded-xl border border-slate-900 px-4 py-3 text-sm font-semibold text-slate-900 disabled:opacity-60"
+              >
+                Submit complete job card
+              </button>
+            </div>
           </form>
         </Panel>
       </div>

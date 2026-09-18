@@ -299,6 +299,20 @@ export function useCreateQualityInspection() {
   })
 }
 
+export function useCompleteJobCardQc() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ jobCardId, data, plantId }: { jobCardId: string; data: any; plantId?: string }) =>
+      productionApi.completeJobCardQc(jobCardId, data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["quality-inspections"] })
+      queryClient.invalidateQueries({ queryKey: ["quality-summary"] })
+      queryClient.invalidateQueries({ queryKey: ["quality-holds"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+    },
+  })
+}
+
 export function useCreateQualityHold() {
   const queryClient = useQueryClient()
   return useMutation({

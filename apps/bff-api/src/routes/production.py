@@ -90,6 +90,11 @@ async def get_job_qc_template(job_card_id: str, request: Request, token: str = D
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/template", request, token)
 
 
+@router.post("/quality/job-cards/{job_card_id}/complete")
+async def complete_job_card_qc(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/complete", request, token)
+
+
 @router.get("/quality/holds")
 async def list_quality_holds(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/holds", request, token)

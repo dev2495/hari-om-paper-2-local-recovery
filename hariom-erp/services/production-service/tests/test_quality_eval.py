@@ -288,3 +288,42 @@ def test_incoming_uses_item_profile_and_ignores_reason_pass():
     assert passed.verdict == "PASS"
     assert failed.verdict == "FAIL"
     assert submission_error(failed) is None
+
+
+def test_complete_card_returns_hidden_stage_issues_when_visible_tab_is_valid():
+    from src.routers.quality import collect_complete_card_issues
+
+    snapshot = _winder_snapshot()
+    winder = {"id": 77, "od": 91, "height": 120, "weight": 250, "cs": 320}
+    omitted_hidden = collect_complete_card_issues(
+        spec_snapshot=snapshot,
+        submitted_stages=[{"stage_type": "WINDER", "readings": winder, "reasons": {}, "sample_id": "W1"}],
+        stored_rows=[],
+    )
+    stages = {row["stage"] for row in omitted_hidden}
+    assert "OVEN" in stages
+    assert "PROCESS" in stages
+    assert not any(row["stage"] == "WINDER" and row["parameter"] == "height" for row in omitted_hidden)
+    with_hidden_fail = collect_complete_card_issues(
+        spec_snapshot=snapshot,
+        submitted_stages=[{"stage_type": "WINDER", "readings": winder, "reasons": {}, "sample_id": "W1"}],
+        stored_rows=[
+            {
+                "stage_type": "PROCESS",
+                "readings": {
+                    "height": 90,
+                    "weight": 230,
+                    "cs": 320,
+                    "notch_distance": 25,
+                    "notch_depth": 3,
+                    "moisture": 6,
+                },
+                "reasons": {},
+                "sample_id": "P1",
+            }
+        ],
+    )
+    process_height = next(row for row in with_hidden_fail if row["stage"] == "PROCESS" and row["parameter"] == "height")
+    assert process_height["outcome"] == "FAIL"
+    assert process_height["sample"] == "P1"
+    assert any(row["stage"] == "OVEN" and row["outcome"] == "INCOMPLETE" for row in with_hidden_fail)

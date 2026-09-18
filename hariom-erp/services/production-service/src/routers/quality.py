@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import AuditEvent, JobCard, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
+from ..models import AuditEvent, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
 from ..quality_eval import evaluate_job_stage, evaluate_stage_quality, submission_error
 from ..quality_metrics import quality_pass_rate
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
@@ -21,6 +21,8 @@ router = APIRouter(prefix="/quality", tags=["quality"])
 settings = get_settings()
 
 STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"}
+CARD_QC_STAGES = ("WINDER", "OVEN", "PROCESS")
+ISSUE_VERDICTS = {"FAIL", "INCOMPLETE", "INVALID"}
 FINAL_SPEC_QC_FIELDS = [
     ("ID", "id", "id_min_mm", "id_max_mm"),
     ("OD", "od", "od_min_mm", "od_max_mm"),
@@ -102,6 +104,180 @@ def _merge_oven_pre_context(readings: dict[str, Any], prior: QualityInspection) 
         if merged.get(code) in (None, "") and prior_readings.get(code) not in (None, ""):
             merged[code] = prior_readings.get(code)
     return merged
+
+
+def _due_card_stages(spec_snapshot: dict[str, Any]) -> list[str]:
+    profile = spec_snapshot.get("qc_profile") if isinstance(spec_snapshot.get("qc_profile"), dict) else {}
+    stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else {}
+    due: list[str] = []
+    for key in CARD_QC_STAGES:
+        block = stages.get(key)
+        if not isinstance(block, dict):
+            continue
+        params = block.get("parameters") or []
+        if any(isinstance(row, dict) and row.get("applicable", True) is not False for row in params):
+            due.append(key)
+    return due
+
+
+def _merge_filled(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base or {})
+    for key, value in (overlay or {}).items():
+        if value in (None, ""):
+            continue
+        merged[key] = value
+    return merged
+
+
+def _stage_sample_id(stage_type: str, sample_id: Optional[str], readings: dict[str, Any]) -> str:
+    if str(stage_type or "").upper() == "OVEN":
+        return _oven_pair_id(sample_id, readings)
+    return str(sample_id or "").strip()
+
+
+def _card_issue_actions(outcome: str, missing_reason: bool) -> list[str]:
+    actions: list[str] = []
+    if outcome == "INCOMPLETE":
+        actions.append("Enter the due reading on that stage. A hidden tab does not skip it.")
+    if outcome == "INVALID":
+        actions.append("Correct the malformed reading. It is not PASS.")
+    if outcome == "FAIL":
+        actions.append("Measured FAIL stays FAIL. Review or disposition is required for release.")
+    if missing_reason:
+        actions.append("Add a linked reason; a reason never creates PASS.")
+    return actions
+
+
+def _normalize_card_row(row: dict[str, Any]) -> dict[str, Any]:
+    readings = dict(row.get("readings") or {})
+    reasons = dict(row.get("reasons") or {})
+    if "reasons" in readings and isinstance(readings.get("reasons"), dict) and not reasons:
+        reasons = dict(readings.get("reasons") or {})
+    stage_type = str(row.get("stage_type") or "").strip().upper()
+    sample_id = row.get("sample_id")
+    return {
+        "stage_type": stage_type,
+        "readings": readings,
+        "reasons": reasons,
+        "sample_id": _stage_sample_id(stage_type, sample_id, readings),
+    }
+
+
+def collect_complete_card_issues(
+    *,
+    spec_snapshot: dict[str, Any],
+    submitted_stages: list[dict[str, Any]],
+    stored_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Validate every due stage/sample, including stages omitted from the visible tab."""
+    snapshot = spec_snapshot or {}
+    due_stages = _due_card_stages(snapshot)
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
+    for raw in list(stored_rows or []) + list(submitted_stages or []):
+        row = _normalize_card_row(raw if isinstance(raw, dict) else {})
+        stage_type = row["stage_type"]
+        if stage_type not in due_stages:
+            continue
+        key = (stage_type, row["sample_id"])
+        prior = buckets.get(key) or {"stage_type": stage_type, "sample_id": row["sample_id"], "readings": {}, "reasons": {}}
+        buckets[key] = {
+            "stage_type": stage_type,
+            "sample_id": row["sample_id"] or prior.get("sample_id") or "",
+            "readings": _merge_filled(prior.get("readings") or {}, row["readings"]),
+            "reasons": _merge_filled(prior.get("reasons") or {}, row["reasons"]),
+        }
+    for stage_type in due_stages:
+        if not any(key[0] == stage_type for key in buckets):
+            buckets[(stage_type, "")] = {"stage_type": stage_type, "sample_id": "", "readings": {}, "reasons": {}}
+
+    issues: list[dict[str, Any]] = []
+    for stage_type, sample_id in sorted(buckets, key=lambda item: (CARD_QC_STAGES.index(item[0]) if item[0] in CARD_QC_STAGES else 99, item[1])):
+        bucket = buckets[(stage_type, sample_id)]
+        readings = dict(bucket.get("readings") or {})
+        if stage_type == "OVEN":
+            readings["oven_checkpoint"] = "POST"
+            if sample_id:
+                readings.setdefault("sample_id", sample_id)
+                readings.setdefault("post_specimen_id", sample_id)
+                readings.setdefault("pre_specimen_id", sample_id)
+        evaluation = evaluate_job_stage(
+            stage=stage_type,
+            spec_snapshot=snapshot,
+            readings=readings,
+            reasons=bucket.get("reasons") or {},
+            sample_id=sample_id or None,
+            require_reasons_on_fail=True,
+        )
+        missing_reasons = set(evaluation.missing_reasons or [])
+        for result in evaluation.parameter_results:
+            if result.verdict not in ISSUE_VERDICTS:
+                continue
+            missing_reason = result.code in missing_reasons
+            issues.append(
+                {
+                    "stage": stage_type,
+                    "parameter": result.code,
+                    "sample": sample_id or None,
+                    "actual": result.submitted if result.submitted not in (None, "") else readings.get(result.code),
+                    "approved_rule": result.rule.allowed_display() if result.rule else result.message,
+                    "outcome": result.verdict,
+                    "missing_reason": missing_reason,
+                    "next_actions": _card_issue_actions(result.verdict, missing_reason),
+                }
+            )
+    return issues
+
+
+def _stored_card_rows(db: Session, job_card: JobCard) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    inspections = (
+        db.query(QualityInspection)
+        .filter(QualityInspection.job_card_id == job_card.id)
+        .order_by(QualityInspection.created_at.asc())
+        .all()
+    )
+    for inspection in inspections:
+        rows.append(
+            {
+                "stage_type": inspection.stage_type,
+                "readings": inspection.readings or {},
+                "reasons": getattr(inspection, "reasons", None) or {},
+                "sample_id": getattr(inspection, "sample_id", None),
+            }
+        )
+    stages = db.query(JobCardStage).filter(JobCardStage.job_card_id == job_card.id).all()
+    for stage in stages:
+        payload = dict(stage.quality_checks or {})
+        if not payload:
+            continue
+        samples = payload.get("samples") if isinstance(payload.get("samples"), list) else None
+        if samples:
+            for sample in samples:
+                if not isinstance(sample, dict):
+                    continue
+                rows.append(
+                    {
+                        "stage_type": stage.stage_type,
+                        "readings": sample.get("readings") or sample,
+                        "reasons": sample.get("reasons") or payload.get("reasons") or {},
+                        "sample_id": sample.get("sample_id") or payload.get("sample_id"),
+                    }
+                )
+            continue
+        readings = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint"}
+        }
+        rows.append(
+            {
+                "stage_type": stage.stage_type,
+                "readings": readings,
+                "reasons": payload.get("reasons") or {},
+                "sample_id": payload.get("sample_id"),
+            }
+        )
+    return rows
 
 
 def _to_uuid(value: str, field: str = "id") -> uuid.UUID:
@@ -241,6 +417,64 @@ class InspectionCreate(BaseModel):
     def validate_sample_id(cls, value: Optional[str]) -> Optional[str]:
         text = str(value or "").strip()
         return text or None
+
+
+class CompleteCardStageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage_type: str
+    readings: dict[str, Any] = Field(default_factory=dict)
+    reasons: dict[str, Any] = Field(default_factory=dict)
+    sample_id: Optional[str] = None
+
+    @field_validator("stage_type")
+    @classmethod
+    def validate_stage_type(cls, value: str) -> str:
+        return _normalize_stage(value)
+
+    @field_validator("sample_id")
+    @classmethod
+    def validate_sample_id(cls, value: Optional[str]) -> Optional[str]:
+        text = str(value or "").strip()
+        return text or None
+
+
+class CompleteCardRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    visible_stage: Optional[str] = None
+    stages: list[CompleteCardStageInput] = Field(default_factory=list)
+
+    @field_validator("visible_stage")
+    @classmethod
+    def validate_visible_stage(cls, value: Optional[str]) -> Optional[str]:
+        if value in (None, ""):
+            return None
+        return _normalize_stage(value)
+
+
+class CompleteCardIssue(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    stage: str
+    parameter: str
+    sample: Optional[str] = None
+    actual: Any = None
+    approved_rule: Optional[str] = None
+    outcome: str
+    missing_reason: bool = False
+    next_actions: list[str] = Field(default_factory=list)
+
+
+class CompleteCardResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    accepted: bool
+    job_card_id: uuid.UUID
+    visible_stage: Optional[str] = None
+    form_retained: bool = True
+    issues: list[CompleteCardIssue] = Field(default_factory=list)
+    inspection_count: int = 0
 
 
 class InspectionResponse(BaseModel):
@@ -616,6 +850,57 @@ def get_frozen_qc_template(
         "notching_applicable": bool(snapshot.get("notch_capability_required")),
         "stages": stages,
     }
+
+
+@router.post("/job-cards/{job_card_id}/complete", response_model=CompleteCardResponse)
+def complete_job_card_qc(
+    job_card_id: uuid.UUID,
+    payload: CompleteCardRequest,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+):
+    plant_uuid = _to_uuid(plant_id, field="plant_id")
+    job_card = (
+        db.query(JobCard)
+        .filter(JobCard.id == job_card_id, JobCard.plant_id == plant_uuid)
+        .first()
+    )
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    inspection_count = (
+        db.query(QualityInspection)
+        .filter(QualityInspection.job_card_id == job_card.id)
+        .count()
+    )
+    submitted = [
+        {
+            "stage_type": row.stage_type,
+            "readings": row.readings or {},
+            "reasons": row.reasons or {},
+            "sample_id": row.sample_id,
+        }
+        for row in (payload.stages or [])
+    ]
+    issues = collect_complete_card_issues(
+        spec_snapshot=job_card.spec_snapshot or {},
+        submitted_stages=submitted,
+        stored_rows=_stored_card_rows(db, job_card),
+    )
+    accepted = not issues
+    after_count = (
+        db.query(QualityInspection)
+        .filter(QualityInspection.job_card_id == job_card.id)
+        .count()
+    )
+    return CompleteCardResponse(
+        accepted=accepted,
+        job_card_id=job_card.id,
+        visible_stage=payload.visible_stage,
+        form_retained=after_count == inspection_count,
+        issues=[CompleteCardIssue(**issue) for issue in issues],
+        inspection_count=after_count,
+    )
 
 
 @router.post("/holds", response_model=HoldResponse)
