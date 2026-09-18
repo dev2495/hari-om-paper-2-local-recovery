@@ -20,7 +20,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { displayPlantScope } from "@/lib/plant-scope"
 import { resolveSpecSummary } from "@/lib/spec-summary"
-import { DELTA_ABS_G, RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
+import { buildBambooPlan, DELTA_ABS_G, RECIPE_MAX_PAPERS, RECIPE_MAX_PLIES, RECIPE_MIN_PAPERS } from "@/lib/spec-math"
 import {
   useAdhesives,
   useCustomers,
@@ -1744,13 +1744,20 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     avg: manufacturingRows.find((row) => row.label === "AVG")?.id || 0,
     max: manufacturingRows.find((row) => row.label === "MAX")?.id || 0,
   }
-  const selectedBambooLengthMm = Number(previewSummary.selected_bamboo_length_mm || 0)
-  const usableBambooLengthMm = Number(previewSummary.usable_length_mm || recipePreview.usableLength || 0)
-  const finishedBambooLengthMm = Number(previewSummary.finished_length_mm || usableBambooLengthMm || 0)
-  const totalTrimMm = Number(previewSummary.total_trim_mm || Math.max(selectedBambooLengthMm - finishedBambooLengthMm, 0))
-  const fixedEndTrimMm = Number(previewSummary.fixed_end_trim_mm || Math.min(totalTrimMm, 40))
-  const residualOffcutMm = Number(previewSummary.residual_offcut_mm || Math.max(totalTrimMm - fixedEndTrimMm, 0))
-  const tubesPerBamboo = Number(previewSummary.tubes_per_bamboo || 0)
+  const localBambooPlan = previewTubeLengthMm > 0
+    ? buildBambooPlan(previewTubeLengthMm, {
+        min_length_mm: Number(specConstants?.bamboo_min_length_mm || 1390),
+        max_length_mm: Number(specConstants?.bamboo_max_length_mm || 1560),
+        cut_loss_mm: Number(specConstants?.cut_loss_mm || 40),
+      })
+    : null
+  const selectedBambooLengthMm = Number(previewSummary.selected_bamboo_length_mm || localBambooPlan?.bamboo_length_mm || 0)
+  const usableBambooLengthMm = Number(previewSummary.usable_length_mm || recipePreview.usableLength || localBambooPlan?.usable_length_mm || 0)
+  const finishedBambooLengthMm = Number(previewSummary.finished_length_mm || localBambooPlan?.finished_length_mm || usableBambooLengthMm || 0)
+  const totalTrimMm = Number(previewSummary.total_trim_mm || localBambooPlan?.total_trim_mm || Math.max(selectedBambooLengthMm - finishedBambooLengthMm, 0))
+  const fixedEndTrimMm = Number(previewSummary.fixed_end_trim_mm || localBambooPlan?.fixed_end_trim_mm || Math.min(totalTrimMm, 40))
+  const residualOffcutMm = Number(previewSummary.residual_offcut_mm || localBambooPlan?.residual_offcut_mm || Math.max(totalTrimMm - fixedEndTrimMm, 0))
+  const tubesPerBamboo = Number(previewSummary.tubes_per_bamboo || localBambooPlan?.tubes_per_bamboo || 0)
   const bambooDryWeightG =
     Number(previewSummary.bamboo_required_dry_g || 0) ||
     liveDryTube * tubesPerBamboo

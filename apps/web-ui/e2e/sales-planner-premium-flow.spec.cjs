@@ -136,8 +136,8 @@ test("premium sales and planner surfaces load with animated interactive elements
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("inventory-control-page")).toBeVisible()
   await expect(page.getByText(/stock, locations, reels, issues, valuation, and mrp readiness/i)).toBeVisible()
-  await expect(page.getByRole("link", { name: /mrp and po drafts/i })).toBeVisible()
-  await expect(page.getByRole("link", { name: /stock close control/i }).first()).toBeVisible()
+  await expect(page.getByRole("link", { name: /open mrp reorder and demand views/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /open stock close control/i }).first()).toBeVisible()
 
   await page.goto("/inventory/stock-control", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("inventory-stock-control-page")).toBeVisible()
