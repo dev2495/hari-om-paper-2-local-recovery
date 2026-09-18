@@ -86,64 +86,79 @@ def seed_plant_catalog(session: requests.Session, bff: str, plant_id: str, label
         )
 
     mandrels = _rows(get("/api/master/mandrels"))
-    mandrel_125 = _find(mandrels, lambda row: abs(float(row.get("outer_diameter_mm") or 0) - APPROVED_MANDREL_OD) < 1e-6)
-    if mandrel_125 is None:
-        mandrel_125 = post(
-            "/api/master/mandrels",
-            {
-                "mandrel_code": "125.55",
-                "outer_diameter_mm": APPROVED_MANDREL_OD,
-                "od_tolerance_mm": 0.1,
-                "length_mm": 500.0,
-                "material": "MS",
-            },
-        )
-    mandrel_110 = _find(mandrels, lambda row: abs(float(row.get("outer_diameter_mm") or 0) - 110.65) < 1e-6)
-    if mandrel_110 is None:
-        mandrel_110 = post(
-            "/api/master/mandrels",
-            {
-                "mandrel_code": "110.65",
-                "outer_diameter_mm": 110.65,
-                "od_tolerance_mm": 0.1,
-                "length_mm": 500.0,
-                "material": "MS",
-            },
-        )
+
+    def ensure_mandrel(od: float, preferred_code: str) -> dict:
+        hit = _find(mandrels, lambda row, od=od: abs(float(row.get("outer_diameter_mm") or 0) - od) < 1e-6)
+        if hit:
+            return hit
+        codes = [preferred_code, f"NV{label}-{preferred_code}"]
+        last_error = ""
+        for code in codes:
+            created = session.post(
+                f"{bff}/api/master/mandrels",
+                headers=headers,
+                json={
+                    "mandrel_code": code,
+                    "outer_diameter_mm": od,
+                    "od_tolerance_mm": 0.1,
+                    "length_mm": 500.0,
+                    "material": "MS",
+                },
+                timeout=TIMEOUT,
+            )
+            if created.status_code in {200, 201}:
+                row = created.json()
+                mandrels.append(row)
+                return row
+            last_error = f"{created.status_code} {created.text[:200]}"
+            refreshed = _rows(get("/api/master/mandrels"))
+            hit = _find(refreshed, lambda row, od=od: abs(float(row.get("outer_diameter_mm") or 0) - od) < 1e-6)
+            if hit:
+                return hit
+        raise SystemExit(f"Plant {label} mandrel {od} failed: {last_error}")
+
+    mandrel_125 = ensure_mandrel(APPROVED_MANDREL_OD, "125.55")
+    mandrel_110 = ensure_mandrel(110.65, "110.65")
 
     tubes = _rows(get("/api/master/tube-sizes"))
-    tube_125 = _find(
-        tubes,
-        lambda row: abs(float(row.get("inner_diameter_mm") or 0) - APPROVED_TUBE[0]) < 1e-6
-        and abs(float(row.get("outer_diameter_mm") or 0) - APPROVED_TUBE[1]) < 1e-6
-        and abs(float(row.get("length_mm") or 0) - APPROVED_TUBE[2]) < 1e-6,
-    )
-    if tube_125 is None:
-        tube_125 = post(
-            "/api/master/tube-sizes",
-            {
-                "inner_diameter_mm": APPROVED_TUBE[0],
-                "outer_diameter_mm": APPROVED_TUBE[1],
-                "length_mm": APPROVED_TUBE[2],
-                "description": "125 x 137 x 120",
-            },
+
+    def ensure_tube(geometry: tuple[float, float, float], description: str) -> dict:
+        hit = _find(
+            tubes,
+            lambda row, geometry=geometry: abs(float(row.get("inner_diameter_mm") or 0) - geometry[0]) < 1e-6
+            and abs(float(row.get("outer_diameter_mm") or 0) - geometry[1]) < 1e-6
+            and abs(float(row.get("length_mm") or 0) - geometry[2]) < 1e-6,
         )
-    tube_110 = _find(
-        tubes,
-        lambda row: abs(float(row.get("inner_diameter_mm") or 0) - 110.0) < 1e-6
-        and abs(float(row.get("outer_diameter_mm") or 0) - 122.0) < 1e-6
-        and abs(float(row.get("length_mm") or 0) - 149.9) < 1e-6,
-    )
-    if tube_110 is None:
-        tube_110 = post(
-            "/api/master/tube-sizes",
-            {
-                "inner_diameter_mm": 110.0,
-                "outer_diameter_mm": 122.0,
-                "length_mm": 149.9,
-                "description": "110 x 122 x 149.9",
+        if hit:
+            return hit
+        created = session.post(
+            f"{bff}/api/master/tube-sizes",
+            headers=headers,
+            json={
+                "inner_diameter_mm": geometry[0],
+                "outer_diameter_mm": geometry[1],
+                "length_mm": geometry[2],
+                "description": description,
             },
+            timeout=TIMEOUT,
         )
+        if created.status_code in {200, 201}:
+            row = created.json()
+            tubes.append(row)
+            return row
+        refreshed = _rows(get("/api/master/tube-sizes"))
+        hit = _find(
+            refreshed,
+            lambda row, geometry=geometry: abs(float(row.get("inner_diameter_mm") or 0) - geometry[0]) < 1e-6
+            and abs(float(row.get("outer_diameter_mm") or 0) - geometry[1]) < 1e-6
+            and abs(float(row.get("length_mm") or 0) - geometry[2]) < 1e-6,
+        )
+        if hit:
+            return hit
+        raise SystemExit(f"Plant {label} tube {description} failed: {created.status_code} {created.text[:200]}")
+
+    tube_125 = ensure_tube(APPROVED_TUBE, "125 x 137 x 120")
+    tube_110 = ensure_tube((110.0, 122.0, 149.9), "110 x 122 x 149.9")
 
     papers = _rows(get("/api/master/papers"))
     paper_rows = []
@@ -163,55 +178,85 @@ def seed_plant_catalog(session: requests.Session, bff: str, plant_id: str, label
         paper_rows.append(hit)
 
     items = _rows(get("/api/inventory/items"))
-    item = _find(items, lambda row: str(row.get("item_code") or "").upper() == FIXTURE_ITEM_CODE)
+    preferred_item_code = FIXTURE_ITEM_CODE if str(label).upper() == "A" else f"NV{label}-{FIXTURE_ITEM_CODE}"
+    item = _find(
+        items,
+        lambda row, code=preferred_item_code: str(row.get("item_code") or "").upper() in {code.upper(), FIXTURE_ITEM_CODE},
+    )
     if item is None:
-        created = session.post(
-            f"{bff}/api/inventory/items",
-            headers=headers,
-            json={
-                "item_code": FIXTURE_ITEM_CODE,
-                "name": "Nverify kraft 20100-A",
-                "type": "RAW_PAPER",
-                "tracking_mode": "BULK",
-                "uom": "KG",
-                "unit_cost": 42.5,
-            },
-            timeout=TIMEOUT,
-        )
-        if created.status_code not in {200, 201, 400}:
-            raise SystemExit(f"Plant {label} item create failed: {created.status_code} {created.text[:300]}")
-        if created.status_code in {200, 201}:
-            item = created.json()
-        else:
+        last_error = ""
+        for code in (preferred_item_code, f"NV{label}-{FIXTURE_ITEM_CODE}", f"NV{label}-{datetime.now().strftime('%H%M%S')}"):
+            created = session.post(
+                f"{bff}/api/inventory/items",
+                headers=headers,
+                json={
+                    "item_code": code,
+                    "name": f"Nverify kraft {code}",
+                    "type": "RAW_PAPER",
+                    "tracking_mode": "BULK",
+                    "uom": "KG",
+                    "unit_cost": 42.5,
+                },
+                timeout=TIMEOUT,
+            )
+            if created.status_code in {200, 201}:
+                item = created.json()
+                break
+            last_error = f"{created.status_code} {created.text[:200]}"
             items = _rows(get("/api/inventory/items"))
-            item = _find(items, lambda row: str(row.get("item_code") or "").upper() == FIXTURE_ITEM_CODE)
+            item = _find(
+                items,
+                lambda row, code=code: str(row.get("item_code") or "").upper() in {code.upper(), FIXTURE_ITEM_CODE},
+            )
+            if item:
+                break
+        if item is None:
+            raise SystemExit(f"Plant {label} item create failed: {last_error}")
 
     machines = _rows(get("/api/production/machines"))
     winders = []
     for idx in (1, 2, 3):
-        code = f"WINDER_0{idx}"
-        hit = _find(machines, lambda row, code=code: str(row.get("code") or "").upper() == code)
+        preferred = f"WINDER_0{idx}"
+        prefixed = f"NV{label}-W{idx}"
+        hit = _find(
+            machines,
+            lambda row, preferred=preferred, prefixed=prefixed: str(row.get("code") or "").upper()
+            in {preferred, prefixed},
+        )
         if hit is None:
-            payload = {
-                "code": code,
-                "name": f"Nverify Winder {idx} Plant {label}",
-                "department": "WINDER",
-                "capacity_type": "METERS_PER_DAY",
-                "capacity_value": 8000,
-                "id_min_mm": 50,
-                "id_max_mm": 400,
-                "od_min_mm": 60,
-                "od_max_mm": 500,
-                "length_min_mm": 50,
-                "length_max_mm": 700,
-                "supported_mandrel_ids": [mandrel_125["id"], mandrel_110["id"]],
-            }
-            created = session.post(f"{bff}/api/production/machines", headers=headers, json=payload, timeout=TIMEOUT)
-            if created.status_code not in {200, 201}:
-                print(f"WARNING: Plant {label} {code}: {created.status_code} {created.text[:200]}", file=sys.stderr)
+            last_error = ""
+            for code in (preferred, prefixed):
+                payload = {
+                    "code": code,
+                    "name": f"Nverify Winder {idx} Plant {label}",
+                    "department": "WINDER",
+                    "capacity_type": "METERS_PER_DAY",
+                    "capacity_value": 8000,
+                    "id_min_mm": 50,
+                    "id_max_mm": 400,
+                    "od_min_mm": 60,
+                    "od_max_mm": 500,
+                    "length_min_mm": 50,
+                    "length_max_mm": 700,
+                    "supported_mandrel_ids": [mandrel_125["id"], mandrel_110["id"]],
+                }
+                created = session.post(f"{bff}/api/production/machines", headers=headers, json=payload, timeout=TIMEOUT)
+                if created.status_code in {200, 201}:
+                    hit = created.json()
+                    machines.append(hit)
+                    break
+                last_error = f"{created.status_code} {created.text[:200]}"
+                machines = _rows(get("/api/production/machines"))
+                hit = _find(
+                    machines,
+                    lambda row, preferred=preferred, prefixed=prefixed: str(row.get("code") or "").upper()
+                    in {preferred, prefixed},
+                )
+                if hit:
+                    break
+            if hit is None:
+                print(f"WARNING: Plant {label} winder {idx}: {last_error}", file=sys.stderr)
                 continue
-            hit = created.json()
-            machines.append(hit)
         winders.append(hit)
 
     specs = _rows(get("/api/spec/specifications"))
@@ -287,8 +332,8 @@ def seed_plant_catalog(session: requests.Session, bff: str, plant_id: str, label
             "month": month,
             "rows": [
                 {
-                    "item_code": FIXTURE_ITEM_CODE,
-                    "item_name": "Nverify kraft 20100-A",
+                    "item_code": item.get("item_code") or FIXTURE_ITEM_CODE,
+                    "item_name": item.get("name") or "Nverify kraft 20100-A",
                     "actual_consumed_weight_kg": 18.5,
                     "actual_cost": 786.0,
                     "notes": "Nverify register actual",
@@ -306,48 +351,66 @@ def seed_plant_catalog(session: requests.Session, bff: str, plant_id: str, label
         "tube_125": {"id": str(tube_125.get("id"))},
         "approved_spec_id": str(approved[0]["id"]),
         "winder_ids": [str(row.get("id")) for row in winders if row.get("id")],
-        "item_code": FIXTURE_ITEM_CODE,
+        "item_code": item.get("item_code") or FIXTURE_ITEM_CODE,
     }
 
 
-def seed_sales_order(session: requests.Session, bff: str, plant_id: str, catalog: dict) -> dict | None:
+def seed_sales_order(session: requests.Session, bff: str, plant_id: str, catalog: dict, approver: dict | None = None) -> dict | None:
     headers = {"X-Plant-ID": str(plant_id)}
     existing = _rows(session.get(f"{bff}/api/sales/orders", headers=headers, timeout=TIMEOUT))
+    order_id = None
+    status = None
     if existing:
         row = existing[0]
-        return {"id": str(row.get("id")), "status": row.get("status")}
-    po_date = date.today() - timedelta(days=2)
-    due = date.today() + timedelta(days=7)
-    created = session.post(
-        f"{bff}/api/sales/orders",
-        headers=headers,
-        json={
-            "customer_id": catalog["customer"]["id"],
-            "origin": "CUSTOMER_PO",
-            "po_number": f"NV-PO-{datetime.now().strftime('%H%M%S')}",
-            "po_date": po_date.isoformat(),
-            "notes": "Nverify premium-flow seed order",
-            "lines": [
-                {
-                    "approved_spec_id": catalog["approved_spec_id"],
-                    "product_code": "NV-FG-125",
-                    "qty": 64,
-                    "due_date": due.isoformat(),
-                    "rate_per_pc": 12.5,
-                }
-            ],
-        },
-        timeout=TIMEOUT,
-    )
-    if created.status_code not in {200, 201}:
-        print(f"WARNING: sales order create failed: {created.status_code} {created.text[:300]}", file=sys.stderr)
-        return None
-    payload = created.json()
-    order_id = payload.get("id")
-    approve = session.post(f"{bff}/api/sales/orders/{order_id}/approve", headers=headers, timeout=TIMEOUT)
-    if approve.status_code not in {200, 201}:
-        print(f"WARNING: sales order approve failed: {approve.status_code} {approve.text[:300]}", file=sys.stderr)
-    return {"id": str(order_id), "status": (approve.json().get("status") if approve.status_code in {200, 201} else payload.get("status"))}
+        order_id = str(row.get("id"))
+        status = row.get("status")
+    else:
+        po_date = date.today() - timedelta(days=2)
+        due = date.today() + timedelta(days=7)
+        created = session.post(
+            f"{bff}/api/sales/orders",
+            headers=headers,
+            json={
+                "customer_id": catalog["customer"]["id"],
+                "origin": "CUSTOMER_PO",
+                "po_number": f"NV-PO-{datetime.now().strftime('%H%M%S')}",
+                "po_date": po_date.isoformat(),
+                "notes": "Nverify premium-flow seed order",
+                "lines": [
+                    {
+                        "approved_spec_id": catalog["approved_spec_id"],
+                        "product_code": "NV-FG-125",
+                        "qty": 64,
+                        "due_date": due.isoformat(),
+                        "rate_per_pc": 12.5,
+                    }
+                ],
+            },
+            timeout=TIMEOUT,
+        )
+        if created.status_code not in {200, 201}:
+            print(f"WARNING: sales order create failed: {created.status_code} {created.text[:300]}", file=sys.stderr)
+            return None
+        payload = created.json()
+        order_id = str(payload.get("id"))
+        status = payload.get("status")
+
+    if str(status or "").lower() in {"draft", "submitted"} and approver:
+        approve_session = requests.Session()
+        login = approve_session.post(
+            f"{bff}/api/auth/login",
+            json={"email": approver["email"], "password": approver["password"]},
+            timeout=TIMEOUT,
+        )
+        if login.status_code != 200:
+            print(f"WARNING: approver login failed: {login.status_code} {login.text[:200]}", file=sys.stderr)
+        else:
+            approve = approve_session.post(f"{bff}/api/sales/orders/{order_id}/approve", headers=headers, timeout=TIMEOUT)
+            if approve.status_code not in {200, 201}:
+                print(f"WARNING: sales order approve failed: {approve.status_code} {approve.text[:300]}", file=sys.stderr)
+            else:
+                status = approve.json().get("status") or "approved"
+    return {"id": order_id, "status": status}
 
 
 def main() -> int:
@@ -448,7 +511,7 @@ def main() -> int:
 
     catalog_a = seed_plant_catalog(session, bff, plant_a, "A")
     catalog_b = seed_plant_catalog(session, bff, plant_b, "B")
-    order_a = seed_sales_order(session, bff, plant_a, catalog_a)
+    order_a = seed_sales_order(session, bff, plant_a, catalog_a, users.get("sales_approver_a"))
 
     job_cards = session.get(f"{bff}/api/production/job-cards", params={"limit": 20}, timeout=TIMEOUT)
     flows = []

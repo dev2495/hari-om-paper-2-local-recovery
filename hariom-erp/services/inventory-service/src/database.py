@@ -23,7 +23,26 @@ Base = declarative_base()
 import sys
 from pathlib import Path
 from fastapi import Request
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "shared"))
+
+
+def _shared_on_sys_path() -> None:
+    here = Path(__file__).resolve()
+    candidates = [
+        Path("/app/shared"),
+        here.parent.parent / "shared",
+    ]
+    try:
+        candidates.append(here.parents[3] / "shared")
+    except IndexError:
+        pass
+    for candidate in candidates:
+        if (candidate / "audit_outbox.py").is_file():
+            sys.path.insert(0, str(candidate))
+            return
+    raise ImportError("audit_outbox.py was not packaged with this service")
+
+
+_shared_on_sys_path()
 from audit_outbox import attach_actor, install_outbox
 install_outbox(Base, SessionLocal, "inventory-service")
 
