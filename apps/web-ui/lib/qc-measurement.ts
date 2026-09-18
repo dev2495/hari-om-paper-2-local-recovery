@@ -85,6 +85,10 @@ export function qcSetupStatus(profile: any): "missing" | "draft" | "complete" | 
   if (explicit === "approved") return "approved"
   if (explicit === "pending_review") return "pending_review"
   const stages = profile.stages || {}
+  const hasAssignedRows = Object.keys(QC_STAGE_PARAMETERS).some((stage) =>
+    Array.isArray(stages[stage]?.parameters) && stages[stage].parameters.some((row: any) => row?.code),
+  )
+  if (explicit === "draft") return hasAssignedRows ? "draft" : "missing"
   let anyBounds = false
   let complete = true
   for (const stage of Object.keys(QC_STAGE_PARAMETERS)) {
@@ -100,8 +104,23 @@ export function qcSetupStatus(profile: any): "missing" | "draft" | "complete" | 
     }
   }
   if (!anyBounds) return "missing"
-  if (complete) return explicit === "draft" ? "draft" : "complete"
+  if (complete) return "complete"
   return "draft"
+}
+
+export function qcMissingFieldLabels(profile: any): string[] {
+  const stages = profile?.stages || {}
+  const labels: string[] = []
+  for (const [stage, defs] of Object.entries(QC_STAGE_PARAMETERS)) {
+    const rows = Array.isArray(stages[stage]?.parameters) ? stages[stage].parameters : []
+    const byCode = Object.fromEntries(rows.map((row: any) => [row.code, row]))
+    for (const def of defs) {
+      const row = byCode[def.code] || {}
+      if (row.applicable === false) continue
+      if (row.min == null && row.max == null) labels.push(def.label)
+    }
+  }
+  return labels
 }
 
 export function qcActionLabel(status: ReturnType<typeof qcSetupStatus>) {

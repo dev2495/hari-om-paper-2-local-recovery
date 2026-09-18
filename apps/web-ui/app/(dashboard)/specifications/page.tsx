@@ -333,6 +333,18 @@ export default function SpecificationsIndexPage() {
                       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusTone(spec.status)}`}>
                         {String(spec.status).toLowerCase() === "approved" ? "live" : spec.status}
                       </span>
+                      {(() => {
+                        const qcStatus = qcSetupStatus(spec.qc_profile)
+                        return (
+                          <span
+                            data-testid={`spec-qc-status-${spec.id}`}
+                            data-qc-status={qcStatus}
+                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
+                          >
+                            {qcStatus === "draft" ? "Draft / Missing fields" : qcStatus === "missing" ? "Missing setup" : qcStatus}
+                          </span>
+                        )
+                      })()}
                       {spec.active === false ? (
                         <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                           disabled version

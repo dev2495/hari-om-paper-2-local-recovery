@@ -165,6 +165,16 @@ def _stage_complete(parameters: list[dict[str, Any]]) -> bool:
     return True
 
 
+def _has_assigned_stage_rows(profile: dict[str, Any]) -> bool:
+    stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else {}
+    for stage_key in STAGE_PARAMETER_DEFS:
+        block = stages.get(stage_key) if isinstance(stages.get(stage_key), dict) else {}
+        parameters = block.get("parameters") if isinstance(block.get("parameters"), list) else []
+        if any(isinstance(row, dict) and row.get("code") for row in parameters):
+            return True
+    return False
+
+
 def profile_status(profile: Optional[dict[str, Any]]) -> str:
     if not isinstance(profile, dict) or not profile:
         return "missing"
@@ -194,6 +204,8 @@ def profile_status(profile: Optional[dict[str, Any]]) -> str:
         if not _stage_complete([row for row in parameters if isinstance(row, dict)]):
             all_complete = False
     if not any_bounds:
+        if explicit == "draft" and _has_assigned_stage_rows(profile):
+            return "draft"
         return "missing"
     if all_complete:
         return "complete" if explicit != "draft" else "draft"

@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react"
 
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { SpecQcToleranceDialog } from "@/components/qc/SpecQcToleranceDialog"
+import { qcMissingFieldLabels, qcSetupStatus } from "@/lib/qc-measurement"
 import { SpecSheetPrint } from "@/components/specs/print/SpecSheetPrint"
 import { SpecSheetWorkspace } from "@/components/specs/SpecSheetWorkspace"
 import { ClientReqCard } from "@/components/specs/sections/ClientReqCard"
@@ -2598,6 +2599,41 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <span className="rounded-full border border-[#ead39b] bg-[#fbf1d9] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-[#805a09]">
                   {currentStatus === "approved" ? "Live" : currentStatus || "Draft"}
                 </span>
+                {(() => {
+                  const qcStatus = qcSetupStatus(qcProfile || specDocument?.spec?.qc_profile)
+                  const missing = qcMissingFieldLabels(qcProfile || specDocument?.spec?.qc_profile)
+                  const label =
+                    qcStatus === "approved"
+                      ? "QC approved"
+                      : qcStatus === "complete"
+                        ? "QC ready"
+                        : qcStatus === "draft"
+                          ? "QC incomplete"
+                          : "QC setup missing"
+                  return (
+                    <>
+                      <span
+                        data-testid="spec-qc-setup-status"
+                        data-qc-status={qcStatus}
+                        className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${
+                          qcStatus === "approved" || qcStatus === "complete"
+                            ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]"
+                            : "border-amber-200 bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        {label}
+                      </span>
+                      {qcStatus === "draft" && missing.length ? (
+                        <span
+                          data-testid="spec-qc-missing-fields"
+                          className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-amber-800"
+                        >
+                          Missing fields: {missing.join(", ")}
+                        </span>
+                      ) : null}
+                    </>
+                  )
+                })()}
                 <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${effectiveBalance.withinBand ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
                   {effectiveBalance.withinBand ? "Weight within target band" : "Weight outside target band"}
                 </span>

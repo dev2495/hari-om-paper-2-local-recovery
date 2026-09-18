@@ -138,3 +138,27 @@ def test_client_approved_status_is_ignored_on_save():
     )
     assert profile["status"] != "approved"
     assert profile["revision"] == 1
+
+
+def test_incomplete_draft_save_is_not_approved_or_qc_ready():
+    profile = normalize_qc_profile(
+        {
+            "status": "draft",
+            "stages": {
+                "WINDER": {
+                    "parameters": [
+                        {"code": "id", "unit": "mm"},
+                        {"code": "od", "unit": "mm"},
+                    ]
+                }
+            },
+        }
+    )
+    assert profile["status"] == "draft"
+    assert profile_status(profile) == "draft"
+    height = next(row for row in profile["stages"]["WINDER"]["parameters"] if row["code"] == "height")
+    assert height["min"] is None
+    assert height["max"] is None
+    assert profile_status(profile) not in {"approved", "complete"}
+    empty = normalize_qc_profile({"status": "complete", "stages": {}})
+    assert profile_status(empty) != "complete"

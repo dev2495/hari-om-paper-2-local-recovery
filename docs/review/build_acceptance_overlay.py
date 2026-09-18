@@ -712,6 +712,16 @@ SPECIAL: dict[str, dict] = {
         "rr": ["RR32"],
         "notes": "Chromium: I.D./O.D. mins survive Back+reopen; Discard confirm dismiss keeps edits; accept clears them; Escape closes without discarding the kept draft.",
     },
+    "QCT-031": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+            "spec-service/tests/test_qc_profile.py::test_incomplete_draft_save_is_not_approved_or_qc_ready",
+        ],
+        "bj": ["BJ11"],
+        "notes": "Chromium Save draft — QC incomplete on a new spec with empty stage thresholds persists draft; qc_setup_status is draft not complete/approved; missing I.D. rows stay assigned and visible on reopen. BUILD_ID yO-4tO8AIjEk88hPrVkEW.",
+    },
     "QCT-040": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",

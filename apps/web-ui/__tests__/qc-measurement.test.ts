@@ -8,6 +8,7 @@ import {
   formatAllowedRange,
   frozenStageRules,
   qcActionLabel,
+  qcMissingFieldLabels,
   qcSetupStatus,
 } from "../lib/qc-measurement"
 
@@ -37,6 +38,19 @@ test("frozen allowed range never invents a band", () => {
   assert.equal(formatAllowedRange({ min: null, max: null, unit: "mm" }), "Allowed: not configured")
   assert.equal(qcActionLabel(qcSetupStatus(null)), "Add QC")
   assert.equal(qcActionLabel(qcSetupStatus({ status: "draft", stages: { WINDER: { parameters: [{ code: "id", min: 1, max: 2, required: true }] } } })), "Complete QC")
+})
+
+test("incomplete draft save is not QC-ready and keeps missing fields assigned", () => {
+  const draft = {
+    status: "draft",
+    stages: {
+      WINDER: { parameters: [{ code: "id", label: "I.D.", min: null, max: null, required: true }] },
+    },
+  }
+  assert.equal(qcSetupStatus(draft), "draft")
+  assert.equal(qcActionLabel(qcSetupStatus(draft)), "Complete QC")
+  assert.deepEqual(qcMissingFieldLabels(draft), ["I.D.", "O.D.", "Height", "Weight", "C.S.", "Pre-weight", "Post-weight", "Pre-moisture", "Post-moisture", "Height", "Weight", "C.S.", "Notch distance", "Notch depth", "Moisture"])
+  assert.equal(qcSetupStatus({ status: "complete", stages: { WINDER: { parameters: [{ code: "id" }] } } }), "missing")
 })
 
 test("job-card winding collect uses height and does not copy length as the official reading when height exists", () => {

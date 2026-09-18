@@ -236,6 +236,7 @@ export function SpecQcToleranceDialog({
           </button>
           <button
             type="button"
+            data-testid="spec-qc-save-incomplete"
             disabled={saving}
             onClick={() => onSaveDraft({ ...profile, status: "draft" })}
             className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 disabled:opacity-50"

@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 64,
-      "NOT_RUN": 104,
+      "PASS": 65,
+      "NOT_RUN": 103,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 32,
-      "EXACT_EXECUTED": 64,
+      "EXACT_EXECUTED": 65,
       "LIMITATION": 3,
-      "NONE": 81,
+      "NONE": 80,
       "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2135,13 +2135,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "apps/web-ui/e2e/original-partials.spec.cjs",
+        "spec-service/tests/test_qc_profile.py::test_incomplete_draft_save_is_not_approved_or_qc_ready"
+      ],
       "rr": [],
-      "bj": [],
+      "bj": [
+        "BJ11"
+      ],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Chromium Save draft \u2014 QC incomplete on a new spec with empty stage thresholds persists draft; qc_setup_status is draft not complete/approved; missing I.D. rows stay assigned and visible on reopen. BUILD_ID yO-4tO8AIjEk88hPrVkEW."
     },
     {
       "id": "QCT-032",
@@ -4459,7 +4464,8 @@
       ],
       "linked_pass": [
         "QCT-029",
-        "QCT-030"
+        "QCT-030",
+        "QCT-031"
       ],
       "limitations": []
     },
