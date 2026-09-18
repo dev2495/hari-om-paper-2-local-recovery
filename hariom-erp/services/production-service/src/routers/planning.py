@@ -1991,11 +1991,14 @@ def _build_document_snapshot(
     parchment_snapshot = dict(raw_materials.get("parchment") or {})
     bamboo_snapshot = dict(raw_materials.get("bamboo") or {})
     adhesives_snapshot = dict(raw_materials.get("adhesives") or {})
-    exact_parchment = (
-        spec_snapshot.get("sales_order_line_parchment_color")
-        or spec_snapshot.get("parchment_color")
-        or ""
-    )
+    if spec_snapshot.get("parchment_resolution") == "CONFLICT":
+        exact_parchment = spec_snapshot.get("parchment_color") or ""
+    else:
+        exact_parchment = (
+            spec_snapshot.get("sales_order_line_parchment_color")
+            or spec_snapshot.get("parchment_color")
+            or ""
+        )
     parchment_parts = [part.strip() for part in str(exact_parchment).split("·") if part.strip()]
     parchment_family = parchment_parts[0] if parchment_parts else ""
     parchment_pattern = parchment_parts[-1] if len(parchment_parts) > 1 else exact_parchment
@@ -2314,6 +2317,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "moisture_max_pct": spec.get("moisture_max_pct"),
         "parchment_percent": spec.get("parchment_percent"),
         "parchment_color": spec.get("parchment_color"),
+        "parchment_allowed": spec.get("parchment_allowed") if spec.get("parchment_allowed") is not None else True,
         "shrink_percent": spec.get("shrink_percent"),
         "bamboo_min_length": 1390.0,
         "bamboo_max_length": spec.get("bamboo_max_length"),
@@ -2369,6 +2373,39 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
     }
 
 
+def _apply_commercial_parchment(spec_snapshot: dict[str, Any], line: dict[str, Any]) -> dict[str, Any]:
+    """Keep the approved manufacturing parchment recipe; never silently overwrite it.
+
+    Commercial parchment lives on sales_order_line_parchment_*. A mismatch is a
+    visible CONFLICT, not a silent recipe change (COMM-08).
+    """
+    approved_color = spec_snapshot.get("parchment_color")
+    approved_allowed = spec_snapshot.get("parchment_allowed")
+    if approved_allowed is None:
+        approved_allowed = True
+    line_required = bool(line.get("parchment_required"))
+    line_color = str(line.get("parchment_color") or "").strip() or None
+    spec_snapshot["sales_order_line_parchment_required"] = line_required
+    spec_snapshot["sales_order_line_parchment_color"] = line.get("parchment_color")
+    reasons: list[str] = []
+    if line_required and approved_allowed is False:
+        reasons.append("parchment_not_allowed_on_recipe")
+    approved_token = str(approved_color or "").strip().upper()
+    ordered_token = str(line_color or "").strip().upper()
+    if line_required and approved_token and ordered_token and approved_token != ordered_token:
+        reasons.append("parchment_color_mismatch")
+    spec_snapshot["parchment_resolution"] = "CONFLICT" if reasons else "ALIGNED"
+    if reasons:
+        spec_snapshot["parchment_conflict"] = {
+            "approved_color": approved_color,
+            "approved_allowed": approved_allowed,
+            "ordered_required": line_required,
+            "ordered_color": line_color,
+            "reasons": reasons,
+        }
+    return spec_snapshot
+
+
 def _line_requires_slitting(line: dict[str, Any], spec_snapshot: dict[str, Any]) -> bool:
     del line
     return bool(spec_snapshot.get("operational_requires_slitting") or spec_snapshot.get("requires_slitting"))
@@ -2409,9 +2446,7 @@ def _build_job_card_snapshots(
     spec_snapshot["sales_order_line_size_label"] = line.get("size_label")
     spec_snapshot["sales_order_line_product_code"] = line.get("product_code")
     spec_snapshot["sales_order_line_rate_per_pc"] = line.get("rate_per_pc")
-    spec_snapshot["sales_order_line_parchment_required"] = bool(line.get("parchment_required"))
-    spec_snapshot["sales_order_line_parchment_color"] = line.get("parchment_color")
-    spec_snapshot["parchment_color"] = line.get("parchment_color") if line.get("parchment_required") else None
+    _apply_commercial_parchment(spec_snapshot, line)
     spec_snapshot["product_code"] = line.get("product_code")
     spec_snapshot["sales_order_remaining_qty"] = max(
         0.0,
