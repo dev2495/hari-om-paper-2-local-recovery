@@ -96,6 +96,12 @@ async function pickFirstSelectOption(page, testId) {
   return options[0]
 }
 
+async function fillCustomerPoRequiredFields(page) {
+  const poDate = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  await page.getByTestId("sales-orders:po-number").fill(`E2E-PO-${Date.now()}`)
+  await page.getByTestId("sales-orders:po-date").fill(poDate)
+}
+
 function plantOptionId(plantKey) {
   return getBrowserFixture()?.plants?.[plantKey]?.id
 }
@@ -225,6 +231,7 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
   await expect(page.getByTestId("sales-orders:create-form")).toBeVisible()
   await pickFirstSelectOption(page, "sales-orders:customer")
   await pickFirstSelectOption(page, "sales-orders:spec")
+  await fillCustomerPoRequiredFields(page)
   const parchment = await page.getByTestId("sales-orders:parchment").locator("option").evaluateAll((nodes) =>
     nodes.map((node) => node.value).filter(Boolean),
   )
@@ -268,10 +275,11 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
     nodes.map((node) => ({ value: node.value, text: node.textContent || "" })).filter((entry) => entry.value),
   )
   expect(winderOptions.length, "Release dialog should have at least one target winder").toBeGreaterThan(0)
+  await targetWinder.selectOption(winderOptions[0].value)
   await expect(targetWinder).toHaveValue(winderOptions[0].value)
-  await targetWinder.evaluate((element) => element.blur())
   const confirmRelease = page.getByTestId("sales-orders:confirm-release")
   await confirmRelease.scrollIntoViewIfNeeded()
+  await expect(page.getByTestId("sales-orders:release-blocker")).toHaveCount(0)
   await expect(confirmRelease).toBeEnabled({ timeout: 20_000 })
   await Promise.all([
     page.waitForResponse((response) => response.url().includes(`/api/production/sales-orders/${createdOrderId}/release-sync`) && response.status() < 400, { timeout: 60_000 }),
@@ -342,6 +350,7 @@ test("Plant II sales release resolves its active winder masters and creates the 
   await expect(page.getByTestId("sales-orders:create-form")).toBeVisible()
   await pickFirstSelectOption(page, "sales-orders:customer")
   await pickFirstSelectOption(page, "sales-orders:spec")
+  await fillCustomerPoRequiredFields(page)
   await page.getByTestId("sales-orders:qty").fill("32")
   await page.getByTestId("sales-orders:due-date").fill(new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10))
   await page.getByTestId("sales-orders:notes").fill("Plant II winder lookup regression order")
@@ -367,8 +376,11 @@ test("Plant II sales release resolves its active winder masters and creates the 
   await expect(targetWinder).toBeVisible({ timeout: 20_000 })
   const selectedWinderId = await targetWinder.inputValue()
   expect(selectedWinderId, "Plant II release should default an active winder from its scoped masters").toBeTruthy()
+  await targetWinder.selectOption(selectedWinderId)
 
   const confirmRelease = page.getByTestId("sales-orders:confirm-release")
+  await expect(page.getByTestId("sales-orders:release-blocker")).toHaveCount(0)
+  await expect(confirmRelease).toBeEnabled({ timeout: 20_000 })
   await Promise.all([
     page.waitForResponse(
       (response) => response.url().includes(`/api/production/sales-orders/${createdOrderId}/release-sync`) && response.status() < 400,

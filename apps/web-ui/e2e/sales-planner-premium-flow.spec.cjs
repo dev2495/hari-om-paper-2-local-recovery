@@ -114,15 +114,15 @@ test("premium sales and planner surfaces load with animated interactive elements
 
   await page.goto("/sales-orders/new", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("sales-orders:create-form")).toBeVisible()
-  await expect(page.getByText(/enter one long-horizon po, then release exact line buckets later/i)).toBeVisible()
-  await expectTransition(page.getByRole("button", { name: /create sales po/i }))
+  await expect(page.getByRole("heading", { name: /new sales order/i })).toBeVisible()
+  await expectTransition(page.getByRole("button", { name: /create sales order/i }))
 
   await page.goto("/sales-orders", { waitUntil: "domcontentloaded" })
   const detailLink = page.getByTestId("sales-orders:detail-link").first()
   await expect(detailLink).toBeVisible()
   await detailLink.click()
   await expect(page.getByTestId("sales-orders:tracking-page")).toBeVisible()
-  await expect(page.getByText(/one po, many release moments/i)).toBeVisible()
+  await expect(page.getByText(/the sales truth that planning and dispatch should read/i)).toBeVisible()
   await expectTransition(page.getByRole("link", { name: /open planner handoff/i }))
 
   await page.goto("/analytics/dashboard", { waitUntil: "domcontentloaded" })

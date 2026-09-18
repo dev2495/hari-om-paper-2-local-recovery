@@ -137,6 +137,21 @@ function orderPlantId(order: any) {
   return value && value.toUpperCase() !== "ALL" ? value : undefined
 }
 
+function assignedReleaseBlocker(
+  selectedWinder: string,
+  authorizedCount: number,
+  preflightBlocker: string | null | undefined,
+) {
+  if (!authorizedCount) {
+    return String(preflightBlocker || "No authorized same-plant winder queue is available.")
+  }
+  const text = String(preflightBlocker || "").trim()
+  if (selectedWinder && /select a winder queue/i.test(text)) {
+    return null
+  }
+  return text || null
+}
+
 export default function SalesOrdersPage() {
   const { showToast } = useApp()
   const { setActivePlant } = useAuth()
@@ -282,7 +297,7 @@ export default function SalesOrdersPage() {
           compatible_winders: Array.isArray(result?.compatible_winders) ? result.compatible_winders : [],
           winder_machine_id: selectedWinder,
           compatibility_warning: result?.compatibility_warning || null,
-          blocker: authorizedWinders.length > 0 ? (result?.blocker || null) : String(result?.blocker || "No authorized same-plant winder queue is available."),
+          blocker: assignedReleaseBlocker(selectedWinder, authorizedWinders.length, result?.blocker),
         }
       })
       setReleaseDialogOrder(order)

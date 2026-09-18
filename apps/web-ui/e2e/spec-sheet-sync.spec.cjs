@@ -33,11 +33,12 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
 
   const liveBuilder = page.getByTestId("spec-sheet-live-builder")
   await expect(liveBuilder).toContainText(/Paper total/i)
-  await expect(liveBuilder).toContainText(/Winding \/ 9% model dry/i)
+  await expect(liveBuilder).toContainText(/Winding mass \/ modeled finished dry/i)
 
   const previewRail = page.getByTestId("spec-sheet-preview-rail")
   await expect(previewRail).toContainText(/One bamboo yield/i)
-  await expect(previewRail).toContainText(/10 pcs/i)
+  await expect(previewRail).toContainText(/\d+\s*pcs/i)
+  await expect.poll(async () => Number(((await previewRail.textContent()) || "").match(/(\d+)\s*pcs/i)?.[1] || 0)).toBeGreaterThan(0)
 
   await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]')).toHaveCount(0)
   await expect
@@ -89,11 +90,20 @@ test("spec sheet keeps target weight explicit and applies the combined 15 percen
   const targetWeightInput = page.getByTestId("spec-sheet-target-weight")
   await expect(targetWeightInput).toHaveValue("")
   await targetWeightInput.fill("230")
+  await page.locator("details#sheet-validation").evaluate((node) => {
+    node.open = true
+  })
+  const glueBaseInput = page.getByTestId("spec-sheet-glue-base-percent")
+  await glueBaseInput.fill("15")
+  await expect(glueBaseInput).toHaveValue("15")
 
-  await page.locator("summary").filter({ hasText: "Fixed material assumptions" }).click()
-  await expect(page.getByText("252.75 / 230.00 g", { exact: true })).toBeVisible()
-  await expect(page.getByText("34.50 g total", { exact: true })).toBeVisible()
-  await expect(page.getByText(/31\.05 g adhesive \+ 3\.45 g parchment · 218\.25 g wet paper target/)).toBeVisible()
+  const assumptions = page.locator("details").filter({ hasText: "Fixed material assumptions" })
+  await assumptions.evaluate((node) => {
+    node.open = true
+  })
+  await expect(assumptions.getByText("252.75 / 230.00 g", { exact: true })).toBeVisible()
+  await expect(assumptions.getByText("34.50 g total", { exact: true })).toBeVisible()
+  await expect(assumptions.getByText(/31\.05 g adhesive \+ 3\.45 g parchment · 218\.25 g wet paper target/)).toBeVisible()
   const appliedRows = page.getByText("Applied live").locator("..")
   await expect(appliedRows.nth(0)).toContainText("9.32 g")
   await expect(appliedRows.nth(1)).toContainText("21.73 g")

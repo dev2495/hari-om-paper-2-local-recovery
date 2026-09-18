@@ -37,6 +37,21 @@ function orderPlantId(order: any) {
   return value && value.toUpperCase() !== "ALL" ? value : undefined
 }
 
+function assignedReleaseBlocker(
+  selectedWinder: string,
+  authorizedCount: number,
+  preflightBlocker: string | null | undefined,
+) {
+  if (!authorizedCount) {
+    return String(preflightBlocker || "No authorized same-plant winder queue is available.")
+  }
+  const text = String(preflightBlocker || "").trim()
+  if (selectedWinder && /select a winder queue/i.test(text)) {
+    return null
+  }
+  return text || null
+}
+
 function buildReleaseRows(order: any, selectedLineIds: string[]) {
   return (order.lines || [])
     .filter((line: any) => selectedLineIds.includes(String(line.id)))
@@ -117,12 +132,13 @@ export function ReleaseToQueueDialog({
       const authorizedWinders = Array.isArray(result?.authorized_winders) && result.authorized_winders.length
         ? result.authorized_winders
         : Array.isArray(result?.compatible_winders) ? result.compatible_winders : []
+      const selectedWinder = row.winder_machine_id || String(authorizedWinders[0]?.id || "")
       return {
         ...row,
         authorized_winders: authorizedWinders,
-        winder_machine_id: row.winder_machine_id || String(authorizedWinders[0]?.id || ""),
+        winder_machine_id: selectedWinder,
         compatibility_warning: result?.compatibility_warning || null,
-        blocker: result?.blocker || (authorizedWinders.length ? null : "No authorized same-plant winder queue is available."),
+        blocker: assignedReleaseBlocker(selectedWinder, authorizedWinders.length, result?.blocker),
       }
     }))
     setHydrated(true)

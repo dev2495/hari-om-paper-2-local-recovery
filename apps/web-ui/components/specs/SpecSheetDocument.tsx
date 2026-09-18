@@ -3105,7 +3105,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     Each paper weight comes directly from its master GSM, bulk, tube geometry, and ply count. The client wet target is a benchmark only; selected papers are never scaled to force a match.
                   </p>
                   </div>
-                  <div className="grid border-t border-white/10 sm:grid-cols-2 xl:grid-cols-5" data-testid="spec-sheet-preview-rail">
+                  <div className="grid border-t border-white/10 sm:grid-cols-2 xl:grid-cols-6" data-testid="spec-sheet-preview-rail">
                     <div className="border-white/10 px-4 py-3 xl:border-r">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Paper total</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{livePaperTotal.toFixed(2)} g</p>
@@ -3128,10 +3128,15 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{measuredDryTube > 0 ? measuredDryTube.toFixed(2) : `${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)}`} g</p>
                       <p className="mt-1 text-[10px] text-cyan-100/70">{measuredDryTube > 0 ? `Model gap ${measuredDryGap > 0 ? "+" : ""}${measuredDryGap.toFixed(2)} g` : `Target ${targetDryTube.toFixed(2)} g · model ${liveDryTube.toFixed(2)} g`}</p>
                     </div>
-                    <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-t-0">
+                    <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-r xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Wet / dry model</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</p>
                       <p className="mt-1 text-[10px] text-cyan-100/70">Winding mass / modeled finished dry</p>
+                    </div>
+                    <div className="border-t border-white/10 bg-[#102832] px-4 py-3 xl:border-t-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">One bamboo yield</p>
+                      <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{tubesPerBamboo} pcs</p>
+                      <p className="mt-1 text-[10px] text-cyan-100/70">{selectedBambooLengthMm.toFixed(0)} mm bamboo · {usableBambooLengthMm.toFixed(0)} mm usable</p>
                     </div>
                   </div>
                   {hasRecipeSelection ? <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
@@ -3635,6 +3640,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             <input
               type="number"
               step="0.1"
+              data-testid="spec-sheet-glue-base-percent"
               value={optionValue(form.dynamicValues.glue_base_percent || "12.5")}
               onChange={(event) =>
                 setForm((current) => ({

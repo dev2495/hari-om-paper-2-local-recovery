@@ -158,7 +158,7 @@ export default function SalesOrderDetailPage() {
             <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold text-white">
               Pending workspace
             </Link>
-            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white">
+            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-white/20">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
             </Link>
