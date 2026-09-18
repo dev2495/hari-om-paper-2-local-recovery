@@ -218,6 +218,9 @@ start_bff() {
   check_port_free "$BFF_PORT" "$name"
 
   env \
+    HOST="$HOST" \
+    WEB_UI_PORT="$WEB_UI_PORT" \
+    PUBLIC_APP_ORIGIN="${PUBLIC_APP_ORIGIN:-http://${HOST}:${WEB_UI_PORT}}" \
     AUTH_SERVICE_URL="$AUTH_SERVICE_URL" \
     MASTER_SERVICE_URL="$MASTER_SERVICE_URL" \
     SPEC_SERVICE_URL="$SPEC_SERVICE_URL" \

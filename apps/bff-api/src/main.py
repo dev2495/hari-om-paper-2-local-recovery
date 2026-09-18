@@ -18,6 +18,30 @@ from src.services.plant_guard import assert_plant_allowed
 _IS_PRODUCTION = os.getenv("APP_ENV", os.getenv("ENVIRONMENT", "development")).strip().lower() in {"prod", "production"}
 _SITE_HOST = os.getenv("SITE_HOST", "").strip()
 
+
+def _allowed_browser_origins() -> set[str]:
+    """Origins that may cookie-authenticate against this BFF.
+
+    Isolated verify serves the UI on HOST:WEB_UI_PORT (127.0.0.1:23000). A
+    missing origin here 403s legitimate same-stack POSTs such as logout.
+    """
+    configured = os.getenv("PUBLIC_APP_ORIGIN", "").strip().rstrip("/")
+    host = (os.getenv("HOST") or "127.0.0.1").strip()
+    web_port = (os.getenv("WEB_UI_PORT") or "13000").strip()
+    origins = {
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:23000",
+        "http://127.0.0.1:13000",
+        f"http://127.0.0.1:{web_port}",
+        f"http://localhost:{web_port}",
+        f"http://{host}:{web_port}",
+    }
+    if configured:
+        origins.add(configured)
+    return {origin for origin in origins if origin}
+
+
 app = FastAPI(
     title="Hari Om Paper - BFF API",
     description="Backend-for-Frontend API proxy layer",
@@ -34,7 +58,7 @@ app.add_middleware(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://localhost:23000", "http://127.0.0.1:13000"],
+    allow_origins=sorted(_allowed_browser_origins()),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -69,19 +93,6 @@ _BOOKS_GUARD_DETAIL_CODES = frozenset(
         "FUTURE_DATE_NOT_ALLOWED",
     }
 )
-
-
-def _allowed_browser_origins() -> set[str]:
-    configured = os.getenv("PUBLIC_APP_ORIGIN", "").strip().rstrip("/")
-    origins = {
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:23000",
-        "http://127.0.0.1:13000",
-    }
-    if configured:
-        origins.add(configured)
-    return origins
 
 
 @app.middleware("http")

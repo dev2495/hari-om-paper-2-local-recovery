@@ -384,7 +384,6 @@ test("real seeded users enforce route separation and role guards", async ({ page
   const assertCritical = beginCriticalMonitoring(page, {
     expected: [
       { kind: "response", status: 403, urlIncludes: "/reports/owner" },
-      { kind: "response", status: 403, urlIncludes: "/api/auth/logout" },
     ],
   })
 
@@ -404,6 +403,11 @@ test("real seeded users enforce route separation and role guards", async ({ page
 
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: /inventory/i }).first()).toBeVisible()
+
+  await logout(page)
+  await expect(page).toHaveURL(/\/login/)
+  await login(page, "owner")
+  await expect(page).toHaveURL(/\/dashboard/)
 
   await assertCritical()
 })

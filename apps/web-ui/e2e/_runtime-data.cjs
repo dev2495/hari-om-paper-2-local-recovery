@@ -133,7 +133,7 @@ async function pickFirstSmartSelectOption(page, testId) {
   const trigger = page.getByTestId(testId)
   await expect(trigger).toBeVisible()
   await trigger.click()
-  const option = trigger.locator("xpath=following-sibling::*[1]").getByRole("button").first()
+  const option = page.locator(`[data-testid^="${testId}-option:"]`).first()
   await expect(option, `Expected a live option after opening ${testId}`).toBeVisible()
   const label = ((await option.innerText()) || "").trim()
   await option.click()
