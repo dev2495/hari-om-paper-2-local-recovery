@@ -122,15 +122,21 @@ def validate_delivery_schedule_input(
     """Same R05 rule for dated quantity / call-off rows."""
     if not schedule_rows:
         return
+    errors: list[str] = []
     for index, row in enumerate(schedule_rows, start=1):
         line_no = row.get("line_no") or index
         delivery = row.get("delivery_date") or row.get("due_date") or row.get("scheduled_date")
-        validate_delivery_after_customer_po_date(
-            delivery,
-            customer_po_date,
-            origin=origin,
-            line_no=int(line_no) if str(line_no).isdigit() else index,
-        )
+        try:
+            validate_delivery_after_customer_po_date(
+                delivery,
+                customer_po_date,
+                origin=origin,
+                line_no=int(line_no) if str(line_no).isdigit() else index,
+            )
+        except SalesCommercialError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise SalesCommercialError(" ".join(errors), field="delivery_date")
 
 
 def validate_origin_and_external_po(
@@ -170,6 +176,15 @@ def validate_origin_and_external_po(
             field="po_date",
         )
     return resolved, number, resolved_po_date, None
+
+
+def classify_historical_origin(*, po_number: Optional[str], origin: Optional[str] = None) -> str:
+    """Blank historical PO numbers are not evidence of an internal order (R10 / COMM-05)."""
+    if origin not in (None, ""):
+        return normalize_origin(origin, default=ORIGIN_REVIEW)
+    if (po_number or "").strip():
+        return ORIGIN_CUSTOMER_PO
+    return ORIGIN_REVIEW
 
 
 def resolve_parchment_variant(
@@ -218,6 +233,7 @@ def validate_order_lines_delivery_dates(
     customer_po_date: Any,
     lines: Iterable[Any],
 ) -> None:
+    errors: list[str] = []
     for index, line in enumerate(lines, start=1):
         if isinstance(line, Mapping):
             line_no = line.get("line_no") or index
@@ -229,12 +245,17 @@ def validate_order_lines_delivery_dates(
             line_no_int = int(line_no)
         except (TypeError, ValueError):
             line_no_int = index
-        validate_delivery_after_customer_po_date(
-            due_date,
-            customer_po_date,
-            origin=origin,
-            line_no=line_no_int,
-        )
+        try:
+            validate_delivery_after_customer_po_date(
+                due_date,
+                customer_po_date,
+                origin=origin,
+                line_no=line_no_int,
+            )
+        except SalesCommercialError as exc:
+            errors.append(str(exc))
+    if errors:
+        raise SalesCommercialError(" ".join(errors), field="due_date")
 
 
 def validate_bulk_import_order(row: Mapping[str, Any]) -> None:

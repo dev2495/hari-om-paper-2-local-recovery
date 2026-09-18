@@ -40,6 +40,18 @@ VERDICT_NOT_APPLICABLE = "NOT_APPLICABLE"
 VERDICT_NOT_REQUIRED = "NOT_REQUIRED"
 VERDICT_OBSERVATION = "OBSERVATION_ONLY"
 
+DENIED_CATEGORICAL_TOKENS = {
+    "FAIL",
+    "FAILED",
+    "REJECT",
+    "REJECTED",
+    "HOLD",
+    "NO",
+    "NG",
+    "NOT_OK",
+    "NOTOK",
+}
+
 _VERDICT_RANK = {
     VERDICT_FAIL: 50,
     VERDICT_INVALID: 40,
@@ -473,10 +485,20 @@ def evaluate_parameter(rule: ParameterRule, reading: Any, reason: Optional[dict[
                 return ParameterResult(
                     code=rule.code,
                     label=rule.label,
-                    verdict=VERDICT_FAIL,
+                    verdict=VERDICT_INVALID,
                     submitted=reading,
                     rule=rule,
                     message=f"{rule.label} {reading} is not in the approved categorical outcomes {allowed}.",
+                    reason=reason,
+                )
+            if str(reading).strip().upper() in DENIED_CATEGORICAL_TOKENS:
+                return ParameterResult(
+                    code=rule.code,
+                    label=rule.label,
+                    verdict=VERDICT_FAIL,
+                    submitted=reading,
+                    rule=rule,
+                    message=f"{rule.label} {reading} is an approved failing categorical outcome.",
                     reason=reason,
                 )
             return ParameterResult(

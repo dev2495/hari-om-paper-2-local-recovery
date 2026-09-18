@@ -75,7 +75,37 @@ def _require_bound(value: Any, *, field: str, code: str) -> Optional[float]:
     return number
 
 
+_UNSAFE_RULE_KEYS = {
+    "formula",
+    "expression",
+    "eval",
+    "script",
+    "code_expr",
+    "derived_expr",
+    "python",
+    "javascript",
+}
+
+
+def _reject_unsafe_rule_payload(raw: dict[str, Any], *, code: str) -> None:
+    lowered = {str(key).strip().lower() for key in raw.keys()}
+    hit = sorted(lowered & _UNSAFE_RULE_KEYS)
+    if hit:
+        raise QcProfileError(
+            f"Unsafe rule expression for {code} is rejected ({', '.join(hit)}). Only allowlisted bound/option fields are accepted.",
+            code="UNSAFE_RULE",
+        )
+    for key in ("formula", "expression", "eval", "script"):
+        nested = raw.get("rule") if isinstance(raw.get("rule"), dict) else None
+        if nested and nested.get(key):
+            raise QcProfileError(
+                f"Unsafe nested rule expression for {code} is rejected.",
+                code="UNSAFE_RULE",
+            )
+
+
 def _normalize_parameter(raw: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    _reject_unsafe_rule_payload(raw, code=fallback["code"])
     lower = _require_bound(raw.get("min") if "min" in raw else raw.get("lower"), field="min", code=fallback["code"])
     upper = _require_bound(raw.get("max") if "max" in raw else raw.get("upper"), field="max", code=fallback["code"])
     if lower is not None and upper is not None and lower > upper:
@@ -91,6 +121,14 @@ def _normalize_parameter(raw: dict[str, Any], fallback: dict[str, Any]) -> dict[
         required = True
     input_type = str(raw.get("input_type") or "number").strip().lower() or "number"
     options = raw.get("options") if isinstance(raw.get("options"), list) else None
+    if input_type in {"select", "categorical", "enum", "boolean"}:
+        cleaned = [item for item in (options or []) if str(item).strip() != ""]
+        if not cleaned:
+            raise QcProfileError(
+                f"Empty categorical accept-set for {fallback['code']} cannot be approved or evaluated.",
+                code="EMPTY_ACCEPT_SET",
+            )
+        options = cleaned
     return {
         "code": fallback["code"],
         "label": _clean_text(raw.get("label")) or fallback["label"],

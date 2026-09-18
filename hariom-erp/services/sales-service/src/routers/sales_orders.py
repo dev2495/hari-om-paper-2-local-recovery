@@ -1,10 +1,11 @@
 from datetime import date, datetime
+from math import isfinite
 from typing import List, Optional
 import logging
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, literal, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
@@ -69,6 +70,13 @@ class SalesOrderLineInput(BaseModel):
     qty: float = Field(..., gt=0)
     due_date: date
 
+    @field_validator("qty")
+    @classmethod
+    def qty_must_be_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("Quantity must be a finite number")
+        return value
+
 
 class DeliveryScheduleInput(BaseModel):
     """Dated quantity row. Validated with the same R05 rule as line delivery dates."""
@@ -115,6 +123,13 @@ class SalesOrderLineReleasePayload(BaseModel):
     winder_machine_id: uuid.UUID
     product_code: Optional[str] = None
     release_lot_id: Optional[uuid.UUID] = None
+
+    @field_validator("release_qty")
+    @classmethod
+    def release_qty_must_be_finite(cls, value: float) -> float:
+        if not isfinite(value):
+            raise ValueError("Release quantity must be a finite number")
+        return value
 
 
 class ReleaseLotJobCardSyncPayload(BaseModel):
@@ -1313,33 +1328,13 @@ def update_sales_order(
     ]:
         raise HTTPException(status_code=400, detail="Only draft/submitted orders can be edited; approved commercial terms are locked")
 
-    if payload.customer_id is not None:
-        order.customer_id = payload.customer_id
-    if payload.origin is not None:
-        order.origin = payload.origin
-    if payload.po_number is not None:
-        order.po_number = payload.po_number
-    if payload.po_date is not None:
-        order.po_date = payload.po_date
-    if payload.internal_order_date is not None:
-        order.internal_order_date = payload.internal_order_date
-    if payload.notes is not None:
-        order.notes = payload.notes
-
-    if payload.status is not None:
-        try:
-            requested = SalesOrderStatus(payload.status)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid status")
-        if requested not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
-            raise HTTPException(status_code=400, detail="Only draft/submitted status can be set here")
-        order.status = requested
-
-    if payload.lines is not None:
-        if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
-            raise HTTPException(status_code=400, detail="Cannot edit lines after approval")
-        _upsert_order_lines(order, payload.lines)
-
+    proposed_customer_id = payload.customer_id if payload.customer_id is not None else order.customer_id
+    proposed_origin = payload.origin if payload.origin is not None else order.origin
+    proposed_po_number = payload.po_number if payload.po_number is not None else order.po_number
+    proposed_po_date = payload.po_date if payload.po_date is not None else order.po_date
+    proposed_internal_date = (
+        payload.internal_order_date if payload.internal_order_date is not None else order.internal_order_date
+    )
     working_lines = payload.lines if payload.lines is not None else [
         SalesOrderLineInput(
             id=line.id,
@@ -1361,14 +1356,34 @@ def update_sales_order(
         for row in getattr(line, "delivery_schedules", []) or []
     ]
     origin, po_number, po_date, internal_order_date = _validate_commercial_payload(
-        origin=order.origin,
-        customer_id=order.customer_id,
-        po_number=order.po_number,
-        po_date=order.po_date,
-        internal_order_date=order.internal_order_date,
+        origin=proposed_origin,
+        customer_id=proposed_customer_id,
+        po_number=proposed_po_number,
+        po_date=proposed_po_date,
+        internal_order_date=proposed_internal_date,
         lines=working_lines,
         delivery_schedules=payload.delivery_schedules if payload.delivery_schedules is not None else stored_schedules,
     )
+
+    if payload.customer_id is not None:
+        order.customer_id = payload.customer_id
+    if payload.notes is not None:
+        order.notes = payload.notes
+
+    if payload.status is not None:
+        try:
+            requested = SalesOrderStatus(payload.status)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid status")
+        if requested not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
+            raise HTTPException(status_code=400, detail="Only draft/submitted status can be set here")
+        order.status = requested
+
+    if payload.lines is not None:
+        if order.status not in [SalesOrderStatus.DRAFT, SalesOrderStatus.SUBMITTED]:
+            raise HTTPException(status_code=400, detail="Cannot edit lines after approval")
+        _upsert_order_lines(order, payload.lines)
+
     order.origin = origin
     order.origin_review_required = origin == ORIGIN_REVIEW
     order.po_number = po_number

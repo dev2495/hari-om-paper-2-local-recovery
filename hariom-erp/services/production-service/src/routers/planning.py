@@ -2957,15 +2957,6 @@ def _create_or_sync_job_card_for_line(
     if not line_spec_id_raw:
         raise HTTPException(status_code=400, detail="Sales order line does not contain approved spec reference")
     line_spec_id = _to_uuid(str(line_spec_id_raw), field="approved_spec_id")
-
-    sales_order = _sync_local_sales_order(
-        db=db,
-        plant_uuid=plant_uuid,
-        live_order=live_order,
-        line_spec_id=line_spec_id,
-        priority=priority,
-    )
-
     line_id = _to_uuid(str(line.get("id")), field="sales_order_line_id")
     existing = (
         db.query(JobCard)
@@ -2980,10 +2971,8 @@ def _create_or_sync_job_card_for_line(
         # Release-sync is idempotent. Replaying the same release identity/payload
         # must return the existing job reference untouched — it must never rebuild
         # frozen snapshots or reset winding placement back into today's queue
-        # (invariants 4/5, plan 6.3). A replay that carries a *different* quantity
-        # or spec identity is not an ordinary retry: it requires a named
-        # amendment/replan command and is rejected here with a structured conflict
-        # so started, split, scheduled and completed work is never silently reset.
+        # (invariants 4/5, plan 6.3). Ordinary retry does not re-sync the local
+        # sales order copy either; that would mutate identifiers on a no-op path.
         same_spec = existing.spec_id == line_spec_id
         same_qty = abs(float(existing.planned_qty or 0.0) - float(planned_qty)) <= 1e-6
         same_winder = existing.assigned_winder_machine_id == winder_machine_id
@@ -3042,6 +3031,14 @@ def _create_or_sync_job_card_for_line(
                 },
             },
         )
+
+    sales_order = _sync_local_sales_order(
+        db=db,
+        plant_uuid=plant_uuid,
+        live_order=live_order,
+        line_spec_id=line_spec_id,
+        priority=priority,
+    )
 
     spec = _fetch_spec(line_spec_id, token, plant_id)
     line_payload = {**line, "product_code": product_code or line.get("product_code")}

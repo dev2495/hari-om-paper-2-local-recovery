@@ -68,8 +68,20 @@ PENDING_EXPORT_FIELDS = [
 
 
 def infer_source(order: Any) -> str:
+    """Prefer the persisted origin. Blank PO numbers are REVIEW, not guessed INTERNAL."""
+    origin = str(getattr(order, "origin", "") or "").strip().upper()
+    if origin in {"INTERNAL", "INTERNAL_SO", "INTERNAL-SO"}:
+        return "internal"
+    if origin in {"CUSTOMER_PO", "CUSTOMER-PO", "CUSTOMERPO", "PO", "CUSTOMER"}:
+        return "customer_po"
+    if origin in {"REVIEW", "ORIGIN_REVIEW", "UNKNOWN"}:
+        return "review"
+    if bool(getattr(order, "origin_review_required", False)):
+        return "review"
     po = str(getattr(order, "po_number", "") or "").strip()
-    return "customer_po" if po else "internal"
+    if po:
+        return "customer_po"
+    return "review"
 
 
 def _released_qty(line: Any) -> float:
