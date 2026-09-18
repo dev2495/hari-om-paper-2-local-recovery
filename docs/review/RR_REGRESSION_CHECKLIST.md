@@ -48,4 +48,4 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 
 ## Original 192 V2 suite
 
-Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 65, PARTIAL 21, LIMITATION 3, NOT_RUN 103. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
+Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 66, PARTIAL 21, LIMITATION 3, NOT_RUN 102. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.

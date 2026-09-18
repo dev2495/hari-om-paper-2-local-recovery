@@ -20,7 +20,7 @@ Product at wave start: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. Additive this wave: `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 65 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 103 |
+| Original 56/192 overlay | PASS 66 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 102 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
@@ -47,6 +47,7 @@ Wave after `151889b` / product `34e116d`:
 | QC-02 + REG-01 HTTP | 2 passed | QC token 403; GRN 422 BOOKS_LOCKED |
 | Chromium original-partials | 6 passed | QC-01 landing, COMM-08 banner, INC-02 401/403/timeout, QCT-029 dialog, QCT-030 Back/reopen/discard, QCT-031 incomplete draft |
 | Chromium full project | 25 passed | BUILD_ID `yO-4tO8AIjEk88hPrVkEW` workers=1 ~1.5m |
+| QCT-032 live spec rollback | 1 passed | injected commit OperationalError; marker spec/qc absent |
 | Re-run live inventory/sales/production/BFF | 5+7+3+2 passed | PUR-05/QCT-026/028/PLAN-05/INC-02 API; wave2 7; COMM-08+PLAN-07/08; QC-02+REG-01 |
 
 Fixes patched with those tests:
@@ -61,6 +62,7 @@ Fixes patched with those tests:
 8. Compact supervisor job-card now always shows Physical Tools / Physical Tool Issue for the current stage.
 9. Spec QC dialog keeps in-memory edits on Back/Escape; Discard is a confirm prompt (QCT-030).
 10. Save draft — QC incomplete persists assigned empty stage rows as draft, not approved/QC-ready (QCT-031).
+11. Spec + QC draft share one create_spec transaction: injected commit failure rolls both back (QCT-032).
 
 Honesty holds:
 

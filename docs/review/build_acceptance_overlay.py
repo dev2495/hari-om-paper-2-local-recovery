@@ -722,6 +722,14 @@ SPECIAL: dict[str, dict] = {
         "bj": ["BJ11"],
         "notes": "Chromium Save draft — QC incomplete on a new spec with empty stage thresholds persists draft; qc_setup_status is draft not complete/approved; missing I.D. rows stay assigned and visible on reopen. BUILD_ID yO-4tO8AIjEk88hPrVkEW.",
     },
+    "QCT-032": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct032_live.py::test_qct032_injected_db_failure_rolls_back_spec_and_qc_draft",
+        ],
+        "notes": "Live nverify specdb: create_spec with QC draft flushes then commit raises OperationalError; marker spec/qc rows are absent afterward; no orphaned approved profile.",
+    },
     "QCT-040": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",

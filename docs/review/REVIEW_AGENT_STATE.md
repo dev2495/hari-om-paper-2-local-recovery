@@ -8,7 +8,7 @@
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
 - Served Next on 23000: BUILD_ID `yO-4tO8AIjEk88hPrVkEW` (QC-incomplete draft save: empty stage thresholds persist as draft, not QC-ready)
 - Isolated stack: `hariom-erp/runtime-verify`, ports `23000/24000/28001–28008` (28006 unused), DBs `hariom_nverify_*` (left running; foreign `13000` pid 69663 not killed)
-- Original 56/192 restored at `docs/review/baseline-v2/`. Overlay this cycle: **PASS 65 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 103**.
+- Original 56/192 restored at `docs/review/baseline-v2/`. Overlay this cycle: **PASS 66 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 102**.
 - Requirements overlay PASS: `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`. CODE is not PASS. GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED remain honest limitations (`DEM-02`, `DEM-06`, `QCT-107`).
 - BJ13 Safari UAT **NOT_RUN**. Playwright WebKit **BLOCKED** (install hang after zip 100% / only `libwebrtc.dylib`). Safari.app **BLOCKED** (`safaridriver --enable` needs owner admin password). QCT-120 / QCT-125 / RR36 **NOT_RUN**.
 - Isolated 7-DB dump/restore into `hariom_nverify_restore_*` PASS for rowcounts/holds/outbox (11.06s). That is **not** production-backup proof and **not** interrupted pending-op replay. See `docs/review/RECOVERY_REHEARSAL.md`.
@@ -27,7 +27,7 @@
 
 Do **not** wait for the owner to run the 192-case suite. Continue the isolated execution-and-fix cycle:
 
-1. Pack-order `QCT-032` (inject a database failure while saving spec and QC draft in one service; neither half final-successful; no orphaned approved profile), then `QCT-033+`. Remaining PARTIALs only when the full original procedure is proven: `COMM-01`–`COMM-07`/`COMM-09`/`COMM-10`/`COMM-12`, `REL-01`–`REL-03`, `NAV-01` tile/list/export identity, `INC-02` browser 422/409/malformed-body and post-commit response-loss, `REG-03` production-backup, `REG-04` agreed budgets/authorized AWS host, `QCT-005`/`QCT-006`/`QCT-008`/`QCT-123`. `INC-01` stays NOT_RUN until the original ID-creation screenshot SHA + console + request exist (do not invent). `REG-02` stays NOT_RUN unless real migrated production data is on a disposable isolated target (nverify dump is not that).
+1. Pack-order `QCT-033` (double-click / lost-response replay of the same spec+QC save key; matching payload returns the original spec/profile, changed payload conflicts, no duplicates), then `QCT-034+`. Remaining PARTIALs only when the full original procedure is proven: `COMM-01`–`COMM-07`/`COMM-09`/`COMM-10`/`COMM-12`, `REL-01`–`REL-03`, `NAV-01` tile/list/export identity, `INC-02` browser 422/409/malformed-body and post-commit response-loss, `REG-03` production-backup, `REG-04` agreed budgets/authorized AWS host, `QCT-005`/`QCT-006`/`QCT-008`/`QCT-123`. `INC-01` stays NOT_RUN until the original ID-creation screenshot SHA + console + request exist (do not invent). `REG-02` stays NOT_RUN unless real migrated production data is on a disposable isolated target (nverify dump is not that).
 2. Do not stall on WebKit extract hang or Safari. Keep the exact owner asks above.
 3. Keep GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED as limitations until owner changes scope.
 4. If time: rebuild stale RR34/RR35 images; pending-op recovery replay on NEW disposable DBs only.
