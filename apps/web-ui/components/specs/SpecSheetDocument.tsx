@@ -2561,7 +2561,14 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           }}
           initialProfile={qcProfile}
           saving={createSpecSheet.isPending || updateSpecSheet.isPending}
-          onBack={() => setQcDialogOpen(false)}
+          onBack={(profile) => {
+            setQcProfile(profile)
+            setQcDialogOpen(false)
+          }}
+          onDiscard={() => {
+            setQcProfile(null)
+            setQcDialogOpen(false)
+          }}
           onSaveDraft={async (profile) => {
             setQcProfile(profile)
             setQcDialogOpen(false)

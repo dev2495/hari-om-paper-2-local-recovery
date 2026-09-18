@@ -5,11 +5,16 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Harness SHA: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `awiH7moM5zoX5eoSsbe1T` product `34e116d` (rebuilt this wave). Prior Chromium 15/15 remains bound to harness `5dd8b9b` / product `d071d12` and was **not** re-run against this BUILD_ID.
-- Full gate: **15 passed / 0 failed** (BJ01–BJ12) — `output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/`
-- Theme / a11y / print add-on (`e2e/theme-a11y-print.spec.cjs`): **6 passed** (3 light + 3 `chromium-dark` emulated `colorScheme`) — `output/playwright/6f50a76d65b5715427b57ec05e53b0ce12d4ea8f-theme/` and `reports/nverify-6f50a-exec/playwright_chromium_theme.txt`
-- PLAN-09 keyboard / 390px (`e2e/planner-keyboard-narrow.spec.cjs`): **1 passed** on Chromium against `http://127.0.0.1:23000` — `reports/nverify-5187a-exec/plan09_pw.txt`
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `NvnOVx0kmQ03d9QgGA7fW` (product through `338ebed` + QCT-030 preserve/discard)
+- Full Chromium project this wave: **24 passed / 0 failed** (`--workers=1`, ~1.4m) — `output/playwright/NvnOVx0kmQ03d9QgGA7fW-full/` and `reports/nverify-wave-exec/pw_chromium_NvnOVx0kmQ03d9QgGA7fW.txt`
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029, QCT-030)
+- First failures on the previous served UI (diagnosed, then patched):
+  1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
+  2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`
+  3. INC-02 — password `fill` detached during login rerender; cookie/API login for the QC 403 path
+  4. QCT-029 — overlay `onKeyDown` Escape never fired while a spinbutton had focus; Back is the original close, capture-phase window Escape added
+  5. Tooling BJ — compact job card omitted Physical Tool Issue; always render `data-testid=physical-tool-issue`
+- Theme / a11y / print add-on still 6 passed historically (3 light + 3 `chromium-dark`)
 - Dual visual theme toggle is **not** a product feature (porcelain light CSS). Emulated light/dark remains readable; that is not BJ13.
 
 ## Playwright WebKit (not Safari.app)

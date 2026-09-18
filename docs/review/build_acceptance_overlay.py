@@ -702,7 +702,15 @@ SPECIAL: dict[str, dict] = {
         "mapped_tests": ["apps/web-ui/e2e/original-partials.spec.cjs"],
         "bj": ["BJ11"],
         "rr": ["RR32"],
-        "notes": "Chromium new spec: customer/mandrel/tube then Save Draft opens spec-qc-tolerance-dialog with I.D./O.D./Height, plant, target weight, C.S., recipe, ply, parchment. Back returns to the sheet. Escape-close remains QCT-030.",
+        "notes": "Chromium new spec: customer/mandrel/tube then Save Draft opens spec-qc-tolerance-dialog with I.D./O.D./Height, plant, target weight, C.S., recipe, ply, parchment. Back returns to the sheet.",
+    },
+    "QCT-030": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": ["apps/web-ui/e2e/original-partials.spec.cjs"],
+        "bj": ["BJ11"],
+        "rr": ["RR32"],
+        "notes": "Chromium: I.D./O.D. mins survive Back+reopen; Discard confirm dismiss keeps edits; accept clears them; Escape closes without discarding the kept draft.",
     },
     "QCT-040": {
         "overlay_status": "NOT_RUN",

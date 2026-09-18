@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { QC_STAGE_PARAMETERS, emptyQcProfile, formatAllowedRange, type QcStageKey } from "@/lib/qc-measurement"
 
@@ -20,7 +20,8 @@ type SpecQcToleranceDialogProps = {
   }
   initialProfile?: any
   saving?: boolean
-  onBack: () => void
+  onBack: (profile: any) => void
+  onDiscard: () => void
   onSaveDraft: (profile: any) => void
   onSaveComplete: (profile: any) => void
 }
@@ -56,11 +57,14 @@ export function SpecQcToleranceDialog({
   initialProfile,
   saving,
   onBack,
+  onDiscard,
   onSaveDraft,
   onSaveComplete,
 }: SpecQcToleranceDialogProps) {
   const [stage, setStage] = useState<QcStageKey>("WINDER")
   const [profile, setProfile] = useState(() => cloneProfile(initialProfile, Boolean(context.notching)))
+  const profileRef = useRef(profile)
+  profileRef.current = profile
 
   useEffect(() => {
     if (open) {
@@ -75,7 +79,7 @@ export function SpecQcToleranceDialog({
       if (event.key !== "Escape") return
       event.preventDefault()
       event.stopPropagation()
-      onBack()
+      onBack(profileRef.current)
     }
     window.addEventListener("keydown", onKey, true)
     return () => window.removeEventListener("keydown", onKey, true)
@@ -211,8 +215,24 @@ export function SpecQcToleranceDialog({
           ) : null}
         </div>
         <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-6 py-4">
-          <button type="button" onClick={onBack} className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">
+          <button
+            type="button"
+            onClick={() => onBack(profile)}
+            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+          >
             Back to specification
+          </button>
+          <button
+            type="button"
+            data-testid="spec-qc-discard"
+            onClick={() => {
+              if (window.confirm("Discard quality tolerance edits? This does not save the specification.")) {
+                onDiscard()
+              }
+            }}
+            className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800"
+          >
+            Discard QC edits
           </button>
           <button
             type="button"

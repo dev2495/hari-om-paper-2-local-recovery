@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `7fba655ad3208e4995abfd90b41f9a457a24c984` after `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`; served UI BUILD_ID `RK019_Yv2Kl45fbmQXLHA`; docs start `151889b`  
+Local candidate: `338ebedf9dcbd836fc59719cc8d3db93eb237693` plus QCT-030 preserve/discard; served UI BUILD_ID `NvnOVx0kmQ03d9QgGA7fW`; docs start `151889b`  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.
@@ -48,4 +48,4 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 
 ## Original 192 V2 suite
 
-Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 63, PARTIAL 21, LIMITATION 3, NOT_RUN 105. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
+Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 64, PARTIAL 21, LIMITATION 3, NOT_RUN 104. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
