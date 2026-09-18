@@ -4,9 +4,8 @@ Date: 2026-09-18
 Branch: `cursor/ui-polish-nav-c5f9`  
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
-Chromium / harness SHA: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`  
-Local HEAD before this execution cycle: `9976b73fbe4a43d654ffaf656667271f145a114a`
-Product commit this cycle: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` (inward categories, scoped exemption, PO plus qualifier, GRN notify skip)
+Docs HEAD at wave start: `151889b505be14e720d6ac13d9412dbb7b154d7b`  
+Product at wave start: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`
 
 ## Compact evidence index
 
@@ -14,28 +13,61 @@ Product commit this cycle: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` (inward ca
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product SHA | `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` |
-| Served BUILD_ID | `awiH7moM5zoX5eoSsbe1T` at `http://127.0.0.1:23000` |
-| Test-harness SHA | `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e only vs product SHA `d071d12`; not re-run this UI rebuild) |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ this overlay |
-| Path-scoped product after `d071d12` | e2e harness + backend/evaluator/sales/production/spec/planning/purchase/quality/UI source |
-| Inventory/production/shared after `faee2ab` | **changed** (evaluator, parchment, capacity, GRN pin, workbook, QC gate, inward types/exemption/qualifiers). `faee2ab` images are stale. |
-| Schema | create_all, no `alembic_version`. Additive: `itemtype` PACKAGING/TOOL/OTHER; receipt-line `NOT_REQUIRED`; packaging/tool/OTHER templates. |
-| Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **not rebuilt** |
-| Browser | Playwright 1.59.1 Chrome: BJ 15/15, theme 6/6, PLAN-09 1/1 vs prior BUILD_ID. This served BUILD_ID not re-journeyed. WebKit BLOCKED. Safari.app BLOCKED. |
+| Served product | `7fba655ad3208e4995abfd90b41f9a457a24c984` (UI rebuilt to BUILD_ID `RK019_Yv2Kl45fbmQXLHA`) |
+| Served BUILD_ID | `RK019_Yv2Kl45fbmQXLHA` at `http://127.0.0.1:23000` |
+| BJ re-run | Chromium BJ01–BJ12 **PASS on this BUILD_ID** (union of hung 16-pass run + serial remainder + QCT-029 1/1). First 5-worker run hung ~88m; killed; remainder `--workers=1`. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ this overlay |
+| Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
+| Schema | create_all, no `alembic_version`. Additive this wave: `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 50 / PARTIAL 32 / LIMITATION 3 / NOT_RUN 107 |
+| Original 56/192 overlay | PASS 63 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 105 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `awiH7moM5zoX5eoSsbe1T`
-- BFF `http://127.0.0.1:24000` pid **83284**, services `28001–28008` (28006 unused)
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `RK019_Yv2Kl45fbmQXLHA` pid **97219**
+- BFF `http://127.0.0.1:24000` pid **92364**, inventory **92355** :28005, production **92358** :28004, sales **92361** :28008
+- Auth **90290** :28001, master **90295** :28002, spec **62174** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
-- Isolated production HTTP pid **83265** :28004 and inventory pid **83222** :28005 after this wave (venv-verify uvicorn)
-- JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity; UI rebuilt this wave
+- JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after `151889b` / product `34e116d`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| PUR-05 live reject remainder | 1 passed | receive 60 / reject 40 REPLACE / usable 60 |
+| PLAN-05 supplier dates | 1 passed | no stock/GRN |
+| QCT-026 retry + QCT-028 sample | 2 passed | outbox retry; SAMPLE:id once |
+| REL-11 list/detail/bulk | 1 passed | status=None, plant_scope={} |
+| PLAN-04 group-move | 1 passed | locked 40 + started remainder |
+| COMM-08 live snapshot | 1 passed | job `7fd1e626-e3a0-4223-adae-8aeac31d0819` |
+| PLAN-07/08 live HTTP | 2 passed | holiday :28002; two-then-third oven |
+| QC-02 + REG-01 HTTP | 2 passed | QC token 403; GRN 422 BOOKS_LOCKED |
+| Chromium original-partials | 4 passed | QC-01 landing, COMM-08 banner, INC-02 401/403/timeout, QCT-029 Save Draft dialog |
+| Chromium BJ remainder | 11 passed serial | release-gate 6, planner, sales-premium; tooling physical tools 3/3 on compact layout |
+
+Fixes patched with those tests:
+
+1. COMM-08 conflict snapshot now surfaces `parchment-conflict-banner` without rewriting recipe color.
+2. QC sign-in `/dashboard` redirects QC to `/landing/qc`; RoleGate keeps planning/users denied.
+3. PUR-05 `qty_rejected` + REPLACE remainder OPEN `not_stock` line.
+4. PLAN-04 group-move subtracts immutable started qty so remainder still moves.
+5. QCT-026 `INCOMING_QC_TASK_DELIVERY` enqueue/retry; QCT-028 consume-sample idempotent `SAMPLE:{id}`.
+6. REL-11 list/detail/bulk share `_serialize_line` released_qty (in-process Query objects must pass `status=None`).
+7. REG-01 BFF GRN 422 is top-level `code=BOOKS_LOCKED`, not `{detail:{}}`.
+8. Compact supervisor job-card now always shows Physical Tools / Physical Tool Issue for the current stage.
+
+Honesty holds:
+
+- `INC-01` NOT_RUN — missing original ID-creation screenshot SHA, console/stack, and corresponding request.
+- `REG-02` NOT_RUN — nverify dump is not migrated production data.
+- `REG-04` PARTIAL — no agreed budgets / authorized AWS host.
+- `INC-02` PARTIAL — browser 401/403/timeout/blank-page proven; 422/409/malformed-body and post-commit response-loss still missing.
+- GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED unchanged.
+
+## Prior cycle after `9976b73`:
 
 Wave after `9976b73`:
 

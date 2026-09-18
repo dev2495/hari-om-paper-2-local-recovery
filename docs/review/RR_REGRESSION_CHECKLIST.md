@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` after `9976b73fbe4a43d654ffaf656667271f145a114a` (previous product `b69edb6`; served UI BUILD_ID `awiH7moM5zoX5eoSsbe1T`; harness `5dd8b9b`)  
+Local candidate: `7fba655ad3208e4995abfd90b41f9a457a24c984` after `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`; served UI BUILD_ID `RK019_Yv2Kl45fbmQXLHA`; docs start `151889b`  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.
@@ -40,7 +40,7 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR29 | Plant-scoped notifications; no all-plant Admin/Owner bypass | PASS | auth live + `test_notification_plant_scope.py` (9 passed) |
 | RR30 | Plantless event does not leak to explicit users | PASS | auth live |
 | RR31 | Notification create does not crash on plantless QC event | PASS | auth live plantless path |
-| RR32 | Spec QC dialog keeps product context, dialog role, Escape | PASS | BJ11 |
+| RR32 | Spec QC dialog keeps product context, dialog role, Escape | PASS | BJ11 keyboard/Escape on Add Tool; QCT-029 Chromium Save Draft dialog shows product/helper context. Overlay Escape-close of that dialog remains QCT-030. |
 | RR33 | Job-card print/actuals: samples in quality_checks; kg separate from g | PASS | BJ12 |
 | RR34 | Shared evaluator import from packaged `shared/` | STALE | evaluator copies remain byte-identical after exemption-scope kwargs; `faee2ab` images not rebuilt |
 | RR35 | Service artifact boots with packaged evaluator | STALE | `hariom-nverify-inv-rr35` / `hariom-nverify-prod-rr35` not rebuilt after evaluator or this-cycle source change |
@@ -48,4 +48,4 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 
 ## Original 192 V2 suite
 
-Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 50, PARTIAL 32, LIMITATION 3, NOT_RUN 107. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
+Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 63, PARTIAL 21, LIMITATION 3, NOT_RUN 105. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.

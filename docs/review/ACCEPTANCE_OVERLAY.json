@@ -6,16 +6,16 @@
     "original_tests": 192,
     "original_requirements": 56,
     "overlay_status": {
-      "PARTIAL": 32,
-      "PASS": 50,
-      "NOT_RUN": 107,
+      "PARTIAL": 21,
+      "PASS": 63,
+      "NOT_RUN": 105,
       "LIMITATION": 3
     },
     "coverage": {
-      "PARTIAL": 44,
-      "EXACT_EXECUTED": 50,
+      "PARTIAL": 32,
+      "EXACT_EXECUTED": 63,
       "LIMITATION": 3,
-      "NONE": 83,
+      "NONE": 82,
       "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -194,16 +194,20 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_mismatch_does_not_overwrite_approved_recipe_color",
-        "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_parchment_disallowed_on_recipe_is_conflict_not_silent_enable"
+        "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_parchment_disallowed_on_recipe_is_conflict_not_silent_enable",
+        "production-service/tests/test_original_comm08_live.py::test_comm08_live_order_snapshot_keeps_recipe_and_records_conflict",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [],
-      "bj": [],
+      "bj": [
+        "BJ12"
+      ],
       "limitation": null,
-      "notes": "Job snapshot keeps approved recipe parchment and records CONFLICT. Live order+UI resolution NOT_RUN."
+      "notes": "Live nverify job keeps Natural recipe parchment, records CONFLICT vs Blue ordered, and Chromium job-card banner shows both colors not rewritten."
     },
     {
       "id": "COMM-09",
@@ -525,15 +529,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "sales-service/tests/test_original_wave2_live.py::test_rel11_status_only_header_release_does_not_invent_release_qty"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Header /release sets RELEASED with zero lot qty; line release then records 5. List/detail/bulk/legacy matrix NOT_RUN."
+      "notes": "Legacy header /release is status-only (0 lots). List/detail show released_qty 5 after line release; bulk uses policy line_release qty 3."
     },
     {
       "id": "PLAN-01",
@@ -616,15 +620,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "sales-service/tests/test_original_wave2_live.py::test_plan04_locked_or_delivered_history_cannot_move_only_editable_remainder"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Locked 40 cannot move; editable remainder date changes. Group-move of dispatched/started jobs NOT_RUN."
+      "notes": "Locked/fulfilled 40 stays on 2026-09-18; started job-card remainder group-moves +5 days; kept reason dispatched_or_locked."
     },
     {
       "id": "PLAN-05",
@@ -637,15 +641,16 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "sales-service/tests/test_original_wave2_live.py::test_plan05_customer_schedule_save_does_not_release_or_fulfill"
+        "sales-service/tests/test_original_wave2_live.py::test_plan05_customer_schedule_save_does_not_release_or_fulfill",
+        "inventory-service/tests/test_original_pur_live.py::test_plan05_supplier_dates_do_not_post_stock_or_receipt"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Customer calendar save leaves APPROVED, zero released/fulfilled, no lots. Supplier dates and inventory postings NOT_RUN."
+      "notes": "Customer calendar save leaves APPROVED with zero release/lots. Supplier promised dates post no stock/GRN and ledger=false."
     },
     {
       "id": "PLAN-06",
@@ -681,15 +686,16 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "production-service/tests/test_original_plan_capacity.py::test_plan07_closed_dates_are_skipped_and_horizon_remainder_stays_finite"
+        "production-service/tests/test_original_plan_capacity.py::test_plan07_closed_dates_are_skipped_and_horizon_remainder_stays_finite",
+        "production-service/tests/test_original_plan_live_http.py::test_plan07_live_holiday_http_skips_closed_date_and_keeps_horizon_remainder"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Holiday dates skipped in 30-day slots; closed-date warning; CAPACITY_OVERFLOW remainder already kept. Live plant-holiday HTTP placement NOT_RUN."
+      "notes": "Live master :28002 holiday is skipped in 30-day slots; closed-date warning; overflow remainder stays explicit with 40.00 exceeds."
     },
     {
       "id": "PLAN-08",
@@ -702,15 +708,16 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "production-service/tests/test_original_plan_capacity.py::test_plan08_shared_oven_batch_capacity_cannot_be_overbooked"
+        "production-service/tests/test_original_plan_capacity.py::test_plan08_shared_oven_batch_capacity_cannot_be_overbooked",
+        "production-service/tests/test_original_plan_live_http.py::test_plan08_live_two_oven_jobs_then_third_cannot_overbook"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Third oven allocation with zero remaining batch/bamboo capacity is 0. Live two-job-then-third board schedule NOT_RUN. Oven now uses remaining capacity, not a full-shift reset."
+      "notes": "Two live OVEN segments fill BATCHES_PER_DAY=2; third allocation qty/load is 0. Oven uses remaining capacity, not a full-shift reset."
     },
     {
       "id": "PLAN-09",
@@ -1000,15 +1007,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "inventory-service/tests/test_original_pur_live.py::test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "60 of 100 posts PARTIAL with remainder 40. Rejected remainder is not a first-class PO line status."
+      "notes": "Receive 60 of 100 PARTIAL; reject remainder 40 REPLACE opens not_stock line qty 40; usable stock stays 60; one receipt."
     },
     {
       "id": "PUR-06",
@@ -1086,16 +1093,17 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "production-service/tests/test_original_qc_roles.py::test_qc01_qc_role_can_record_evidence_planner_and_sales_cannot",
-        "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role"
+        "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "create_inspection role list: QC allowed, Planner/Sales 403. Live create/submit and sign-in landing/menu NOT_RUN. PlantManager/Production can still record stage QC."
+      "notes": "Auth assigns QC; Chromium form sign-in lands /landing/qc data-role=QC, Quality Desk present, Winder Plan absent, /dashboard redirects, planning/users RoleGate denied."
     },
     {
       "id": "QC-02",
@@ -1107,10 +1115,11 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "production-service/tests/test_qc_plant_scope.py",
+        "apps/bff-api/tests/test_original_qc_reg_http.py::test_qc02_qc_token_denied_admin_sales_approval_and_other_plant",
         "apps/web-ui/e2e/release-gate.spec.cjs"
       ],
       "rr": [],
@@ -1118,7 +1127,7 @@
         "BJ06"
       ],
       "limitation": null,
-      "notes": "QC write requires a concrete plant and cannot target the other plant. Full QC-token admin/sales-approval matrix NOT_RUN."
+      "notes": "QC BFF token 401/403 on /api/auth/users, sales-order approve, and plant-B job-cards. QC write still requires a concrete plant."
     },
     {
       "id": "QC-03",
@@ -1359,7 +1368,7 @@
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Original ID-creation incident reproduction still required with recorded build/console/request of the deployed screenshot SHA. Isolated UserEditor create+reload was not that incident."
+      "notes": "Missing original ID-creation incident artifacts: deployed screenshot SHA, browser console/stack, and the corresponding request. Isolated UserEditor create+reload is not that incident. Do not invent SHA/console."
     },
     {
       "id": "INC-02",
@@ -1375,12 +1384,13 @@
       "overlay_status": "PARTIAL",
       "coverage": "PARTIAL",
       "mapped_tests": [
-        "inventory-service/tests/test_original_pur_live.py::test_inc02_malformed_duplicate_and_conflict_do_not_false_succeed"
+        "inventory-service/tests/test_original_pur_live.py::test_inc02_malformed_duplicate_and_conflict_do_not_false_succeed",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Malformed PO line is ValidationError; duplicate PO 400; conflicting GRN replay 409. UserEditor already refuses silent create retry on dropped response. Browser 401/403/timeout/blank-page matrix NOT_RUN."
+      "notes": "API: malformed PO ValidationError; duplicate 400; GRN replay 409. Chromium: unauth 401 login redirect, QC 403 role-gate, sales timeout abort no blank/success. Browser 422/409/malformed-body and post-commit response-loss still NOT_RUN."
     },
     {
       "id": "REG-01",
@@ -1392,16 +1402,17 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "inventory-service/tests/test_original_pur_live.py::test_reg01_dispatch_retry_same_ref_does_not_duplicate_outward",
-        "production-service/tests/test_dispatch_idempotency.py"
+        "production-service/tests/test_dispatch_idempotency.py",
+        "apps/bff-api/tests/test_original_qc_reg_http.py::test_reg01_closed_period_grn_is_books_locked"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Same dispatch_ref retries without a second outward; different qty is 409; a later partial uses a new ref. Closed-period write lock against monthly-close is NOT_RUN."
+      "notes": "Same dispatch_ref retries without a second outward; different qty 409. Closed August monthly close makes 2026-08-15 GRN 422 BOOKS_LOCKED."
     },
     {
       "id": "REG-02",
@@ -2010,8 +2021,8 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "PARTIAL",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
         "inventory-service/tests/test_original_qct_live.py::test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold",
         "apps/bff-api/tests/test_grn_notification_idempotent.py::test_qct025_idempotent_grn_replay_does_not_emit_second_notification"
@@ -2019,7 +2030,7 @@
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Audit/notification failure after GRN leaves QC_HOLD and replay is idempotent. First-class task-queue retry recovery is NOT_RUN."
+      "notes": "Notification boom after GRN leaves QC_HOLD PENDING; retry_incoming_qc_tasks delivers this-batch outbox once; second retry does not re-deliver the same event_id."
     },
     {
       "id": "QCT-027",
@@ -2056,13 +2067,15 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_qct_live.py::test_qct028_destructive_sample_coverage_is_not_consumption_and_replays_once"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Approved destructive_sample qty 1 consume posts once under SAMPLE:{inspection_id}; replay is idempotent; sample_coverage 3 stays distinct from consumed_qty 1."
     },
     {
       "id": "QCT-029",
@@ -2074,10 +2087,10 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "apps/web-ui/e2e/correction-journeys.spec.cjs"
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [
         "RR32"
@@ -2086,7 +2099,7 @@
         "BJ11"
       ],
       "limitation": null,
-      "notes": "Spec QC dialog keyboard/role/Escape proven. Deliberate new-spec save-before-dialog product context NOT_RUN as this case."
+      "notes": "Chromium new spec: customer/mandrel/tube then Save Draft opens spec-qc-tolerance-dialog with I.D./O.D./Height, plant, target weight, C.S., recipe, ply, parchment. Back returns to the sheet. Escape-close remains QCT-030."
     },
     {
       "id": "QCT-030",
@@ -4029,13 +4042,15 @@
       "id": "R08",
       "title": "Parchment checkbox/color behavior",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "COMM-06",
         "COMM-07",
         "COMM-08"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "COMM-08"
+      ],
       "limitations": []
     },
     {
@@ -4081,7 +4096,7 @@
       "id": "R12",
       "title": "Add QC role",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "PUR-04",
         "QC-01",
@@ -4091,6 +4106,8 @@
       ],
       "linked_pass": [
         "PUR-04",
+        "QC-01",
+        "QC-02",
         "QC-08",
         "QC-09"
       ],
@@ -4180,7 +4197,8 @@
         "REL-07",
         "REL-08",
         "REL-09",
-        "REL-10"
+        "REL-10",
+        "REL-11"
       ],
       "limitations": []
     },
@@ -4227,7 +4245,11 @@
         "PLAN-01",
         "PLAN-02",
         "PLAN-03",
+        "PLAN-04",
+        "PLAN-05",
         "PLAN-06",
+        "PLAN-07",
+        "PLAN-08",
         "PLAN-09"
       ],
       "limitations": []
@@ -4236,7 +4258,7 @@
       "id": "R19",
       "title": "Material/vendor PO scheduling represented in workbook/PDF",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "PUR-01",
         "PUR-02",
@@ -4252,6 +4274,7 @@
         "PUR-02",
         "PUR-03",
         "PUR-04",
+        "PUR-05",
         "PUR-06",
         "PUR-07",
         "PUR-08"
@@ -4287,9 +4310,11 @@
         "REL-06",
         "REL-07",
         "REL-08",
+        "REL-11",
         "QC-08",
         "QC-09",
-        "QC-10"
+        "QC-10",
+        "REG-01"
       ],
       "limitations": []
     },
@@ -4360,7 +4385,7 @@
       "id": "QCR-04",
       "title": "Physical inward to usable stock lifecycle",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-018",
         "QCT-024",
@@ -4370,7 +4395,8 @@
       "linked_pass": [
         "QCT-018",
         "QCT-024",
-        "QCT-025"
+        "QCT-025",
+        "QCT-026"
       ],
       "limitations": []
     },
@@ -4389,7 +4415,8 @@
       ],
       "linked_pass": [
         "QCT-024",
-        "QCT-027"
+        "QCT-027",
+        "QCT-028"
       ],
       "limitations": []
     },
@@ -4414,7 +4441,7 @@
       "id": "QCR-07",
       "title": "Pre-save specification tolerance dialog",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-029",
         "QCT-030",
@@ -4424,7 +4451,9 @@
         "QCT-034",
         "QCT-042"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-029"
+      ],
       "limitations": []
     },
     {
@@ -4638,7 +4667,8 @@
         "QCT-107"
       ],
       "linked_pass": [
-        "QCT-027"
+        "QCT-027",
+        "QCT-028"
       ],
       "limitations": [
         "PARTIAL_REJECTION_UNSUPPORTED"
@@ -4725,7 +4755,7 @@
       "id": "QCR-26",
       "title": "Durable deduplicated delivery and escalation",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-026",
         "QCT-079",
@@ -4735,7 +4765,9 @@
         "QCT-092",
         "QCT-094"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-026"
+      ],
       "limitations": []
     },
     {
@@ -4878,19 +4910,26 @@
         "QCT-060"
       ],
       "linked_pass": [
+        "COMM-08",
         "REL-07",
         "REL-08",
         "REL-09",
         "REL-10",
+        "REL-11",
         "PLAN-01",
         "PLAN-02",
         "PLAN-03",
+        "PLAN-04",
+        "PLAN-05",
         "PLAN-06",
+        "PLAN-07",
+        "PLAN-08",
         "PLAN-09",
         "PUR-01",
         "PUR-02",
         "PUR-03",
         "PUR-04",
+        "PUR-05",
         "PUR-06",
         "PUR-07",
         "PUR-08"
