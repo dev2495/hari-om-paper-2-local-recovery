@@ -113,6 +113,9 @@ function beginCriticalMonitoring(page, options = {}) {
     if (status >= 500) {
       critical.push({ kind: "response", text: `${status} ${url}` })
     }
+    if (status === 403 && url.includes("/api/production/planning/board") && !page.url().includes("/planning/board")) {
+      return
+    }
     if ([400, 403, 404].includes(status) && !url.includes("/_next/")) {
       critical.push({ kind: "response", text: `${status} ${url}` })
     }

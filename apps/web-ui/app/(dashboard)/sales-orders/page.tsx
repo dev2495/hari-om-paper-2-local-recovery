@@ -858,14 +858,13 @@ export default function SalesOrdersPage() {
                     Release lots: {releaseOutcome.lotIds.map((id) => id.slice(0, 8)).join(", ") || "recorded"}
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    <Link
+                    <a
                       href={`/planning/board?section=winder&machine_id=${releaseOutcome.winderMachineId}&order_id=${releaseOutcome.orderId}`}
-                      prefetch={false}
                       className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
                       data-testid="sales-orders:open-winder-queue"
                     >
                       Open this winder queue
-                    </Link>
+                    </a>
                     <Link
                       href={`/sales-orders/${releaseOutcome.orderId}`}
                       className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"

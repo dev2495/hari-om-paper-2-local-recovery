@@ -239,14 +239,13 @@ export function ReleaseToQueueDialog({
               <div className={`rounded-2xl border px-4 py-3 text-sm ${outcome.syncPending ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
                 {outcome.syncPending ? "Release recorded — planning synchronization pending." : "Lot created. Open this winder queue next."}
               </div>
-              <Link
+              <a
                 href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`}
-                prefetch={false}
                 className="inline-flex rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
                 data-testid="sales-order-detail:open-winder-queue"
               >
                 Open this winder queue
-              </Link>
+              </a>
             </div>
           ) : (
             <div className="space-y-3">
