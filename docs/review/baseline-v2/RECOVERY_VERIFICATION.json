@@ -1,0 +1,52 @@
+{
+  "recovery_date": "2026-09-18",
+  "source_archive": "HARI_OM_FUNCTIONAL_AUDIT_PACKAGE_V2.zip",
+  "source_archive_sha256": "815a497809cb36d285d7bae88b3909843c9e0ca273bb913957bd7d09479f41b6",
+  "preserved_in": "HARI_OM_GO_LIVE_REVIEW_PACKAGE.zip -> hariom-go-live-review/prior_handoffs/HARI_OM_FUNCTIONAL_AUDIT_PACKAGE_V2.zip",
+  "standalone_and_nested_archive_identical": true,
+  "original_source_directory": "hari-om-quality-v2/",
+  "requirements_count": 56,
+  "acceptance_count": 192,
+  "unique_requirement_ids": 56,
+  "unique_test_ids": 192,
+  "all_cross_references_resolve": true,
+  "application_tests_run_by_recovery": false,
+  "original_statuses_modified": false,
+  "files": {
+    "REQUIREMENTS_V2.json": {
+      "sha256": "3eb90b471ba5e325f90d4075b90d9dd2a87b717b175c475e8018fe8991d7d29b",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    },
+    "REQUIREMENTS_V2.md": {
+      "sha256": "cda6fd20c300a602bda633b0856b198a15fc345004e8f99fb90cbaaaf92478e5",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    },
+    "ACCEPTANCE_TESTS_V2.json": {
+      "sha256": "a1aa721fc761c53803adb53043d5e258c4865d5e1267752ff7d672cefa9320ed",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    },
+    "ACCEPTANCE_TESTS_V2.md": {
+      "sha256": "53fcceae902a5310c9ac913fdf57dac846fa9123bc08809d89935eeb9570c14f",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    },
+    "HARI_OM_FUNCTIONAL_AUDIT_AND_PLAN_V2.md": {
+      "sha256": "4f8beb39aa344cd94f20ac00f90f913a90f4834464c6d67243974cfc5744a081",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    },
+    "QUALITY_CONTROL_BLUEPRINT.md": {
+      "sha256": "1955c14d677fcbee422d3464d8dca233f08ecae1b29b816c7f48c8e5e25f924f",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    },
+    "AGENT_FUNCTIONAL_START_HERE_V2.md": {
+      "sha256": "ecd65ee13d621ba204675748b774b7637820ae4ba2f3cd1d22a4678f38c867b5",
+      "matches_original_manifest": true,
+      "byte_for_byte_copy": true
+    }
+  }
+}

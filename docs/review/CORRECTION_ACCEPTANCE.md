@@ -17,7 +17,7 @@ This pass completes the audited C1–C7 code patches on `cursor/ui-polish-nav-c5
 - [x] Live overlapping Postgres proof (RR03, RR13 two-thread isolated `hariom_nverify_*`)
 - [x] Playwright / browser UAT against a running isolated stack (Chromium 15/15; Safari BJ13 still NOT_RUN)
 - [x] Docker artifact boot with packaged `shared/hariom_quality_eval.py`
-- [ ] Named original 192 V2 suite
+- [ ] Named original 192 V2 suite (definitions restored; overlay PASS only QCT-027 and QCT-052; 190 remain NOT_RUN)
 - [ ] Main-targeted PR, merge, production mutate, deploy
 
 Do not merge this branch to `main` without owner approval.

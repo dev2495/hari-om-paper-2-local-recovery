@@ -2,22 +2,22 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`  
-Original 192 V2 cases: **not replaced**. These RR rows are additive.
+Local candidate: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (product served from `d071d12`; later commits docs/e2e/tests)  
+Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate.
 
 | ID | Finding | Status | Proof |
 | --- | --- | --- | --- |
 | RR01 | Partial concession keeps residual lot + independent hold | PASS | inventory live `test_live_postgres_rr.py` |
-| RR02 | Zero / negative / excess / unspecified concession qty rejected | PASS | inventory live |
+| RR02 | Zero / negative / excess / unspecified concession qty rejected | PASS | live `test_zero_unspecified_and_excess_concession_rejected`; unit `test_rr02_zero_negative_excess_unspecified_rejected` |
 | RR03 | Concurrent concession cannot double-release | PASS | two-thread live workers: one ok, one 400; residual 400 on hold |
 | RR04 | Client `create_hold_on_fail=false` cannot suppress hold | PASS | production live + typed validator suite (61 passed) |
 | RR05 | FAIL without reason persists; final submit still blocked | PASS | inventory live `test_fail_without_reason_persists_pending` |
 | RR06 | Collector keeps every winding sample | PASS | production quality_eval tests |
 | RR07 | Whitespace is missing; kg not copied into g | PASS | production quality tests + BJ12 print |
 | RR08 | Schedule-entire-PO appends remainder; does not replace committed | PASS | sales live `test_schedule_100_with_existing_40_appends_60` |
-| RR09 | Delivery date required and revalidated vs customer PO date | CODE | merge rejects missing date; live UI date proof is the Chromium PO-date fill, not a dedicated sales live test |
+| RR09 | Delivery date required and revalidated vs customer PO date | PASS | live `test_equal_or_earlier_delivery_date_is_rejected`; unit `test_header_date_change_revalidates_every_line` |
 | RR10 | Unscheduled fulfillment counts against remaining-to-schedule | PASS | `test_fulfilled_40_caps_new_commitment_at_60` |
 | RR11 | Patch cannot fake delivered | PASS | `test_patch_cannot_fake_delivered` |
 | RR12 | Allocations cannot exceed parents or duplicate pairs / cross lines | CODE | `validate_schedule_to_release_allocations` unit tests; not in the 4 live sales tests |
@@ -36,7 +36,7 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR25 | UOM mismatch is UNKNOWN, not coverage | PASS | analytics tests |
 | RR26 | QC-held PO / stock is not usable coverage of earlier need | PASS | analytics tests |
 | RR27 | Customer delivery / production / supplier calendars stay separate | CODE | policy text; live production-calendar UI **NOT_RUN** |
-| RR28 | Job-card export pages beyond 500 | CODE | export loops `page_size = 500`. Live 501+ export **NOT_RUN** |
+| RR28 | Job-card export pages beyond 500 | PASS | production live `test_export_includes_more_than_500_job_cards` |
 | RR29 | Plant-scoped notifications; no all-plant Admin/Owner bypass | PASS | auth live + `test_notification_plant_scope.py` (9 passed) |
 | RR30 | Plantless event does not leak to explicit users | PASS | auth live |
 | RR31 | Notification create does not crash on plantless QC event | PASS | auth live plantless path |
@@ -48,4 +48,4 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 
 ## Original 192 V2 suite
 
-Not executed as a named pack. See `docs/review/V2_PACK_PROVENANCE.md`. Additive RR tests above do not replace it.
+Definitions restored under `docs/review/baseline-v2/`. Overlay PASS is only `QCT-027` and `QCT-052`. The other 190 original cases remain `NOT_RUN`. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.

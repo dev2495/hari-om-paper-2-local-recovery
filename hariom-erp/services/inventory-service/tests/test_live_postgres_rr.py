@@ -394,3 +394,38 @@ def test_fail_without_reason_persists_pending():
         assert all(hold.reason and str(hold.reason).strip() for hold in holds)
     finally:
         db.close()
+
+
+def test_zero_unspecified_and_excess_concession_rejected():
+    db = Session()
+    try:
+        token = uuid.uuid4().hex[:8]
+        item = _item(db, token)
+        loc = _location(db, token)
+        batch = _batch(db, item, loc, 1000, "QC_HOLD", token)
+        inspection = _inspection(db, batch)
+        db.commit()
+        actor = {"sub": "owner-1", "roles": ["Owner"]}
+        for quantity in (0, None, 1200):
+            with pytest.raises(HTTPException) as blocked:
+                create_quality_concession(
+                    QualityConcessionCreate(
+                        inspection_id=inspection.id,
+                        reason="invalid scope",
+                        quantity=quantity,
+                        release_stock=True,
+                        operation_id=f"bad-{token}-{quantity}",
+                    ),
+                    db=db,
+                    plant_id=PLANT,
+                    current_user=actor,
+                )
+            assert blocked.value.status_code == 400
+            detail = blocked.value.detail
+            code = detail.get("code") if isinstance(detail, dict) else None
+            assert code in {"INVALID_QUANTITY", "UNSPECIFIED_SCOPE", "EXCESS_QUANTITY"}
+        db.refresh(batch)
+        assert batch.stock_status == "QC_HOLD"
+        assert float(batch.received_qty) == 1000
+    finally:
+        db.close()

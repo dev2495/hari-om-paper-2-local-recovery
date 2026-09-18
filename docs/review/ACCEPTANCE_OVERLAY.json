@@ -1,0 +1,4684 @@
+{
+  "schema": "hariom-acceptance-overlay/v1",
+  "source": "docs/review/baseline-v2/ACCEPTANCE_TESTS_V2.json",
+  "rule": "Original documents are immutable. overlay_status is independent. CODE is not PASS. GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED stay limitations. Additive RR01-RR36 remain in RR_REGRESSION_CHECKLIST.md.",
+  "counts": {
+    "original_tests": 192,
+    "original_requirements": 56,
+    "overlay_status": {
+      "NOT_RUN": 190,
+      "PASS": 2
+    },
+    "coverage": {
+      "NONE": 144,
+      "UNIT_ONLY": 16,
+      "PARTIAL": 19,
+      "RELATED": 5,
+      "LIMITATION": 3,
+      "EXACT_EXECUTED": 2,
+      "HUMAN_UAT": 1,
+      "PROCESS": 1,
+      "OWNER_GATE": 1
+    }
+  },
+  "tests": [
+    {
+      "id": "COMM-01",
+      "title": "Customer date labels and binding",
+      "phase": "P09",
+      "requirements": [
+        "R03",
+        "R04",
+        "R05",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "COMM-02",
+      "title": "Strict date comparison",
+      "phase": "P09",
+      "requirements": [
+        "R05",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "sales-service/tests/test_sales_commercial.py::test_delivery_date_must_be_strictly_later_than_customer_po_date",
+        "sales-service/tests/test_live_postgres_rr.py::test_equal_or_earlier_delivery_date_is_rejected"
+      ],
+      "rr": [
+        "RR09"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Helper plus live schedule commit/patch reject equal/earlier dates. Full UI+API+import matrix remains CODE/NOT_RUN until all paths are listed."
+    },
+    {
+      "id": "COMM-03",
+      "title": "Header date edit",
+      "phase": "P09",
+      "requirements": [
+        "R05",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "sales-service/tests/test_sales_commercial.py::test_delivery_date_must_be_strictly_later_than_customer_po_date"
+      ],
+      "rr": [
+        "RR09"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Header edit reloads stored schedules in update_sales_order. Draft multi-row invalidation UI NOT_RUN."
+    },
+    {
+      "id": "COMM-04",
+      "title": "Internal customer order",
+      "phase": "P09",
+      "requirements": [
+        "R10",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "COMM-05",
+      "title": "Ambiguous historical origin",
+      "phase": "P09",
+      "requirements": [
+        "R10",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "COMM-06",
+      "title": "Parchment true round-trip",
+      "phase": "P09",
+      "requirements": [
+        "R08",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "sales-service/tests/test_sales_logic.py::test_sales_line_serializer_round_trips_required_parchment"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Serializer round-trip. Release/BOM/print path NOT_RUN as this original case."
+    },
+    {
+      "id": "COMM-07",
+      "title": "Parchment false and stale values",
+      "phase": "P09",
+      "requirements": [
+        "R08",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "sales-service/tests/test_sales_logic.py::test_sales_line_serializer_hides_stale_parchment_color_when_not_required"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Stale color hidden when unchecked. Full reload/edit UI NOT_RUN."
+    },
+    {
+      "id": "COMM-08",
+      "title": "Parchment/spec mismatch",
+      "phase": "P09",
+      "requirements": [
+        "R08",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "COMM-09",
+      "title": "Stable line IDs",
+      "phase": "P09",
+      "requirements": [
+        "R09",
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "COMM-10",
+      "title": "Remove filler only",
+      "phase": "P09",
+      "requirements": [
+        "R01",
+        "R02",
+        "R09",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "apps/web-ui/e2e/release-gate.spec.cjs",
+        "apps/web-ui/__tests__/sales-order-entry.test.ts"
+      ],
+      "rr": [],
+      "bj": [
+        "BJ04",
+        "BJ08"
+      ],
+      "limitation": null,
+      "notes": "Sales workspace operable in Chromium. Explicit hero/readiness/banner absence assertions NOT_RUN."
+    },
+    {
+      "id": "COMM-11",
+      "title": "Concurrent document numbers",
+      "phase": "P01",
+      "requirements": [
+        "R10",
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "sales-service/tests/test_sales_logic.py::test_order_number_counter_jumps_past_preexisting_max"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Counter jumps past preexisting max. Many concurrent creates with realistic DB settings NOT_RUN."
+    },
+    {
+      "id": "COMM-12",
+      "title": "Date import and old clients",
+      "phase": "P09",
+      "requirements": [
+        "R05",
+        "R20",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-01",
+      "title": "Queue-only admission",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "apps/web-ui/e2e/release-gate.spec.cjs"
+      ],
+      "rr": [],
+      "bj": [
+        "BJ04",
+        "BJ05"
+      ],
+      "limitation": null,
+      "notes": "Chromium sales release to winder queue succeeded. Mandrel-mismatch admission fixture NOT_RUN."
+    },
+    {
+      "id": "REL-02",
+      "title": "Invalid queue identity",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-03",
+      "title": "Integrity is not relaxed",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-04",
+      "title": "Replay after scheduling",
+      "phase": "P01",
+      "requirements": [
+        "R16",
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-05",
+      "title": "Replay after split/start/complete",
+      "phase": "P01",
+      "requirements": [
+        "R16",
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-06",
+      "title": "Concurrent bounded release",
+      "phase": "P01",
+      "requirements": [
+        "R16",
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-07",
+      "title": "Lost sync response",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "R20",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-08",
+      "title": "Idempotency payload mismatch",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "R20",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "RELATED",
+      "mapped_tests": [
+        "production-service/tests/test_dispatch_idempotency.py::test_same_request_id_with_different_hash_is_conflict"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Dispatch idempotency mismatch proven. Release-key mismatch NOT_RUN."
+    },
+    {
+      "id": "REL-09",
+      "title": "Partial multi-line failure",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-10",
+      "title": "Temporary machine maintenance",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REL-11",
+      "title": "Legacy release routes",
+      "phase": "P10",
+      "requirements": [
+        "R16",
+        "R20",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-01",
+      "title": "Whole PO multi-line scheduling",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "sales-service/tests/test_live_postgres_rr.py::test_schedule_100_with_existing_40_appends_60",
+        "sales-service/tests/test_pending_and_schedules.py::test_schedule_entire_po_appends_remaining_without_replacing_committed"
+      ],
+      "rr": [
+        "RR08"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Single-line 100/40/60 append proven. Three-line multi-date whole-PO UI NOT_RUN."
+    },
+    {
+      "id": "PLAN-02",
+      "title": "Refresh and reload",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-03",
+      "title": "Concurrent planners",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "sales-service/tests/test_live_postgres_rr.py::test_overlapping_schedule_commits_reject_stale_revision"
+      ],
+      "rr": [
+        "RR13",
+        "RR14"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Two overlapping schedule commits: one 200, one 409. Calendar planner UI NOT_RUN."
+    },
+    {
+      "id": "PLAN-04",
+      "title": "Move partially fulfilled PO",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-05",
+      "title": "Calendar separation",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-06",
+      "title": "Capacity units and stages",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-07",
+      "title": "Holidays and horizon overflow",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-08",
+      "title": "Oven batch sharing",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PLAN-09",
+      "title": "Keyboard and mobile scheduling",
+      "phase": "P11",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "DEM-01",
+      "title": "All pending not first page",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "sales-service/tests/test_pending_and_schedules.py::test_pending_workspace_paginates_after_full_set_summary_and_url_filter",
+        "sales-service/tests/test_open_demand.py::test_open_demand_includes_remaining_beyond_a_page_sized_set"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Pending workspace is server-side, not first page. 501-order / 250-job original scale NOT_RUN."
+    },
+    {
+      "id": "DEM-02",
+      "title": "Remaining versus full-order BOM",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "LIMITATION",
+      "mapped_tests": [
+        "analytics-service/tests/test_demand_coverage.py::test_coverage_keeps_demand_available_and_reorder_separate"
+      ],
+      "rr": [
+        "RR24"
+      ],
+      "bj": [],
+      "limitation": "GROSS_ESTIMATE",
+      "notes": "Coverage is labelled GROSS_ESTIMATE/ESTIMATE. Residual WIP/issued/FG netting is not implemented."
+    },
+    {
+      "id": "DEM-03",
+      "title": "Frozen recipe history",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "DEM-04",
+      "title": "Material grade and UOM",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "analytics-service/tests/test_demand_coverage.py::test_uom_mismatch_is_unknown_not_usable_coverage",
+        "analytics-service/tests/test_demand_coverage.py::test_gsm_in_description_is_not_a_substitute_match"
+      ],
+      "rr": [
+        "RR25"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "UOM mismatch is UNKNOWN; GSM-in-name is not a substitute. Full grade/width/form matrix NOT_RUN."
+    },
+    {
+      "id": "DEM-05",
+      "title": "Stock allocation once",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "DEM-06",
+      "title": "Time-phased shortage",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "LIMITATION",
+      "mapped_tests": [
+        "analytics-service/tests/test_demand_coverage.py::test_coverage_keeps_demand_available_and_reorder_separate"
+      ],
+      "rr": [
+        "RR24"
+      ],
+      "bj": [],
+      "limitation": "GROSS_ESTIMATE",
+      "notes": "first_shortage_bucket exists in gross estimate. Time-phased purchasing is not implemented."
+    },
+    {
+      "id": "DEM-07",
+      "title": "Unavailable data",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "DEM-08",
+      "title": "Rework/returns/short close",
+      "phase": "P11",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-01",
+      "title": "Six-line supplier PO",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-02",
+      "title": "Supplier line splits",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-03",
+      "title": "GRN replay/concurrency",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-04",
+      "title": "Incoming QC supply",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "R12",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-05",
+      "title": "Partial/rejected supplier delivery",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-06",
+      "title": "Workbook import ambiguity",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-07",
+      "title": "Re-upload same source",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "PUR-08",
+      "title": "Receipt evidence and letterhead",
+      "phase": "P11",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-01",
+      "title": "QC creation and landing",
+      "phase": "P02",
+      "requirements": [
+        "R12"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role",
+        "auth-service/tests/test_qc_role_identity.py::test_qc_is_not_aliased_to_plant_manager"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "QC is a canonical role, not PlantManager. Sign-in landing/menu/deep-link NOT_RUN."
+    },
+    {
+      "id": "QC-02",
+      "title": "Role and plant negative tests",
+      "phase": "P02",
+      "requirements": [
+        "R12"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_qc_plant_scope.py",
+        "apps/web-ui/e2e/release-gate.spec.cjs"
+      ],
+      "rr": [],
+      "bj": [
+        "BJ06"
+      ],
+      "limitation": null,
+      "notes": "Role/plant guards in Chromium and QC write plant scope. Full QC-token admin/sales-approval matrix NOT_RUN."
+    },
+    {
+      "id": "QC-03",
+      "title": "Exact stage fields",
+      "phase": "P05",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-04",
+      "title": "Malformed and non-finite values",
+      "phase": "P01",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-05",
+      "title": "Bounds and applicability",
+      "phase": "P05",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-06",
+      "title": "Paired oven readings",
+      "phase": "P05",
+      "requirements": [
+        "R14"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-07",
+      "title": "Historical limits",
+      "phase": "P05",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-08",
+      "title": "Holds and retests",
+      "phase": "P06",
+      "requirements": [
+        "R12",
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-09",
+      "title": "Override authorization",
+      "phase": "P06",
+      "requirements": [
+        "R12",
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QC-10",
+      "title": "Alternate quality paths",
+      "phase": "P01",
+      "requirements": [
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "NAV-01",
+      "title": "Three-day boundary",
+      "phase": "P09",
+      "requirements": [
+        "R06",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Three-day priority predicate across tile/list/report/export NOT_RUN."
+    },
+    {
+      "id": "NAV-02",
+      "title": "Stage tile drill-down",
+      "phase": "P09",
+      "requirements": [
+        "R07",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "apps/web-ui/e2e/release-gate.spec.cjs"
+      ],
+      "rr": [],
+      "bj": [
+        "BJ03"
+      ],
+      "limitation": null,
+      "notes": "Critical workspaces load. Stage-tile drill-down count identity NOT_RUN."
+    },
+    {
+      "id": "INC-01",
+      "title": "ID incident reproduction",
+      "phase": "P00",
+      "requirements": [
+        "R11"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Original ID-creation incident reproduction still required with recorded build/console/request."
+    },
+    {
+      "id": "INC-02",
+      "title": "Create failures and lost response",
+      "phase": "P09",
+      "requirements": [
+        "R11",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REG-01",
+      "title": "Dispatch and books lock",
+      "phase": "P13",
+      "requirements": [
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "REG-02",
+      "title": "Migration reconciliation",
+      "phase": "P12",
+      "requirements": [
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "RELATED",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Same as QCT-119. Isolated nverify dump is not migrated production data."
+    },
+    {
+      "id": "REG-03",
+      "title": "Restore and recovery",
+      "phase": "P13",
+      "requirements": [
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "RELATED",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Same as QCT-123."
+    },
+    {
+      "id": "REG-04",
+      "title": "Performance and deployment evidence",
+      "phase": "P13",
+      "requirements": [
+        "R20"
+      ],
+      "release_blocking": true,
+      "origin": "baseline preserved",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Agreed realistic concurrency/browser workload against target AWS host NOT_RUN."
+    },
+    {
+      "id": "QCT-001",
+      "title": "Two-sided bounds",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_winder_in_range_is_pass",
+        "production-service/tests/test_quality_eval.py::test_winder_out_of_range_fail_requires_reason"
+      ],
+      "rr": [
+        "RR19"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "In-range/out-of-range evaluator. Inclusive/exclusive endpoint matrix NOT_RUN."
+    },
+    {
+      "id": "QCT-002",
+      "title": "Minimum-only requirement",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-003",
+      "title": "Maximum-only requirement",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-004",
+      "title": "Asymmetric target tolerance",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-005",
+      "title": "Invalid profile bounds",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "spec-service/tests/test_qc_profile.py::test_inverted_and_malformed_bounds_are_rejected"
+      ],
+      "rr": [
+        "RR19"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Inverted/malformed bounds rejected on normalize. Full approve-path denial NOT_RUN."
+    },
+    {
+      "id": "QCT-006",
+      "title": "Non-finite and malformed readings",
+      "phase": "P01",
+      "requirements": [
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_blank_and_invalid_never_pass"
+      ],
+      "rr": [
+        "RR07"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Blank/invalid never PASS in evaluator. Every adapter path NOT_RUN."
+    },
+    {
+      "id": "QCT-007",
+      "title": "Zero versus missing",
+      "phase": "P02",
+      "requirements": [
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_blank_and_invalid_never_pass",
+        "apps/web-ui/__tests__/qc-measurement.test.ts"
+      ],
+      "rr": [
+        "RR07"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Whitespace is missing, not zero, in collector/evaluator. Full request-pair matrix NOT_RUN."
+    },
+    {
+      "id": "QCT-008",
+      "title": "Rounding edge",
+      "phase": "P02",
+      "requirements": [
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-009",
+      "title": "Categorical and boolean acceptance",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_categorical_fail_uses_approved_outcomes"
+      ],
+      "rr": [
+        "RR20"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Categorical FAIL vs approved options. Boolean/unknown-option matrix NOT_RUN."
+    },
+    {
+      "id": "QCT-010",
+      "title": "Descriptive-only profile",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-17"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-011",
+      "title": "Unit and specimen mismatch",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-34"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-012",
+      "title": "Sampling aggregation",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-05"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_live_postgres_rr.py::test_every_winding_sample_persists_and_later_fail_matters"
+      ],
+      "rr": [
+        "RR06"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Every winding sample persisted and individual FAIL retained. Approved aggregation-method decision NOT_RUN."
+    },
+    {
+      "id": "QCT-013",
+      "title": "Unsafe rule expression",
+      "phase": "P02",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-014",
+      "title": "Evaluator parity",
+      "phase": "P02",
+      "requirements": [
+        "QCR-15",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-015",
+      "title": "Per-item versus family profiles",
+      "phase": "P03",
+      "requirements": [
+        "QCR-03"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-016",
+      "title": "Plant-specific resolution",
+      "phase": "P03",
+      "requirements": [
+        "QCR-03"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-017",
+      "title": "Every inward category",
+      "phase": "P03",
+      "requirements": [
+        "QCR-03"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-018",
+      "title": "Missing incoming setup",
+      "phase": "P03",
+      "requirements": [
+        "QCR-03",
+        "QCR-04"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-019",
+      "title": "Approved no-inspection exemption",
+      "phase": "P03",
+      "requirements": [
+        "QCR-03",
+        "QCR-17"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-020",
+      "title": "Profile copy and approval",
+      "phase": "P03",
+      "requirements": [
+        "QCR-03",
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-021",
+      "title": "Supplier PO qualifier",
+      "phase": "P03",
+      "requirements": [
+        "QCR-06"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-022",
+      "title": "Conflicting PO and item requirements",
+      "phase": "P03",
+      "requirements": [
+        "QCR-06"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-023",
+      "title": "Supplier certificate versus local reading",
+      "phase": "P03",
+      "requirements": [
+        "QCR-06",
+        "QCR-17"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-024",
+      "title": "Partial GRN sampling identity",
+      "phase": "P03",
+      "requirements": [
+        "QCR-04",
+        "QCR-05"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-025",
+      "title": "Receipt replay creates task once",
+      "phase": "P03",
+      "requirements": [
+        "QCR-04",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-026",
+      "title": "Task event delivery interruption",
+      "phase": "P03",
+      "requirements": [
+        "QCR-04",
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-027",
+      "title": "Partial accept/hold partition",
+      "phase": "P03",
+      "requirements": [
+        "QCR-05",
+        "QCR-20"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue"
+      ],
+      "rr": [
+        "RR01",
+        "RR21"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Live PG 1000/600/400 partition; residual QC_HOLD blocks issue/WIP/dispatch/move."
+    },
+    {
+      "id": "QCT-028",
+      "title": "Destructive sample accounting",
+      "phase": "P03",
+      "requirements": [
+        "QCR-05",
+        "QCR-20"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-029",
+      "title": "New spec save dialog",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "apps/web-ui/e2e/correction-journeys.spec.cjs"
+      ],
+      "rr": [
+        "RR32"
+      ],
+      "bj": [
+        "BJ11"
+      ],
+      "limitation": null,
+      "notes": "Spec QC dialog keyboard/role/Escape proven. Deliberate new-spec save-before-dialog product context NOT_RUN as this case."
+    },
+    {
+      "id": "QCT-030",
+      "title": "Dialog draft preservation",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-031",
+      "title": "QC-incomplete draft save",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-032",
+      "title": "Spec bundle failure",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-033",
+      "title": "Duplicate spec save",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-034",
+      "title": "Stale tolerance dialog",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-035",
+      "title": "Legacy Add quality parameters",
+      "phase": "P04",
+      "requirements": [
+        "QCR-08"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-036",
+      "title": "Existing-profile row actions",
+      "phase": "P04",
+      "requirements": [
+        "QCR-08"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-037",
+      "title": "Bulk assignment review",
+      "phase": "P04",
+      "requirements": [
+        "QCR-08",
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-038",
+      "title": "Canonical final limits",
+      "phase": "P04",
+      "requirements": [
+        "QCR-09"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-039",
+      "title": "Process-only versus contractual revision",
+      "phase": "P04",
+      "requirements": [
+        "QCR-09",
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-040",
+      "title": "Client field names",
+      "phase": "P04",
+      "requirements": [
+        "QCR-10"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Evaluator uses I.D./O.D./Height/Weight/C.S. and oven/process names. Full UI template contract NOT_RUN."
+    },
+    {
+      "id": "QCT-041",
+      "title": "Non-notched applicability",
+      "phase": "P04",
+      "requirements": [
+        "QCR-10",
+        "QCR-02"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-042",
+      "title": "Stage basis helpers",
+      "phase": "P04",
+      "requirements": [
+        "QCR-07",
+        "QCR-10"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-043",
+      "title": "Profile revision freezing",
+      "phase": "P04",
+      "requirements": [
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_receipt_pin_survives_later_master_edit"
+      ],
+      "rr": [
+        "RR15"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Receipt pin survives later master edit. Job-card print remaining on rev A after rev B NOT_RUN."
+    },
+    {
+      "id": "QCT-044",
+      "title": "Tolerance below every input",
+      "phase": "P05",
+      "requirements": [
+        "QCR-11"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-045",
+      "title": "Accessible exception feedback",
+      "phase": "P05",
+      "requirements": [
+        "QCR-11"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-046",
+      "title": "Blank job-card print",
+      "phase": "P05",
+      "requirements": [
+        "QCR-12"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "apps/web-ui/e2e/correction-journeys.spec.cjs"
+      ],
+      "rr": [
+        "RR33"
+      ],
+      "bj": [
+        "BJ12"
+      ],
+      "limitation": null,
+      "notes": "Chromium print keeps samples and kg vs g. Multi-page all-stage paired-oven print NOT_RUN."
+    },
+    {
+      "id": "QCT-047",
+      "title": "Completed historical print",
+      "phase": "P05",
+      "requirements": [
+        "QCR-12",
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "apps/web-ui/e2e/correction-journeys.spec.cjs"
+      ],
+      "rr": [],
+      "bj": [
+        "BJ12"
+      ],
+      "limitation": null,
+      "notes": "Completed print captured. Newer-profile historical freeze print NOT_RUN."
+    },
+    {
+      "id": "QCT-048",
+      "title": "Oven pre/post timing",
+      "phase": "P05",
+      "requirements": [
+        "QCR-10"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_oven_pre_only_checkpoint_does_not_require_post"
+      ],
+      "rr": [
+        "RR20"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "PRE-only checkpoint. Full pre/post timing UI NOT_RUN."
+    },
+    {
+      "id": "QCT-049",
+      "title": "Oven mismatched pair",
+      "phase": "P05",
+      "requirements": [
+        "QCR-10",
+        "QCR-05"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_oven_pair_mismatch_fails"
+      ],
+      "rr": [
+        "RR20"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Pair mismatch FAIL in evaluator. Job-card entry adapter NOT_RUN."
+    },
+    {
+      "id": "QCT-050",
+      "title": "Whole-card hidden-stage errors",
+      "phase": "P05",
+      "requirements": [
+        "QCR-13"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-051",
+      "title": "All entry adapters",
+      "phase": "P05",
+      "requirements": [
+        "QCR-13",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-052",
+      "title": "Failed reading without reason",
+      "phase": "P05",
+      "requirements": [
+        "QCR-14"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_fail_without_reason_persists_pending",
+        "production-service/tests/test_live_postgres_rr.py::test_client_hold_flag_ignored_and_fail_without_reason_persists"
+      ],
+      "rr": [
+        "RR05"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Out-of-range reading saved as FAIL with reason-pending and a hold; not rejected before insert."
+    },
+    {
+      "id": "QCT-053",
+      "title": "Reason cannot pass result",
+      "phase": "P05",
+      "requirements": [
+        "QCR-14",
+        "QCR-17"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_quality_eval.py::test_winder_out_of_range_fail_requires_reason",
+        "production-service/tests/test_quality_eval.py::test_incoming_uses_item_profile_and_ignores_reason_pass",
+        "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue"
+      ],
+      "rr": [
+        "RR22"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Evaluator and concession keep measured FAIL. Full disposition-authority UI path NOT_RUN."
+    },
+    {
+      "id": "QCT-054",
+      "title": "Unknown cause honestly recorded",
+      "phase": "P05",
+      "requirements": [
+        "QCR-14"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-055",
+      "title": "Common reason for several fields",
+      "phase": "P05",
+      "requirements": [
+        "QCR-14",
+        "QCR-19"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-056",
+      "title": "Correction audit",
+      "phase": "P05",
+      "requirements": [
+        "QCR-21",
+        "QCR-29"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-057",
+      "title": "Physical output remains recorded",
+      "phase": "P05",
+      "requirements": [
+        "QCR-13",
+        "QCR-17"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-058",
+      "title": "Retrospective entry",
+      "phase": "P05",
+      "requirements": [
+        "QCR-24"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-059",
+      "title": "Offline draft and reconnect",
+      "phase": "P05",
+      "requirements": [
+        "QCR-24",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-060",
+      "title": "Missing QC on queued job",
+      "phase": "P05",
+      "requirements": [
+        "QCR-16",
+        "QCR-32"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-061",
+      "title": "Attach missing profile explicitly",
+      "phase": "P05",
+      "requirements": [
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-062",
+      "title": "Invalid instrument status",
+      "phase": "P05",
+      "requirements": [
+        "QCR-34"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-063",
+      "title": "Durable multi-field failure case",
+      "phase": "P06",
+      "requirements": [
+        "QCR-19"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-064",
+      "title": "Configured advisory versus blocking",
+      "phase": "P06",
+      "requirements": [
+        "QCR-19",
+        "QCR-20"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-065",
+      "title": "Unauthorized concession",
+      "phase": "P06",
+      "requirements": [
+        "QCR-20",
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-066",
+      "title": "Concession scope and expiry",
+      "phase": "P06",
+      "requirements": [
+        "QCR-20"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-067",
+      "title": "Non-waivable criterion",
+      "phase": "P06",
+      "requirements": [
+        "QCR-20"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-068",
+      "title": "Disposition conservation",
+      "phase": "P06",
+      "requirements": [
+        "QCR-20",
+        "QCR-05"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-069",
+      "title": "Retest does not erase original",
+      "phase": "P06",
+      "requirements": [
+        "QCR-21"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-070",
+      "title": "Cherry-picked retest fields",
+      "phase": "P06",
+      "requirements": [
+        "QCR-21"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-071",
+      "title": "Independent and newer holds",
+      "phase": "P06",
+      "requirements": [
+        "QCR-21",
+        "QCR-23"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue",
+        "inventory-service/tests/test_live_postgres_rr.py::test_overlapping_concessions_cannot_double_release"
+      ],
+      "rr": [
+        "RR03",
+        "RR21"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Independent hold quantity survives concession. Retest-vs-newer-hold lineage NOT_RUN."
+    },
+    {
+      "id": "QCT-072",
+      "title": "Rework/reheat quantity",
+      "phase": "P06",
+      "requirements": [
+        "QCR-22"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-073",
+      "title": "Supplier return/scrap replay",
+      "phase": "P06",
+      "requirements": [
+        "QCR-22"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-074",
+      "title": "FG inward mandatory quality",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-075",
+      "title": "Hold versus issue race",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue"
+      ],
+      "rr": [
+        "RR01"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Held residual cannot be issued. Parallel hold-versus-issue race NOT_RUN."
+    },
+    {
+      "id": "QCT-076",
+      "title": "Hold versus dispatch race",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Held residual cannot be dispatched. Concurrent sealed-dispatch race NOT_RUN."
+    },
+    {
+      "id": "QCT-077",
+      "title": "Crash after stock review barrier",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-078",
+      "title": "Clearance apply acknowledgement loss",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-079",
+      "title": "Out-of-order clearance",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23",
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-080",
+      "title": "Authority unavailable",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-081",
+      "title": "All stock shortcuts",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Issue, WIP, dispatch, and stock-status shortcut blocked for residual hold. Purchase-desk PASS and old-client matrix NOT_RUN."
+    },
+    {
+      "id": "QCT-082",
+      "title": "Material-type tampering",
+      "phase": "P06",
+      "requirements": [
+        "QCR-15",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-083",
+      "title": "Concurrent disposition versions",
+      "phase": "P06",
+      "requirements": [
+        "QCR-20",
+        "QCR-31"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-084",
+      "title": "Late discovered wider scope",
+      "phase": "P06",
+      "requirements": [
+        "QCR-23",
+        "QCR-24"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-085",
+      "title": "Same-role different plants",
+      "phase": "P07",
+      "requirements": [
+        "QCR-25",
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "auth-service/tests/test_live_postgres_rr.py::test_two_plant_users_and_limited_admin_do_not_cross_notify"
+      ],
+      "rr": [
+        "RR29",
+        "RR30"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Direct notification create is plant-scoped. Inward-failure event plus working deep link NOT_RUN."
+    },
+    {
+      "id": "QCT-086",
+      "title": "Role/assignment deduplication",
+      "phase": "P07",
+      "requirements": [
+        "QCR-25"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-087",
+      "title": "Relevant downstream recipients",
+      "phase": "P07",
+      "requirements": [
+        "QCR-25"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-088",
+      "title": "Inactive or absent inspector",
+      "phase": "P07",
+      "requirements": [
+        "QCR-25"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-089",
+      "title": "Commit/notify failure",
+      "phase": "P07",
+      "requirements": [
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-090",
+      "title": "Out-of-order notification",
+      "phase": "P07",
+      "requirements": [
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-091",
+      "title": "Acknowledgement semantics",
+      "phase": "P07",
+      "requirements": [
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-092",
+      "title": "Escalation clock and cover",
+      "phase": "P07",
+      "requirements": [
+        "QCR-25",
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-093",
+      "title": "Access revoked after alert",
+      "phase": "P07",
+      "requirements": [
+        "QCR-18",
+        "QCR-25"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-094",
+      "title": "External delivery adapter unconfigured",
+      "phase": "P07",
+      "requirements": [
+        "QCR-26"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-095",
+      "title": "Full-dataset filters",
+      "phase": "P08",
+      "requirements": [
+        "QCR-27"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-096",
+      "title": "Measured versus recorded dates",
+      "phase": "P08",
+      "requirements": [
+        "QCR-27"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-097",
+      "title": "Compound trace filters",
+      "phase": "P08",
+      "requirements": [
+        "QCR-27"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-098",
+      "title": "Empty pass-rate denominator",
+      "phase": "P08",
+      "requirements": [
+        "QCR-28"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "production-service/tests/test_quality_pass_rate.py::test_empty_set_is_null_never_one_hundred",
+        "analytics-service/tests/test_quality_pass_rate.py::test_quality_report_empty_inspections_are_not_one_hundred_percent"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Empty denominator is not 100%. Full report query/UI NOT_RUN."
+    },
+    {
+      "id": "QCT-099",
+      "title": "First-pass, retest and concession",
+      "phase": "P08",
+      "requirements": [
+        "QCR-28"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-100",
+      "title": "Held-quantity deduplication",
+      "phase": "P08",
+      "requirements": [
+        "QCR-28"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-101",
+      "title": "Mixed units and methods",
+      "phase": "P08",
+      "requirements": [
+        "QCR-28"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-102",
+      "title": "Historic limits on trend",
+      "phase": "P08",
+      "requirements": [
+        "QCR-16",
+        "QCR-28"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-103",
+      "title": "Unavailable report dependency",
+      "phase": "P08",
+      "requirements": [
+        "QCR-27"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-104",
+      "title": "Export authorization and expiry",
+      "phase": "P08",
+      "requirements": [
+        "QCR-27",
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-105",
+      "title": "Complete trace dossier",
+      "phase": "P08",
+      "requirements": [
+        "QCR-24",
+        "QCR-29"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-106",
+      "title": "Complaint without physical return",
+      "phase": "P08",
+      "requirements": [
+        "QCR-33"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-107",
+      "title": "Actual customer return",
+      "phase": "P08",
+      "requirements": [
+        "QCR-33",
+        "QCR-20"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "LIMITATION",
+      "mapped_tests": [],
+      "rr": [
+        "RR23"
+      ],
+      "bj": [],
+      "limitation": "PARTIAL_REJECTION_UNSUPPORTED",
+      "notes": "Customer-rejection partial partition is refused, not implemented."
+    },
+    {
+      "id": "QCT-108",
+      "title": "Corrective action closure",
+      "phase": "P08",
+      "requirements": [
+        "QCR-33"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-109",
+      "title": "Repeat failure and reopening",
+      "phase": "P08",
+      "requirements": [
+        "QCR-33"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-110",
+      "title": "Instrument exposure report",
+      "phase": "P08",
+      "requirements": [
+        "QCR-34"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-111",
+      "title": "Canonical QC restart",
+      "phase": "P02",
+      "requirements": [
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "UNIT_ONLY",
+      "mapped_tests": [
+        "auth-service/tests/test_qc_role_identity.py::test_qc_is_a_canonical_business_role"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Role identity unit. Seed/migration/restart sequence NOT_RUN."
+    },
+    {
+      "id": "QCT-112",
+      "title": "Negative role and plant API matrix",
+      "phase": "P02",
+      "requirements": [
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-113",
+      "title": "Existing rights compatibility",
+      "phase": "P02",
+      "requirements": [
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-114",
+      "title": "Attachment security",
+      "phase": "P02",
+      "requirements": [
+        "QCR-29"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-115",
+      "title": "Legacy bound migration",
+      "phase": "P12",
+      "requirements": [
+        "QCR-30"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-116",
+      "title": "Active WIP migration",
+      "phase": "P12",
+      "requirements": [
+        "QCR-30",
+        "QCR-16"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-117",
+      "title": "Legacy exposure review",
+      "phase": "P12",
+      "requirements": [
+        "QCR-30"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-118",
+      "title": "Feature rollback preserves restrictions",
+      "phase": "P12",
+      "requirements": [
+        "QCR-30",
+        "QCR-23"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-119",
+      "title": "Migration reconciliation",
+      "phase": "P12",
+      "requirements": [
+        "QCR-30",
+        "QCR-36"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "RELATED",
+      "mapped_tests": [
+        "isolated dump/restore rehearsal of hariom_nverify_salesdb"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Isolated single-DB dump/restore is not plant-level quantity reconciliation of restored production data."
+    },
+    {
+      "id": "QCT-120",
+      "title": "Full client cycle UAT",
+      "phase": "P12",
+      "requirements": [
+        "QCR-36"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "HUMAN_UAT",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [
+        "BJ13"
+      ],
+      "limitation": null,
+      "notes": "Full client cycle UAT. Chromium 15/15 is not this case."
+    },
+    {
+      "id": "QCT-121",
+      "title": "Agent restart continuity",
+      "phase": "P13",
+      "requirements": [
+        "QCR-35"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-122",
+      "title": "False completion guard",
+      "phase": "P13",
+      "requirements": [
+        "QCR-35"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "PROCESS",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "This overlay refuses to mark unrun original cases PASS. Handoff linter for the original package is not an ERP runner."
+    },
+    {
+      "id": "QCT-123",
+      "title": "Restore and operation replay",
+      "phase": "P13",
+      "requirements": [
+        "QCR-36"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "RELATED",
+      "mapped_tests": [
+        "isolated dump/restore rehearsal of hariom_nverify_salesdb"
+      ],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "Cross-service pending holds/outbox/barrier recovery NOT_RUN."
+    },
+    {
+      "id": "QCT-124",
+      "title": "Performance and outage proof",
+      "phase": "P13",
+      "requirements": [
+        "QCR-36"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    },
+    {
+      "id": "QCT-125",
+      "title": "Release sign-off",
+      "phase": "P13",
+      "requirements": [
+        "QCR-36",
+        "QCR-18"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "OWNER_GATE",
+      "mapped_tests": [],
+      "rr": [
+        "RR36"
+      ],
+      "bj": [],
+      "limitation": null,
+      "notes": "Release sign-off remains blocked without owner approval of verified build/schema/recovery."
+    },
+    {
+      "id": "QCT-126",
+      "title": "One inspection across integrated views",
+      "phase": "P08",
+      "requirements": [
+        "QCR-01",
+        "QCR-11",
+        "QCR-27"
+      ],
+      "release_blocking": true,
+      "origin": "quality expansion v2",
+      "original_status": "NOT_RUN",
+      "overlay_status": "NOT_RUN",
+      "coverage": "NONE",
+      "mapped_tests": [],
+      "rr": [],
+      "bj": [],
+      "limitation": null,
+      "notes": "No executed test maps to this original procedure yet."
+    }
+  ],
+  "requirements": [
+    {
+      "id": "R01",
+      "title": "Remove the Sales PO Entry / explanatory queue hero",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-10"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R02",
+      "title": "Remove Release Readiness",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-10"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R03",
+      "title": "\u201cCustomer PO Date\u201d label",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-01"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R04",
+      "title": "\u201cDelivery Date\u201d label",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-01"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R05",
+      "title": "Delivery date greater than Customer PO Date",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-01",
+        "COMM-02",
+        "COMM-03",
+        "COMM-12"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R06",
+      "title": "Priority delivery for next three days",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "NAV-01"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R07",
+      "title": "Clicking Winder opens relevant job cards",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "NAV-02"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R08",
+      "title": "Parchment checkbox/color behavior",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-06",
+        "COMM-07",
+        "COMM-08"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R09",
+      "title": "Remove repeated Line 1 banner",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-09",
+        "COMM-10"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R10",
+      "title": "Internal order without customer PO",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-04",
+        "COMM-05",
+        "COMM-11"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R11",
+      "title": "Resolve error during ID creation",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "INC-01",
+        "INC-02"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R12",
+      "title": "Add QC role",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "PUR-04",
+        "QC-01",
+        "QC-02",
+        "QC-08",
+        "QC-09"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R13",
+      "title": "Winding QC: I.D., O.D., Height, Weight, C.S.",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QC-03",
+        "QC-04",
+        "QC-05",
+        "QC-07"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R14",
+      "title": "Oven QC: pre/post weight and pre/post moisture",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QC-03",
+        "QC-04",
+        "QC-05",
+        "QC-06",
+        "QC-07"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R15",
+      "title": "Process QC: Height, Weight, C.S., notch distance/depth, moisture",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QC-03",
+        "QC-04",
+        "QC-05",
+        "QC-07"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R16",
+      "title": "Sales release asks only for winder queue",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "REL-01",
+        "REL-02",
+        "REL-03",
+        "REL-04",
+        "REL-05",
+        "REL-06",
+        "REL-07",
+        "REL-08",
+        "REL-09",
+        "REL-10",
+        "REL-11"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R17",
+      "title": "All pending orders and total material requirements",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "LIMITATION",
+      "acceptance_test_ids": [
+        "DEM-01",
+        "DEM-02",
+        "DEM-03",
+        "DEM-04",
+        "DEM-05",
+        "DEM-06",
+        "DEM-07",
+        "DEM-08"
+      ],
+      "linked_pass": [],
+      "limitations": [
+        "GROSS_ESTIMATE"
+      ]
+    },
+    {
+      "id": "R18",
+      "title": "Easily schedule an entire PO on calendar",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-09",
+        "REL-09",
+        "PLAN-01",
+        "PLAN-02",
+        "PLAN-03",
+        "PLAN-04",
+        "PLAN-05",
+        "PLAN-06",
+        "PLAN-07",
+        "PLAN-08",
+        "PLAN-09"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R19",
+      "title": "Material/vendor PO scheduling represented in workbook/PDF",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "PUR-01",
+        "PUR-02",
+        "PUR-03",
+        "PUR-04",
+        "PUR-05",
+        "PUR-06",
+        "PUR-07",
+        "PUR-08"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "R20",
+      "title": "Production-ready end-to-end system",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "COMM-11",
+        "COMM-12",
+        "REL-04",
+        "REL-05",
+        "REL-06",
+        "REL-07",
+        "REL-08",
+        "REL-11",
+        "QC-08",
+        "QC-09",
+        "QC-10",
+        "REG-01",
+        "REG-02",
+        "REG-03",
+        "REG-04"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-01",
+      "title": "Unified Quality Control module",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-126"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-02",
+      "title": "Typed parameter dictionary and approved profiles",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-001",
+        "QCT-002",
+        "QCT-003",
+        "QCT-004",
+        "QCT-005",
+        "QCT-009",
+        "QCT-010",
+        "QCT-011",
+        "QCT-012",
+        "QCT-013",
+        "QCT-041"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-03",
+      "title": "Item-specific inward quality setup",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-015",
+        "QCT-016",
+        "QCT-017",
+        "QCT-018",
+        "QCT-019",
+        "QCT-020"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-04",
+      "title": "Physical inward to usable stock lifecycle",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-018",
+        "QCT-024",
+        "QCT-025",
+        "QCT-026"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-05",
+      "title": "Lot/sample and partial-quantity identity",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "PARTIAL",
+      "acceptance_test_ids": [
+        "QCT-012",
+        "QCT-024",
+        "QCT-027",
+        "QCT-028",
+        "QCT-049",
+        "QCT-068"
+      ],
+      "linked_pass": [
+        "QCT-027"
+      ],
+      "limitations": []
+    },
+    {
+      "id": "QCR-06",
+      "title": "Supplier/PO constraints and certificate evidence",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-021",
+        "QCT-022",
+        "QCT-023"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-07",
+      "title": "Pre-save specification tolerance dialog",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-029",
+        "QCT-030",
+        "QCT-031",
+        "QCT-032",
+        "QCT-033",
+        "QCT-034",
+        "QCT-042"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-08",
+      "title": "Existing-spec Add/Complete/View/Revise actions",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-035",
+        "QCT-036",
+        "QCT-037"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-09",
+      "title": "One canonical final-tolerance representation",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-038",
+        "QCT-039"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-10",
+      "title": "Exact client stage fields",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-040",
+        "QCT-041",
+        "QCT-042",
+        "QCT-048",
+        "QCT-049"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-11",
+      "title": "Tolerance helper below job inputs",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-044",
+        "QCT-045",
+        "QCT-126"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-12",
+      "title": "Updated blank and completed job-card print",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-046",
+        "QCT-047"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-13",
+      "title": "Full-card and alternate-entry validation",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-050",
+        "QCT-051",
+        "QCT-057"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-14",
+      "title": "Failure reasons without forced false causes",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "PARTIAL",
+      "acceptance_test_ids": [
+        "QCT-052",
+        "QCT-053",
+        "QCT-054",
+        "QCT-055"
+      ],
+      "linked_pass": [
+        "QCT-052"
+      ],
+      "limitations": []
+    },
+    {
+      "id": "QCR-15",
+      "title": "Authoritative safe evaluation",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-001",
+        "QCT-002",
+        "QCT-003",
+        "QCT-005",
+        "QCT-006",
+        "QCT-007",
+        "QCT-008",
+        "QCT-009",
+        "QCT-013",
+        "QCT-014",
+        "QCT-082"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-16",
+      "title": "Immutable profiles and job snapshots",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-020",
+        "QCT-037",
+        "QCT-039",
+        "QCT-043",
+        "QCT-047",
+        "QCT-060",
+        "QCT-061",
+        "QCT-102",
+        "QCT-116"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-17",
+      "title": "Separate workflow, measurement and eligibility",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-010",
+        "QCT-019",
+        "QCT-023",
+        "QCT-053",
+        "QCT-057"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-18",
+      "title": "Canonical QC role and scoped capabilities",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-065",
+        "QCT-085",
+        "QCT-093",
+        "QCT-104",
+        "QCT-111",
+        "QCT-112",
+        "QCT-113",
+        "QCT-125"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-19",
+      "title": "Nonconformance, containment and hold workbench",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-055",
+        "QCT-063",
+        "QCT-064"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-20",
+      "title": "Authorized quantity-scoped disposition",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "PARTIAL",
+      "acceptance_test_ids": [
+        "QCT-027",
+        "QCT-028",
+        "QCT-064",
+        "QCT-065",
+        "QCT-066",
+        "QCT-067",
+        "QCT-068",
+        "QCT-083",
+        "QCT-107"
+      ],
+      "linked_pass": [
+        "QCT-027"
+      ],
+      "limitations": [
+        "PARTIAL_REJECTION_UNSUPPORTED"
+      ]
+    },
+    {
+      "id": "QCR-21",
+      "title": "Retest and correction lineage",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-056",
+        "QCT-069",
+        "QCT-070",
+        "QCT-071"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-22",
+      "title": "Rework, reheat and supplier-return integration",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-072",
+        "QCT-073"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-23",
+      "title": "Final/FG/dispatch gates and concurrency",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-071",
+        "QCT-074",
+        "QCT-075",
+        "QCT-076",
+        "QCT-077",
+        "QCT-078",
+        "QCT-079",
+        "QCT-080",
+        "QCT-081",
+        "QCT-084",
+        "QCT-118"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-24",
+      "title": "Genealogy and late/retrospective entry",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-058",
+        "QCT-059",
+        "QCT-084",
+        "QCT-105"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-25",
+      "title": "Relevant-user notifications and assignment",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-085",
+        "QCT-086",
+        "QCT-087",
+        "QCT-088",
+        "QCT-092",
+        "QCT-093"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-26",
+      "title": "Durable deduplicated delivery and escalation",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-026",
+        "QCT-079",
+        "QCT-089",
+        "QCT-090",
+        "QCT-091",
+        "QCT-092",
+        "QCT-094"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-27",
+      "title": "Full-scope filtered reports and exports",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-095",
+        "QCT-096",
+        "QCT-097",
+        "QCT-103",
+        "QCT-104",
+        "QCT-126"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-28",
+      "title": "Correct quality metrics and trends",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-098",
+        "QCT-099",
+        "QCT-100",
+        "QCT-101",
+        "QCT-102"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-29",
+      "title": "Audit, attachments and evidence access",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-056",
+        "QCT-105",
+        "QCT-114"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-30",
+      "title": "Controlled legacy migration and activation",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-115",
+        "QCT-116",
+        "QCT-117",
+        "QCT-118",
+        "QCT-119"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-31",
+      "title": "Stable commands, transactions and recovery",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-014",
+        "QCT-025",
+        "QCT-032",
+        "QCT-033",
+        "QCT-034",
+        "QCT-051",
+        "QCT-059",
+        "QCT-077",
+        "QCT-078",
+        "QCT-081",
+        "QCT-082",
+        "QCT-083"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-32",
+      "title": "Preserve all original ERP requirements",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "LIMITATION",
+      "acceptance_test_ids": [
+        "COMM-01",
+        "COMM-02",
+        "COMM-03",
+        "COMM-04",
+        "COMM-05",
+        "COMM-06",
+        "COMM-07",
+        "COMM-08",
+        "COMM-09",
+        "COMM-10",
+        "COMM-12",
+        "REL-01",
+        "REL-02",
+        "REL-03",
+        "REL-07",
+        "REL-08",
+        "REL-09",
+        "REL-10",
+        "REL-11",
+        "PLAN-01",
+        "PLAN-02",
+        "PLAN-03",
+        "PLAN-04",
+        "PLAN-05",
+        "PLAN-06",
+        "PLAN-07",
+        "PLAN-08",
+        "PLAN-09",
+        "DEM-01",
+        "DEM-02",
+        "DEM-03",
+        "DEM-04",
+        "DEM-05",
+        "DEM-06",
+        "DEM-07",
+        "DEM-08",
+        "PUR-01",
+        "PUR-02",
+        "PUR-03",
+        "PUR-04",
+        "PUR-05",
+        "PUR-06",
+        "PUR-07",
+        "PUR-08",
+        "NAV-01",
+        "NAV-02",
+        "INC-02",
+        "QCT-060"
+      ],
+      "linked_pass": [],
+      "limitations": [
+        "GROSS_ESTIMATE"
+      ]
+    },
+    {
+      "id": "QCR-33",
+      "title": "Customer complaints, returns and corrective actions",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "LIMITATION",
+      "acceptance_test_ids": [
+        "QCT-106",
+        "QCT-107",
+        "QCT-108",
+        "QCT-109"
+      ],
+      "linked_pass": [],
+      "limitations": [
+        "PARTIAL_REJECTION_UNSUPPORTED"
+      ]
+    },
+    {
+      "id": "QCR-34",
+      "title": "Methods, instruments and calibration controls",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-011",
+        "QCT-062",
+        "QCT-110"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-35",
+      "title": "Phased agent continuity and evidence tracking",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-121",
+        "QCT-122"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    },
+    {
+      "id": "QCR-36",
+      "title": "End-to-end rollout and release evidence",
+      "original_status": "NOT_STARTED",
+      "overlay_status": "NOT_RUN",
+      "acceptance_test_ids": [
+        "QCT-119",
+        "QCT-120",
+        "QCT-123",
+        "QCT-124",
+        "QCT-125"
+      ],
+      "linked_pass": [],
+      "limitations": []
+    }
+  ]
+}

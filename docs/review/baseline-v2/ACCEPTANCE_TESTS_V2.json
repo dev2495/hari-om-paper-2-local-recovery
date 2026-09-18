@@ -1,0 +1,3030 @@
+{
+  "metadata": {
+    "version": "2.0",
+    "date": "2026-09-17",
+    "repository": "dev2495/hari-om-paper-2-local-recovery",
+    "reviewed_sha": "44cf9950850f70de040f6d09d51dcf22495ce8d3",
+    "application_changes_performed": false,
+    "application_acceptance_tests_executed_in_this_update": false,
+    "baseline_requirements": 20,
+    "new_quality_requirements": 36,
+    "total_requirements": 56,
+    "baseline_acceptance_cases": 66,
+    "new_quality_acceptance_cases": 126,
+    "total_acceptance_cases": 192,
+    "phases": 14
+  },
+  "tests": [
+    {
+      "id": "COMM-01",
+      "requirements": [
+        "R03",
+        "R04",
+        "R05",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Customer date labels and binding",
+      "procedure": "Save customer PO date and line delivery date; reload, edit and print.",
+      "expected_result": "Labels changed; original date meanings and date-only values survive.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-02",
+      "requirements": [
+        "R05",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Strict date comparison",
+      "procedure": "Try delivery before, equal to and after customer PO date through UI and direct API.",
+      "expected_result": "Only strictly later date accepted; line-specific error, no partial invalid save.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-03",
+      "requirements": [
+        "R05",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Header date edit",
+      "procedure": "Change PO date after several draft deliveries.",
+      "expected_result": "All affected lines/schedules invalidated for review; none silently moved.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-04",
+      "requirements": [
+        "R10",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Internal customer order",
+      "procedure": "Create without external PO, approve with authorized second person, release and dispatch.",
+      "expected_result": "Unique internal SO and customer trace; no invented external PO; approved internal-date policy applied.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-05",
+      "requirements": [
+        "R10",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Ambiguous historical origin",
+      "procedure": "Migrate historical orders with blank PO references.",
+      "expected_result": "Ambiguous records flagged; no guessed internal origin or overwritten references.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-06",
+      "requirements": [
+        "R08",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Parchment true round-trip",
+      "procedure": "Create checked with valid master/color, reload/edit/release/BOM/print.",
+      "expected_result": "Explicit boolean and variant preserved in every authorized downstream representation.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-07",
+      "requirements": [
+        "R08",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Parchment false and stale values",
+      "procedure": "Select variant, uncheck, save and reload.",
+      "expected_result": "False/null persists; no stale hidden variant or silent BOM alteration.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-08",
+      "requirements": [
+        "R08",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Parchment/spec mismatch",
+      "procedure": "Order a commercial variant conflicting with approved manufacturing recipe.",
+      "expected_result": "Visible controlled resolution; canonical recipe not silently changed.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-09",
+      "requirements": [
+        "R09",
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Stable line IDs",
+      "procedure": "Edit one draft line after schedule link exists and remove a different line.",
+      "expected_result": "Unchanged line UUIDs retained; dependent allocations reconciled or removal rejected.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-10",
+      "requirements": [
+        "R01",
+        "R02",
+        "R09",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Remove filler only",
+      "procedure": "Inspect compact sales UI and perform all prior line actions.",
+      "expected_result": "Hero/readiness/banner removed; validation, add/remove, approvals and existing capabilities retained.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-11",
+      "requirements": [
+        "R10",
+        "R20"
+      ],
+      "phase": "P01",
+      "scenario": "Concurrent document numbers",
+      "procedure": "Create many sales orders concurrently with realistic DB settings.",
+      "expected_result": "No duplicate display number, unhandled collision or lost successful order.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "COMM-12",
+      "requirements": [
+        "R05",
+        "R20",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Date import and old clients",
+      "procedure": "Send invalid date relationships from import and older client payload.",
+      "expected_result": "Server enforces new approved policy with useful errors and safe legacy handling.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-01",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Queue-only admission",
+      "procedure": "Release valid approved line with mandrel mismatch to selected same-plant winder.",
+      "expected_result": "Accepted into chosen queue without compatibility override or shift selection.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-02",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Invalid queue identity",
+      "procedure": "Use nonexistent machine, wrong department or forbidden plant.",
+      "expected_result": "Rejected without any release/job side effect.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-03",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Integrity is not relaxed",
+      "procedure": "Try unauthorized, unapproved, zero, negative, non-finite or excessive quantity release.",
+      "expected_result": "Rejected while valid approved bounded release succeeds.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-04",
+      "requirements": [
+        "R16",
+        "R20"
+      ],
+      "phase": "P01",
+      "scenario": "Replay after scheduling",
+      "procedure": "Replay same release after date/shift assignment.",
+      "expected_result": "Same job and snapshot; all scheduling preserved; no new demand.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-05",
+      "requirements": [
+        "R16",
+        "R20"
+      ],
+      "phase": "P01",
+      "scenario": "Replay after split/start/complete",
+      "procedure": "Replay same release in split, partially executed and completed states.",
+      "expected_result": "No reset, unsplit, reopened stage, replacement snapshot or duplicated segment.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-06",
+      "requirements": [
+        "R16",
+        "R20"
+      ],
+      "phase": "P01",
+      "scenario": "Concurrent bounded release",
+      "procedure": "Two users release different lot IDs against the same remaining quantity.",
+      "expected_result": "Accepted sum stays bounded; conflict handled deterministically.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-07",
+      "requirements": [
+        "R16",
+        "R20",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Lost sync response",
+      "procedure": "Commit sales release then drop production response and close browser.",
+      "expected_result": "Durable pending operation recovers idempotently; no fresh release required.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-08",
+      "requirements": [
+        "R16",
+        "R20",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Idempotency payload mismatch",
+      "procedure": "Reuse release key with changed quantity or identity.",
+      "expected_result": "Conflict returned; original operation unchanged.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-09",
+      "requirements": [
+        "R16",
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Partial multi-line failure",
+      "procedure": "Fail synchronization for one line after others complete.",
+      "expected_result": "Per-line results persist; retry only pending lines without duplicate jobs.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-10",
+      "requirements": [
+        "R16",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Temporary machine maintenance",
+      "procedure": "Queue valid work for temporarily unavailable selected winder.",
+      "expected_result": "Queue admission follows approved policy; actual execution maintenance controls remain.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REL-11",
+      "requirements": [
+        "R16",
+        "R20",
+        "QCR-32"
+      ],
+      "phase": "P10",
+      "scenario": "Legacy release routes",
+      "procedure": "Exercise list, detail, bulk and legacy release paths.",
+      "expected_result": "All use same policy/integrity; no status-only route creates false release quantities.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-01",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Whole PO multi-line scheduling",
+      "procedure": "Schedule three lines over several delivery dates and inspect all allocations.",
+      "expected_result": "Every quantity accounted for or explicit remainder; no duplicate demand.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-02",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Refresh and reload",
+      "procedure": "Save schedule and reload via deep link on another authorized session.",
+      "expected_result": "Dates, quantities, source links and revision persist.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-03",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Concurrent planners",
+      "procedure": "Two planners commit changes from the same preview revision.",
+      "expected_result": "Stale commit conflicts; no silent overwrite or over-allocation.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-04",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Move partially fulfilled PO",
+      "procedure": "Group-move an order with dispatched and started quantities.",
+      "expected_result": "Only editable remainder moves; fulfilled/started history immutable.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-05",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Calendar separation",
+      "procedure": "Save customer and supplier dates without production/receipt action.",
+      "expected_result": "No automatic release, stock posting or fulfillment.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-06",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Capacity units and stages",
+      "procedure": "Schedule winding metres, oven batches and process tubes across shifts.",
+      "expected_result": "Correct approved unit conversions/precedence; missing policy not labelled feasible.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-07",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Holidays and horizon overflow",
+      "procedure": "Plan over closed dates and beyond available horizon.",
+      "expected_result": "Explicit remainder/conflicts; no hidden dropped quantity or fake feasibility.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-08",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Oven batch sharing",
+      "procedure": "Schedule concurrent oven loads with agreed cycle/batch sharing model.",
+      "expected_result": "No unintended overbooking; batch quantities/capacity reconcile.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PLAN-09",
+      "requirements": [
+        "R18",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Keyboard and mobile scheduling",
+      "procedure": "Perform same allocation without dragging and on narrow viewport.",
+      "expected_result": "Equivalent validated result, visible errors, stable focus and accessible controls.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-01",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "All pending not first page",
+      "procedure": "Use >501 open orders and >250 relevant jobs.",
+      "expected_result": "Summary, calendar, drill-down and export cover complete authorized result.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-02",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Remaining versus full-order BOM",
+      "procedure": "Use partial dispatch, allocated FG, already-issued WIP and unstarted demand.",
+      "expected_result": "Residual requirements do not count fulfilled demand, FG or issued material twice.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-03",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Frozen recipe history",
+      "procedure": "Change current master/spec after releasing a job.",
+      "expected_result": "Existing job requirements use frozen approved snapshot; unreleased draft version explicit.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-04",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Material grade and UOM",
+      "procedure": "Use similar names with different GSM/PB/width/form and mixed units.",
+      "expected_result": "No implicit interchange or kg/tonne conversion without approved mapping.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-05",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Stock allocation once",
+      "procedure": "Allocate same material batch to competing orders.",
+      "expected_result": "Total reservations bounded; one stock quantity not promised twice.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-06",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Time-phased shortage",
+      "procedure": "Receive sufficient total material after an earlier production need.",
+      "expected_result": "Earlier shortage remains visible despite later total surplus.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-07",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Unavailable data",
+      "procedure": "Interrupt a required sales/spec/stock source.",
+      "expected_result": "Completeness flagged; unknown not converted to zero or all-covered.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "DEM-08",
+      "requirements": [
+        "R17",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Rework/returns/short close",
+      "procedure": "Post approved scrap, returns and short-close dispositions.",
+      "expected_result": "Demand changes explicitly and quantity reconciliation holds.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-01",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Six-line supplier PO",
+      "procedure": "Enter all six PDF lines with confirmed UOM, qualifiers and terms.",
+      "expected_result": "All lines/amounts/source qualifiers preserved; no fabricated tax/delivery schedule.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-02",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Supplier line splits",
+      "procedure": "Allocate multiple deliveries to one purchase line.",
+      "expected_result": "Sum bounded; remaining supplier quantity and unscheduled remainder correct.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-03",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "GRN replay/concurrency",
+      "procedure": "Retry same stable receipt key and concurrently receive remaining balance.",
+      "expected_result": "Existing fingerprint semantics preserved; no duplicate inward or overreceipt.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-04",
+      "requirements": [
+        "R19",
+        "R12",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Incoming QC supply",
+      "procedure": "Receive QC-required material; then hold/pass with authorized user.",
+      "expected_result": "Physical restricted stock excluded from usable coverage until authorized release.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-05",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Partial/rejected supplier delivery",
+      "procedure": "Receive partial quantity and record rejected/replacement disposition.",
+      "expected_result": "PO, schedule, receipt and usable-stock balances remain distinct and reconciled.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-06",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Workbook import ambiguity",
+      "procedure": "Import SEP sheet with April lower dates, blank pending and unknown units.",
+      "expected_result": "Preview flags ambiguity; no fabricated month/unit/actual stock posting.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-07",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Re-upload same source",
+      "procedure": "Repeat confirmed import without changes.",
+      "expected_result": "No duplicate PO, schedule, receipt or stock movement.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "PUR-08",
+      "requirements": [
+        "R19",
+        "QCR-32"
+      ],
+      "phase": "P11",
+      "scenario": "Receipt evidence and letterhead",
+      "procedure": "Attach supplier test/challan and print PO for confirmed entity.",
+      "expected_result": "Evidence linked to correct batch; terms/entity exact, not hard-coded wrong issuer.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-01",
+      "requirements": [
+        "R12"
+      ],
+      "phase": "P02",
+      "scenario": "QC creation and landing",
+      "procedure": "Assign QC through auth, sign in and inspect menus/deep links.",
+      "expected_result": "Dedicated correct workspace; role not silently mapped into extra PlantManager powers.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-02",
+      "requirements": [
+        "R12"
+      ],
+      "phase": "P02",
+      "scenario": "Role and plant negative tests",
+      "procedure": "QC user calls admin, sales-approval and other-plant APIs directly.",
+      "expected_result": "Denied; no cross-plant read/cache/export leaks.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-03",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "phase": "P05",
+      "scenario": "Exact stage fields",
+      "procedure": "Record all client-requested winding, oven and process measurements.",
+      "expected_result": "Approved field names/methods/units/sample basis represented and persisted.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-04",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "phase": "P01",
+      "scenario": "Malformed and non-finite values",
+      "procedure": "Submit blank, text, NaN, infinity, boolean and missing required values.",
+      "expected_result": "Not PASS; useful field errors through all authoritative paths.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-05",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "phase": "P05",
+      "scenario": "Bounds and applicability",
+      "procedure": "Exercise lower-only, upper-only, full bounds and non-notched product.",
+      "expected_result": "Approved bound semantics enforced; not-applicable explicit; invalid template not PASS.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-06",
+      "requirements": [
+        "R14"
+      ],
+      "phase": "P05",
+      "scenario": "Paired oven readings",
+      "procedure": "Record pre/post readings from same batch then attempt mismatched linkage.",
+      "expected_result": "Consistent specimen/batch link; mismatched pair rejected or review flagged.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-07",
+      "requirements": [
+        "R13",
+        "R14",
+        "R15"
+      ],
+      "phase": "P05",
+      "scenario": "Historical limits",
+      "procedure": "Revise approved QC template after old inspection.",
+      "expected_result": "Old evidence/outcome remains tied to original revision.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-08",
+      "requirements": [
+        "R12",
+        "R20"
+      ],
+      "phase": "P06",
+      "scenario": "Holds and retests",
+      "procedure": "Fail sample, attempt movement, retest and authorized disposition.",
+      "expected_result": "Affected quantity controlled; unrelated earlier PASS cannot release newer hold.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-09",
+      "requirements": [
+        "R12",
+        "R20"
+      ],
+      "phase": "P06",
+      "scenario": "Override authorization",
+      "procedure": "Submit override reason as authorized and unauthorized actor.",
+      "expected_result": "Reason alone cannot bypass gate; authorized override auditable.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QC-10",
+      "requirements": [
+        "R20"
+      ],
+      "phase": "P01",
+      "scenario": "Alternate quality paths",
+      "procedure": "Compare dedicated API, inline stage and final-FG handoff validations.",
+      "expected_result": "Same required/finite/bounds logic, no alternate bypass.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "NAV-01",
+      "requirements": [
+        "R06",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Three-day boundary",
+      "procedure": "Test overdue, today, day+1, day+2, day+3 around plant midnight.",
+      "expected_result": "Approved exact range and separate overdue; predicate equals labels and export.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "NAV-02",
+      "requirements": [
+        "R07",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Stage tile drill-down",
+      "procedure": "Click each tile, reload, go back and change plant.",
+      "expected_result": "Count matches full filtered result and current-stage definition; holds visible.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "INC-01",
+      "requirements": [
+        "R11"
+      ],
+      "phase": "P00",
+      "scenario": "ID incident reproduction",
+      "procedure": "Reproduce original action with recorded build/console/request, then apply fix.",
+      "expected_result": "Root cause evidenced; created identity persists and reloads correctly.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "INC-02",
+      "requirements": [
+        "R11",
+        "QCR-32"
+      ],
+      "phase": "P09",
+      "scenario": "Create failures and lost response",
+      "procedure": "Exercise 401/403/422/409, malformed response, timeout and post-commit response loss.",
+      "expected_result": "No blank page, false success or duplicate identity; useful recovery and safe draft.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REG-01",
+      "requirements": [
+        "R20"
+      ],
+      "phase": "P13",
+      "scenario": "Dispatch and books lock",
+      "procedure": "Run partial and sealed dispatch/retry plus closed-period writes.",
+      "expected_result": "No duplicate fulfillment/outward movement; approved locks enforced.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REG-02",
+      "requirements": [
+        "R20"
+      ],
+      "phase": "P12",
+      "scenario": "Migration reconciliation",
+      "procedure": "Migrate restored data and compare all plant-level quantity/status totals.",
+      "expected_result": "Every difference explained; original identities and snapshots retained.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REG-03",
+      "requirements": [
+        "R20"
+      ],
+      "phase": "P13",
+      "scenario": "Restore and recovery",
+      "procedure": "Restore backup, interrupt cross-service release and recover operations.",
+      "expected_result": "Documented successful recovery with no lost/duplicate postings.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "REG-04",
+      "requirements": [
+        "R20"
+      ],
+      "phase": "P13",
+      "scenario": "Performance and deployment evidence",
+      "procedure": "Run agreed realistic data/concurrency browser/API workload against target build.",
+      "expected_result": "Agreed budgets met; report actual measurements, versions and remaining limitations.",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "baseline preserved",
+      "original_status": "NOT RUN - implementation acceptance"
+    },
+    {
+      "id": "QCT-001",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Two-sided bounds",
+      "procedure": "Evaluate exact lower/upper endpoints and values just outside with inclusive and exclusive profiles.",
+      "expected_result": "Boundary results exactly match approved comparators without an implicit epsilon.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-002",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Minimum-only requirement",
+      "procedure": "Evaluate below/equal/above a configured minimum with no maximum.",
+      "expected_result": "One-sided comparisons execute; missing maximum never disables the minimum check.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-003",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Maximum-only requirement",
+      "procedure": "Evaluate above/equal/below a configured maximum with no minimum.",
+      "expected_result": "Maximum is enforced independently and boundary mode is respected.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-004",
+      "requirements": [
+        "QCR-02"
+      ],
+      "phase": "P02",
+      "scenario": "Asymmetric target tolerance",
+      "procedure": "Save target with unequal lower/upper deviations; reload and evaluate boundary fixtures.",
+      "expected_result": "One canonical normalized rule survives; conflicting editable bound sets are rejected.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-005",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Invalid profile bounds",
+      "procedure": "Approve lower greater than upper, non-finite bound, empty categorical accept-set or invalid unit/method.",
+      "expected_result": "Approval denied with actionable fields; no profile becomes operational.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-006",
+      "requirements": [
+        "QCR-15"
+      ],
+      "phase": "P01",
+      "scenario": "Non-finite and malformed readings",
+      "procedure": "Submit blank, whitespace, text, NaN, infinity, huge non-finite numeric input and booleans through every evaluator adapter.",
+      "expected_result": "No malformed observation is measured PASS; original valid draft fields remain.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-007",
+      "requirements": [
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Zero versus missing",
+      "procedure": "Use numeric zero where meaningful and omit the same field in another request.",
+      "expected_result": "Zero is evaluated as zero; missing is incomplete, never silently zero.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-008",
+      "requirements": [
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Rounding edge",
+      "procedure": "Submit a genuine value just outside a bound but rounding visually to its endpoint.",
+      "expected_result": "The result remains FAIL and the UI/export shows enough precision to explain it.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-009",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Categorical and boolean acceptance",
+      "procedure": "Evaluate explicit allowed/denied categorical values and typed booleans; submit unknown options.",
+      "expected_result": "Approved criteria decide verdicts; unknowns invalid; arbitrary text does not establish PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-010",
+      "requirements": [
+        "QCR-02",
+        "QCR-17"
+      ],
+      "phase": "P02",
+      "scenario": "Descriptive-only profile",
+      "procedure": "Complete only observational text/evidence fields.",
+      "expected_result": "Outcome is OBSERVATION_ONLY with a distinct policy basis, not measured PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-011",
+      "requirements": [
+        "QCR-02",
+        "QCR-34"
+      ],
+      "phase": "P02",
+      "scenario": "Unit and specimen mismatch",
+      "procedure": "Submit kg to a per-specimen gram rule and force readings to an unapproved method/basis.",
+      "expected_result": "Approved conversion only when dimension/method/basis match; otherwise review/error, no false comparison.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-012",
+      "requirements": [
+        "QCR-02",
+        "QCR-05"
+      ],
+      "phase": "P02",
+      "scenario": "Sampling aggregation",
+      "procedure": "Create multiple specimen readings with one failure and a passing average.",
+      "expected_result": "Individual failure is retained unless an explicitly approved aggregation method permits the stated decision.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-013",
+      "requirements": [
+        "QCR-02",
+        "QCR-15"
+      ],
+      "phase": "P02",
+      "scenario": "Unsafe rule expression",
+      "procedure": "Attempt arbitrary code, recursive/cyclic expressions and incompatible derived units in profile rules.",
+      "expected_result": "Allowlisted validated rule contract rejects them; no code execution or silent fallback.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-014",
+      "requirements": [
+        "QCR-15",
+        "QCR-31"
+      ],
+      "phase": "P02",
+      "scenario": "Evaluator parity",
+      "procedure": "Run the same golden contract fixtures through Inventory and Production adapters.",
+      "expected_result": "Identical results, normalized values and rule versions; mismatched engine/schema version handled explicitly.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-015",
+      "requirements": [
+        "QCR-03"
+      ],
+      "phase": "P03",
+      "scenario": "Per-item versus family profiles",
+      "procedure": "Create two same-category items with different approved bounds; receive each.",
+      "expected_result": "Each receipt uses its own item/plant binding, not just the shared category preset.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-016",
+      "requirements": [
+        "QCR-03"
+      ],
+      "phase": "P03",
+      "scenario": "Plant-specific resolution",
+      "procedure": "Give the same item family different plant profiles and concurrent global defaults.",
+      "expected_result": "Deterministic explicit approved binding; no query-order override or unresolved-plant fallback.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-017",
+      "requirements": [
+        "QCR-03"
+      ],
+      "phase": "P03",
+      "scenario": "Every inward category",
+      "procedure": "Configure raw paper, adhesive, parchment, packaging, purchased FG, tool and OTHER examples.",
+      "expected_result": "Type-appropriate fields appear; no mandatory paper/return-defect fields on unrelated items.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-018",
+      "requirements": [
+        "QCR-03",
+        "QCR-04"
+      ],
+      "phase": "P03",
+      "scenario": "Missing incoming setup",
+      "procedure": "Receive an item marked inspection-required without complete approved setup.",
+      "expected_result": "Physical receipt retained, setup task visible and stock restricted; never default PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-019",
+      "requirements": [
+        "QCR-03",
+        "QCR-17"
+      ],
+      "phase": "P03",
+      "scenario": "Approved no-inspection exemption",
+      "procedure": "Approve a scope-limited exemption then receive inside and outside its scope/effective date.",
+      "expected_result": "Only approved scope follows exemption; label NOT REQUIRED rather than measured PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-020",
+      "requirements": [
+        "QCR-03",
+        "QCR-16"
+      ],
+      "phase": "P03",
+      "scenario": "Profile copy and approval",
+      "procedure": "Copy a category/template into an item and save draft.",
+      "expected_result": "Copied provenance preserved; new profile not active or approved until authorized review.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-021",
+      "requirements": [
+        "QCR-06"
+      ],
+      "phase": "P03",
+      "scenario": "Supplier PO qualifier",
+      "procedure": "Import/source a PB string with plus qualifier and unconfirmed comparator/unit.",
+      "expected_result": "Raw qualifier retained and mapping flagged; no guessed inclusive/exclusive or dropped plus.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-022",
+      "requirements": [
+        "QCR-06"
+      ],
+      "phase": "P03",
+      "scenario": "Conflicting PO and item requirements",
+      "procedure": "Resolve contradictory bounds with same method and mismatched-basis alternatives.",
+      "expected_result": "Conflict requires review; supplier profile cannot quietly weaken item/contract requirements.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-023",
+      "requirements": [
+        "QCR-06",
+        "QCR-17"
+      ],
+      "phase": "P03",
+      "scenario": "Supplier certificate versus local reading",
+      "procedure": "Attach supplier values and record a different local reading; use document-only policy in separate fixture.",
+      "expected_result": "Evidence sources remain separate; no synthetic local result or unapproved certificate clearance.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-024",
+      "requirements": [
+        "QCR-04",
+        "QCR-05"
+      ],
+      "phase": "P03",
+      "scenario": "Partial GRN sampling identity",
+      "procedure": "Post two receipts from one PO with multiple supplier lots/reels.",
+      "expected_result": "Correct independent task/lot/sample scopes; receipt quantity is not confused with sample count.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-025",
+      "requirements": [
+        "QCR-04",
+        "QCR-31"
+      ],
+      "phase": "P03",
+      "scenario": "Receipt replay creates task once",
+      "procedure": "Lose GRN response and retry matching operation.",
+      "expected_result": "One physical receipt, one required task per inspection unit and no duplicate stock/notifications.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-026",
+      "requirements": [
+        "QCR-04",
+        "QCR-26"
+      ],
+      "phase": "P03",
+      "scenario": "Task event delivery interruption",
+      "procedure": "Stop task/notification delivery immediately after GRN commit.",
+      "expected_result": "Receipt remains restricted, intent survives and task delivery recovers idempotently.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-027",
+      "requirements": [
+        "QCR-05",
+        "QCR-20"
+      ],
+      "phase": "P03",
+      "scenario": "Partial accept/hold partition",
+      "procedure": "Accept 600 of a 1000-unit lot and hold 400; query balance/reserve/issue by every route.",
+      "expected_result": "Only accepted uncommitted portion usable; parent status cannot expose held remainder.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-028",
+      "requirements": [
+        "QCR-05",
+        "QCR-20"
+      ],
+      "phase": "P03",
+      "scenario": "Destructive sample accounting",
+      "procedure": "Use an approved destructive sample policy and replay its consumption action.",
+      "expected_result": "Sample coverage and actual consumption remain distinct and stock changes once under authorized movement rules.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-029",
+      "requirements": [
+        "QCR-07"
+      ],
+      "phase": "P04",
+      "scenario": "New spec save dialog",
+      "procedure": "Complete a valid new spec and click deliberate Save.",
+      "expected_result": "Context-rich quality dialog opens before final save/submission with correct product/helper details.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-030",
+      "requirements": [
+        "QCR-07"
+      ],
+      "phase": "P04",
+      "scenario": "Dialog draft preservation",
+      "procedure": "Edit several tolerances, go back, reopen, close and attempt explicit discard.",
+      "expected_result": "No accidental loss of spec/QC edits; discard is deliberate and clear.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-031",
+      "requirements": [
+        "QCR-07"
+      ],
+      "phase": "P04",
+      "scenario": "QC-incomplete draft save",
+      "procedure": "Save a new spec lacking stage thresholds via Save draft.",
+      "expected_result": "Draft persists but is not approved or falsely QC-ready; missing fields remain assigned/visible.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-032",
+      "requirements": [
+        "QCR-07",
+        "QCR-31"
+      ],
+      "phase": "P04",
+      "scenario": "Spec bundle failure",
+      "procedure": "Inject a database failure while saving spec and QC draft in one service.",
+      "expected_result": "Neither half is final-successful; atomic rollback or explicitly designed durable pending operation, no orphaned approved profile.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-033",
+      "requirements": [
+        "QCR-07",
+        "QCR-31"
+      ],
+      "phase": "P04",
+      "scenario": "Duplicate spec save",
+      "procedure": "Double-click and retry same lost-response operation; retry same key with changed payload.",
+      "expected_result": "Original spec/profile returned for matching replay; changed payload conflicts, no duplicate records.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-034",
+      "requirements": [
+        "QCR-07",
+        "QCR-31"
+      ],
+      "phase": "P04",
+      "scenario": "Stale tolerance dialog",
+      "procedure": "Open two editors, save one spec revision then submit the stale other.",
+      "expected_result": "Conflict identifies current revision; no overwrite of newer spec or tolerance.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-035",
+      "requirements": [
+        "QCR-08"
+      ],
+      "phase": "P04",
+      "scenario": "Legacy Add quality parameters",
+      "procedure": "Open an approved spec with no new stage profile using list action.",
+      "expected_result": "Editor uses real context, keeps spec/recipe IDs and creates a draft QC revision only.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-036",
+      "requirements": [
+        "QCR-08"
+      ],
+      "phase": "P04",
+      "scenario": "Existing-profile row actions",
+      "procedure": "Exercise missing, draft, pending, approved and retired profiles under author/viewer/approver roles.",
+      "expected_result": "Correct Add/Complete/View/Review/Create revision actions; forbidden mutations denied server-side.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-037",
+      "requirements": [
+        "QCR-08",
+        "QCR-16"
+      ],
+      "phase": "P04",
+      "scenario": "Bulk assignment review",
+      "procedure": "Assign one template to mixed applicable/non-applicable legacy specs.",
+      "expected_result": "Per-spec impact/errors shown, no auto-publication and no rewriting of issued jobs.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-038",
+      "requirements": [
+        "QCR-09"
+      ],
+      "phase": "P04",
+      "scenario": "Canonical final limits",
+      "procedure": "Change final tolerance through new editor and legacy-compatible path; reload all spec/job projections.",
+      "expected_result": "One canonical rule governs, conflicting dual writes rejected and required spec approval retained.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-039",
+      "requirements": [
+        "QCR-09",
+        "QCR-16"
+      ],
+      "phase": "P04",
+      "scenario": "Process-only versus contractual revision",
+      "procedure": "Revise a process check and separately change final contractual dimensions.",
+      "expected_result": "Appropriate QC-only or spec/customer approval flow; neither silently alters the recipe or contractual rule.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-040",
+      "requirements": [
+        "QCR-10"
+      ],
+      "phase": "P04",
+      "scenario": "Client field names",
+      "procedure": "Load all three stage templates and inspect UI/save/read contracts.",
+      "expected_result": "Exact requested Winding/Oven/Process field set and client names survive, not generic substitutes.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-041",
+      "requirements": [
+        "QCR-10",
+        "QCR-02"
+      ],
+      "phase": "P04",
+      "scenario": "Non-notched applicability",
+      "procedure": "Use a verified non-notched spec and an unknown/notching-changed spec.",
+      "expected_result": "First shows approved NOT APPLICABLE; unknown/changed conditions require review, not zero or automatic skip.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-042",
+      "requirements": [
+        "QCR-07",
+        "QCR-10"
+      ],
+      "phase": "P04",
+      "scenario": "Stage basis helpers",
+      "procedure": "Configure different winding and final Height/weight specimen bases.",
+      "expected_result": "UI identifies stage-specific basis; final targets are not blindly copied into winding tolerances.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-043",
+      "requirements": [
+        "QCR-16"
+      ],
+      "phase": "P04",
+      "scenario": "Profile revision freezing",
+      "procedure": "Inspect a job under rev A then approve rev B and reopen old evidence/print.",
+      "expected_result": "Old rule/result/print stays rev A; only eligible prospective bindings use B.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-044",
+      "requirements": [
+        "QCR-11"
+      ],
+      "phase": "P05",
+      "scenario": "Tolerance below every input",
+      "procedure": "Open job-card stage/sample fields on desktop and mobile.",
+      "expected_result": "Frozen rule/unit/help/timing/revision is adjacent to its actual field, not hidden in a separate report.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-045",
+      "requirements": [
+        "QCR-11"
+      ],
+      "phase": "P05",
+      "scenario": "Accessible exception feedback",
+      "procedure": "Enter an outside value with keyboard/screen-reader and monochrome print checks.",
+      "expected_result": "Readable FAIL and breached limit/difference plus focusable reason fields; color not sole indicator.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-046",
+      "requirements": [
+        "QCR-12"
+      ],
+      "phase": "P05",
+      "scenario": "Blank job-card print",
+      "procedure": "Print a multi-page job with all stage samples and paired oven fields.",
+      "expected_result": "Tolerances and headers remain near fields, writable spaces and page breaks work, no clipping or default PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-047",
+      "requirements": [
+        "QCR-12",
+        "QCR-16"
+      ],
+      "phase": "P05",
+      "scenario": "Completed historical print",
+      "procedure": "Print a signed card after a newer profile and dictionary label change.",
+      "expected_result": "Original values/rules/revision and corrections remain interpretable; no relabelling history by current defaults.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-048",
+      "requirements": [
+        "QCR-10"
+      ],
+      "phase": "P05",
+      "scenario": "Oven pre/post timing",
+      "procedure": "Record pre-values before oven then post-values at later checkpoint.",
+      "expected_result": "Same pair/basis tracked; not-yet-due post fields do not block pre-stage save but are required at due checkpoint.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-049",
+      "requirements": [
+        "QCR-10",
+        "QCR-05"
+      ],
+      "phase": "P05",
+      "scenario": "Oven mismatched pair",
+      "procedure": "Submit post-values for different sample/batch or without required pre-context.",
+      "expected_result": "Incomplete/invalid pair clearly rejected for completion; evidence not combined into false valid pair.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-050",
+      "requirements": [
+        "QCR-13"
+      ],
+      "phase": "P05",
+      "scenario": "Whole-card hidden-stage errors",
+      "procedure": "Enter valid visible tab and failures/missing due readings on another stage; submit complete job card.",
+      "expected_result": "Server returns every relevant stage/sample issue; hidden tab does not bypass validation and form data stays.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-051",
+      "requirements": [
+        "QCR-13",
+        "QCR-31"
+      ],
+      "phase": "P05",
+      "scenario": "All entry adapters",
+      "procedure": "Submit same observations via dedicated QC, inline, supervisor, EOD, import and supported legacy route.",
+      "expected_result": "Same normalized evidence and verdicts; no duplicate inspection or shortcut PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-052",
+      "requirements": [
+        "QCR-14"
+      ],
+      "phase": "P05",
+      "scenario": "Failed reading without reason",
+      "procedure": "Durably save an actual out-of-range reading without explanatory details.",
+      "expected_result": "Evidence retained with reason-pending case and configured restriction; final submission waits for required explanation.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-053",
+      "requirements": [
+        "QCR-14",
+        "QCR-17"
+      ],
+      "phase": "P05",
+      "scenario": "Reason cannot pass result",
+      "procedure": "Add a detailed valid reason to a failing reading and submit.",
+      "expected_result": "Measured outcome remains FAIL; review/disposition authority is still required for release.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-054",
+      "requirements": [
+        "QCR-14"
+      ],
+      "phase": "P05",
+      "scenario": "Unknown cause honestly recorded",
+      "procedure": "Choose Cause under investigation with factual note/containment/assignee.",
+      "expected_result": "Observation/submission can follow configured workflow without fabricated root cause; investigation remains open.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-055",
+      "requirements": [
+        "QCR-14",
+        "QCR-19"
+      ],
+      "phase": "P05",
+      "scenario": "Common reason for several fields",
+      "procedure": "Save three related failures and link one common-cause explanation to all.",
+      "expected_result": "One grouped case/notification can result, but each failed parameter/evidence link remains accessible.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-056",
+      "requirements": [
+        "QCR-21",
+        "QCR-29"
+      ],
+      "phase": "P05",
+      "scenario": "Correction audit",
+      "procedure": "Change a previously recorded failing number to a passing one.",
+      "expected_result": "Original value/result retained; correction reason/actor/time/revision required and hold not silently cleared.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-057",
+      "requirements": [
+        "QCR-13",
+        "QCR-17"
+      ],
+      "phase": "P05",
+      "scenario": "Physical output remains recorded",
+      "procedure": "Record physically completed output that fails QC.",
+      "expected_result": "Actual production/WIP/FG is retained as restricted; failed quantity is not labelled good or hidden by form rejection.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-058",
+      "requirements": [
+        "QCR-24"
+      ],
+      "phase": "P05",
+      "scenario": "Retrospective entry",
+      "procedure": "Record a measurement with earlier measured time after subsequent stage and dispatch.",
+      "expected_result": "Measured/recorded clocks distinct; late exception traces surviving stock and earlier shipment without retroactive claims.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-059",
+      "requirements": [
+        "QCR-24",
+        "QCR-31"
+      ],
+      "phase": "P05",
+      "scenario": "Offline draft and reconnect",
+      "procedure": "Prepare offline/paper draft, change server version, reconnect and submit.",
+      "expected_result": "No offline release; stale conflict retains observations and signed profile context.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-060",
+      "requirements": [
+        "QCR-16",
+        "QCR-32"
+      ],
+      "phase": "P05",
+      "scenario": "Missing QC on queued job",
+      "procedure": "Queue a valid commercial release lacking new QC setup, then attempt actual checkpoint.",
+      "expected_result": "Queue admission succeeds with missing-setup flag; affected execution checkpoint requires approved resolution.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-061",
+      "requirements": [
+        "QCR-16"
+      ],
+      "phase": "P05",
+      "scenario": "Attach missing profile explicitly",
+      "procedure": "Attach an approved profile to unstarted missing-setup job then replay original release.",
+      "expected_result": "Attachment is audited, idempotent and explicit; replay does not rebind or reset schedule/actuals.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-062",
+      "requirements": [
+        "QCR-34"
+      ],
+      "phase": "P05",
+      "scenario": "Invalid instrument status",
+      "procedure": "Submit readings requiring calibrated instrument using missing/expired instrument then corrected documented evidence.",
+      "expected_result": "Required instrument evidence controls readiness; no invented calibration or silent PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-063",
+      "requirements": [
+        "QCR-19"
+      ],
+      "phase": "P06",
+      "scenario": "Durable multi-field failure case",
+      "procedure": "Save a signed/recorded sample with multiple failures and retry request.",
+      "expected_result": "One appropriate case/hold per scope/round, retaining all failures; no duplicated quantities/cases on replay.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-064",
+      "requirements": [
+        "QCR-19",
+        "QCR-20"
+      ],
+      "phase": "P06",
+      "scenario": "Configured advisory versus blocking",
+      "procedure": "Fail a declared advisory and a mandatory blocking checkpoint in separate fixtures.",
+      "expected_result": "Both preserve reason/case/FAIL; only approved policy determines movement gate, never an incidental default.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-065",
+      "requirements": [
+        "QCR-20",
+        "QCR-18"
+      ],
+      "phase": "P06",
+      "scenario": "Unauthorized concession",
+      "procedure": "Inspector or Store tries major concession/clearance through direct API.",
+      "expected_result": "Denied; measurement save permission does not grant disposition authority.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-066",
+      "requirements": [
+        "QCR-20"
+      ],
+      "phase": "P06",
+      "scenario": "Concession scope and expiry",
+      "procedure": "Approve a limited quantity for one customer/order then try other use or expired authorization.",
+      "expected_result": "Only scoped eligible use permitted; result stays FAIL and concession is visibly separate.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-067",
+      "requirements": [
+        "QCR-20"
+      ],
+      "phase": "P06",
+      "scenario": "Non-waivable criterion",
+      "procedure": "Attempt reason/admin override on policy-designated non-waivable critical check.",
+      "expected_result": "No general reason field bypass; allowed incident/containment path remains available.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-068",
+      "requirements": [
+        "QCR-20",
+        "QCR-05"
+      ],
+      "phase": "P06",
+      "scenario": "Disposition conservation",
+      "procedure": "Allocate accept/hold/rework/return/scrap concurrently across a finite affected lot.",
+      "expected_result": "Total non-overlapping allocations stay within owned quantity, correct UOM and period controls.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-069",
+      "requirements": [
+        "QCR-21"
+      ],
+      "phase": "P06",
+      "scenario": "Retest does not erase original",
+      "procedure": "Rework then perform passing new retest round.",
+      "expected_result": "Original FAIL/case retained, new evidence linked and authorized review required to release covered quantity.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-070",
+      "requirements": [
+        "QCR-21"
+      ],
+      "phase": "P06",
+      "scenario": "Cherry-picked retest fields",
+      "procedure": "Combine passing values from different unsuccessful sample rounds.",
+      "expected_result": "Cannot manufacture an unrelated aggregate PASS without explicitly approved sampling method.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-071",
+      "requirements": [
+        "QCR-21",
+        "QCR-23"
+      ],
+      "phase": "P06",
+      "scenario": "Independent and newer holds",
+      "procedure": "Pass one retest while another parameter/lot hold or newer failure remains unresolved.",
+      "expected_result": "Only applicable cleared restriction changes; independent/newer hold still blocks the affected quantity.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-072",
+      "requirements": [
+        "QCR-22"
+      ],
+      "phase": "P06",
+      "scenario": "Rework/reheat quantity",
+      "procedure": "Route a rejected portion for rework and consume approved additional materials.",
+      "expected_result": "Linked portion/routing only, no duplication of original order/full BOM; output restricted until accepted.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-073",
+      "requirements": [
+        "QCR-22"
+      ],
+      "phase": "P06",
+      "scenario": "Supplier return/scrap replay",
+      "procedure": "Execute authorized return or scrap then retry lost response.",
+      "expected_result": "One authoritative movement/voucher, original receipt retained, no negative or duplicated stock.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-074",
+      "requirements": [
+        "QCR-23"
+      ],
+      "phase": "P06",
+      "scenario": "FG inward mandatory quality",
+      "procedure": "Attempt FG availability before final clearance using canonical and legacy FG routes.",
+      "expected_result": "Restricted physical FG may be recorded; dispatchable/unrestricted eligibility not granted prematurely.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-075",
+      "requirements": [
+        "QCR-23"
+      ],
+      "phase": "P06",
+      "scenario": "Hold versus issue race",
+      "procedure": "Run parallel Inventory hold and issue/reservation against same quantity.",
+      "expected_result": "Tested transaction serialization; no issue committed after a winning hold using stale availability.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-076",
+      "requirements": [
+        "QCR-23"
+      ],
+      "phase": "P06",
+      "scenario": "Hold versus dispatch race",
+      "procedure": "Run final quality restriction and sealed-dispatch actions concurrently.",
+      "expected_result": "Stock-owner barrier/epoch produces defined safe ordering; earlier committed shipment goes to exposure review, not silent reversal.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-077",
+      "requirements": [
+        "QCR-23",
+        "QCR-31"
+      ],
+      "phase": "P06",
+      "scenario": "Crash after stock review barrier",
+      "procedure": "Begin cross-service reinspection barrier then crash before Production result/decision applies.",
+      "expected_result": "Affected Inventory quantity remains restricted with recoverable pending operation; no auto-timeout release.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-078",
+      "requirements": [
+        "QCR-23",
+        "QCR-31"
+      ],
+      "phase": "P06",
+      "scenario": "Clearance apply acknowledgement loss",
+      "procedure": "Apply reviewed clearance in stock owner then lose response and retry.",
+      "expected_result": "Same decision applied once; UI remains pending until confirmation and recovery does not duplicate quantities.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-079",
+      "requirements": [
+        "QCR-23",
+        "QCR-26"
+      ],
+      "phase": "P06",
+      "scenario": "Out-of-order clearance",
+      "procedure": "Deliver old release decision after newer hold/review epoch.",
+      "expected_result": "Stale message cannot clear newer restriction; observable conflict/dead-letter/reconciliation record.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-080",
+      "requirements": [
+        "QCR-23"
+      ],
+      "phase": "P06",
+      "scenario": "Authority unavailable",
+      "procedure": "Take required quality/stock authority offline while issuing or dispatching sensitive stock.",
+      "expected_result": "No stale positive cache authorizes movement; explicit unavailable/pending response and recovery procedure.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-081",
+      "requirements": [
+        "QCR-23",
+        "QCR-31"
+      ],
+      "phase": "P06",
+      "scenario": "All stock shortcuts",
+      "procedure": "Try purchase-desk PASS, arbitrary disposition, stock status edits, direct issue/dispatch and old clients.",
+      "expected_result": "Every authoritative mutation respects current quality/permission/quantity rules; no hidden acceptance shortcut.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-082",
+      "requirements": [
+        "QCR-15",
+        "QCR-31"
+      ],
+      "phase": "P06",
+      "scenario": "Material-type tampering",
+      "procedure": "Inspect a raw-paper lot while submitting a weaker material_type and client PASS/failures list.",
+      "expected_result": "Type/rules derived from owned lot; untrusted supplied verdict/category cannot alter acceptance.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-083",
+      "requirements": [
+        "QCR-20",
+        "QCR-31"
+      ],
+      "phase": "P06",
+      "scenario": "Concurrent disposition versions",
+      "procedure": "Two approvers release/return same held quantity from same old version.",
+      "expected_result": "One legal commit or bounded allocations; stale request conflicts and cannot double-dispose.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-084",
+      "requirements": [
+        "QCR-23",
+        "QCR-24"
+      ],
+      "phase": "P06",
+      "scenario": "Late discovered wider scope",
+      "procedure": "Record late defect with more downstream lots identified after initial containment.",
+      "expected_result": "New affected lots get explicit barriers/tasks; status does not claim containment until owners confirm.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-085",
+      "requirements": [
+        "QCR-25",
+        "QCR-18"
+      ],
+      "phase": "P07",
+      "scenario": "Same-role different plants",
+      "procedure": "Create two QC users with disjoint plant access and emit inward failure in one plant.",
+      "expected_result": "Only relevant authorized recipients get sensitive message and working deep link.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-086",
+      "requirements": [
+        "QCR-25"
+      ],
+      "phase": "P07",
+      "scenario": "Role/assignment deduplication",
+      "procedure": "One user qualifies as assigned QC, PlantManager and explicit recipient.",
+      "expected_result": "One delivery per event/channel with correct task ownership, not duplicate alerts.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-087",
+      "requirements": [
+        "QCR-25"
+      ],
+      "phase": "P07",
+      "scenario": "Relevant downstream recipients",
+      "procedure": "Fail unallocated material then material committed to an urgent order.",
+      "expected_result": "QC/Store notified; Planner/Sales/Dispatch added only when their authorized work is affected.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-088",
+      "requirements": [
+        "QCR-25"
+      ],
+      "phase": "P07",
+      "scenario": "Inactive or absent inspector",
+      "procedure": "Emit task with inactive assignee or no eligible QC users.",
+      "expected_result": "Configured authorized fallback/escalation and visible unassigned work; no silent disappearance or cross-plant broadcast.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-089",
+      "requirements": [
+        "QCR-26"
+      ],
+      "phase": "P07",
+      "scenario": "Commit/notify failure",
+      "procedure": "Crash notifier after measurement commit and before delivery, then restart.",
+      "expected_result": "Committed case/hold and outbox survive; eventual delivery deduplicated; rollback emits no success alert.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-090",
+      "requirements": [
+        "QCR-26"
+      ],
+      "phase": "P07",
+      "scenario": "Out-of-order notification",
+      "procedure": "Deliver pending and pass notification events after a later failure/restriction.",
+      "expected_result": "Obsolete favorable state suppressed/marked stale; actionable view reads current owner state.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-091",
+      "requirements": [
+        "QCR-26"
+      ],
+      "phase": "P07",
+      "scenario": "Acknowledgement semantics",
+      "procedure": "Acknowledge a hold alert and reassign the task.",
+      "expected_result": "Only task/read state changes; stock/inspection/disposition stays unchanged and history recorded.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-092",
+      "requirements": [
+        "QCR-25",
+        "QCR-26"
+      ],
+      "phase": "P07",
+      "scenario": "Escalation clock and cover",
+      "procedure": "Test approved SLA across shift boundary/holiday/timezone with duty substitute.",
+      "expected_result": "Configured timing/recipients honored; no invented runtime SLA or uncontrolled notification storm.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-093",
+      "requirements": [
+        "QCR-18",
+        "QCR-25"
+      ],
+      "phase": "P07",
+      "scenario": "Access revoked after alert",
+      "procedure": "Revoke plant access with unread alert/export/attachment link already present.",
+      "expected_result": "Sensitive unread content/download/deep-link access rechecked and denied; old role cache not sufficient.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-094",
+      "requirements": [
+        "QCR-26"
+      ],
+      "phase": "P07",
+      "scenario": "External delivery adapter unconfigured",
+      "procedure": "Enable only in-app and attempt optional email/external delivery without provider approval.",
+      "expected_result": "Core tasks work; external delivery marked unavailable/not configured, no assumed integration or false sent status.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-095",
+      "requirements": [
+        "QCR-27"
+      ],
+      "phase": "P08",
+      "scenario": "Full-dataset filters",
+      "procedure": "Create more than 500 inspections and several pages, filter plant/stage/parameter/outcome.",
+      "expected_result": "Summary/list/export counts agree over complete authorized dataset, not loaded slice.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-096",
+      "requirements": [
+        "QCR-27"
+      ],
+      "phase": "P08",
+      "scenario": "Measured versus recorded dates",
+      "procedure": "Create late-entered inspections spanning reporting dates and change date-mode filter.",
+      "expected_result": "Clearly labelled correct population, matching timezone/date-mode across exports and drilldown.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-097",
+      "requirements": [
+        "QCR-27"
+      ],
+      "phase": "P08",
+      "scenario": "Compound trace filters",
+      "procedure": "Filter supplier/item/PO/GRN/reel/spec/QC revision/job/machine/shift/assignee/reason.",
+      "expected_result": "Only matching source-linked records, stable URL/back-navigation and reproducible saved view.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-098",
+      "requirements": [
+        "QCR-28"
+      ],
+      "phase": "P08",
+      "scenario": "Empty pass-rate denominator",
+      "procedure": "Query no measured inspections and separately incomplete/invalid/NA-only data.",
+      "expected_result": "No completed measured inspections, not 100%; exclusions/counts displayed.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-099",
+      "requirements": [
+        "QCR-28"
+      ],
+      "phase": "P08",
+      "scenario": "First-pass, retest and concession",
+      "procedure": "Use first-pass success, fail-then-retest, concession and legacy/unverified fixtures.",
+      "expected_result": "Metrics use published definitions/denominators; concession and retest do not inflate first-pass measured success.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-100",
+      "requirements": [
+        "QCR-28"
+      ],
+      "phase": "P08",
+      "scenario": "Held-quantity deduplication",
+      "procedure": "Attach several open quality cases to same physical held portion.",
+      "expected_result": "Quantity/value counted once per actual restricted portion; cases counted separately.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-101",
+      "requirements": [
+        "QCR-28"
+      ],
+      "phase": "P08",
+      "scenario": "Mixed units and methods",
+      "procedure": "Plot different unit/method/specimen parameters and compare supplier rates with differing denominators.",
+      "expected_result": "Incompatible metrics separated/labelled; no mixed-unit quality score or unsupported capability statistic.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-102",
+      "requirements": [
+        "QCR-16",
+        "QCR-28"
+      ],
+      "phase": "P08",
+      "scenario": "Historic limits on trend",
+      "procedure": "Plot measurements crossing approved profile revision changes.",
+      "expected_result": "Correct historic bands/markers and result preservation, not current-limit retrospective reclassification.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-103",
+      "requirements": [
+        "QCR-27"
+      ],
+      "phase": "P08",
+      "scenario": "Unavailable report dependency",
+      "procedure": "Stop one source service during dossier/export query.",
+      "expected_result": "Partial/unavailable and source watermark shown; no successful empty/fully covered report.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-104",
+      "requirements": [
+        "QCR-27",
+        "QCR-18"
+      ],
+      "phase": "P08",
+      "scenario": "Export authorization and expiry",
+      "procedure": "Generate large filtered export, revoke scope before download, and test expired link.",
+      "expected_result": "No unauthorized download; applied filters/as-of/source status retained for permitted export.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-105",
+      "requirements": [
+        "QCR-24",
+        "QCR-29"
+      ],
+      "phase": "P08",
+      "scenario": "Complete trace dossier",
+      "procedure": "Follow receipt/reel issues through job samples/holds/FG/dispatch/return, including one missing genealogy link.",
+      "expected_result": "Real links/evidence shown and missing link explicit; no inferred parent or duplicate records.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-106",
+      "requirements": [
+        "QCR-33"
+      ],
+      "phase": "P08",
+      "scenario": "Complaint without physical return",
+      "procedure": "Record customer complaint without receiving any goods.",
+      "expected_result": "Complaint/case recorded, no automatic inward transaction or available stock.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-107",
+      "requirements": [
+        "QCR-33",
+        "QCR-20"
+      ],
+      "phase": "P08",
+      "scenario": "Actual customer return",
+      "procedure": "Receive a dispatched product portion and inspect/rework/dispose it.",
+      "expected_result": "Existing return lineage reused, physical return restricted, original shipment history preserved.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-108",
+      "requirements": [
+        "QCR-33"
+      ],
+      "phase": "P08",
+      "scenario": "Corrective action closure",
+      "procedure": "Record suspected then verified cause, actions and effectiveness review; close action.",
+      "expected_result": "Audit trail complete; closure alone does not release a hold, issue credit or create replacement order.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-109",
+      "requirements": [
+        "QCR-33"
+      ],
+      "phase": "P08",
+      "scenario": "Repeat failure and reopening",
+      "procedure": "Recur same documented failure after action closure.",
+      "expected_result": "Linked recurrence/new or reopened review with preserved previous effectiveness evidence, not erased history.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-110",
+      "requirements": [
+        "QCR-34"
+      ],
+      "phase": "P08",
+      "scenario": "Instrument exposure report",
+      "procedure": "Mark an instrument suspect after readings and view calibration/measurement links.",
+      "expected_result": "Affected evidence/jobs/stock review surfaced with correct historic instrument data, no blanket rewritten PASS.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-111",
+      "requirements": [
+        "QCR-18"
+      ],
+      "phase": "P02",
+      "scenario": "Canonical QC restart",
+      "procedure": "Create QC user and run approved seed/migration/restart sequence.",
+      "expected_result": "QC stays canonical/assigned with correct landing; not converted to PlantManager or removed as legacy.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-112",
+      "requirements": [
+        "QCR-18"
+      ],
+      "phase": "P02",
+      "scenario": "Negative role and plant API matrix",
+      "procedure": "Use QC inspector tokens on admin/pricing/general stock adjustment/other-plant resources.",
+      "expected_result": "Denied at server and exports/attachments, without hidden Owner/Admin grant.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-113",
+      "requirements": [
+        "QCR-18"
+      ],
+      "phase": "P02",
+      "scenario": "Existing rights compatibility",
+      "procedure": "Migrate legacy Store/PlantManager/QC mappings and exercise existing authorized work.",
+      "expected_result": "No accidental loss/expansion; deliberate policy changes explicitly approved and audited.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-114",
+      "requirements": [
+        "QCR-29"
+      ],
+      "phase": "P02",
+      "scenario": "Attachment security",
+      "procedure": "Upload permitted evidence plus oversized/wrong-type/malicious-file fixture; test signed link access.",
+      "expected_result": "Safe handling/limits and proper authorized access; no secrets/tokens in links, QR or logs.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-115",
+      "requirements": [
+        "QCR-30"
+      ],
+      "phase": "P12",
+      "scenario": "Legacy bound migration",
+      "procedure": "Migrate actual existing final bounds and absent stage/method/unit data.",
+      "expected_result": "Known values/provenance retained; unknowns flagged, no universal tolerance or historic measured PASS fabricated.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-116",
+      "requirements": [
+        "QCR-30",
+        "QCR-16"
+      ],
+      "phase": "P12",
+      "scenario": "Active WIP migration",
+      "procedure": "Migrate scheduled, started, partially dispatched and completed jobs with old snapshots.",
+      "expected_result": "IDs, actuals and historic requirements remain unchanged; reviewed future-checkpoint amendments explicit.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-117",
+      "requirements": [
+        "QCR-30"
+      ],
+      "phase": "P12",
+      "scenario": "Legacy exposure review",
+      "procedure": "Identify still-circulating lots tied to questionable historic verdict evidence.",
+      "expected_result": "Targeted review list produced; no automatic mass acceptance/failure rewrite or unapproved stock reset.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-118",
+      "requirements": [
+        "QCR-30",
+        "QCR-23"
+      ],
+      "phase": "P12",
+      "scenario": "Feature rollback preserves restrictions",
+      "procedure": "Disable new UI/enforcement rollout flag after active holds and events exist.",
+      "expected_result": "Existing server restrictions/audit remain; unsafe legacy write path not restored.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-119",
+      "requirements": [
+        "QCR-30",
+        "QCR-36"
+      ],
+      "phase": "P12",
+      "scenario": "Migration reconciliation",
+      "procedure": "Compare pre/post quantities/status partitions/orders/releases/WIP/FG/receipts by plant.",
+      "expected_result": "Every difference reconciled/approved; no duplicated inspection task, issue or dispatch allocation.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-120",
+      "requirements": [
+        "QCR-36"
+      ],
+      "phase": "P12",
+      "scenario": "Full client cycle UAT",
+      "procedure": "Execute approved inward→sample→pass/fail→rework/retest→job→final→FG→dispatch→return/CAPA on pilot data.",
+      "expected_result": "Named role/plant users complete cycle with correct physical/system quantity and evidence trace.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-121",
+      "requirements": [
+        "QCR-35"
+      ],
+      "phase": "P13",
+      "scenario": "Agent restart continuity",
+      "procedure": "Stop mid-phase, start a fresh agent using only package plus recorded state.",
+      "expected_result": "Agent identifies exact unfinished task, decisions and evidence; no assumed completion from prior conversation.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-122",
+      "requirements": [
+        "QCR-35"
+      ],
+      "phase": "P13",
+      "scenario": "False completion guard",
+      "procedure": "Mark phase complete with missing evidence, unrun assigned test or unapproved blocking decision and run handoff linter.",
+      "expected_result": "Manifest validation fails; no readiness percentage is fabricated.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-123",
+      "requirements": [
+        "QCR-36"
+      ],
+      "phase": "P13",
+      "scenario": "Restore and operation replay",
+      "procedure": "Restore approved rehearsal backup with pending holds/outbox/barriers and replay recovery.",
+      "expected_result": "Correct restrictions/quantities/events survive without duplicate movement or permissive auto-clearance.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-124",
+      "requirements": [
+        "QCR-36"
+      ],
+      "phase": "P13",
+      "scenario": "Performance and outage proof",
+      "procedure": "Run agreed realistic report/job/profile workload and multi-service failure injection on release candidate.",
+      "expected_result": "Measured results and actual logs recorded against named targets; no small-fixture claim of achieved production capacity.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-125",
+      "requirements": [
+        "QCR-36",
+        "QCR-18"
+      ],
+      "phase": "P13",
+      "scenario": "Release sign-off",
+      "procedure": "Attempt deployment decision with missing owner approval/build/schema/profile evidence.",
+      "expected_result": "Gate remains blocked; final handoff names exact verified build, approved scope, recovery and support owners.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    },
+    {
+      "id": "QCT-126",
+      "requirements": [
+        "QCR-01",
+        "QCR-11",
+        "QCR-27"
+      ],
+      "phase": "P08",
+      "scenario": "One inspection across integrated views",
+      "procedure": "Record an inward inspection and a job-card inspection, then open Quality, the source documents and their dossiers.",
+      "expected_result": "The same canonical records, revisions, results and cases appear without duplicate entry or competing quality/stock ledgers.",
+      "test_level": "unit + database/API/browser as applicable; define exact commands in phase evidence",
+      "release_blocking": true,
+      "status": "NOT_RUN",
+      "evidence": [],
+      "origin": "quality expansion v2"
+    }
+  ]
+}

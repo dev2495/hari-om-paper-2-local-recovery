@@ -194,3 +194,47 @@ def test_overlapping_schedule_commits_reject_stale_revision():
         assert abs(qty - 100.0) < 1e-9
     finally:
         check.close()
+
+
+def test_equal_or_earlier_delivery_date_is_rejected():
+    db = Session()
+    try:
+        order = _order(db, qty=100)
+        db.commit()
+        db.refresh(order)
+        with pytest.raises(HTTPException) as equal_date:
+            commit_entire_po(
+                db,
+                order=order,
+                expected_revision=0,
+                actor="owner-1",
+                default_date=order.po_date,
+            )
+        assert equal_date.value.status_code == 400
+        db.refresh(order)
+        assert int(order.schedule_revision or 0) == 0
+        assert db.query(SalesOrderDeliverySchedule).filter(SalesOrderDeliverySchedule.sales_order_id == order.id).count() == 0
+
+        commit_entire_po(
+            db,
+            order=order,
+            expected_revision=0,
+            actor="owner-1",
+            default_date=order.po_date + timedelta(days=7),
+        )
+        db.commit()
+        db.refresh(order)
+        row = db.query(SalesOrderDeliverySchedule).filter(SalesOrderDeliverySchedule.sales_order_id == order.id).one()
+        with pytest.raises(HTTPException) as earlier:
+            mutate_schedule_row(
+                db,
+                order=order,
+                schedule_id=row.id,
+                updates={"delivery_date": order.po_date},
+                actor="owner-1",
+            )
+        assert earlier.value.status_code == 400
+        db.refresh(row)
+        assert row.delivery_date == order.po_date + timedelta(days=7)
+    finally:
+        db.close()

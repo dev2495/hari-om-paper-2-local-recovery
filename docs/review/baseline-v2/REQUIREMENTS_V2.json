@@ -1,0 +1,999 @@
+{
+  "metadata": {
+    "version": "2.0",
+    "date": "2026-09-17",
+    "repository": "dev2495/hari-om-paper-2-local-recovery",
+    "reviewed_sha": "44cf9950850f70de040f6d09d51dcf22495ce8d3",
+    "application_changes_performed": false,
+    "application_acceptance_tests_executed_in_this_update": false,
+    "baseline_requirements": 20,
+    "new_quality_requirements": 36,
+    "total_requirements": 56,
+    "baseline_acceptance_cases": 66,
+    "new_quality_acceptance_cases": 126,
+    "total_acceptance_cases": 192,
+    "phases": 14
+  },
+  "requirements": [
+    {
+      "id": "R01",
+      "title": "Remove the Sales PO Entry / explanatory queue hero",
+      "scope": "UI",
+      "acceptance": "The large hero is present in the inspected form. Replace it with a compact “New sales order” header. Do not delete the actual planning queue. [S05]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-10"
+      ]
+    },
+    {
+      "id": "R02",
+      "title": "Remove Release Readiness",
+      "scope": "UI",
+      "acceptance": "Remove the side card; retain field errors, permission checks and server approval prerequisites. [S05]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-10"
+      ]
+    },
+    {
+      "id": "R03",
+      "title": "“Customer PO Date” label",
+      "scope": "UI / contract semantics",
+      "acceptance": "Keep the existing date meaning; do not overwrite creation timestamps. [S02], [S05]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-01"
+      ]
+    },
+    {
+      "id": "R04",
+      "title": "“Delivery Date” label",
+      "scope": "UI / contract semantics",
+      "acceptance": "It is the customer commitment, not winding start, oven completion or supplier receipt date.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-01"
+      ]
+    },
+    {
+      "id": "R05",
+      "title": "Delivery date greater than Customer PO Date",
+      "scope": "Functional",
+      "acceptance": "Strictly later; implement on create, edit, delivery schedules, bulk imports and approval validation. Existing inspected inputs do not enforce that relationship. [S02], [S05]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-01",
+        "COMM-02",
+        "COMM-03",
+        "COMM-12"
+      ]
+    },
+    {
+      "id": "R06",
+      "title": "Priority delivery for next three days",
+      "scope": "Functional",
+      "acceptance": "One explicit plant-local calendar rule, same predicate in tile, list, report and export. Keep overdue separate. [S13]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "NAV-01"
+      ]
+    },
+    {
+      "id": "R07",
+      "title": "Clicking Winder opens relevant job cards",
+      "scope": "Navigation / query",
+      "acceptance": "Add stage filter to the canonical job-card route, support direct links and browser back. Same for other stage tiles. [S13]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "NAV-02"
+      ]
+    },
+    {
+      "id": "R08",
+      "title": "Parchment checkbox/color behavior",
+      "scope": "Functional repair",
+      "acceptance": "Preserve checkbox interaction, require the chosen variant when applicable and persist the boolean; remove stale hidden values when unchecked. [S02], [S05]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-06",
+        "COMM-07",
+        "COMM-08"
+      ]
+    },
+    {
+      "id": "R09",
+      "title": "Remove repeated Line 1 banner",
+      "scope": "UI",
+      "acceptance": "Remove the decorative banner and filler. Retain accessible line number, add/remove actions and stable row identity.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-09",
+        "COMM-10"
+      ]
+    },
+    {
+      "id": "R10",
+      "title": "Internal order without customer PO",
+      "scope": "Functional",
+      "acceptance": "Nullable external PO fields and internal SO numbers already exist. Add explicit origin, understandable form and complete downstream display; retain customer for customer-specific orders. [S02], [S03]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-04",
+        "COMM-05",
+        "COMM-11"
+      ]
+    },
+    {
+      "id": "R11",
+      "title": "Resolve error during ID creation",
+      "scope": "Bug investigation",
+      "acceptance": "Treat as an unresolved incident. Capture exact route, action, deployed SHA, browser stack and corresponding request.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "INC-01",
+        "INC-02"
+      ]
+    },
+    {
+      "id": "R12",
+      "title": "Add QC role",
+      "scope": "Authorization + UI",
+      "acceptance": "Do not merely add a tile; extend role registration, landing, menu, reads, mutations and negative permission tests. Backend QC hooks already exist. [S07, S09–S10, S12]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "PUR-04",
+        "QC-01",
+        "QC-02",
+        "QC-08",
+        "QC-09"
+      ]
+    },
+    {
+      "id": "R13",
+      "title": "Winding QC: I.D., O.D., Height, Weight, C.S.",
+      "scope": "Functional",
+      "acceptance": "Stage-specific approved limits and sample basis, not unconditional reuse of finished-product dimensions.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QC-03",
+        "QC-04",
+        "QC-05",
+        "QC-07"
+      ]
+    },
+    {
+      "id": "R14",
+      "title": "Oven QC: pre/post weight and pre/post moisture",
+      "scope": "Functional",
+      "acceptance": "Paired readings on the same identified sample/batch; per-stage units, limits and evidence.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QC-03",
+        "QC-04",
+        "QC-05",
+        "QC-06",
+        "QC-07"
+      ]
+    },
+    {
+      "id": "R15",
+      "title": "Process QC: Height, Weight, C.S., notch distance/depth, moisture",
+      "scope": "Functional",
+      "acceptance": "Conditional notch requirements for applicable products; configure approved numeric ranges.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QC-03",
+        "QC-04",
+        "QC-05",
+        "QC-07"
+      ]
+    },
+    {
+      "id": "R16",
+      "title": "Sales release asks only for winder queue",
+      "scope": "Functional policy change",
+      "acceptance": "Remove mandrel/geometry/capacity compatibility as release-admission vetoes, including backend sync. Keep identity, permission and quantity integrity. [S06]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "REL-01",
+        "REL-02",
+        "REL-03",
+        "REL-04",
+        "REL-05",
+        "REL-06",
+        "REL-07",
+        "REL-08",
+        "REL-09",
+        "REL-10",
+        "REL-11"
+      ]
+    },
+    {
+      "id": "R17",
+      "title": "All pending orders and total material requirements",
+      "scope": "Functional",
+      "acceptance": "Build full-scope server aggregation and BOM expansion, not totals from the visible page. [S02], [S08], [S13]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "DEM-01",
+        "DEM-02",
+        "DEM-03",
+        "DEM-04",
+        "DEM-05",
+        "DEM-06",
+        "DEM-07",
+        "DEM-08"
+      ]
+    },
+    {
+      "id": "R18",
+      "title": "Easily schedule an entire PO on calendar",
+      "scope": "Functional",
+      "acceptance": "Whole-order action creates a reviewable multi-line schedule; no loss of partial releases, already started work or prior commitments.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-09",
+        "REL-09",
+        "PLAN-01",
+        "PLAN-02",
+        "PLAN-03",
+        "PLAN-04",
+        "PLAN-05",
+        "PLAN-06",
+        "PLAN-07",
+        "PLAN-08",
+        "PLAN-09"
+      ]
+    },
+    {
+      "id": "R19",
+      "title": "Material/vendor PO scheduling represented in workbook/PDF",
+      "scope": "Functional expansion",
+      "acceptance": "Extend current purchase/GRN system with line-level dated deliveries and incoming evidence. Do not build a second receipt ledger. [A1–A2, S11–S12]",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "PUR-01",
+        "PUR-02",
+        "PUR-03",
+        "PUR-04",
+        "PUR-05",
+        "PUR-06",
+        "PUR-07",
+        "PUR-08"
+      ]
+    },
+    {
+      "id": "R20",
+      "title": "Production-ready end-to-end system",
+      "scope": "Delivery gates",
+      "acceptance": "Require reconciled quantities, tests, operational recovery, client UAT and signed cutover checklist. A visual or compile check is not sign-off.",
+      "origin": "baseline preserved",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-11",
+        "COMM-12",
+        "REL-04",
+        "REL-05",
+        "REL-06",
+        "REL-07",
+        "REL-08",
+        "REL-11",
+        "QC-08",
+        "QC-09",
+        "QC-10",
+        "REG-01",
+        "REG-02",
+        "REG-03",
+        "REG-04"
+      ]
+    },
+    {
+      "id": "QCR-01",
+      "title": "Unified Quality Control module",
+      "phases": [
+        "P02",
+        "P08"
+      ],
+      "acceptance": "Extend existing quality records/workspace and reuse embedded inspection records; no duplicate quality or stock ledger.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-126"
+      ]
+    },
+    {
+      "id": "QCR-02",
+      "title": "Typed parameter dictionary and approved profiles",
+      "phases": [
+        "P02"
+      ],
+      "acceptance": "Support numeric/one-sided/asymmetric/categorical/descriptive rules, unit/method/basis, applicability, sampling and approvals without guessed limits.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-001",
+        "QCT-002",
+        "QCT-003",
+        "QCT-004",
+        "QCT-005",
+        "QCT-009",
+        "QCT-010",
+        "QCT-011",
+        "QCT-012",
+        "QCT-013",
+        "QCT-041"
+      ]
+    },
+    {
+      "id": "QCR-03",
+      "title": "Item-specific inward quality setup",
+      "phases": [
+        "P03"
+      ],
+      "acceptance": "Every inward-capable item has an approved item/plant profile, approved exemption or visible setup gap.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-015",
+        "QCT-016",
+        "QCT-017",
+        "QCT-018",
+        "QCT-019",
+        "QCT-020"
+      ]
+    },
+    {
+      "id": "QCR-04",
+      "title": "Physical inward to usable stock lifecycle",
+      "phases": [
+        "P03",
+        "P06"
+      ],
+      "acceptance": "GRN/reel entry creates restricted physical stock and durable inspection work; only eligible authorized quantity becomes usable.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-018",
+        "QCT-024",
+        "QCT-025",
+        "QCT-026"
+      ]
+    },
+    {
+      "id": "QCR-05",
+      "title": "Lot/sample and partial-quantity identity",
+      "phases": [
+        "P03",
+        "P06"
+      ],
+      "acceptance": "Keep samples, inspection coverage and actual quantities separate; partial clearance cannot unlock a whole lot.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-012",
+        "QCT-024",
+        "QCT-027",
+        "QCT-028",
+        "QCT-049",
+        "QCT-068"
+      ]
+    },
+    {
+      "id": "QCR-06",
+      "title": "Supplier/PO constraints and certificate evidence",
+      "phases": [
+        "P03"
+      ],
+      "acceptance": "Preserve contract qualifiers, resolve requirements explicitly, record supplier versus local evidence separately.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-021",
+        "QCT-022",
+        "QCT-023"
+      ]
+    },
+    {
+      "id": "QCR-07",
+      "title": "Pre-save specification tolerance dialog",
+      "phases": [
+        "P04"
+      ],
+      "acceptance": "Context-rich stage editor before deliberate spec save; retain drafts and save/submit without auto-approval or duplicate spec creation.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-029",
+        "QCT-030",
+        "QCT-031",
+        "QCT-032",
+        "QCT-033",
+        "QCT-034",
+        "QCT-042"
+      ]
+    },
+    {
+      "id": "QCR-08",
+      "title": "Existing-spec Add/Complete/View/Revise actions",
+      "phases": [
+        "P04"
+      ],
+      "acceptance": "Use the same editor with state-sensitive actions and revision approval, preserving existing IDs and history.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-035",
+        "QCT-036",
+        "QCT-037"
+      ]
+    },
+    {
+      "id": "QCR-09",
+      "title": "One canonical final-tolerance representation",
+      "phases": [
+        "P04"
+      ],
+      "acceptance": "Existing final fields migrate through an adapter; no independently editable contradictory final limits.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-038",
+        "QCT-039"
+      ]
+    },
+    {
+      "id": "QCR-10",
+      "title": "Exact client stage fields",
+      "phases": [
+        "P04",
+        "P05"
+      ],
+      "acceptance": "Winding ID/OD/Height/Weight/CS; oven pre/post weight/moisture; process Height/Weight/CS/notch distance/depth/moisture.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-040",
+        "QCT-041",
+        "QCT-042",
+        "QCT-048",
+        "QCT-049"
+      ]
+    },
+    {
+      "id": "QCR-11",
+      "title": "Tolerance helper below job inputs",
+      "phases": [
+        "P05"
+      ],
+      "acceptance": "Data-driven interactive inputs show frozen rules, unit, method/sample help, checkpoint and revision, with accessible result/reason feedback.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-044",
+        "QCT-045",
+        "QCT-126"
+      ]
+    },
+    {
+      "id": "QCR-12",
+      "title": "Updated blank and completed job-card print",
+      "phases": [
+        "P05"
+      ],
+      "acceptance": "Print applicable frozen tolerances near each reading with sample, paired oven, reason and authorization context; no zero/PASS defaults.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-046",
+        "QCT-047"
+      ]
+    },
+    {
+      "id": "QCR-13",
+      "title": "Full-card and alternate-entry validation",
+      "phases": [
+        "P05",
+        "P06"
+      ],
+      "acceptance": "Validate every applicable due stage/sample via all entry/import/legacy/API paths while retaining actual physical output.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-050",
+        "QCT-051",
+        "QCT-057"
+      ]
+    },
+    {
+      "id": "QCR-14",
+      "title": "Failure reasons without forced false causes",
+      "phases": [
+        "P05",
+        "P06"
+      ],
+      "acceptance": "Persist genuine failed observations; require linked reasons/containment for final submission; investigation may remain open; reason never grants PASS.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-052",
+        "QCT-053",
+        "QCT-054",
+        "QCT-055"
+      ]
+    },
+    {
+      "id": "QCR-15",
+      "title": "Authoritative safe evaluation",
+      "phases": [
+        "P01",
+        "P02"
+      ],
+      "acceptance": "Reject malformed/non-finite/boolean numeric input, validate bounds/types/applicability and compute verdicts server-side.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-001",
+        "QCT-002",
+        "QCT-003",
+        "QCT-005",
+        "QCT-006",
+        "QCT-007",
+        "QCT-008",
+        "QCT-009",
+        "QCT-013",
+        "QCT-014",
+        "QCT-082"
+      ]
+    },
+    {
+      "id": "QCR-16",
+      "title": "Immutable profiles and job snapshots",
+      "phases": [
+        "P02",
+        "P04",
+        "P05"
+      ],
+      "acceptance": "Profile edits are prospective; approved job/inspection snapshots stay fixed; explicit unstarted attachment/amendment only.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-020",
+        "QCT-037",
+        "QCT-039",
+        "QCT-043",
+        "QCT-047",
+        "QCT-060",
+        "QCT-061",
+        "QCT-102",
+        "QCT-116"
+      ]
+    },
+    {
+      "id": "QCR-17",
+      "title": "Separate workflow, measurement and eligibility",
+      "phases": [
+        "P02",
+        "P06"
+      ],
+      "acceptance": "FAIL plus concession remains FAIL; draft/invalid/NA/not-required/certificate acceptance cannot masquerade as measured PASS.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-010",
+        "QCT-019",
+        "QCT-023",
+        "QCT-053",
+        "QCT-057"
+      ]
+    },
+    {
+      "id": "QCR-18",
+      "title": "Canonical QC role and scoped capabilities",
+      "phases": [
+        "P02",
+        "P07"
+      ],
+      "acceptance": "QC survives seed/restart, permissions are least-privilege and every route/export/notification enforces resource/plant access.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-065",
+        "QCT-085",
+        "QCT-093",
+        "QCT-104",
+        "QCT-111",
+        "QCT-112",
+        "QCT-113",
+        "QCT-125"
+      ]
+    },
+    {
+      "id": "QCR-19",
+      "title": "Nonconformance, containment and hold workbench",
+      "phases": [
+        "P06"
+      ],
+      "acceptance": "Group related failures without losing parameters; track quantity, severity, containment, owner, due state and history.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-055",
+        "QCT-063",
+        "QCT-064"
+      ]
+    },
+    {
+      "id": "QCR-20",
+      "title": "Authorized quantity-scoped disposition",
+      "phases": [
+        "P06"
+      ],
+      "acceptance": "Accept/concession/rework/segregate/return/scrap require proper authority and conserve affected quantities.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-027",
+        "QCT-028",
+        "QCT-064",
+        "QCT-065",
+        "QCT-066",
+        "QCT-067",
+        "QCT-068",
+        "QCT-083",
+        "QCT-107"
+      ]
+    },
+    {
+      "id": "QCR-21",
+      "title": "Retest and correction lineage",
+      "phases": [
+        "P05",
+        "P06"
+      ],
+      "acceptance": "Original evidence survives; new sample rounds/corrections are linked; retest PASS alone cannot clear unrelated/newer holds.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-056",
+        "QCT-069",
+        "QCT-070",
+        "QCT-071"
+      ]
+    },
+    {
+      "id": "QCR-22",
+      "title": "Rework, reheat and supplier-return integration",
+      "phases": [
+        "P06",
+        "P11"
+      ],
+      "acceptance": "Use existing routing/stock commands, residual material needs and replacement commitments; no duplicate original demand/receipt.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-072",
+        "QCT-073"
+      ]
+    },
+    {
+      "id": "QCR-23",
+      "title": "Final/FG/dispatch gates and concurrency",
+      "phases": [
+        "P06"
+      ],
+      "acceptance": "Enforce owner-local current eligibility and stock review barriers, not cached/eventual positive badges; races and failures tested.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-071",
+        "QCT-074",
+        "QCT-075",
+        "QCT-076",
+        "QCT-077",
+        "QCT-078",
+        "QCT-079",
+        "QCT-080",
+        "QCT-081",
+        "QCT-084",
+        "QCT-118"
+      ]
+    },
+    {
+      "id": "QCR-24",
+      "title": "Genealogy and late/retrospective entry",
+      "phases": [
+        "P05",
+        "P06",
+        "P08"
+      ],
+      "acceptance": "Separate measured/recorded time; trace affected material/WIP/FG/shipments; never claim retroactive prevention.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-058",
+        "QCT-059",
+        "QCT-084",
+        "QCT-105"
+      ]
+    },
+    {
+      "id": "QCR-25",
+      "title": "Relevant-user notifications and assignment",
+      "phases": [
+        "P07"
+      ],
+      "acceptance": "Route by plant, resource, role/capability and assignee; critical escalation/fallback configured; no all-QC broadcast.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-085",
+        "QCT-086",
+        "QCT-087",
+        "QCT-088",
+        "QCT-092",
+        "QCT-093"
+      ]
+    },
+    {
+      "id": "QCR-26",
+      "title": "Durable deduplicated delivery and escalation",
+      "phases": [
+        "P02",
+        "P07"
+      ],
+      "acceptance": "Outbox and consumer dedupe/order/retries/delivery logs; acknowledge is not release; stale and revoked-access messages handled.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-026",
+        "QCT-079",
+        "QCT-089",
+        "QCT-090",
+        "QCT-091",
+        "QCT-092",
+        "QCT-094"
+      ]
+    },
+    {
+      "id": "QCR-27",
+      "title": "Full-scope filtered reports and exports",
+      "phases": [
+        "P08"
+      ],
+      "acceptance": "Common server filters for all quality views/dossiers/metrics/exports, with pagination/as-of/completeness and authorized downloads.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-095",
+        "QCT-096",
+        "QCT-097",
+        "QCT-103",
+        "QCT-104",
+        "QCT-126"
+      ]
+    },
+    {
+      "id": "QCR-28",
+      "title": "Correct quality metrics and trends",
+      "phases": [
+        "P08"
+      ],
+      "acceptance": "Explicit denominators; separate first-pass/retest/concession/legacy; no empty 100%, mixed-unit scores or duplicated held quantity.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-098",
+        "QCT-099",
+        "QCT-100",
+        "QCT-101",
+        "QCT-102"
+      ]
+    },
+    {
+      "id": "QCR-29",
+      "title": "Audit, attachments and evidence access",
+      "phases": [
+        "P02",
+        "P08"
+      ],
+      "acceptance": "Versioned evidence/approvals, signed authorized attachments, safe file handling, retention and no tokens/sensitive QR leakage.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-056",
+        "QCT-105",
+        "QCT-114"
+      ]
+    },
+    {
+      "id": "QCR-30",
+      "title": "Controlled legacy migration and activation",
+      "phases": [
+        "P12"
+      ],
+      "acceptance": "No invented stage limits/historic PASS; reconcile active stock/WIP and exposed legacy cases; per-plant approved enforcement plan.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-115",
+        "QCT-116",
+        "QCT-117",
+        "QCT-118",
+        "QCT-119"
+      ]
+    },
+    {
+      "id": "QCR-31",
+      "title": "Stable commands, transactions and recovery",
+      "phases": [
+        "P01",
+        "P02",
+        "P06"
+      ],
+      "acceptance": "Idempotency/fingerprint/version checks, result/local hold/outbox commit together, recoverable cross-service steps and no legacy shortcut.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-014",
+        "QCT-025",
+        "QCT-032",
+        "QCT-033",
+        "QCT-034",
+        "QCT-051",
+        "QCT-059",
+        "QCT-077",
+        "QCT-078",
+        "QCT-081",
+        "QCT-082",
+        "QCT-083"
+      ]
+    },
+    {
+      "id": "QCR-32",
+      "title": "Preserve all original ERP requirements",
+      "phases": [
+        "P09",
+        "P10",
+        "P11"
+      ],
+      "acceptance": "Keep R01–R20 and baseline tests; queue-only release is not gated by missing new QC setup; no replacement manufacturing math.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "COMM-01",
+        "COMM-02",
+        "COMM-03",
+        "COMM-04",
+        "COMM-05",
+        "COMM-06",
+        "COMM-07",
+        "COMM-08",
+        "COMM-09",
+        "COMM-10",
+        "COMM-12",
+        "REL-01",
+        "REL-02",
+        "REL-03",
+        "REL-07",
+        "REL-08",
+        "REL-09",
+        "REL-10",
+        "REL-11",
+        "PLAN-01",
+        "PLAN-02",
+        "PLAN-03",
+        "PLAN-04",
+        "PLAN-05",
+        "PLAN-06",
+        "PLAN-07",
+        "PLAN-08",
+        "PLAN-09",
+        "DEM-01",
+        "DEM-02",
+        "DEM-03",
+        "DEM-04",
+        "DEM-05",
+        "DEM-06",
+        "DEM-07",
+        "DEM-08",
+        "PUR-01",
+        "PUR-02",
+        "PUR-03",
+        "PUR-04",
+        "PUR-05",
+        "PUR-06",
+        "PUR-07",
+        "PUR-08",
+        "NAV-01",
+        "NAV-02",
+        "INC-02",
+        "QCT-060"
+      ]
+    },
+    {
+      "id": "QCR-33",
+      "title": "Customer complaints, returns and corrective actions",
+      "phases": [
+        "P08"
+      ],
+      "acceptance": "Extend CustomerRejection; distinguish complaint from physical return; root-cause/action/effectiveness closure does not release stock or create credit automatically.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-106",
+        "QCT-107",
+        "QCT-108",
+        "QCT-109"
+      ]
+    },
+    {
+      "id": "QCR-34",
+      "title": "Methods, instruments and calibration controls",
+      "phases": [
+        "P02",
+        "P05",
+        "P08"
+      ],
+      "acceptance": "Record applicable method/instrument/calibration evidence, retain historical context and route instrument-related exposure review.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-011",
+        "QCT-062",
+        "QCT-110"
+      ]
+    },
+    {
+      "id": "QCR-35",
+      "title": "Phased agent continuity and evidence tracking",
+      "phases": [
+        "P00",
+        "P13"
+      ],
+      "acceptance": "Persist task/test/decision state, resume exact unfinished work and require phase-specific proof before completion.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-121",
+        "QCT-122"
+      ]
+    },
+    {
+      "id": "QCR-36",
+      "title": "End-to-end rollout and release evidence",
+      "phases": [
+        "P12",
+        "P13"
+      ],
+      "acceptance": "Staging full cycle, migration/restore/reconciliation, role/browser/print/export/notification UAT, owner approval and monitoring.",
+      "origin": "user QC expansion + proposed implementation controls",
+      "status": "NOT_STARTED",
+      "acceptance_test_ids": [
+        "QCT-119",
+        "QCT-120",
+        "QCT-123",
+        "QCT-124",
+        "QCT-125"
+      ]
+    }
+  ]
+}

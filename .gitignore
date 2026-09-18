@@ -46,6 +46,8 @@ hariom-erp/services/auth-service/venv/
 hariom-erp/services/auth-service/test.db
 hariom-erp/.gitignore
 hariom-erp/ACCESS_GUIDE.md
+# Original V2 56/192 pack is tracked at docs/review/baseline-v2/.
+# Do not force-add this gitignored filename; it is not the recovered V2 register.
 hariom-erp/Hariom_ERP_Final_Requirements_and_Plan.md
 hariom-erp/README.md
 hariom-erp/ROADMAP.md
