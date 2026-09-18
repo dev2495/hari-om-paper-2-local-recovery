@@ -7,6 +7,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 
 from src.routers.planning import (
+    _apply_commercial_parchment,
     _apply_fg_inward_snapshot,
     _bucket_entries,
     _next_stage,
@@ -586,6 +587,31 @@ class PlanningValidationTests(unittest.TestCase):
         self.assertEqual(entry.shift_code, "SHIFT_B")
         self.assertEqual(resequence_calls[0], [old_bucket_peer.id])
         self.assertEqual(resequence_calls[1], [entry.id, target_bucket_peer.id])
+
+    def test_comm08_mismatch_does_not_overwrite_approved_recipe_color(self):
+        snapshot = {"parchment_color": "Natural · Stripe", "parchment_allowed": True}
+        line = {"parchment_required": True, "parchment_color": "Blue · Floral"}
+        result = _apply_commercial_parchment(snapshot, line)
+        self.assertEqual(result["parchment_resolution"], "CONFLICT")
+        self.assertEqual(result["parchment_color"], "Natural · Stripe")
+        self.assertEqual(result["sales_order_line_parchment_color"], "Blue · Floral")
+        self.assertIn("parchment_color_mismatch", result["parchment_conflict"]["reasons"])
+
+    def test_comm08_parchment_disallowed_on_recipe_is_conflict_not_silent_enable(self):
+        snapshot = {"parchment_color": None, "parchment_allowed": False}
+        line = {"parchment_required": True, "parchment_color": "Natural"}
+        result = _apply_commercial_parchment(snapshot, line)
+        self.assertEqual(result["parchment_resolution"], "CONFLICT")
+        self.assertIsNone(result["parchment_color"])
+        self.assertIn("parchment_not_allowed_on_recipe", result["parchment_conflict"]["reasons"])
+
+    def test_comm08_aligned_variant_keeps_recipe_and_records_commercial_fields(self):
+        snapshot = {"parchment_color": "Natural", "parchment_allowed": True}
+        result = _apply_commercial_parchment(snapshot, {"parchment_required": True, "parchment_color": "natural"})
+        self.assertEqual(result["parchment_resolution"], "ALIGNED")
+        self.assertEqual(result["parchment_color"], "Natural")
+        self.assertNotIn("parchment_conflict", result)
+
 
 if __name__ == "__main__":
     unittest.main()
