@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -268,12 +269,36 @@ def write_reports(manifest: dict[str, Any], rows: list[CheckRow], evidence: dict
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify the live runtime is serving the current repo build.")
     parser.add_argument("--write-manifest", action="store_true", help="Persist the verified manifest to hariom-erp/.runtime/runtime_manifest.json.")
+    parser.add_argument("--expected-sha", default=os.getenv("ERP_EXPECTED_SHA"), help="Git SHA the running stack must match.")
     args = parser.parse_args()
 
     manifest = build_runtime_manifest()
     verifier = RuntimeConsistencyVerifier(manifest)
 
     try:
+        actual_sha = ((manifest.get("identity") or {}).get("git") or {}).get("sha")
+        if args.expected_sha:
+            if actual_sha != args.expected_sha:
+                raise RuntimeError(f"Running tree SHA {actual_sha} does not match expected {args.expected_sha}")
+            verifier.add("Git SHA", True, actual_sha)
+        schema = (manifest.get("identity") or {}).get("schema") or {}
+        connected = [name for name, row in schema.items() if isinstance(row, dict) and row.get("connected")]
+        if connected:
+            verifier.add("Schema connectivity", True, ",".join(sorted(connected)))
+        for name, pid in (manifest.get("pids") or {}).items():
+            port_key = {
+                "auth": "AUTH_PORT",
+                "master": "MASTER_PORT",
+                "spec": "SPEC_PORT",
+                "sales": "SALES_PORT",
+                "production": "PRODUCTION_PORT",
+                "inventory": "INVENTORY_PORT",
+                "analytics": "ANALYTICS_PORT",
+                "bff": "BFF_PORT",
+                "web": "WEB_UI_PORT",
+            }.get(name)
+            port = (manifest.get("ports") or {}).get(port_key) if port_key else None
+            verifier.add(f"Managed pid {name}", bool(pid), f"pid={pid} port={port}")
         verifier.verify_service_health()
         verifier.verify_bff_auth_surface()
         verifier.verify_web_assets()

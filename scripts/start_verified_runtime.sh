@@ -89,10 +89,14 @@ scope_dataless_count() {
 echo "[verified-runtime] stopping managed runtime..."
 ERP_RUNTIME_DIR="${RUNTIME_DIR}" "${BASE_DIR}/stop_all.sh" >/dev/null 2>&1 || true
 
-echo "[verified-runtime] reclaiming stale ports..."
-for port in "${TARGET_PORTS[@]}"; do
-  stop_port "$port"
-done
+if [[ "${ERP_ALLOW_RECLAIM_FOREIGN_PORTS:-0}" == "1" ]]; then
+  echo "[verified-runtime] reclaiming listeners on known ports (ERP_ALLOW_RECLAIM_FOREIGN_PORTS=1)..."
+  for port in "${TARGET_PORTS[@]}"; do
+    stop_port "$port"
+  done
+else
+  echo "[verified-runtime] not reclaiming foreign listeners; only run-owned PIDs in ${PID_DIR} are stopped."
+fi
 
 cleanup_stale_runtime_artifacts
 rm -f "$MANIFEST_PATH"
@@ -117,15 +121,22 @@ export WEB_UI_TURBO="${WEB_UI_TURBO:-0}"
 export WEB_UI_SOURCE_BUILD="${WEB_UI_SOURCE_BUILD:-0}"
 export STARTUP_PREFLIGHT="${STARTUP_PREFLIGHT:-1}"
 
-echo "[verified-runtime] hydrating local placeholder files..."
-/usr/bin/env python3 "${BASE_DIR}/scripts/hydrate_local_placeholders.py" \
-  --scope backend-source \
-  --scope web-source
+if [[ "${ERP_SKIP_PLACEHOLDER_HYDRATE:-0}" == "1" ]]; then
+  echo "[verified-runtime] skipping placeholder hydration; testing checked-out source."
+else
+  echo "[verified-runtime] hydrating local placeholder files..."
+  /usr/bin/env python3 "${BASE_DIR}/scripts/hydrate_local_placeholders.py" \
+    --scope backend-source \
+    --scope web-source
+fi
 
 backend_remaining="$(scope_dataless_count backend-source)"
-if [[ "$backend_remaining" != "0" ]]; then
+if [[ "$backend_remaining" != "0" && "${ERP_ALLOW_BYTECODE_RECOVERY:-0}" == "1" ]]; then
   echo "[verified-runtime] recovering remaining backend Python placeholders from local bytecode..."
   /usr/bin/env python3 "${BASE_DIR}/scripts/recover_dataless_python_from_pyc.py"
+elif [[ "$backend_remaining" != "0" ]]; then
+  echo "[verified-runtime] dataless backend sources remain and bytecode recovery is disabled."
+  echo "Set ERP_ALLOW_BYTECODE_RECOVERY=1 only for local-recovery work, not for SHA-bound verification."
 fi
 
 backend_remaining="$(scope_dataless_count backend-source)"

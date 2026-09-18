@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -91,6 +92,64 @@ def _runtime_urls(host: str, ports: dict[str, int]) -> dict[str, str]:
     }
 
 
+def _git_identity() -> dict[str, Any]:
+    sha = os.getenv("ERP_EXPECTED_SHA")
+    dirty = None
+    try:
+        sha = sha or subprocess.check_output(
+            ["git", "-C", str(BASE_DIR), "rev-parse", "HEAD"],
+            text=True,
+        ).strip()
+        porcelain = subprocess.check_output(
+            ["git", "-C", str(BASE_DIR), "status", "--porcelain"],
+            text=True,
+        )
+        dirty = bool(porcelain.strip())
+    except Exception:
+        pass
+    return {"sha": sha, "dirty": dirty}
+
+
+def _schema_identity(ports_env: dict[str, str]) -> dict[str, Any]:
+    identity: dict[str, Any] = {}
+    db_user = os.getenv("DB_USER") or os.getenv("USER") or "postgres"
+    db_host = os.getenv("DB_HOST", "127.0.0.1")
+    db_port = os.getenv("DB_PORT", "5432")
+    prefix = os.getenv("ERP_DB_PREFIX", "")
+    names = {
+        "auth": os.getenv("AUTH_DB_NAME", ports_env.get("AUTH_DB_NAME", f"{prefix}authdb")),
+        "master": os.getenv("MASTER_DB_NAME", ports_env.get("MASTER_DB_NAME", f"{prefix}masterdb")),
+        "spec": os.getenv("SPEC_DB_NAME", ports_env.get("SPEC_DB_NAME", f"{prefix}specdb")),
+        "sales": os.getenv("SALES_DB_NAME", ports_env.get("SALES_DB_NAME", f"{prefix}salesdb")),
+        "production": os.getenv("PRODUCTION_DB_NAME", ports_env.get("PRODUCTION_DB_NAME", f"{prefix}productiondb")),
+        "inventory": os.getenv("INVENTORY_DB_NAME", ports_env.get("INVENTORY_DB_NAME", f"{prefix}inventorydb")),
+        "analytics": os.getenv("ANALYTICS_DB_NAME", ports_env.get("ANALYTICS_DB_NAME", f"{prefix}analyticsdb")),
+    }
+    try:
+        import psycopg2
+    except Exception:
+        return {"databases": names, "probed": False}
+    for label, db_name in names.items():
+        entry: dict[str, Any] = {"name": db_name}
+        try:
+            conn = psycopg2.connect(host=db_host, port=db_port, user=db_user, dbname=db_name)
+            conn.autocommit = True
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'alembic_version'")
+                if cur.fetchone():
+                    cur.execute("SELECT version_num FROM alembic_version")
+                    entry["alembic"] = [row[0] for row in cur.fetchall()]
+                cur.execute("SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")
+                entry["public_tables"] = int(cur.fetchone()[0])
+            conn.close()
+            entry["connected"] = True
+        except Exception as exc:
+            entry["connected"] = False
+            entry["error"] = str(exc)
+        identity[label] = entry
+    return identity
+
+
 def build_runtime_manifest() -> dict[str, Any]:
     runtime_env = load_env_file(RUNTIME_ENV_PATH)
     ports_env = load_env_file(PORTS_ENV_PATH)
@@ -167,6 +226,11 @@ def build_runtime_manifest() -> dict[str, Any]:
         "defaults": {
             "admin_email": os.getenv("ADMIN_EMAIL", os.getenv("BOOTSTRAP_ADMIN_EMAIL", "admin@hariom.com")),
             "admin_password": os.getenv("ADMIN_PASSWORD", os.getenv("BOOTSTRAP_ADMIN_PASSWORD", "admin123")),
+        },
+        "identity": {
+            "git": _git_identity(),
+            "schema": _schema_identity(ports_env),
+            "expected_sha": os.getenv("ERP_EXPECTED_SHA"),
         },
     }
 

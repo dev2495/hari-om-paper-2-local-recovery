@@ -72,8 +72,15 @@ BOOTSTRAP_ADMIN_NAME="${BOOTSTRAP_ADMIN_NAME:-System Admin}"
 BOOTSTRAP_ADMIN_PLANT_ID="${BOOTSTRAP_ADMIN_PLANT_ID:-PLANT_A}"
 
 WEB_UI_MODE="${WEB_UI_MODE:-prod}" # prod|dev
-NODE18_BIN="${NODE18_BIN:-/opt/homebrew/opt/node@18/bin}"
 WEB_UI_TURBO="${WEB_UI_TURBO:-1}"
+WORKSPACE_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
+if [[ -f "${WORKSPACE_ROOT}/scripts/resolve_node.sh" ]]; then
+  # shellcheck source=../../../scripts/resolve_node.sh
+  source "${WORKSPACE_ROOT}/scripts/resolve_node.sh"
+  NODE_BIN_DIR="$(resolve_node_bin_dir)"
+  export PATH="${NODE_BIN_DIR}:${PATH}"
+  hash -r
+fi
 
 AUTH_SERVICE_URL="http://${HOST}:${AUTH_PORT}"
 MASTER_SERVICE_URL="http://${HOST}:${MASTER_PORT}"
@@ -94,14 +101,23 @@ make_db_url() {
   fi
 }
 
-AUTH_DB_URL="$(make_db_url authdb)"
-MASTER_DB_URL="$(make_db_url masterdb)"
-SPEC_DB_URL="$(make_db_url specdb)"
-SALES_DB_URL="$(make_db_url salesdb)"
-PRODUCTION_DB_URL="$(make_db_url productiondb)"
-INVENTORY_DB_URL="$(make_db_url inventorydb)"
+DB_PREFIX="${ERP_DB_PREFIX:-}"
+AUTH_DB_NAME="${AUTH_DB_NAME:-${DB_PREFIX}authdb}"
+MASTER_DB_NAME="${MASTER_DB_NAME:-${DB_PREFIX}masterdb}"
+SPEC_DB_NAME="${SPEC_DB_NAME:-${DB_PREFIX}specdb}"
+SALES_DB_NAME="${SALES_DB_NAME:-${DB_PREFIX}salesdb}"
+PRODUCTION_DB_NAME="${PRODUCTION_DB_NAME:-${DB_PREFIX}productiondb}"
+INVENTORY_DB_NAME="${INVENTORY_DB_NAME:-${DB_PREFIX}inventorydb}"
+ANALYTICS_DB_NAME="${ANALYTICS_DB_NAME:-${DB_PREFIX}analyticsdb}"
 
-ANALYTICS_DB_URL="$(make_db_url analyticsdb)"
+AUTH_DB_URL="$(make_db_url "${AUTH_DB_NAME}")"
+MASTER_DB_URL="$(make_db_url "${MASTER_DB_NAME}")"
+SPEC_DB_URL="$(make_db_url "${SPEC_DB_NAME}")"
+SALES_DB_URL="$(make_db_url "${SALES_DB_NAME}")"
+PRODUCTION_DB_URL="$(make_db_url "${PRODUCTION_DB_NAME}")"
+INVENTORY_DB_URL="$(make_db_url "${INVENTORY_DB_NAME}")"
+
+ANALYTICS_DB_URL="$(make_db_url "${ANALYTICS_DB_NAME}")"
 
 require_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -141,7 +157,9 @@ ensure_databases() {
     --port "$DB_PORT" \
     --user "$DB_USER" \
     --password "$DB_PASSWORD" \
-    --admin-db "$DB_ADMIN_DB"
+    --admin-db "$DB_ADMIN_DB" \
+    --databases "$AUTH_DB_NAME" "$MASTER_DB_NAME" "$SPEC_DB_NAME" "$SALES_DB_NAME" \
+      "$PRODUCTION_DB_NAME" "$INVENTORY_DB_NAME" "$ANALYTICS_DB_NAME"
 }
 
 start_uvicorn_service() {
@@ -231,11 +249,6 @@ start_web_ui() {
 
   (
     cd "$workdir"
-    # Next.js 14 in this project is tested with Node 18, not the system default Node 25.
-    if [[ -d "$NODE18_BIN" ]]; then
-      export PATH="${NODE18_BIN}:$PATH"
-      hash -r
-    fi
     if [[ "$WEB_UI_MODE" == "prod" ]]; then
       echo "[preflight] Web UI production build..."
       env BFF_INTERNAL_URL="$BFF_URL" NEXT_PUBLIC_BFF_URL="$BFF_URL" npm run build
@@ -333,10 +346,17 @@ SPEC_PORT=${SPEC_PORT}
 SALES_PORT=${SALES_PORT}
 PRODUCTION_PORT=${PRODUCTION_PORT}
 INVENTORY_PORT=${INVENTORY_PORT}
-
 ANALYTICS_PORT=${ANALYTICS_PORT}
 BFF_PORT=${BFF_PORT}
 WEB_UI_PORT=${WEB_UI_PORT}
+AUTH_DB_NAME=${AUTH_DB_NAME}
+MASTER_DB_NAME=${MASTER_DB_NAME}
+SPEC_DB_NAME=${SPEC_DB_NAME}
+SALES_DB_NAME=${SALES_DB_NAME}
+PRODUCTION_DB_NAME=${PRODUCTION_DB_NAME}
+INVENTORY_DB_NAME=${INVENTORY_DB_NAME}
+ANALYTICS_DB_NAME=${ANALYTICS_DB_NAME}
+GIT_SHA=${ERP_EXPECTED_SHA:-}
 EOF
 
 WORKSPACE_SCRIPTS_DIR="$(cd "${ROOT_DIR}/.." && pwd)/scripts"

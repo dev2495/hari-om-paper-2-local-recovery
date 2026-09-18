@@ -21,17 +21,12 @@ FIXTURE_PATH="${BASE_DIR}/reports/browser_e2e_fixture_latest.json"
 CONFIG_PATH="${BASE_DIR}/apps/web-ui/playwright.config.cjs"
 OUTPUT_DIR="${BASE_DIR}/output/playwright"
 WEB_UI_DIR="${BASE_DIR}/apps/web-ui"
-NODE18_BIN="${NODE18_BIN:-/opt/homebrew/opt/node@18/bin}"
 
 mkdir -p "${OUTPUT_DIR}"
 
-if [[ ! -x "${NODE18_BIN}/node" || ! -x "${NODE18_BIN}/npm" ]]; then
-  echo "Node 18 runtime not found at ${NODE18_BIN}"
-  exit 1
-fi
-
-export PATH="${NODE18_BIN}:$PATH"
-hash -r
+# shellcheck source=resolve_node.sh
+source "${BASE_DIR}/scripts/resolve_node.sh"
+export_resolved_node
 
 if [[ ! -f "${MANIFEST_PATH}" ]]; then
   echo "Runtime manifest not found: ${MANIFEST_PATH}"
@@ -47,7 +42,11 @@ fi
 
 export ERP_RUNTIME_MANIFEST="${MANIFEST_PATH}"
 export ERP_BROWSER_FIXTURE="${FIXTURE_PATH}"
-export WEB_URL="$("${NODE18_BIN}/node" -e "const fs=require('fs');const manifest=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(String(manifest.urls?.web||'http://127.0.0.1:13000'))" "${MANIFEST_PATH}")"
+export WEB_URL="$(node -e "const fs=require('fs');const manifest=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));process.stdout.write(String(manifest.urls?.web||'')); if(!manifest.urls||!manifest.urls.web) process.exit(2)" "${MANIFEST_PATH}")"
+if [[ -z "${WEB_URL}" ]]; then
+  echo "Runtime manifest ${MANIFEST_PATH} does not contain urls.web from the live stack"
+  exit 1
+fi
 export PLAYWRIGHT_BASE_URL="${WEB_URL}"
 
 echo "Browser gate using Web UI: ${WEB_URL}"

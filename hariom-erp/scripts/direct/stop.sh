@@ -90,8 +90,9 @@ for service in "${SERVICES[@]}"; do
 done
 
 # npm and similar launchers may hand work to a child before the marker is
-# observed. Close only listeners on ports recorded by this managed runtime.
-if [[ -f "$PORTS_FILE" ]]; then
+# observed. Close only listeners on ports recorded by this managed runtime
+# when ERP_ALLOW_RECLAIM_FOREIGN_PORTS=1; otherwise leave foreign processes.
+if [[ -f "$PORTS_FILE" && "${ERP_ALLOW_RECLAIM_FOREIGN_PORTS:-0}" == "1" ]]; then
   while IFS='=' read -r key value; do
     case "$key" in
       *_PORT)
@@ -101,6 +102,8 @@ if [[ -f "$PORTS_FILE" ]]; then
         ;;
     esac
   done < "$PORTS_FILE"
+elif [[ -f "$PORTS_FILE" ]]; then
+  echo "[stop] leaving foreign port listeners in place; stopped PID files only."
 fi
 
 rm -f "$PORTS_FILE"

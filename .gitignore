@@ -22,7 +22,9 @@ apps/web-ui.unreadable.bak/
 
 hariom-erp/.runtime/
 hariom-erp/runtime/
+hariom-erp/runtime-verify/
 hariom-erp/venv-runtime/
+hariom-erp/venv-verify/
 hariom-erp/.venv-runtime/
 hariom-erp/.venv-direct/
 
@@ -38,7 +40,8 @@ EXPORT_REPORT.txt
 !apps/web-ui/app/(dashboard)/reports/
 !apps/web-ui/app/(dashboard)/reports/**
 hariom-erp/docs/
-hariom-erp/services/inventory-service/tests/
+hariom-erp/services/inventory-service/tests/*
+!hariom-erp/services/inventory-service/tests/*.py
 hariom-erp/services/auth-service/venv/
 hariom-erp/services/auth-service/test.db
 hariom-erp/.gitignore

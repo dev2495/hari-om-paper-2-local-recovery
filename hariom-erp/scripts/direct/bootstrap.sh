@@ -22,7 +22,11 @@ VENV_PYTHON="${VENV_BIN}/python3.11"
 VENV_MARKER="${VENV_DIR}/.erp_runtime_ok"
 REQ_FILE="${ROOT_DIR}/scripts/direct/requirements.all.txt"
 WEB_UI_DIR="${ROOT_DIR}/../apps/web-ui"
-NODE18_BIN="${NODE18_BIN:-/opt/homebrew/opt/node@18/bin}"
+WORKSPACE_ROOT="${WORKSPACE_ROOT}"
+if [[ -f "${WORKSPACE_ROOT}/scripts/resolve_node.sh" ]]; then
+  # shellcheck source=../../../scripts/resolve_node.sh
+  source "${WORKSPACE_ROOT}/scripts/resolve_node.sh"
+fi
 WEB_UI_SOURCE_BUILD="${WEB_UI_SOURCE_BUILD:-0}"
 INTEGRITY_SCRIPT="${WORKSPACE_ROOT}/scripts/runtime_integrity.py"
 HYDRATE_SCRIPT="${WORKSPACE_ROOT}/scripts/hydrate_local_placeholders.py"
@@ -76,22 +80,16 @@ find_python_base() {
   exit 1
 }
 
-ensure_node18_runtime() {
-  if [[ ! -x "${NODE18_BIN}/node" || ! -x "${NODE18_BIN}/npm" ]]; then
-    echo "Node 18 runtime not found at ${NODE18_BIN}."
-    echo "Install Node 18 or set NODE18_BIN to a valid Node 18 bin directory."
+ensure_supported_node() {
+  if ! declare -F resolve_node_bin_dir >/dev/null; then
+    echo "resolve_node.sh was not sourced; cannot locate Node >= 18."
     exit 1
   fi
-  export PATH="${NODE18_BIN}:$PATH"
+  local bin_dir
+  bin_dir="$(resolve_node_bin_dir)"
+  export PATH="${bin_dir}:$PATH"
   hash -r
-
-  local node_major
-  node_major="$(node -v | sed -E 's/^v([0-9]+).*/\1/')"
-  if [[ "$node_major" != "18" ]]; then
-    echo "Detected Node $(node -v), expected Node 18 for stable Next.js runtime."
-    echo "Please point NODE18_BIN to a Node 18 installation."
-    exit 1
-  fi
+  echo "[bootstrap] node $(node -v) npm $(npm -v)"
 }
 
 scope_dataless_count() {
@@ -113,6 +111,15 @@ web_ui_deps_healthy() {
 }
 
 ensure_workspace_sources() {
+  if [[ "${ERP_SKIP_PLACEHOLDER_HYDRATE:-0}" == "1" ]]; then
+    echo "[bootstrap] skipping placeholder hydration; using checked-out source"
+    local check_args=(check --scope backend-source)
+    if [[ "${SKIP_UI}" != "1" && "${WEB_UI_SOURCE_BUILD}" == "1" ]]; then
+      check_args+=(--scope web-source)
+    fi
+    /usr/bin/env python3 "${INTEGRITY_SCRIPT}" "${check_args[@]}"
+    return
+  fi
   local scopes=(--scope backend-source)
   if [[ "${SKIP_UI}" != "1" && "${WEB_UI_SOURCE_BUILD}" == "1" ]]; then
     scopes+=(--scope web-source)
@@ -128,7 +135,7 @@ ensure_workspace_sources() {
     /usr/bin/env python3 "${HYDRATE_SCRIPT}" --timeout-seconds 300 --stagnant-seconds 20 "${scopes[@]}" || true
 
     backend_remaining="$(scope_dataless_count backend-source)"
-    if [[ "$backend_remaining" != "0" ]]; then
+    if [[ "$backend_remaining" != "0" && "${ERP_ALLOW_BYTECODE_RECOVERY:-0}" == "1" ]]; then
       /usr/bin/env python3 "${RECOVER_SCRIPT}"
       backend_remaining="$(scope_dataless_count backend-source)"
     fi
@@ -208,7 +215,7 @@ bootstrap_python() {
 }
 
 bootstrap_ui() {
-  ensure_node18_runtime
+  ensure_supported_node
 
   if [[ ! -d "${WEB_UI_DIR}" ]]; then
     echo "web-ui directory not found: ${WEB_UI_DIR}"
