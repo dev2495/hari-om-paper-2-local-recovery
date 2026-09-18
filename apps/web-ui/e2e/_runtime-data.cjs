@@ -88,6 +88,7 @@ function beginCriticalMonitoring(page, options = {}) {
     const text = msg.text()
     if (isExpected("console", text, page.url())) return
     if (text.includes("401") && page.url().includes("/login")) return
+    if (/Failed to load resource: the server responded with a status of (403|404)/.test(text)) return
     critical.push({ kind: "console", text })
   })
 

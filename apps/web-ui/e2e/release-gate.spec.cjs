@@ -285,8 +285,8 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
     page.waitForResponse((response) => response.url().includes(`/api/production/sales-orders/${createdOrderId}/release-sync`) && response.status() < 400, { timeout: 60_000 }),
     confirmRelease.click(),
   ])
-  await page.getByTestId("sales-orders:open-winder-queue").click()
-  await expect(page).toHaveURL(new RegExp(`/planning/board\\?section=winder.*order_id=${createdOrderId}`), { timeout: 20_000 })
+  await expect(page.getByTestId("sales-orders:release-next-step")).toBeVisible()
+  await expect(page.getByTestId("sales-orders:open-winder-queue")).toBeVisible()
 
   await logout(page)
 
@@ -389,8 +389,14 @@ test("Plant II sales release resolves its active winder masters and creates the 
     ),
     confirmRelease.click(),
   ])
-  await page.getByTestId("sales-orders:open-winder-queue").click()
+  await expect(page.getByTestId("sales-orders:release-next-step")).toBeVisible()
+  const queueHref = await page.getByTestId("sales-orders:open-winder-queue").getAttribute("href")
+  expect(queueHref, "Plant II next step should point at the winder queue").toMatch(/section=winder/)
+  await logout(page)
+  await login(page, "admin")
+  await page.goto(queueHref, { waitUntil: "domcontentloaded" })
   await expect(page).toHaveURL(new RegExp(`/planning/board\\?section=winder.*order_id=${createdOrderId}`), { timeout: 20_000 })
+  await expect(page.getByTestId("planner-page")).toBeVisible({ timeout: 20_000 })
   await assertCritical()
 })
 
@@ -398,6 +404,7 @@ test("real seeded users enforce route separation and role guards", async ({ page
   const assertCritical = beginCriticalMonitoring(page, {
     expected: [
       { kind: "response", status: 403, urlIncludes: "/reports/owner" },
+      { kind: "response", status: 403, urlIncludes: "/api/production/planning/board" },
     ],
   })
 

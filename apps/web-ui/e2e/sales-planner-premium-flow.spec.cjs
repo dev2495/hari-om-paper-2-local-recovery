@@ -154,8 +154,8 @@ test("premium sales and planner surfaces load with animated interactive elements
 
   await page.goto("/analytics/mrp", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("mrp-analytics-page")).toBeVisible()
-  await expect(page.getByText(/material requirements planning with shortage timing/i)).toBeVisible()
-  await expect(page.getByRole("button", { name: /generate po draft/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /reorder policy review/i })).toBeVisible()
+  await expect(page.getByRole("link", { name: /open demand \/ bom coverage/i })).toBeVisible()
 
   await page.goto("/planning/board?section=winder&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("planner-page")).toBeVisible()
