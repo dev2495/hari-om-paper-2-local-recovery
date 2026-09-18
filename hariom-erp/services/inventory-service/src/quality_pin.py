@@ -11,16 +11,19 @@ from datetime import datetime
 from typing import Any, Optional
 
 
+PINNABLE_STATUSES = frozenset({"approved", "approved_exemption", "exemption", "not_required"})
+
+
 def approved_profile_payload(profile: Any) -> Optional[dict[str, Any]]:
     if not isinstance(profile, dict) or not profile:
         return None
     status = str(profile.get("status") or profile.get("setup_status") or "").strip().lower()
-    if status == "approved":
+    if status in PINNABLE_STATUSES:
         return dict(profile)
     snapshot = profile.get("approved_snapshot")
     if isinstance(snapshot, dict):
         snap_status = str(snapshot.get("status") or snapshot.get("setup_status") or "").strip().lower()
-        if snap_status == "approved":
+        if snap_status in PINNABLE_STATUSES:
             return dict(snapshot)
     return None
 

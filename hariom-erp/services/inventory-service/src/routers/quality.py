@@ -37,34 +37,12 @@ from ..models import (
     TransactionType,
 )
 from ..quality_eval import evaluate_incoming, evaluate_incoming_quality, submission_error
+from ..quality_templates import ALLOWED_MATERIAL_TYPES
 from ..services import get_batch_balance
 from ..utils.auth import authorized_plant_ids, get_current_plant, get_current_plant_scope, require_role
 
 router = APIRouter(prefix="/inventory/quality", tags=["inventory-quality"])
 
-QC_TEMPLATE_PRESETS: tuple[dict[str, Any], ...] = (
-    {"material_type": "ADHESIVE", "parameter_key": "viscosity", "label": "Viscosity", "input_type": "number", "required": True, "sort_order": 10},
-    {"material_type": "ADHESIVE", "parameter_key": "temperature", "label": "Temperature", "input_type": "number", "required": True, "sort_order": 20},
-    {"material_type": "ADHESIVE", "parameter_key": "solid_content", "label": "Solid Content", "input_type": "number", "required": True, "sort_order": 30},
-    {"material_type": "ADHESIVE", "parameter_key": "color", "label": "Color", "input_type": "text", "required": True, "sort_order": 40},
-    {"material_type": "ADHESIVE", "parameter_key": "ph", "label": "PH", "input_type": "number", "required": True, "sort_order": 50},
-    {"material_type": "PARCHMENT", "parameter_key": "color_bleeding", "label": "Color Bleeding", "input_type": "select", "options": ["PASS", "FAIL"], "required": True, "sort_order": 10},
-    {"material_type": "PARCHMENT", "parameter_key": "gsm", "label": "GSM", "input_type": "number", "required": True, "sort_order": 20},
-    {"material_type": "PARCHMENT", "parameter_key": "bf", "label": "BF", "input_type": "number", "required": True, "sort_order": 30},
-    {"material_type": "RAW_PAPER", "parameter_key": "gsm", "label": "GSM", "input_type": "number", "required": True, "sort_order": 10},
-    {"material_type": "RAW_PAPER", "parameter_key": "bs", "label": "BS", "input_type": "number", "required": False, "sort_order": 20},
-    {"material_type": "RAW_PAPER", "parameter_key": "bf", "label": "BF", "input_type": "number", "required": True, "sort_order": 30},
-    {"material_type": "RAW_PAPER", "parameter_key": "caliper_mm", "label": "Caliper (mm)", "input_type": "number", "required": False, "sort_order": 40},
-    {"material_type": "RAW_PAPER", "parameter_key": "bulk", "label": "Bulk", "input_type": "number", "required": False, "sort_order": 50},
-    {"material_type": "RAW_PAPER", "parameter_key": "ply_bond", "label": "Ply Bond", "input_type": "number", "required": False, "sort_order": 60},
-    {"material_type": "RAW_PAPER", "parameter_key": "rct", "label": "RCT", "input_type": "number", "required": False, "sort_order": 70},
-    {"material_type": "RAW_PAPER", "parameter_key": "cobb", "label": "COBB", "input_type": "number", "required": False, "sort_order": 80},
-    {"material_type": "RAW_PAPER", "parameter_key": "moisture_pct", "label": "Moisture %", "input_type": "number", "required": True, "sort_order": 90},
-    {"material_type": "RAW_PAPER", "parameter_key": "clear_for_slitting", "label": "Clear For Slitting", "input_type": "select", "options": ["YES", "NO", "HOLD"], "required": True, "sort_order": 100},
-    {"material_type": "FINISHED_GOOD", "parameter_key": "visual_defect", "label": "Visual Defect", "input_type": "text", "required": False, "sort_order": 10},
-    {"material_type": "FINISHED_GOOD", "parameter_key": "reject_reason", "label": "Reject Reason", "input_type": "text", "required": True, "sort_order": 20},
-    {"material_type": "FINISHED_GOOD", "parameter_key": "rework_possible", "label": "Rework Possible", "input_type": "select", "options": ["YES", "NO"], "required": True, "sort_order": 30},
-)
 
 VALID_ENTITY_TYPES = {"BATCH", "REEL", "CUSTOMER_REJECTION"}
 VALID_SOURCES = {"INWARD", "CUSTOMER_REJECTION", "PROCESS_STAGE"}
@@ -173,8 +151,9 @@ def normalize_material_type(value: str) -> str:
         "FINISHED": "FINISHED_GOOD",
     }
     normalized = aliases.get(normalized, normalized)
-    allowed = {"ADHESIVE", "PARCHMENT", "RAW_PAPER", "FINISHED_GOOD", "PACKAGING", "OTHER"}
-    if normalized not in allowed:
+    if normalized == "PACKING":
+        normalized = "PACKAGING"
+    if normalized not in ALLOWED_MATERIAL_TYPES:
         raise HTTPException(status_code=400, detail="Invalid material_type")
     return normalized
 
@@ -328,6 +307,9 @@ class QualityInspectionCreate(BaseModel):
     readings: dict[str, Any] = Field(default_factory=dict)
     failures: list[dict[str, Any]] = Field(default_factory=list)
     reasons: dict[str, Any] = Field(default_factory=dict)
+    supplier_certificate: Optional[dict[str, Any]] = None
+    sample_count: Optional[int] = Field(default=None, ge=0)
+    sample_ids: Optional[list[str]] = None
     disposition: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -752,19 +734,33 @@ def create_quality_inspection(
     computed_failures: list[dict[str, Any]] = []
     reasons = payload.reasons or {}
     reason_pending = False
+    received_on = None
+    if batch is not None:
+        inward_txn = (
+            db.query(StockTransaction)
+            .filter(
+                StockTransaction.batch_id == batch.id,
+                StockTransaction.transaction_type == TransactionType.INWARD,
+            )
+            .order_by(StockTransaction.created_at.asc())
+            .first()
+        )
+        received_on = inward_txn.effective_date if inward_txn is not None else None
 
     if profile:
         # Pinned receipt/item-profile ranges. Client status is ignored.
         # Persist the observation even when the explanation is still pending.
+        # Supplier certificate values stay separate from local readings.
         evaluation = evaluate_incoming(
             profile=profile,
             readings=payload.readings or {},
             reasons=reasons,
             require_reasons_on_fail=True,
+            plant_id=plant_id,
+            as_of=received_on,
+            item_id=item.id if item is not None else None,
         )
         status = evaluation.verdict
-        if status == "NOT_REQUIRED":
-            status = "SKIPPED"
         computed_failures = list(evaluation.failures)
         evaluation_payload = evaluation.as_dict()
         if evaluation.missing_reasons:
@@ -773,6 +769,16 @@ def create_quality_inspection(
             evaluation_payload["reason_pending"] = True
         evaluation_payload["profile_revision"] = (profile or {}).get("revision")
         evaluation_payload["profile_pinned"] = True
+        if payload.supplier_certificate:
+            evaluation_payload["supplier_certificate"] = dict(payload.supplier_certificate)
+            evaluation_payload["evidence_sources"] = {
+                "local_readings": dict(payload.readings or {}),
+                "supplier_certificate": dict(payload.supplier_certificate),
+            }
+        if payload.sample_count is not None:
+            evaluation_payload["sample_count"] = payload.sample_count
+        if payload.sample_ids:
+            evaluation_payload["sample_ids"] = list(payload.sample_ids)
     else:
         # Fallback: template-based incoming verdict (p0 Q04). Client status is
         # ignored except that missing/invalid evidence cannot unlock stock.
@@ -781,6 +787,14 @@ def create_quality_inspection(
         status = incoming.status
         computed_failures = incoming.failures
         evaluation_payload = {"status": status, "failures": computed_failures, "evaluator": "incoming_template"}
+        if payload.supplier_certificate:
+            evaluation_payload["supplier_certificate"] = dict(payload.supplier_certificate)
+            evaluation_payload["evidence_sources"] = {
+                "local_readings": dict(payload.readings or {}),
+                "supplier_certificate": dict(payload.supplier_certificate),
+            }
+        if payload.sample_count is not None:
+            evaluation_payload["sample_count"] = payload.sample_count
 
     # Concession gate: FAIL/INVALID/INCOMPLETE + ACCEPT cannot unrestrict on
     # the inspection write path. A second-person Owner/Admin concession is required.
@@ -806,7 +820,19 @@ def create_quality_inspection(
 
     held_statuses = {"FAIL", "INVALID", "INCOMPLETE"}
     if batch:
-        if status == "PASS":
+        if status == "NOT_REQUIRED":
+            batch.stock_status = "UNRESTRICTED"
+            for txn in (
+                db.query(StockTransaction)
+                .filter(
+                    StockTransaction.batch_id == batch.id,
+                    StockTransaction.stock_status == "QC_HOLD",
+                    StockTransaction.transaction_type == TransactionType.INWARD,
+                )
+                .all()
+            ):
+                txn.stock_status = batch.stock_status
+        elif status == "PASS":
             batch.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
             for txn in (
                 db.query(StockTransaction)
@@ -826,7 +852,9 @@ def create_quality_inspection(
             )
         stock_status = batch.stock_status
     elif reel:
-        if status == "PASS":
+        if status == "NOT_REQUIRED":
+            reel.stock_status = "UNRESTRICTED"
+        elif status == "PASS":
             reel.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
         elif status in held_statuses:
             reel.stock_status = (

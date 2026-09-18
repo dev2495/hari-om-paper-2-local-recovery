@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import os
 import threading
+import time
 import uuid
 from datetime import date
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
@@ -69,6 +71,22 @@ def setup_module() -> None:
         connection.execute(text("ALTER TABLE IF EXISTS item_master DROP CONSTRAINT IF EXISTS item_master_item_code_key"))
         connection.execute(text("DROP INDEX IF EXISTS item_master_item_code_key"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_item_master_plant_code ON item_master (plant_id, item_code)"))
+        for value in ("PACKAGING", "TOOL", "OTHER"):
+            connection.execute(
+                text(
+                    "DO $$ BEGIN "
+                    f"ALTER TYPE itemtype ADD VALUE IF NOT EXISTS '{value}'; "
+                    "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+                )
+            )
+        connection.execute(text("ALTER TABLE IF EXISTS purchase_receipt_lines DROP CONSTRAINT IF EXISTS ck_purchase_receipt_lines_qc_status"))
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS purchase_receipt_lines "
+                "ADD CONSTRAINT ck_purchase_receipt_lines_qc_status "
+                "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED'))"
+            )
+        )
 
 
 def _user(sub: str, roles=("Store",)) -> dict:
@@ -287,12 +305,12 @@ def test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_sched
     try:
         suffix = uuid.uuid4().hex[:8]
         specs = [
-            (ItemType.RAW_PAPER, UOM.KG, {"width_mm": 76, "gsm": 180, "plybond": 1.2}),
-            (ItemType.RAW_PAPER, UOM.KG, {"width_mm": 90, "gsm": 200, "bulk": 1.4}),
+            (ItemType.RAW_PAPER, UOM.KG, {"width_mm": 76, "gsm": 180, "qualifiers": ["PB 18+"]}),
             (ItemType.ADHESIVE, UOM.KG, {"description": "starch adhesive"}),
-            (ItemType.ADHESIVE, UOM.PCS, {"description": "adhesive pail"}),
             (ItemType.PARCHMENT, UOM.KG, {"description": "inner parchment"}),
-            (ItemType.PARCHMENT, UOM.PCS, {"description": "outer parchment"}),
+            (ItemType.PACKAGING, UOM.PCS, {"description": "carton"}),
+            (ItemType.TOOL, UOM.PCS, {"description": "slitter blade"}),
+            (ItemType.FINISHED_GOOD, UOM.PCS, {"description": "purchased core"}),
         ]
         items = []
         for idx, (item_type, uom, extra) in enumerate(specs, start=1):
@@ -340,11 +358,15 @@ def test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_sched
         assert "tax_amount" not in created
         assert len(created["lines"]) == 6
         types = {row["item_type"] for row in created["lines"]}
-        assert {"RAW_PAPER", "ADHESIVE", "PARCHMENT"} <= types
+        assert types == {"RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "TOOL", "FINISHED_GOOD"}
         assert all(row["schedules"] == [] for row in created["lines"])
         assert created["lines"][0]["width_mm"] == 76
         assert created["lines"][0]["uom"] == "KG"
-        assert created["lines"][3]["uom"] == "PCS"
+        assert created["lines"][0]["qualifiers"][0]["raw"] == "PB 18+"
+        assert created["lines"][0]["qualifiers"][0]["plus_retained"] is True
+        assert created["lines"][0]["qualifiers"][0]["inclusive_guessed"] is False
+        assert created["lines"][4]["item_type"] == "TOOL"
+        assert created["lines"][4]["uom"] == "PCS"
         amounts = [row["amount"] for row in created["lines"]]
         assert amounts == [round(10 * idx * idx, 2) for idx in range(1, 7)]
     finally:
@@ -979,4 +1001,112 @@ def test_reg01_dispatch_retry_same_ref_does_not_duplicate_outward():
         assert abs(float(second.qty_dispatched) - 20) < 1e-9
     finally:
         db.close()
+
+
+def test_inc02_malformed_duplicate_and_conflict_do_not_false_succeed():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, loc = _item_and_location(db, suffix)
+        with pytest.raises(ValidationError):
+            PurchaseOrderLineCreate(item_id=item.id, qty_ordered=10, unit_cost=1, unknown_field="nope")
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-INC-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Incident Mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        with pytest.raises(HTTPException) as duplicate:
+            create_purchase_order(
+                PurchaseOrderCreate(
+                    po_no=f"PO-INC-{suffix}",
+                    supplier_id=uuid.uuid4(),
+                    supplier_name="Incident Mills",
+                    lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5)],
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+        assert duplicate.value.status_code == 400
+        po_id = uuid.UUID(str(created["id"]))
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
+        post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-INC-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=10, location_id=loc.id)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        with pytest.raises(HTTPException) as conflict:
+            post_grn(
+                po_id,
+                GrnCreate(
+                    grn_no=f"GRN-INC-{suffix}",
+                    received_date=date(2026, 9, 18),
+                    lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=11, location_id=loc.id)],
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+        assert conflict.value.status_code == 409
+    finally:
+        db.close()
+
+
+def test_reg04_isolated_target_build_reports_measured_concurrency():
+    started = time.perf_counter()
+    barrier = threading.Barrier(8)
+    results: list[object] = []
+    lock = threading.Lock()
+
+    def worker(tag: str) -> None:
+        worker_engine = create_engine(URL, poolclass=NullPool)
+        session = sessionmaker(bind=worker_engine, autoflush=False, autocommit=False)()
+        try:
+            suffix = f"{uuid.uuid4().hex[:6]}{tag}"
+            item, _loc = _item_and_location(session, suffix)
+            barrier.wait(timeout=10)
+            created = create_purchase_order(
+                PurchaseOrderCreate(
+                    po_no=f"PO-R4-{suffix}",
+                    supplier_id=uuid.uuid4(),
+                    supplier_name="Load Mills",
+                    lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=5, unit_cost=3)],
+                ),
+                db=session,
+                plant_id=PLANT,
+                current_user=_user(f"store-{tag}", roles=("Store",)),
+            )
+            with lock:
+                results.append(created["po_no"])
+        except Exception as exc:
+            session.rollback()
+            with lock:
+                results.append(("exc", type(exc).__name__, str(exc)))
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=worker, args=(str(idx),)) for idx in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    assert len(results) == 8, results
+    assert all(isinstance(row, str) and row.startswith("PO-R4-") for row in results), results
+    assert len(set(results)) == 8
+    assert elapsed_ms < 15000
+
 

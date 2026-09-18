@@ -4,13 +4,13 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { ArrowRight, Boxes, PencilLine, Plus, Save } from "lucide-react"
 
-import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem, useUpsertItemQualityProfile } from "@/hooks/use-inventory"
+import { useCreateItem, useDeleteItem, useInventoryBalances, useInventoryItems, useUpdateItem, useUpsertItemQualityProfile, useCopyItemQualityTemplate, useApproveItemQualityProfile } from "@/hooks/use-inventory"
 import { ItemQualityProfileForm } from "@/components/qc/ItemQualityProfileForm"
 
 const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
 
-const itemTypes = ["RAW_PAPER", "ADHESIVE", "PARCHMENT", "FINISHED_GOOD"]
+const itemTypes = ["RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "TOOL", "FINISHED_GOOD", "OTHER"]
 const uoms = ["KG", "PCS"]
 const trackingModes = ["BULK", "REEL"]
 
@@ -20,6 +20,8 @@ export default function InventoryItemsPage() {
   const createItem = useCreateItem()
   const updateItem = useUpdateItem()
   const upsertQualityProfile = useUpsertItemQualityProfile()
+  const copyQualityTemplate = useCopyItemQualityTemplate()
+  const approveQualityProfile = useApproveItemQualityProfile()
   const deleteItem = useDeleteItem()
   const [selectedItemId, setSelectedItemId] = useState("")
   const [form, setForm] = useState({
@@ -101,7 +103,7 @@ export default function InventoryItemsPage() {
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Inventory master</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Items and stock policy</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-cyan-50/78">
-              Create RM, FG, adhesive, and parchment items with tracking mode, UOM, reorder, safety, and lead-time controls.
+              Create RM, FG, adhesive, parchment, packaging, tool, and OTHER items with tracking mode, UOM, reorder, safety, and lead-time controls.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-4 xl:w-[560px]">
@@ -217,11 +219,21 @@ export default function InventoryItemsPage() {
             <div className="mt-3">
               <ItemQualityProfileForm
                 item={selectedItem}
-                saving={upsertQualityProfile.isPending}
+                saving={upsertQualityProfile.isPending || copyQualityTemplate.isPending || approveQualityProfile.isPending}
                 onSave={async (profile) => {
                   await upsertQualityProfile.mutateAsync({
                     id: String(selectedItem.id),
                     data: { quality_profile: profile, setup_status: profile.setup_status || profile.status },
+                  })
+                }}
+                onCopyTemplate={async () => {
+                  await copyQualityTemplate.mutateAsync({ id: String(selectedItem.id) })
+                }}
+                onApprove={async (exemption?: boolean) => {
+                  const revision = Number(selectedItem.quality_profile?.revision || 1)
+                  await approveQualityProfile.mutateAsync({
+                    id: String(selectedItem.id),
+                    data: { expected_revision: revision, exemption: Boolean(exemption) },
                   })
                 }}
               />

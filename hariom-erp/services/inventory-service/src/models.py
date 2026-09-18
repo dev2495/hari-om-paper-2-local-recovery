@@ -36,6 +36,9 @@ class ItemType(str, enum.Enum):
     ADHESIVE = "ADHESIVE"
     PARCHMENT = "PARCHMENT"
     FINISHED_GOOD = "FINISHED_GOOD"
+    PACKAGING = "PACKAGING"
+    TOOL = "TOOL"
+    OTHER = "OTHER"
 
 
 class TrackingMode(str, enum.Enum):
@@ -919,7 +922,7 @@ class PurchaseReceiptLine(Base):
 
     __table_args__ = (
         CheckConstraint("qty_received > 0", name="ck_purchase_receipt_lines_qty_positive"),
-        CheckConstraint("qc_status IN ('PENDING','PASS','HOLD')", name="ck_purchase_receipt_lines_qc_status"),
+        CheckConstraint("qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED')", name="ck_purchase_receipt_lines_qc_status"),
     )
 
 

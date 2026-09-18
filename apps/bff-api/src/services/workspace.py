@@ -177,6 +177,9 @@ async def emit_from_response(
 ) -> None:
     if response.status_code >= 400:
         return
+    body = response_body_json(response)
+    if isinstance(body, dict) and body.get("idempotent") is True:
+        return
     try:
         await emit_notification_event(
             token=token,

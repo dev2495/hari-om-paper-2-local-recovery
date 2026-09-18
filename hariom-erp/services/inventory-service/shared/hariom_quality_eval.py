@@ -20,6 +20,7 @@ Compatibility APIs retained from the p0 correctness slice:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from math import isfinite
 from typing import Any, Iterable, Optional
@@ -437,13 +438,69 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
     return ordered
 
 
-def rules_from_item_profile(profile: Any) -> tuple[str, list[ParameterRule]]:
+def _parse_as_of_date(value: Any) -> Optional[date]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text[:10])
+    except ValueError:
+        return None
+
+
+def exemption_scope_applies(
+    profile: Any,
+    *,
+    plant_id: Any = None,
+    as_of: Any = None,
+    item_id: Any = None,
+) -> bool:
+    """True when an approved no-inspection exemption covers this receipt."""
+    if not isinstance(profile, dict) or not profile:
+        return False
+    setup = str(profile.get("setup_status") or profile.get("status") or "").strip().lower()
+    inspection_required = profile.get("inspection_required")
+    if setup not in {"not_required", "exemption", "approved_exemption"} and inspection_required is not False:
+        return False
+    scope = profile.get("exemption_scope") if isinstance(profile.get("exemption_scope"), dict) else {}
+    scoped_plant = str(scope.get("plant_id") or "").strip()
+    if plant_id is not None and scoped_plant and scoped_plant != str(plant_id).strip():
+        return False
+    scoped_item = str(scope.get("item_id") or "").strip()
+    if item_id is not None and scoped_item and scoped_item != str(item_id).strip():
+        return False
+    as_of_date = _parse_as_of_date(as_of)
+    if as_of_date is not None:
+        from_d = _parse_as_of_date(scope.get("effective_from"))
+        to_d = _parse_as_of_date(scope.get("effective_to"))
+        if from_d and as_of_date < from_d:
+            return False
+        if to_d and as_of_date > to_d:
+            return False
+    return True
+
+
+def rules_from_item_profile(
+    profile: Any,
+    *,
+    plant_id: Any = None,
+    as_of: Any = None,
+    item_id: Any = None,
+) -> tuple[str, list[ParameterRule]]:
     if not isinstance(profile, dict) or not profile:
         return "incomplete", []
     setup = str(profile.get("setup_status") or profile.get("status") or "").strip().lower()
     inspection_required = profile.get("inspection_required")
     if setup in {"not_required", "exemption", "approved_exemption"} or inspection_required is False:
-        return VERDICT_NOT_REQUIRED, []
+        if exemption_scope_applies(profile, plant_id=plant_id, as_of=as_of, item_id=item_id):
+            return VERDICT_NOT_REQUIRED, []
+        return "incomplete", []
     raw_params = profile.get("parameters") or []
     rules: list[ParameterRule] = []
     if isinstance(raw_params, list):
@@ -718,8 +775,11 @@ def evaluate_incoming(
     readings: dict[str, Any],
     reasons: Any = None,
     require_reasons_on_fail: bool = True,
+    plant_id: Any = None,
+    as_of: Any = None,
+    item_id: Any = None,
 ) -> InspectionEvaluation:
-    setup, rules = rules_from_item_profile(profile)
+    setup, rules = rules_from_item_profile(profile, plant_id=plant_id, as_of=as_of, item_id=item_id)
     if setup == VERDICT_NOT_REQUIRED:
         return InspectionEvaluation(
             verdict=VERDICT_NOT_REQUIRED,

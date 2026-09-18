@@ -205,3 +205,40 @@ def test_qct014_incoming_and_job_adapters_share_golden_numeric_contract():
     assert incoming_blank.verdict == job_blank.verdict == "INCOMPLETE"
     assert incoming_pass.profile_revision == 7
     assert job_pass.profile_revision == 7
+
+
+def test_qct019_exemption_is_not_required_inside_scope_and_incomplete_outside():
+    profile = {
+        "status": "approved_exemption",
+        "setup_status": "approved_exemption",
+        "inspection_required": False,
+        "exemption_scope": {
+            "plant_id": "PLANT_A",
+            "effective_from": "2026-09-01",
+            "effective_to": "2026-09-30",
+        },
+        "parameters": [{"code": "gsm", "min": 180, "max": 200}],
+    }
+    inside = evaluate_incoming(
+        profile=profile,
+        readings={"gsm": 190},
+        plant_id="PLANT_A",
+        as_of="2026-09-10",
+    )
+    outside_date = evaluate_incoming(
+        profile=profile,
+        readings={"gsm": 190},
+        plant_id="PLANT_A",
+        as_of="2026-08-01",
+    )
+    outside_plant = evaluate_incoming(
+        profile=profile,
+        readings={"gsm": 190},
+        plant_id="PLANT_B",
+        as_of="2026-09-10",
+    )
+    assert inside.verdict == "NOT_REQUIRED"
+    assert inside.verdict != "PASS"
+    assert outside_date.verdict == "INCOMPLETE"
+    assert outside_plant.verdict == "INCOMPLETE"
+

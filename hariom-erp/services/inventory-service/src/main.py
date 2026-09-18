@@ -1,9 +1,11 @@
+import json
 import uuid
 
 from fastapi import FastAPI
 from sqlalchemy import text
 
 from .database import Base, engine
+from .quality_templates import QC_TEMPLATE_PRESETS
 from .routers import (
     balance,
     dispatch,
@@ -31,6 +33,17 @@ Base.metadata.create_all(bind=engine)
 
 def ensure_runtime_schema() -> None:
   with engine.begin() as connection:
+    connection.execute(
+      text(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'itemtype') THEN "
+        "BEGIN ALTER TYPE itemtype ADD VALUE IF NOT EXISTS 'PACKAGING'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE itemtype ADD VALUE IF NOT EXISTS 'TOOL'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE itemtype ADD VALUE IF NOT EXISTS 'OTHER'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "END IF; "
+        "END $$;"
+      )
+    )
     connection.execute(
       text(
         "DO $$ BEGIN "
@@ -428,6 +441,14 @@ def ensure_runtime_schema() -> None:
         "CHECK (status IN ('PENDING','PASS','FAIL','SKIPPED','INCOMPLETE','INVALID','NOT_REQUIRED'))"
       )
     )
+    connection.execute(text("ALTER TABLE IF EXISTS purchase_receipt_lines DROP CONSTRAINT IF EXISTS ck_purchase_receipt_lines_qc_status"))
+    connection.execute(
+      text(
+        "ALTER TABLE IF EXISTS purchase_receipt_lines "
+        "ADD CONSTRAINT ck_purchase_receipt_lines_qc_status "
+        "CHECK (qc_status IN ('PENDING','PASS','HOLD','NOT_REQUIRED'))"
+      )
+    )
     connection.execute(
       text(
         "CREATE TABLE IF NOT EXISTS purchase_line_schedules ("
@@ -713,29 +734,6 @@ seed_default_locations()
 
 def seed_default_quality_templates() -> None:
   """Seed editable QC parameter templates from the current client QC forms."""
-  presets = (
-    ("ADHESIVE", "viscosity", "Viscosity", "number", "[]", True, 10),
-    ("ADHESIVE", "temperature", "Temperature", "number", "[]", True, 20),
-    ("ADHESIVE", "solid_content", "Solid Content", "number", "[]", True, 30),
-    ("ADHESIVE", "color", "Color", "text", "[]", True, 40),
-    ("ADHESIVE", "ph", "PH", "number", "[]", True, 50),
-    ("PARCHMENT", "color_bleeding", "Color Bleeding", "select", '["PASS","FAIL"]', True, 10),
-    ("PARCHMENT", "gsm", "GSM", "number", "[]", True, 20),
-    ("PARCHMENT", "bf", "BF", "number", "[]", True, 30),
-    ("RAW_PAPER", "gsm", "GSM", "number", "[]", True, 10),
-    ("RAW_PAPER", "bs", "BS", "number", "[]", False, 20),
-    ("RAW_PAPER", "bf", "BF", "number", "[]", True, 30),
-    ("RAW_PAPER", "caliper_mm", "Caliper (mm)", "number", "[]", False, 40),
-    ("RAW_PAPER", "bulk", "Bulk", "number", "[]", False, 50),
-    ("RAW_PAPER", "ply_bond", "Ply Bond", "number", "[]", False, 60),
-    ("RAW_PAPER", "rct", "RCT", "number", "[]", False, 70),
-    ("RAW_PAPER", "cobb", "COBB", "number", "[]", False, 80),
-    ("RAW_PAPER", "moisture_pct", "Moisture %", "number", "[]", True, 90),
-    ("RAW_PAPER", "clear_for_slitting", "Clear For Slitting", "select", '["YES","NO","HOLD"]', True, 100),
-    ("FINISHED_GOOD", "visual_defect", "Visual Defect", "text", "[]", False, 10),
-    ("FINISHED_GOOD", "reject_reason", "Reject Reason", "text", "[]", True, 20),
-    ("FINISHED_GOOD", "rework_possible", "Rework Possible", "select", '["YES","NO"]', True, 30),
-  )
   upsert_sql = text(
     """
     INSERT INTO inventory_quality_templates (
@@ -756,18 +754,18 @@ def seed_default_quality_templates() -> None:
     """
   )
   with engine.begin() as connection:
-    for material_type, key, label, input_type, options, required, sort_order in presets:
+    for preset in QC_TEMPLATE_PRESETS:
       connection.execute(
         upsert_sql,
         {
           "id": str(uuid.uuid4()),
-          "material_type": material_type,
-          "parameter_key": key,
-          "label": label,
-          "input_type": input_type,
-          "options": options,
-          "required": required,
-          "sort_order": sort_order,
+          "material_type": preset["material_type"],
+          "parameter_key": preset["parameter_key"],
+          "label": preset["label"],
+          "input_type": preset["input_type"],
+          "options": json.dumps(preset.get("options") or []),
+          "required": bool(preset.get("required")),
+          "sort_order": preset.get("sort_order") or 0,
         },
       )
 

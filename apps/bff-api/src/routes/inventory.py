@@ -77,6 +77,16 @@ async def upsert_item_quality_profile(item_id: str, request: Request, token: str
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile", request, token)
 
 
+@router.post("/items/{item_id}/quality-profile/copy-template")
+async def copy_item_quality_template(item_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile/copy-template", request, token)
+
+
+@router.post("/items/{item_id}/quality-profile/approve")
+async def approve_item_quality_profile(item_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/items/{item_id}/quality-profile/approve", request, token)
+
+
 @router.delete("/items/{item_id}")
 async def delete_item(item_id: str, request: Request, token: str = Depends(get_token)):
     """Soft-delete an item. Historical transactions remain intact."""

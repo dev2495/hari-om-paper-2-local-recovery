@@ -27,7 +27,9 @@ from ..models import (
     StockTransaction,
     TransactionType,
 )
+from ..quality_eval import exemption_scope_applies
 from ..quality_pin import pin_quality_profile_metadata
+from ..services.po_qualifier import parse_po_qualifier, qualifier_conflicts_item
 from ..services.purchase_workbook import (
     commit_workbook,
     preview_workbook,
@@ -79,7 +81,7 @@ def _receipt_status(qc_statuses: list[str]) -> str:
         return "QC_HOLD"
     if any(status == "PENDING" for status in statuses):
         return "QC_PENDING"
-    if statuses and all(status == "PASS" for status in statuses):
+    if statuses and all(status in {"PASS", "NOT_REQUIRED"} for status in statuses):
         return "QC_CLEARED"
     return "POSTED"
 
@@ -115,6 +117,7 @@ class PurchaseOrderLineCreate(BaseModel):
     plybond: Optional[float] = Field(default=None, ge=0)
     bulk: Optional[float] = Field(default=None, ge=0)
     cobb: Optional[str] = Field(default=None, max_length=120)
+    qualifiers: Optional[list[str]] = None
     metadata_json: Optional[dict[str, Any]] = None
 
 
@@ -179,6 +182,7 @@ class GrnLineCreate(BaseModel):
     batch_no: Optional[str] = Field(default=None, max_length=100)
     location_id: Optional[uuid.UUID] = None
     schedule_id: Optional[uuid.UUID] = None
+    sample_count: Optional[int] = Field(default=None, ge=0)
 
 
 class GrnCreate(BaseModel):
@@ -308,6 +312,9 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "plybond": (line.metadata_json or {}).get("plybond"),
                 "bulk": (line.metadata_json or {}).get("bulk"),
                 "cobb": (line.metadata_json or {}).get("cobb"),
+                "qualifiers": (line.metadata_json or {}).get("qualifiers"),
+                "qualifier_conflicts": (line.metadata_json or {}).get("qualifier_conflicts") or [],
+                "requires_review": bool((line.metadata_json or {}).get("requires_review")),
                 "amount": round(float(line.qty_ordered or 0.0) * float(line.unit_cost or 0.0), 2),
                 "metadata_json": line.metadata_json or {},
                 "schedules": [
@@ -386,6 +393,16 @@ def create_purchase_order(
         item = db.query(ItemMaster).filter(ItemMaster.id == line.item_id, ItemMaster.plant_id == plant_id).first()
         if not item:
             raise HTTPException(status_code=404, detail=f"Item not found for PO line {idx}")
+        live_profile = dict(item.quality_profile) if isinstance(item.quality_profile, dict) else None
+        raw_qualifiers = [str(value).strip() for value in (line.qualifiers or []) if str(value).strip()]
+        if line.cobb and str(line.cobb).strip() not in raw_qualifiers:
+            raw_qualifiers.append(str(line.cobb).strip())
+        parsed_qualifiers = [parse_po_qualifier(value) for value in raw_qualifiers]
+        conflicts = []
+        for parsed in parsed_qualifiers:
+            conflict = qualifier_conflicts_item(parsed, live_profile)
+            if conflict:
+                conflicts.append(conflict)
         db.add(
             PurchaseOrderLine(
                 purchase_order_id=order.id,
@@ -403,6 +420,11 @@ def create_purchase_order(
                     "plybond": line.plybond,
                     "bulk": line.bulk,
                     "cobb": line.cobb,
+                    "qualifiers_raw": raw_qualifiers,
+                    "qualifiers": parsed_qualifiers,
+                    "qualifier_conflicts": conflicts,
+                    "requires_review": bool(conflicts),
+                    "item_profile_untouched": True,
                 },
             )
         )
@@ -566,11 +588,32 @@ def post_grn(
                 raise HTTPException(status_code=404, detail=f"Location not found for GRN line {idx}")
 
         batch_no = (line_payload.batch_no or f"{grn_no}-B{idx:03d}").strip().upper()
-        stock_status = "QC_HOLD" if po_line.incoming_qc_required else "UNRESTRICTED"
         inward_metadata = pin_quality_profile_metadata(
             {},
             getattr(po_line.item, "quality_profile", None) if po_line.item is not None else None,
         )
+        if line_payload.sample_count is not None:
+            inward_metadata["sample_count"] = line_payload.sample_count
+        pinned_profile = inward_metadata.get("quality_profile") if isinstance(inward_metadata, dict) else None
+        exemption = exemption_scope_applies(
+            pinned_profile,
+            plant_id=plant_id,
+            as_of=payload.received_date,
+            item_id=po_line.item_id,
+        )
+        if exemption:
+            stock_status = "UNRESTRICTED"
+            qc_status = "NOT_REQUIRED"
+        elif po_line.incoming_qc_required:
+            stock_status = "QC_HOLD"
+            qc_status = "PENDING"
+        else:
+            stock_status = "UNRESTRICTED"
+            qc_status = "PASS"
+        inward_metadata["incoming_qc_task"] = {
+            "status": qc_status,
+            "notification_status": "PENDING" if qc_status == "PENDING" else qc_status,
+        }
         batch = StockBatch(
             item_id=po_line.item_id,
             batch_no=batch_no,
@@ -610,13 +653,13 @@ def post_grn(
                     "supplier_id": str(order.supplier_id),
                     "supplier_name": order.supplier_name_snapshot,
                     "incoming_qc_required": bool(po_line.incoming_qc_required),
-                    "qc_status": "PENDING" if po_line.incoming_qc_required else "PASS",
+                    "qc_status": qc_status,
+                    "sample_count": line_payload.sample_count,
                     "po_line_metadata": po_line.metadata_json or {},
                 },
                 external_ref=f"GRN:{receipt.id}:{idx}",
             )
         )
-        qc_status = "PENDING" if po_line.incoming_qc_required else "PASS"
         receipt_line = PurchaseReceiptLine(
             receipt_id=receipt.id,
             purchase_order_line_id=po_line.id,

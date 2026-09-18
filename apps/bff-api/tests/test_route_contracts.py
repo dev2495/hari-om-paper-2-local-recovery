@@ -263,3 +263,9 @@ def test_tool_issue_stage_must_exist_on_selected_job_card():
     with pytest.raises(Exception) as caught:
         _validate_tool_issue_job_card(card, "PACKING")
     assert caught.value.status_code == 409
+
+
+def test_inventory_bff_exposes_quality_profile_copy_and_approve():
+    route_keys = set(_route_keys(inventory_router))
+    assert ("POST", "/items/{item_id}/quality-profile/copy-template") in route_keys
+    assert ("POST", "/items/{item_id}/quality-profile/approve") in route_keys

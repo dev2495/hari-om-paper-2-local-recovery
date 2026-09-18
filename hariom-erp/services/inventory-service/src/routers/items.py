@@ -3,13 +3,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, field_validator
-from datetime import datetime
+from datetime import date, datetime
 import uuid
 from ..database import get_db
-from ..models import ItemMaster, ItemType, TrackingMode
+from ..models import InventoryQualityTemplate, ItemMaster, ItemType, TrackingMode
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
-from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_save
+from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_exemption, apply_profile_save
 
 _audit_logger = logging.getLogger(__name__)
 
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/items", tags=["items"])
 class ItemCreate(BaseModel):
     item_code: str
     name: str
-    type: str  # RAW_PAPER, ADHESIVE, PARCHMENT, FINISHED_GOOD
+    type: str  # RAW_PAPER, ADHESIVE, PARCHMENT, FINISHED_GOOD, PACKAGING, TOOL, OTHER
     tracking_mode: str | None = None  # REEL, BULK
     uom: str   # KG, PCS
     unit_cost: float | None = None
@@ -57,7 +57,7 @@ class ItemCreate(BaseModel):
     def validate_type(cls, value: str):
         normalized = value.strip().upper()
         if normalized not in {item.value for item in ItemType}:
-            raise ValueError("type must be RAW_PAPER, ADHESIVE, PARCHMENT, or FINISHED_GOOD")
+            raise ValueError("type must be RAW_PAPER, ADHESIVE, PARCHMENT, FINISHED_GOOD, PACKAGING, TOOL, or OTHER")
         return normalized
 
     @field_validator("tracking_mode")
@@ -135,7 +135,7 @@ class ItemUpdate(BaseModel):
             return value
         normalized = value.strip().upper()
         if normalized not in {item.value for item in ItemType}:
-            raise ValueError("type must be RAW_PAPER, ADHESIVE, PARCHMENT, or FINISHED_GOOD")
+            raise ValueError("type must be RAW_PAPER, ADHESIVE, PARCHMENT, FINISHED_GOOD, PACKAGING, TOOL, or OTHER")
         return normalized
 
     @field_validator("tracking_mode")
@@ -349,6 +349,14 @@ class ItemQualityProfileUpdate(BaseModel):
 
 class ItemQualityProfileApprove(BaseModel):
     expected_revision: int
+    exemption: bool = False
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    scope_plant_id: Optional[str] = None
+
+
+class ItemQualityProfileCopyTemplate(BaseModel):
+    material_type: Optional[str] = None
 
 
 def _actor_roles(current_user: dict) -> list[str]:
@@ -399,10 +407,89 @@ def approve_item_quality_profile(
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
     try:
-        db_item.quality_profile = apply_profile_approve(
+        if payload.exemption:
+            db_item.quality_profile = apply_profile_exemption(
+                db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
+                expected_revision=payload.expected_revision,
+                actor=str(current_user.get("sub") or "unknown"),
+                actor_roles=_actor_roles(current_user),
+                plant_id=payload.scope_plant_id or plant_id,
+                item_id=str(db_item.id),
+                effective_from=payload.effective_from,
+                effective_to=payload.effective_to,
+            )
+        else:
+            db_item.quality_profile = apply_profile_approve(
+                db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
+                expected_revision=payload.expected_revision,
+                actor=str(current_user.get("sub") or "unknown"),
+                actor_roles=_actor_roles(current_user),
+            )
+    except ProfileLifecycleError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
+    db.commit()
+    db.refresh(db_item)
+    return db_item
+
+
+@router.post("/{item_id}/quality-profile/copy-template", response_model=ItemResponse)
+def copy_item_quality_template(
+    item_id: uuid.UUID,
+    payload: ItemQualityProfileCopyTemplate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "Store"])),
+):
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    material = str(
+        payload.material_type
+        or (db_item.type.value if hasattr(db_item.type, "value") else db_item.type)
+    ).strip().upper()
+    if material == "PACKING":
+        material = "PACKAGING"
+    rows = (
+        db.query(InventoryQualityTemplate)
+        .filter(
+            InventoryQualityTemplate.material_type == material,
+            InventoryQualityTemplate.plant_id.in_(["GLOBAL", plant_id]),
+            InventoryQualityTemplate.active == "true",
+        )
+        .order_by(InventoryQualityTemplate.sort_order.asc(), InventoryQualityTemplate.label.asc())
+        .all()
+    )
+    by_key: dict[str, InventoryQualityTemplate] = {}
+    for row in rows:
+        by_key[row.parameter_key] = row
+    ordered = sorted(by_key.values(), key=lambda row: (float(row.sort_order or 0), row.label))
+    incoming = {
+        "parameters": [
+            {
+                "code": row.parameter_key,
+                "label": row.label,
+                "input_type": row.input_type,
+                "options": row.options or [],
+                "required": bool(row.required) if not isinstance(row.required, str) else str(row.required).lower() == "true",
+                "min": None,
+                "max": None,
+                "applicable": True,
+            }
+            for row in ordered
+        ],
+        "copied_from": {
+            "source": "inventory_quality_templates",
+            "material_type": material,
+            "copied_at": datetime.utcnow().isoformat(),
+            "template_keys": [row.parameter_key for row in ordered],
+        },
+        "inspection_required": True,
+    }
+    try:
+        db_item.quality_profile = apply_profile_save(
             db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
-            expected_revision=payload.expected_revision,
-            actor=str(current_user.get("sub") or "unknown"),
+            incoming,
+            requested_status="draft",
             actor_roles=_actor_roles(current_user),
         )
     except ProfileLifecycleError as exc:

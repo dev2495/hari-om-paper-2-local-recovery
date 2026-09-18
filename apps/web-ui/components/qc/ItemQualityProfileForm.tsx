@@ -8,9 +8,11 @@ type ItemQualityProfileFormProps = {
   item: any
   saving?: boolean
   onSave: (profile: any) => Promise<void> | void
+  onCopyTemplate?: () => Promise<void> | void
+  onApprove?: (exemption?: boolean) => Promise<void> | void
 }
 
-export function ItemQualityProfileForm({ item, saving, onSave }: ItemQualityProfileFormProps) {
+export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, onApprove }: ItemQualityProfileFormProps) {
   const [profile, setProfile] = useState(() => item?.quality_profile || emptyIncomingProfile())
 
   useEffect(() => {
@@ -54,11 +56,10 @@ export function ItemQualityProfileForm({ item, saving, onSave }: ItemQualityProf
           >
             <option value="draft">Draft</option>
             <option value="complete">Complete</option>
-            <option value="not_required">Inspection not required</option>
           </select>
         </label>
         <p className="self-end text-xs text-slate-500">
-          Incoming QC uses these owned item rules. Blank min/max never invents a PASS.
+          JSON save stays draft. Owner/Admin approve or exemption is a separate command. Copied templates keep provenance and are not active until review.
         </p>
       </div>
       <div className="overflow-x-auto rounded-2xl border border-slate-200">
@@ -114,11 +115,35 @@ export function ItemQualityProfileForm({ item, saving, onSave }: ItemQualityProf
           Add parameter
         </button>
         <button
+          type="button"
+          disabled={saving || !item || !onCopyTemplate}
+          onClick={() => onCopyTemplate?.()}
+          className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+        >
+          Copy category template
+        </button>
+        <button
           type="submit"
           disabled={saving || !item}
           className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           Save item QC profile
+        </button>
+        <button
+          type="button"
+          disabled={saving || !item || !onApprove}
+          onClick={() => onApprove?.(false)}
+          className="rounded-xl border border-slate-900 px-3 py-2 text-sm font-semibold text-slate-900 disabled:opacity-50"
+        >
+          Approve profile
+        </button>
+        <button
+          type="button"
+          disabled={saving || !item || !onApprove}
+          onClick={() => onApprove?.(true)}
+          className="rounded-xl border border-amber-700 px-3 py-2 text-sm font-semibold text-amber-800 disabled:opacity-50"
+        >
+          Approve exemption
         </button>
       </div>
     </form>
