@@ -177,12 +177,12 @@ SPECIAL: dict[str, dict] = {
         "notes": "Chromium 390px planner: keyboard schedule form visible, Tab/Escape, overflow <48px. Same scheduleSegment path as drag. WebKit/Safari NOT_RUN.",
     },
     "PUR-01": {
-        "overlay_status": "PARTIAL",
-        "coverage": "PARTIAL",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
             "inventory-service/tests/test_original_pur_live.py::test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_schedule",
         ],
-        "notes": "Live six-line PO keeps tax/payment/freight terms, UOM, qualifiers; no gst_amount and no schedules invented. Tool SKU is tool_assets, not a PO item type.",
+        "notes": "Live six-line PO is paper, adhesive, parchment, packaging, tool, and purchased FG with UOM/terms/PB 18+ retained; no gst_amount and no invented schedules.",
     },
     "PUR-02": {
         "overlay_status": "PASS",
@@ -558,6 +558,14 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Same item_code on PLANT_A/PLANT_B pins 40-50 vs 80-100 on the receiving plant's GRN. Owner write without a selected plant is 400, not Plant A.",
     },
+    "QCT-017": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_qct_live.py::test_qct017_every_inward_category_has_type_appropriate_fields_not_paper_or_return_defect",
+        ],
+        "notes": "RAW_PAPER, ADHESIVE, PARCHMENT, PACKAGING, purchased FG, TOOL and OTHER exist; adhesive/packaging/tool/OTHER do not require paper GSM/slitting or FG return-defect fields.",
+    },
     "QCT-018": {
         "overlay_status": "PASS",
         "coverage": "EXACT_EXECUTED",
@@ -565,6 +573,76 @@ SPECIAL: dict[str, dict] = {
             "inventory-service/tests/test_original_pur_live.py::test_qct018_missing_approved_setup_keeps_receipt_restricted_and_never_pass",
         ],
         "notes": "Draft/unapproved profile pins missing on GRN; inspection is INCOMPLETE not PASS; batch stays QC_HOLD and usable qty 0.",
+    },
+    "QCT-019": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "shared/tests/test_original_qct_evaluator.py::test_qct019_exemption_is_not_required_inside_scope_and_incomplete_outside",
+            "inventory-service/tests/test_original_qct_live.py::test_qct019_exemption_inside_scope_is_not_required_outside_stays_restricted",
+        ],
+        "notes": "JSON save cannot self-approve exemption. Inside plant/date is NOT_REQUIRED not PASS; outside date stays QC_HOLD/INCOMPLETE.",
+    },
+    "QCT-020": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_qct_live.py::test_qct020_copy_template_stays_draft_with_provenance_until_approve",
+        ],
+        "notes": "Copy from ADHESIVE templates stays draft with copied_from provenance; JSON cannot self-approve; Owner approve activates.",
+    },
+    "QCT-021": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_po_qualifier.py::test_qct021_pb_plus_retains_raw_and_does_not_guess_inclusive",
+            "inventory-service/tests/test_original_qct_live.py::test_qct021_022_po_qualifier_retained_and_conflict_does_not_weaken_item",
+        ],
+        "notes": "PB 18+ raw string and plus retained; inclusive_min/max stay null; comparator UNCONFIRMED.",
+    },
+    "QCT-022": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_po_qualifier.py::test_qct022_weaker_supplier_bound_requires_review_and_does_not_change_item",
+            "inventory-service/tests/test_po_qualifier.py::test_qct022_mismatched_basis_is_review_not_silent_map",
+            "inventory-service/tests/test_original_qct_live.py::test_qct021_022_po_qualifier_retained_and_conflict_does_not_weaken_item",
+        ],
+        "notes": "Weaker PB vs item ply_bond min 20 flags QUALIFIER_WEAKER_THAN_ITEM; item profile unchanged; mismatched COBB vs GSM is review.",
+    },
+    "QCT-023": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_qct_live.py::test_qct023_supplier_certificate_stays_separate_from_local_reading",
+        ],
+        "notes": "Local GSM 210 FAILs against 180-200 while mill certificate 190 stays in evidence_sources; certificate does not clear stock.",
+    },
+    "QCT-024": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_qct_live.py::test_qct024_two_receipts_keep_independent_lots_and_sample_count_is_not_qty",
+        ],
+        "notes": "Two GRNs from one PO keep independent lots; sample_count 2/3 is not confused with received qty 80/70.",
+    },
+    "QCT-025": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_qct_live.py::test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold",
+            "apps/bff-api/tests/test_grn_notification_idempotent.py::test_qct025_idempotent_grn_replay_does_not_emit_second_notification",
+        ],
+        "notes": "Same GRN key replays one receipt/one QC_HOLD task; BFF skips PURCHASE_GRN_POSTED when idempotent is true.",
+    },
+    "QCT-026": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_qct_live.py::test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold",
+            "apps/bff-api/tests/test_grn_notification_idempotent.py::test_qct025_idempotent_grn_replay_does_not_emit_second_notification",
+        ],
+        "notes": "Audit/notification failure after GRN leaves QC_HOLD and replay is idempotent. First-class task-queue retry recovery is NOT_RUN.",
     },
     "QCT-043": {
         "overlay_status": "NOT_RUN",
@@ -817,14 +895,25 @@ SPECIAL: dict[str, dict] = {
         "notes": "Same isolated 7-DB rehearsal as QCT-123. Not production-backup proof.",
     },
     "REG-04": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "NONE",
-        "notes": "Agreed realistic concurrency/browser workload against target AWS host NOT_RUN.",
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_reg04_isolated_target_build_reports_measured_concurrency",
+        ],
+        "notes": "Eight concurrent PO creates on isolated nverify inventory completed uniquely under 15s. Agreed budgets and authorized AWS target host remain NOT_RUN.",
     },
     "INC-01": {
         "overlay_status": "NOT_RUN",
         "coverage": "NONE",
-        "notes": "Original ID-creation incident reproduction still required with recorded build/console/request.",
+        "notes": "Original ID-creation incident reproduction still required with recorded build/console/request of the deployed screenshot SHA. Isolated UserEditor create+reload was not that incident.",
+    },
+    "INC-02": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_inc02_malformed_duplicate_and_conflict_do_not_false_succeed",
+        ],
+        "notes": "Malformed PO line is ValidationError; duplicate PO 400; conflicting GRN replay 409. UserEditor already refuses silent create retry on dropped response. Browser 401/403/timeout/blank-page matrix NOT_RUN.",
     },
     "NAV-01": {
         "overlay_status": "PARTIAL",

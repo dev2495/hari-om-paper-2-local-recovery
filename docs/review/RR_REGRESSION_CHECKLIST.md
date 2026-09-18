@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b` after `5a67e6791918949ba92d1759247dc1e5dfe9f563` (previous product `1e39788`; served UI `d071d12`; harness `5dd8b9b`)  
+Local candidate: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` after `9976b73fbe4a43d654ffaf656667271f145a114a` (previous product `b69edb6`; served UI BUILD_ID `awiH7moM5zoX5eoSsbe1T`; harness `5dd8b9b`)  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.
@@ -24,7 +24,7 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR13 | Overlapping schedule commits | PASS | `test_overlapping_schedule_commits_reject_stale_revision` two threads, one 409 |
 | RR14 | Stale schedule preview rejected | PASS | same overlapping 409 / revision proof |
 | RR15 | Incoming profile pinned at receipt; later master not retroactive | PASS | `test_receipt_pin_survives_later_master_edit` |
-| RR16 | Store/QC JSON cannot self-approve | CODE | unit profile tests |
+| RR16 | Store/QC JSON cannot self-approve | PASS | live QCT-019/020: setup_status exemption/approved is 403; Owner/Admin dedicated approve |
 | RR17 | Approved edit opens new draft and keeps snapshot | CODE | unit profile tests |
 | RR18 | Approve requires matching revision + Owner/Admin | CODE | spec approve unit tests |
 | RR19 | Inverted / malformed bounds rejected | PASS | spec `test_qc_profile.py` plus original QCT-005 related units |
@@ -42,10 +42,10 @@ Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-cov
 | RR31 | Notification create does not crash on plantless QC event | PASS | auth live plantless path |
 | RR32 | Spec QC dialog keeps product context, dialog role, Escape | PASS | BJ11 |
 | RR33 | Job-card print/actuals: samples in quality_checks; kg separate from g | PASS | BJ12 |
-| RR34 | Shared evaluator import from packaged `shared/` | STALE | `faee2ab` image had `/app/shared/hariom_quality_eval.py`; planning/purchase/quality/workbook source also changed this cycle |
+| RR34 | Shared evaluator import from packaged `shared/` | STALE | evaluator copies remain byte-identical after exemption-scope kwargs; `faee2ab` images not rebuilt |
 | RR35 | Service artifact boots with packaged evaluator | STALE | `hariom-nverify-inv-rr35` / `hariom-nverify-prod-rr35` not rebuilt after evaluator or this-cycle source change |
 | RR36 | Main-targeted PR + original 192-case mapping | NOT_RUN | Owner-gated. This pass does not merge, retarget, or deploy |
 
 ## Original 192 V2 suite
 
-Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 41, PARTIAL 30, LIMITATION 3, NOT_RUN 118. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.
+Definitions restored under `docs/review/baseline-v2/`. Overlay: PASS 50, PARTIAL 32, LIMITATION 3, NOT_RUN 107. Additive RR tests above do not replace the pack. See `docs/review/V2_PACK_PROVENANCE.md` and `docs/review/ACCEPTANCE_OVERLAY.json`.

@@ -1,8 +1,8 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b` (started from `5a67e6791918949ba92d1759247dc1e5dfe9f563`; previous product `1e397887c5bf1d88d7d22c014f5bbd8dd1eda4ba`)  
+**Local product HEAD this cycle:** `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` (started from `9976b73fbe4a43d654ffaf656667271f145a114a`; previous product `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b`)  
 **Chromium candidate / test-harness SHA:** `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`  
-**Served Next product SHA:** `d071d122ae8725431195804cc33779c4ff1e75a6` BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`  
+**Served Next product SHA:** `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` BUILD_ID `awiH7moM5zoX5eoSsbe1T`  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -22,13 +22,13 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay | Count |
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
-| Overlay `PASS` | **41** |
-| Overlay `PARTIAL` | **30** (executed, full original procedure not closed) |
+| Overlay `PASS` | **50** |
+| Overlay `PARTIAL` | **32** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
-| Overlay `NOT_RUN` | **118** |
+| Overlay `NOT_RUN` | **107** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
-| Requirements overlay `PASS` | `R13`, `R14`, `R15` (every linked original QC-03–QC-07/QC-06 case PASS) |
-| Requirements overlay `PARTIAL` | `R10`, `R12`, `R16`, `R18`, `R19`, `R20`, `QCR-02`, `QCR-03`, `QCR-04`, `QCR-05`, `QCR-14`, `QCR-15`, `QCR-17`, `QCR-20`, `QCR-31`, `QCR-32`, `QCR-34` |
+| Requirements overlay `PASS` | `R13`, `R14`, `R15`, `QCR-03`, `QCR-06` |
+| Requirements overlay `PARTIAL` | `R10`, `R12`, `R16`, `R18`, `R19`, `R20`, `QCR-02`, `QCR-04`, `QCR-05`, `QCR-14`, `QCR-15`, `QCR-16`, `QCR-17`, `QCR-20`, `QCR-31`, `QCR-32`, `QCR-34` |
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Remaining requirements | `NOT_RUN` |
 
@@ -36,19 +36,19 @@ Chromium 15/15 is BJ01–BJ12, not the 192-case pack.
 
 ### Overlay PASS (full criterion at the executed layer)
 
-`COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-06`, `PLAN-09`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-018`, `QCT-027`, `QCT-052`
+`COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-06`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-027`, `QCT-052`
 
 ### Overlay PARTIAL (not PASS)
 
-`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-08`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `REL-11`, `PLAN-04`, `PLAN-05`, `PLAN-07`, `PLAN-08`, `PUR-01`, `PUR-05`, `QC-01`, `QC-02`, `NAV-01`, `REG-01`, `REG-03`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-123`
+`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-08`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `REL-11`, `PLAN-04`, `PLAN-05`, `PLAN-07`, `PLAN-08`, `PUR-05`, `QC-01`, `QC-02`, `NAV-01`, `INC-02`, `REG-01`, `REG-03`, `REG-04`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-026`, `QCT-123`
 
 ### Overlay LIMITATION
 
 `DEM-02`, `DEM-06` (`GROSS_ESTIMATE`); `QCT-107` (`PARTIAL_REJECTION_UNSUPPORTED`)
 
-### Overlay NOT_RUN (118)
+### Overlay NOT_RUN (107)
 
-`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `INC-02`, `REG-02`, `REG-04`, `QCT-004`, `QCT-012`, `QCT-017`, `QCT-019`–`QCT-026`, `QCT-028`–`QCT-051`, `QCT-053`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
+`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-028`–`QCT-051`, `QCT-053`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
 
 QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate), not converted to PASS.
 
@@ -56,13 +56,13 @@ QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate), not converted to PASS
 
 | ID | Rerun | Evidence |
 | --- | --- | --- |
-| RR01, RR03, RR15, RR21–RR22 | PASS | inventory live `test_live_postgres_rr.py`; QCT-015/016/018 pin this cycle |
+| RR01, RR03, RR15, RR21–RR22 | PASS | inventory live `test_live_postgres_rr.py`; QCT-015/016/018 pin prior cycle |
 | RR02 | PASS | live `test_zero_unspecified_and_excess_concession_rejected` plus unit `test_rr02_zero_negative_excess_unspecified_rejected` |
 | RR04–RR07 | PASS | production live 3 passed prior wave; QC-03–10 live this cycle |
 | RR08, RR10–RR11, RR13–RR14 | PASS | sales live including 100/40/60, fulfilled cap, fake delivered, overlapping 409 |
 | RR09 | PASS | live `test_equal_or_earlier_delivery_date_is_rejected`; unit `test_header_date_change_revalidates_every_line` |
 | RR12 | CODE | `validate_schedule_to_release_allocations` unit tests; not a live parent-row proof |
-| RR16–RR20 | CODE / strengthened | spec/QC profile + original QCT evaluator units; RR19/RR20 have new exact QCT cases |
+| RR16–RR20 | mixed | RR16 PASS live QCT-019/020; RR17–RR18 CODE; RR19/RR20 exact QCT units |
 | RR23 | FAIL as limitation | `PARTIAL_REJECTION_UNSUPPORTED` |
 | RR24–RR26 | PASS | analytics demand coverage tests; GROSS_ESTIMATE remains the coverage meaning |
 | RR27 | CODE | calendars remain policy text; live production-calendar UI **NOT_RUN**; supplier schedule API executed as PUR-02 |

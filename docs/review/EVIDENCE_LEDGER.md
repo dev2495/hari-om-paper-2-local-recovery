@@ -5,8 +5,8 @@ Branch: `cursor/ui-polish-nav-c5f9`
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
 Chromium / harness SHA: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`  
-Local HEAD before this execution cycle: `5a67e6791918949ba92d1759247dc1e5dfe9f563`
-Product commit this cycle: `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b` (workbook import, PO print/evidence, QC gate, plant-scoped item_code)
+Local HEAD before this execution cycle: `9976b73fbe4a43d654ffaf656667271f145a114a`
+Product commit this cycle: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` (inward categories, scoped exemption, PO plus qualifier, GRN notify skip)
 
 ## Compact evidence index
 
@@ -14,30 +14,47 @@ Product commit this cycle: `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b` (workbook 
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product SHA | `d071d122ae8725431195804cc33779c4ff1e75a6` |
-| Served BUILD_ID | `Yz4l4-NEecxcN4k1Xtf_H` at `http://127.0.0.1:23000` |
-| Test-harness SHA | `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e only vs product SHA) |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ this overlay |
-| Path-scoped product after `d071d12` | e2e harness + backend/evaluator/sales/production/spec/planning/purchase source |
-| Inventory/production/shared after `faee2ab` | **changed** (evaluator, parchment, capacity, GRN pin, workbook import, QC gate). `faee2ab` images are stale. |
-| Schema | create_all, no `alembic_version`. Additive: `purchase_workbook_imports`; item_code unique is now `(plant_id, item_code)`. |
+| Served product SHA | `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` |
+| Served BUILD_ID | `awiH7moM5zoX5eoSsbe1T` at `http://127.0.0.1:23000` |
+| Test-harness SHA | `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e only vs product SHA `d071d12`; not re-run this UI rebuild) |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ this overlay |
+| Path-scoped product after `d071d12` | e2e harness + backend/evaluator/sales/production/spec/planning/purchase/quality/UI source |
+| Inventory/production/shared after `faee2ab` | **changed** (evaluator, parchment, capacity, GRN pin, workbook, QC gate, inward types/exemption/qualifiers). `faee2ab` images are stale. |
+| Schema | create_all, no `alembic_version`. Additive: `itemtype` PACKAGING/TOOL/OTHER; receipt-line `NOT_REQUIRED`; packaging/tool/OTHER templates. |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **not rebuilt** |
-| Browser | Playwright 1.59.1 Chrome: BJ 15/15, theme 6/6, PLAN-09 1/1. WebKit BLOCKED. Safari.app BLOCKED. |
+| Browser | Playwright 1.59.1 Chrome: BJ 15/15, theme 6/6, PLAN-09 1/1 vs prior BUILD_ID. This served BUILD_ID not re-journeyed. WebKit BLOCKED. Safari.app BLOCKED. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 41 / PARTIAL 30 / LIMITATION 3 / NOT_RUN 118 |
+| Original 56/192 overlay | PASS 50 / PARTIAL 32 / LIMITATION 3 / NOT_RUN 107 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`
-- BFF `http://127.0.0.1:24000` pid **77260**, services `28001–28008` (28006 unused)
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `awiH7moM5zoX5eoSsbe1T`
+- BFF `http://127.0.0.1:24000` pid **83284**, services `28001–28008` (28006 unused)
 - Foreign `127.0.0.1:13000` pid 69663 left running
-- Isolated production HTTP pid **77256** :28004 and inventory pid **77258** :28005 after this wave (venv-verify uvicorn)
-- JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity; UI bundle not rebuilt
+- Isolated production HTTP pid **83265** :28004 and inventory pid **83222** :28005 after this wave (venv-verify uvicorn)
+- JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity; UI rebuilt this wave
 
 ## This cycle — executable original cases
 
-Wave after `5a67e67`:
+Wave after `9976b73`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| Shared evaluator | 13 passed | includes QCT-019 scope/date |
+| PO qualifier unit | 3 passed | `test_po_qualifier.py` |
+| QCT-017–026 live + PUR-01 + INC-02 + REG-04 | 13 passed | isolated `hariom_nverify_inventorydb` |
+| BFF GRN notify skip + copy/approve routes | 2 passed | `test_grn_notification_idempotent` + route contract |
+
+Fixes patched with those tests:
+
+1. ItemType lacked PACKAGING/TOOL/OTHER so inward QC could not be configured per original category → additive enum + templates; paper GSM/slitting and FG return-defect are not required on unrelated types.
+2. Exemption JSON save could be selected in UI and inspect remapped NOT_REQUIRED to SKIPPED → dedicated Owner/Admin exemption approve with plant/date scope; inspect persists NOT_REQUIRED; outside date stays QC_HOLD/INCOMPLETE.
+3. PO `PB 18+` had no retained plus/unconfirmed comparator → qualifier parser keeps raw + plus; inclusive bounds are not guessed; weaker supplier bound cannot silently rewrite the item profile.
+4. Supplier mill values could be confused with local readings → certificate stored separately; local FAIL still holds.
+5. GRN replay could emit a second BFF notification → skip `PURCHASE_GRN_POSTED` when the inventory body is `idempotent: true`.
+
+## Prior wave after `5a67e67`:
 
 | Suite | Result | Notes |
 | --- | --- | --- |
@@ -56,7 +73,8 @@ Fixes patched with those tests:
 6. Hold 409 payload used `h.stage` (missing) instead of `stage_type`.
 7. Unapproved live profile could be used when no inward_metadata existed → pin/evaluate approved-or-missing only.
 
-## Prior wave after `5187a64` (logs `reports/nverify-5187a-exec/`)
+## Prior wave after `5187a64`
+ (logs `reports/nverify-5187a-exec/`)
 
 
 | Suite | Result | Log |
