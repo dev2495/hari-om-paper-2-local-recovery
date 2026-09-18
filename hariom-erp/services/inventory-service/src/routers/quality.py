@@ -110,7 +110,7 @@ def _pin_quality_profile(item: Optional[ItemMaster], entity: Any) -> Optional[di
         entity.inward_metadata = metadata
         pinned = metadata.get("quality_profile")
         return pinned if isinstance(pinned, dict) else None
-    return approved_profile_payload(live) or (live if isinstance(live, dict) else None)
+    return approved_profile_payload(live)
 
 
 def _open_entity_holds(db: Session, *, plant_id: str, entity_type: str, entity_id) -> list[InventoryQualityHold]:

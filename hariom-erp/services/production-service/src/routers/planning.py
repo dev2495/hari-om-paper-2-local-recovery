@@ -3349,33 +3349,40 @@ def _enforce_stage_quality_gate(
     selected_stage: str,
     quality_checks: dict[str, Any],
     override_reason: Optional[str],
+    actor_role: Optional[str] = None,
 ) -> None:
-    if (override_reason or "").strip():
+    normalized_stage = selected_stage.upper()
+    if normalized_stage != FINAL_SPEC_QC_STAGE:
         return
 
-    normalized_stage = selected_stage.upper()
+    authorized_override = bool((override_reason or "").strip()) and str(actor_role or "") in {"Owner", "Admin"}
+    if authorized_override:
+        return
+
     inline_checks = dict(quality_checks or {})
-    if normalized_stage == FINAL_SPEC_QC_STAGE:
-        missing = _missing_final_spec_qc_fields(job_card.spec_snapshot or {}, inline_checks)
-        if inline_checks and missing:
+    spec_snapshot = job_card.spec_snapshot or {}
+    if inline_checks:
+        missing = _missing_final_spec_qc_fields(spec_snapshot, inline_checks)
+        if missing:
             raise HTTPException(
                 status_code=400,
                 detail=f"Final QC requires full spec readings: {', '.join(missing)}",
             )
-        if inline_checks:
-            return
-        for inspection in _quality_inspections_for_stage(db, job_card.id, FINAL_SPEC_QC_STAGE, plant_id):
-            if _inspection_has_full_final_spec(inspection, job_card.spec_snapshot or {}):
-                return
-        raise HTTPException(
-            status_code=409,
-            detail="Final QC inspection is required before job card completion or FG handoff. Provide override_reason to continue.",
-        )
+        failures = _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, inline_checks)
+        if failures:
+            labels = [str(row.get("label") or row.get("parameter") or "reading") for row in failures]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Final QC readings are not in approved bounds: {', '.join(labels)}",
+            )
+        return
 
-    # Routine process-stage QC is evidence, not a completion gate. If readings
-    # are supplied they are stored by _sync_quality_artifacts; failures open an
-    # active hold that blocks the next movement through the normal hold gate.
-    return
+    if _final_spec_qc_passed(db=db, plant_id=plant_id, job_card=job_card, inline_quality_checks=None):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail="Final QC inspection is required before job card completion or FG handoff. An Owner/Admin override_reason is required to continue without inspection.",
+    )
 
 
 def _stage_allows_fg_inward(*, selected_stage: str, final_qc_ready: bool) -> bool:
@@ -6637,7 +6644,7 @@ def capture_stage_output(
         hold_summaries = [
             {
                 "id": str(h.id),
-                "stage": h.stage,
+                "stage": h.stage_type,
                 "reason": h.reason,
                 "status": h.status,
                 "created_by": h.created_by,
@@ -6832,6 +6839,7 @@ def capture_stage_output(
         selected_stage=selected_stage,
         quality_checks=payload.quality_checks or {},
         override_reason=override_reason,
+        actor_role=actor_role,
     )
     _validate_stage_completion_payload(
         selected_stage=selected_stage,

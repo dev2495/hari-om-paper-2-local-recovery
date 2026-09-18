@@ -391,6 +391,29 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("ALTER TABLE IF EXISTS item_master ADD COLUMN IF NOT EXISTS quality_profile JSONB")
     )
+    connection.execute(text("ALTER TABLE IF EXISTS item_master DROP CONSTRAINT IF EXISTS item_master_item_code_key"))
+    connection.execute(text("DROP INDEX IF EXISTS item_master_item_code_key"))
+    connection.execute(
+      text("CREATE UNIQUE INDEX IF NOT EXISTS uq_item_master_plant_code ON item_master (plant_id, item_code)")
+    )
+    connection.execute(
+      text(
+        "CREATE TABLE IF NOT EXISTS purchase_workbook_imports ("
+        "id UUID PRIMARY KEY, "
+        "plant_id VARCHAR(50) NOT NULL, "
+        "source_name VARCHAR(120) NOT NULL, "
+        "sheet_name VARCHAR(120) NOT NULL, "
+        "fingerprint VARCHAR(64) NOT NULL, "
+        "preview_json JSONB NOT NULL DEFAULT '{}'::jsonb, "
+        "commit_json JSONB, "
+        "posted_po_ids JSONB, "
+        "ledger_posted BOOLEAN NOT NULL DEFAULT FALSE, "
+        "created_by VARCHAR(200) NOT NULL, "
+        "created_at TIMESTAMP, "
+        "CONSTRAINT uq_purchase_workbook_plant_fingerprint UNIQUE (plant_id, fingerprint)"
+        ")"
+      )
+    )
     connection.execute(
       text("ALTER TABLE IF EXISTS inventory_quality_inspections ADD COLUMN IF NOT EXISTS reasons JSONB DEFAULT '{}'::jsonb")
     )

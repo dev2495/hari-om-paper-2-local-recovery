@@ -160,6 +160,59 @@ class QualityEnforcementTests(unittest.TestCase):
         self.assertFalse(post_gate(selected_stage="PACKING", final_qc_ready=False))
         self.assertTrue(post_gate(selected_stage="QC", final_qc_ready=True))
 
+    def test_qc09_plantmanager_reason_does_not_skip_final_qc(self):
+        job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        with self.assertRaises(HTTPException) as exc:
+            self._gate()(
+                db=_InspectionSession([]),
+                plant_id=PLANT_ID,
+                job_card=job_card,
+                selected_stage="QC",
+                quality_checks={},
+                override_reason="please let this through",
+                actor_role="PlantManager",
+            )
+        self.assertIn(exc.exception.status_code, (400, 409, 403))
+
+    def test_qc09_owner_override_is_auditable_authorization(self):
+        job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        self._gate()(
+            db=_InspectionSession([]),
+            plant_id=PLANT_ID,
+            job_card=job_card,
+            selected_stage="QC",
+            quality_checks={},
+            override_reason="Owner authorized missing bench",
+            actor_role="Owner",
+        )
+
+    def test_qc10_inline_out_of_range_final_qc_cannot_bypass(self):
+        job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        with self.assertRaises(HTTPException) as exc:
+            self._gate()(
+                db=_InspectionSession([]),
+                plant_id=PLANT_ID,
+                job_card=job_card,
+                selected_stage="QC",
+                quality_checks={**_full_spec_readings(), "od": 180},
+                override_reason=None,
+            )
+        self.assertEqual(exc.exception.status_code, 400)
+
+    def test_qc10_fail_inspection_does_not_satisfy_final_qc_gate(self):
+        job_card = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        inspection = SimpleNamespace(stage_type="QC", status="FAIL", readings=_full_spec_readings())
+        with self.assertRaises(HTTPException) as exc:
+            self._gate()(
+                db=_InspectionSession([inspection]),
+                plant_id=PLANT_ID,
+                job_card=job_card,
+                selected_stage="QC",
+                quality_checks={},
+                override_reason=None,
+            )
+        self.assertEqual(exc.exception.status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()

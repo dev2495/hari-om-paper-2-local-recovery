@@ -229,7 +229,7 @@ class ItemMaster(Base):
     __tablename__ = "item_master"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    item_code = Column(String(50), unique=True, nullable=False)
+    item_code = Column(String(50), nullable=False, index=True)
     name = Column(String(200), nullable=False)
     type = Column(SQLEnum(ItemType), nullable=False)
     tracking_mode = Column(SQLEnum(TrackingMode), nullable=False, default=TrackingMode.BULK)
@@ -248,6 +248,10 @@ class ItemMaster(Base):
     transactions = relationship("StockTransaction", back_populates="item")
     reservations = relationship("Reservation", back_populates="item")
     reels = relationship("PaperReel", back_populates="paper")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "item_code", name="uq_item_master_plant_code"),
+    )
 
 
 class StockBatch(Base):
@@ -963,4 +967,24 @@ class ReceiptScheduleAllocation(Base):
         UniqueConstraint("receipt_line_id", name="uq_receipt_schedule_alloc_receipt_line"),
         UniqueConstraint("receipt_line_id", "schedule_id", name="uq_receipt_schedule_alloc_pair"),
         CheckConstraint("allocated_qty > 0", name="ck_receipt_schedule_alloc_qty_positive"),
+    )
+
+
+class PurchaseWorkbookImport(Base):
+    __tablename__ = "purchase_workbook_imports"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    source_name = Column(String(120), nullable=False)
+    sheet_name = Column(String(120), nullable=False)
+    fingerprint = Column(String(64), nullable=False)
+    preview_json = Column(JSON, nullable=False, default=dict)
+    commit_json = Column(JSON, nullable=True)
+    posted_po_ids = Column(JSON, nullable=True)
+    ledger_posted = Column(Boolean, nullable=False, default=False)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "fingerprint", name="uq_purchase_workbook_plant_fingerprint"),
     )

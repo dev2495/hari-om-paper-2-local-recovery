@@ -36,16 +36,23 @@ from src.routers.purchase import (
     GrnLineCreate,
     PurchaseOrderCreate,
     PurchaseOrderLineCreate,
+    ReceiptEvidenceCreate,
     ReceiptQcPayload,
     SupplierScheduleCommit,
     SupplierScheduleRowIn,
+    WorkbookImportPayload,
     approve_purchase_order,
+    attach_receipt_evidence,
+    commit_purchase_workbook,
     commit_supplier_schedules,
     create_purchase_order,
     list_supplier_schedules,
     post_grn,
+    preview_purchase_workbook,
+    print_purchase_order,
     update_receipt_line_qc,
 )
+from src.routers.dispatch import DispatchCreate, create_dispatch
 from src.routers.quality import QualityInspectionCreate, create_quality_inspection
 from src.routers.stock_moves import WipIssueCreate, issue_batch_to_wip
 from src.services.stock_calc import get_usable_item_qty
@@ -55,7 +62,13 @@ Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def setup_module() -> None:
+    from sqlalchemy import text
+
     Base.metadata.create_all(engine)
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE IF EXISTS item_master DROP CONSTRAINT IF EXISTS item_master_item_code_key"))
+        connection.execute(text("DROP INDEX IF EXISTS item_master_item_code_key"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_item_master_plant_code ON item_master (plant_id, item_code)"))
 
 
 def _user(sub: str, roles=("Store",)) -> dict:
@@ -588,6 +601,382 @@ def test_qct015_two_same_category_items_pin_their_own_bounds_on_receipt():
         unit_a = pin_quality_profile_metadata({}, _approved_profile(180, 200))
         unit_b = pin_quality_profile_metadata({}, _approved_profile(80, 100))
         assert unit_a["quality_profile"]["parameters"][0]["min"] != unit_b["quality_profile"]["parameters"][0]["min"]
+    finally:
+        db.close()
+
+
+def test_pur06_and_pur07_sep_workbook_flags_ambiguity_and_reupload_is_idempotent():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, _loc = _item_and_location(db, suffix)
+        supplier_id = uuid.uuid4()
+        rows = [
+            {
+                "date": "2026-04-04",
+                "vendor": "VATSALYA",
+                "item_code": item.item_code,
+                "qty": 12,
+                "unit": "KG",
+                "pending": None,
+                "record_type": "PLANNING",
+            },
+            {
+                "date": "2026-09-02",
+                "vendor": "AMIGO",
+                "item_code": item.item_code,
+                "qty": 1,
+                "unit": "300,000",
+                "pending": "",
+                "record_type": "PLANNING",
+            },
+            {
+                "date": "2026-09-10",
+                "vendor": "Verify Mills",
+                "item_code": item.item_code,
+                "item_id": str(item.id),
+                "supplier_id": str(supplier_id),
+                "qty": 20,
+                "unit": "KG",
+                "pending": 20,
+                "record_type": "PO_COMMITMENT",
+                "unit_cost": 12,
+            },
+        ]
+        preview = preview_purchase_workbook(
+            WorkbookImportPayload(source_name=f"SEP-{suffix}", sheet_name="SEP 2026", rows=rows),
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        assert preview["would_post_stock"] is False
+        assert {"DATE_SHEET_MISMATCH", "BLANK_PENDING", "UNKNOWN_UNIT"} <= set(preview["flag_codes"])
+        stock_before = db.query(StockTransaction).filter(StockTransaction.plant_id == PLANT).count()
+        po_before = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == PLANT).count()
+        first = commit_purchase_workbook(
+            WorkbookImportPayload(source_name=f"SEP-{suffix}", sheet_name="SEP 2026", rows=rows),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        second = commit_purchase_workbook(
+            WorkbookImportPayload(source_name=f"SEP-{suffix}", sheet_name="SEP 2026", rows=rows),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        stock_after = db.query(StockTransaction).filter(StockTransaction.plant_id == PLANT).count()
+        po_after = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == PLANT).count()
+        assert first["stock_posted"] is False
+        assert first["ledger"] is False
+        assert first["created_po_count"] == 1
+        assert second["idempotent"] is True
+        assert second["posted_po_ids"] == first["posted_po_ids"]
+        assert second["created_po_count"] == 0
+        assert stock_after == stock_before
+        assert po_after == po_before + 1
+        assert db.query(PurchaseReceipt).filter(PurchaseReceipt.plant_id == PLANT, PurchaseReceipt.purchase_order_id == uuid.UUID(first["posted_po_ids"][0])).count() == 0
+    finally:
+        db.close()
+
+
+def test_pur08_evidence_links_to_batch_and_print_uses_amigo_not_hari_om():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, loc = _item_and_location(db, suffix)
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-AMIGO-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Verify Paper Mills",
+                tax_terms="GST extra as applicable",
+                payment_terms="30 days",
+                freight_terms="To pay",
+                test_report_terms="Supplier mill test with GRN",
+                special_instruction="FOR AMIGO INDUSTRIES UNIT-2",
+                legal_entity="AMIGO INDUSTRIES UNIT-II",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=40, unit_cost=22, incoming_qc_required=True)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        missing = print_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("store-a"))
+        # legal_entity was stored; confirmed issuer is AMIGO, never a Hari Om default.
+        assert missing["issuer_status"] == "CONFIRMED"
+        assert missing["issuer_name"] == "AMIGO INDUSTRIES UNIT-II"
+        assert "hari om" not in str(missing["issuer_name"]).lower()
+        unresolved = resolve_po_print_unresolved()
+        assert unresolved["issuer_name"] is None
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+        grn = post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-EV-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=40, location_id=loc.id)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        batch_id = uuid.UUID(grn["lines"][0]["batch_id"])
+        receipt_id = uuid.UUID(grn["id"])
+        attached = attach_receipt_evidence(
+            receipt_id,
+            ReceiptEvidenceCreate(
+                kind="TEST_REPORT",
+                filename="mill-test.pdf",
+                sha256="a" * 64,
+                content_type="application/pdf",
+                batch_id=batch_id,
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        assert attached["linked"] is True
+        assert attached["batch_id"] == str(batch_id)
+        batch = db.query(StockBatch).filter(StockBatch.id == batch_id).one()
+        evidence = (batch.inward_metadata or {}).get("receipt_evidence") or []
+        assert evidence[0]["kind"] == "TEST_REPORT"
+        assert evidence[0]["batch_id"] == str(batch_id)
+        with pytest.raises(HTTPException) as wrong:
+            attach_receipt_evidence(
+                receipt_id,
+                ReceiptEvidenceCreate(
+                    kind="CHALLAN",
+                    filename="other.pdf",
+                    sha256="b" * 64,
+                    batch_id=uuid.uuid4(),
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+        assert wrong.value.status_code == 409
+    finally:
+        db.close()
+
+
+def resolve_po_print_unresolved():
+    from src.services.purchase_workbook import resolve_po_issuer
+
+    return resolve_po_issuer({})
+
+
+def test_qct016_same_item_code_uses_receiving_plant_profile_not_global_or_other_plant():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        code = f"CORE-{suffix}"
+        loc_a = InventoryLocation(code=f"NV-A-{suffix}", warehouse="WH", plant_id="PLANT_A", active="true")
+        loc_b = InventoryLocation(code=f"NV-B-{suffix}", warehouse="WH", plant_id="PLANT_B", active="true")
+        item_a = ItemMaster(
+            item_code=code,
+            name="Core paper family",
+            type=ItemType.RAW_PAPER,
+            tracking_mode=TrackingMode.BULK,
+            uom=UOM.KG,
+            plant_id="PLANT_A",
+            active="true",
+            quality_profile=_approved_profile(40, 50),
+        )
+        item_b = ItemMaster(
+            item_code=code,
+            name="Core paper family",
+            type=ItemType.RAW_PAPER,
+            tracking_mode=TrackingMode.BULK,
+            uom=UOM.KG,
+            plant_id="PLANT_B",
+            active="true",
+            quality_profile=_approved_profile(80, 100),
+        )
+        db.add_all([loc_a, loc_b, item_a, item_b])
+        db.flush()
+
+        def _receive(plant, item, loc, low):
+            created = create_purchase_order(
+                PurchaseOrderCreate(
+                    po_no=f"PO-{plant[-1]}-{suffix}",
+                    supplier_id=uuid.uuid4(),
+                    supplier_name="Plant mills",
+                    lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=15, unit_cost=8, incoming_qc_required=True)],
+                ),
+                db=db,
+                plant_id=plant,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+            po_id = uuid.UUID(str(created["id"]))
+            approve_purchase_order(po_id, db=db, plant_id=plant, current_user=_user("owner-a", roles=("Owner",)))
+            order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+            grn = post_grn(
+                po_id,
+                GrnCreate(
+                    grn_no=f"GRN-{plant[-1]}-{suffix}",
+                    received_date=date(2026, 9, 18),
+                    lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=15, location_id=loc.id)],
+                ),
+                db=db,
+                plant_id=plant,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+            batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(grn["lines"][0]["batch_id"])).one()
+            profile = (batch.inward_metadata or {}).get("quality_profile") or {}
+            assert profile["parameters"][0]["min"] == low
+            assert batch.plant_id == plant
+            return batch
+
+        pin_a = _receive("PLANT_A", item_a, loc_a, 40)
+        pin_b = _receive("PLANT_B", item_b, loc_b, 80)
+        assert pin_a.inward_metadata["quality_profile"]["parameters"][0]["min"] != pin_b.inward_metadata["quality_profile"]["parameters"][0]["min"]
+        from src.utils.auth import _resolve_scope
+
+        try:
+            _resolve_scope(
+                current_user={"roles": ["Owner"], "sub": "owner-x", "allowed_plants": ["PLANT_A", "PLANT_B"]},
+                requested_plant_id=None,
+                allow_all=False,
+            )
+            raise AssertionError("unresolved plant must not default to Plant A")
+        except HTTPException as exc:
+            assert exc.status_code == 400
+            assert "concrete plant" in str(exc.detail).lower()
+    finally:
+        db.close()
+
+
+def test_qct018_missing_approved_setup_keeps_receipt_restricted_and_never_pass():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, loc = _item_and_location(db, suffix)
+        item.quality_profile = {
+            "status": "draft",
+            "setup_status": "draft",
+            "revision": 1,
+            "inspection_required": True,
+            "parameters": [{"code": "gsm", "min": 40, "max": 50, "required": True}],
+        }
+        db.flush()
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-NS-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="No setup mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=18, unit_cost=9, incoming_qc_required=True)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+        grn = post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-NS-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=18, location_id=loc.id)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(grn["lines"][0]["batch_id"])).one()
+        assert batch.stock_status == "QC_HOLD"
+        pinned = (batch.inward_metadata or {}).get("quality_profile") or {}
+        assert str(pinned.get("status") or "").lower() == "missing"
+        inspection = create_quality_inspection(
+            QualityInspectionCreate(
+                entity_type="BATCH",
+                entity_id=batch.id,
+                readings={"gsm": 45},
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("qc-a", roles=("QC",)),
+        )
+        status = inspection.status if hasattr(inspection, "status") else inspection["status"]
+        assert status != "PASS"
+        assert status in {"INCOMPLETE", "FAIL", "INVALID"}
+        db.refresh(batch)
+        assert batch.stock_status == "QC_HOLD"
+        assert get_usable_item_qty(str(item.id), db) == 0
+    finally:
+        db.close()
+
+
+def test_reg01_dispatch_retry_same_ref_does_not_duplicate_outward():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, loc = _item_and_location(db, suffix)
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-DSP-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Dispatch mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=80, unit_cost=4, incoming_qc_required=False)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+        grn = post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-DSP-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=80, location_id=loc.id)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        batch_id = uuid.UUID(grn["lines"][0]["batch_id"])
+        ref = f"DIS-{suffix}"
+        first = create_dispatch(
+            DispatchCreate(item_id=item.id, batch_id=batch_id, qty=30, dispatch_ref=ref),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("dispatch-a", roles=("Dispatch",)),
+        )
+        retry = create_dispatch(
+            DispatchCreate(item_id=item.id, batch_id=batch_id, qty=30, dispatch_ref=ref),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("dispatch-a", roles=("Dispatch",)),
+        )
+        assert first.transaction_id == retry.transaction_id
+        assert "idempotent" in retry.message.lower()
+        outward = (
+            db.query(StockTransaction)
+            .filter(StockTransaction.external_ref == ref, StockTransaction.plant_id == PLANT)
+            .count()
+        )
+        assert outward == 1
+        with pytest.raises(HTTPException) as conflict:
+            create_dispatch(
+                DispatchCreate(item_id=item.id, batch_id=batch_id, qty=10, dispatch_ref=ref),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("dispatch-a", roles=("Dispatch",)),
+            )
+        assert conflict.value.status_code == 409
+        second = create_dispatch(
+            DispatchCreate(item_id=item.id, batch_id=batch_id, qty=20, dispatch_ref=f"{ref}-B"),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("dispatch-a", roles=("Dispatch",)),
+        )
+        assert second.transaction_id != first.transaction_id
+        assert abs(float(second.qty_dispatched) - 20) < 1e-9
     finally:
         db.close()
 

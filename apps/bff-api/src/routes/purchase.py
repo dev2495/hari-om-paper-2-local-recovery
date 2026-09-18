@@ -83,6 +83,31 @@ async def commit_supplier_schedules(po_id: str, request: Request, token: str = D
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/orders/{po_id}/schedules", request, token)
 
 
+@router.get("/orders/{po_id}/print")
+async def print_purchase_order(po_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/orders/{po_id}/print", request, token)
+
+
+@router.post("/workbook/preview")
+async def preview_purchase_workbook(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/workbook/preview", request, token)
+
+
+@router.post("/workbook/commit")
+async def commit_purchase_workbook(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/workbook/commit", request, token)
+
+
+@router.post("/receipts/{receipt_id}/evidence")
+async def attach_receipt_evidence(receipt_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        f"/inventory/purchase/receipts/{receipt_id}/evidence",
+        request,
+        token,
+    )
+
+
 @router.post("/receipt-lines/{line_id}/allocate-schedule")
 async def allocate_receipt_schedule(line_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import get_db
 from ..models import (
@@ -27,6 +28,11 @@ from ..models import (
     TransactionType,
 )
 from ..quality_pin import pin_quality_profile_metadata
+from ..services.purchase_workbook import (
+    commit_workbook,
+    preview_workbook,
+    resolve_po_issuer,
+)
 from ..services.supplier_schedule import (
     active_scheduled_qty,
     allocate_receipt_to_schedule,
@@ -130,6 +136,7 @@ class PurchaseOrderCreate(BaseModel):
     delivery_terms: Optional[str] = Field(default=None, max_length=300)
     test_report_terms: Optional[str] = Field(default=None, max_length=500)
     special_instruction: Optional[str] = Field(default=None, max_length=500)
+    legal_entity: Optional[str] = Field(default=None, max_length=200)
     metadata_json: Optional[dict[str, Any]] = None
     lines: list[PurchaseOrderLineCreate] = Field(min_length=1)
 
@@ -230,6 +237,35 @@ class ReceiptScheduleAllocate(BaseModel):
     allocated_qty: Optional[float] = Field(default=None, gt=0)
 
 
+class WorkbookImportPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    source_name: str = Field(default="SEP 2026", min_length=1, max_length=120)
+    sheet_name: str = Field(default="SEP 2026", min_length=1, max_length=120)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ReceiptEvidenceCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str = Field(min_length=1, max_length=40)
+    filename: str = Field(min_length=1, max_length=200)
+    sha256: str = Field(min_length=16, max_length=128)
+    content_type: Optional[str] = Field(default=None, max_length=120)
+    batch_id: uuid.UUID
+
+
+def _order_for_plant(db: Session, po_id: uuid.UUID, plant_id: str) -> PurchaseOrder:
+    order = (
+        db.query(PurchaseOrder)
+        .filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return order
+
+
 def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
     metadata = order.metadata_json or {}
     return {
@@ -250,6 +286,7 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
         "delivery_terms": metadata.get("delivery_terms"),
         "test_report_terms": metadata.get("test_report_terms"),
         "special_instruction": metadata.get("special_instruction"),
+        "legal_entity": metadata.get("legal_entity") or metadata.get("legal_name"),
         "metadata_json": metadata,
         "lines": [
             {
@@ -338,6 +375,7 @@ def create_purchase_order(
             "delivery_terms": payload.delivery_terms,
             "test_report_terms": payload.test_report_terms,
             "special_instruction": payload.special_instruction,
+            "legal_entity": (payload.legal_entity or "").strip() or (payload.metadata_json or {}).get("legal_entity"),
         },
         created_by=_actor(current_user),
     )
@@ -845,4 +883,116 @@ def allocate_receipt_line_schedule(
         "idempotent": replayed,
         "ledger": False,
         "schedule": serialize_schedule(schedule, db),
+    }
+
+
+@router.post("/workbook/preview")
+def preview_purchase_workbook(
+    payload: WorkbookImportPayload,
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner"])),
+):
+    del current_user
+    return preview_workbook(sheet_name=payload.sheet_name, rows=payload.rows)
+
+
+@router.post("/workbook/commit")
+def commit_purchase_workbook(
+    payload: WorkbookImportPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner"])),
+):
+    return commit_workbook(
+        db,
+        plant_id=plant_id,
+        source_name=payload.source_name,
+        sheet_name=payload.sheet_name,
+        rows=payload.rows,
+        current_user=current_user,
+        create_purchase_order=create_purchase_order,
+        purchase_order_create_cls=PurchaseOrderCreate,
+        purchase_order_line_create_cls=PurchaseOrderLineCreate,
+    )
+
+
+@router.get("/orders/{po_id}/print")
+def print_purchase_order(
+    po_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    del current_user
+    order = _order_for_plant(db, po_id, plant_id)
+    serialized = _serialize_order(order)
+    issuer = resolve_po_issuer(order.metadata_json or {})
+    return {
+        **serialized,
+        **issuer,
+        "letterhead": {
+            "issuer_name": issuer.get("issuer_name"),
+            "issuer_status": issuer.get("issuer_status"),
+            "tax_terms": serialized.get("tax_terms"),
+            "payment_terms": serialized.get("payment_terms"),
+            "freight_terms": serialized.get("freight_terms"),
+            "delivery_terms": serialized.get("delivery_terms"),
+            "test_report_terms": serialized.get("test_report_terms"),
+            "special_instruction": serialized.get("special_instruction"),
+        },
+    }
+
+
+@router.post("/receipts/{receipt_id}/evidence")
+def attach_receipt_evidence(
+    receipt_id: uuid.UUID,
+    payload: ReceiptEvidenceCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner", "QC"])),
+):
+    kind = payload.kind.strip().upper()
+    if kind not in {"TEST_REPORT", "CHALLAN"}:
+        raise HTTPException(status_code=400, detail="Evidence kind must be TEST_REPORT or CHALLAN")
+    receipt = (
+        db.query(PurchaseReceipt)
+        .filter(PurchaseReceipt.id == receipt_id, PurchaseReceipt.plant_id == plant_id)
+        .first()
+    )
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+    line = next((row for row in (receipt.lines or []) if row.batch_id == payload.batch_id), None)
+    if line is None:
+        raise HTTPException(status_code=409, detail="Evidence batch is not on this receipt")
+    batch = (
+        db.query(StockBatch)
+        .filter(StockBatch.id == payload.batch_id, StockBatch.plant_id == plant_id)
+        .first()
+    )
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    metadata = dict(batch.inward_metadata or {})
+    evidence = list(metadata.get("receipt_evidence") or [])
+    entry = {
+        "kind": kind,
+        "filename": payload.filename,
+        "sha256": payload.sha256,
+        "content_type": payload.content_type,
+        "receipt_id": str(receipt.id),
+        "receipt_line_id": str(line.id),
+        "batch_id": str(batch.id),
+        "grn_no": receipt.grn_no,
+        "attached_by": _actor(current_user),
+        "attached_at": datetime.utcnow().isoformat(),
+    }
+    evidence.append(entry)
+    metadata["receipt_evidence"] = evidence
+    batch.inward_metadata = metadata
+    flag_modified(batch, "inward_metadata")
+    db.commit()
+    db.refresh(batch)
+    return {
+        "receipt_id": str(receipt.id),
+        "batch_id": str(batch.id),
+        "linked": True,
+        "evidence": evidence,
     }
