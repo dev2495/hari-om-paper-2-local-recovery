@@ -3,7 +3,7 @@
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
-- Local product HEAD: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` (inward categories, scoped exemption, PO plus qualifier, GRN notify skip). Started from `9976b73fbe4a43d654ffaf656667271f145a114a`; previous product `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b`. No force-push, no discarded work.
+- Local product HEAD: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f` (inward categories, scoped exemption, PO plus qualifier, GRN notify skip). Overlay docs `379ac8a`. Started from `9976b73fbe4a43d654ffaf656667271f145a114a`; previous product `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b`. No force-push, no discarded work.
 - Chromium 15/15 ran at `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e harness only after product `d071d12`; not re-run against this UI rebuild)
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
 - Served Next on 23000: product `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`, BUILD_ID `awiH7moM5zoX5eoSsbe1T`
