@@ -4,8 +4,8 @@
   "checkpoint_sha": "5dd8b9b35ba647fe06fac2758609886bb4bf8e67",
   "last_full_run": {
     "command": "PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000 PLAYWRIGHT_CHROME_CHANNEL=chrome PLAYWRIGHT_VIDEO=off PLAYWRIGHT_TRACE=retain-on-failure ./node_modules/.bin/playwright test --config playwright.config.cjs --project=chromium --workers=1",
-    "result": "15 passed",
-    "artifacts": "output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/"
+    "result": "28 passed",
+    "artifacts": "output/playwright/vXkaPC37ZEz_eM-c37Pxr-full/"
   },
   "last_theme_run": {
     "command": "PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000 PLAYWRIGHT_CHROME_CHANNEL=chrome ./node_modules/.bin/playwright test --config playwright.config.cjs --project=chromium --project=chromium-dark e2e/theme-a11y-print.spec.cjs --workers=1",

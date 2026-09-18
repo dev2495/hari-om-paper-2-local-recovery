@@ -3,18 +3,20 @@
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
-- Local product HEAD: `bb0af792f05be0331c07938518dabd0820fe79e5` (QCT-033/035). Parent `94e4af6` QCT-032 overlay PASS 66. Product ancestry `e4a689d` QCT-031 / `f406968` QCT-030. No force-push, no discarded work.
-- Chromium **27/27 PASS** on served BUILD_ID `k27eP26jMMBcNXZRNOfEk` (`--project=chromium --workers=1`, 1.5m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). Includes BJ01–BJ12 plus original-partials QC-01/COMM-08/INC-02/QCT-029/QCT-030/QCT-031/QCT-033/QCT-035. Prior `yO-4tO8AIjEk88hPrVkEW` 25/25 and `NvnOVx0kmQ03d9QgGA7fW` 24/24 do **not** stand for this bundle.
+- Local product HEAD: `cb30e30cf0b2dbffd051a869120109faef55df13` (QCT-037/038/039). Parent `bb0af79` QCT-033/035. Docs parent `26e1001`. No force-push, no discarded work.
+- Chromium **28/28 PASS** on served BUILD_ID `vXkaPC37ZEz_eM-c37Pxr` (`--project=chromium --workers=1`, 1.5m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). Includes BJ01–BJ12 plus original-partials QC-01/COMM-08/INC-02/QCT-029/QCT-030/QCT-031/QCT-033/QCT-035/QCT-037. Prior `k27eP26jMMBcNXZRNOfEk` 27/27 does **not** stand for this bundle.
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
-- Served Next on 23000: BUILD_ID `k27eP26jMMBcNXZRNOfEk` (QCT-033 save-key replay/conflict; QCT-035 list Add quality parameters on approved spec)
+- Served Next on 23000: BUILD_ID `vXkaPC37ZEz_eM-c37Pxr` (QCT-037 assign-profile drafts; QCT-038/039 canonical finals)
 - Isolated stack: `hariom-erp/runtime-verify`, ports `23000/24000/28001–28008` (28006 unused), DBs `hariom_nverify_*` (left running; foreign `13000` pid 69663 not killed)
-- Original 56/192 restored at `docs/review/baseline-v2/`. Overlay this cycle: **PASS 70 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 98**.
-- Requirements overlay PASS: `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`. CODE is not PASS. GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED remain honest limitations (`DEM-02`, `DEM-06`, `QCT-107`).
+- Original 56/192 restored at `docs/review/baseline-v2/`. Overlay this cycle: **PASS 73 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 95**.
+- Requirements overlay PASS: `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`, `QCR-08`, `QCR-09`. CODE is not PASS. GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED remain honest limitations (`DEM-02`, `DEM-06`, `QCT-107`).
 - BJ13 Safari UAT **NOT_RUN**. Playwright WebKit **BLOCKED** (install hang after zip 100% / only `libwebrtc.dylib`). Safari.app **BLOCKED** (`safaridriver --enable` needs owner admin password). QCT-120 / QCT-125 / RR36 **NOT_RUN**.
 - Isolated 7-DB dump/restore into `hariom_nverify_restore_*` PASS for rowcounts/holds/outbox (11.06s). That is **not** production-backup proof and **not** interrupted pending-op replay. See `docs/review/RECOVERY_REHEARSAL.md`.
 - Push: blocked. `railway.toml` and `hariom-erp/render.yaml` exist; Railway/Render GitHub-app production auto-deploy is not proven disconnected.
 - AWS live: **not deployed**. Do not guess hosts from known_hosts `3.6.77.159` / `13.232.191.84`. Downloads key listing denied.
-- Isolated pids this wave: Next **15410** :23000 (launcher 15377), BFF **2340** :24000, production **2334** :28004, inventory **2331** :28005, sales **2337** :28008, auth **90290** :28001, master **90295** :28002, spec **14913** :28003, analytics **13483** :28007. Foreign 13000 pid 69663 left running. Spec and Next were restarted after QCT-033/035 source change.
+- Isolated pids this wave: Next **25323** :23000 (launcher 25292), BFF **24251** :24000, production **2334** :28004, inventory **2331** :28005, sales **2337** :28008, auth **90290** :28001, master **90295** :28002, spec **24228** :28003, analytics **13483** :28007. Foreign 13000 pid 69663 left running. Spec, BFF, and Next were restarted after QCT-037/038 source change.
+- Schema: no new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`.
+- Images `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` still **STALE**.
 - Merge/deploy/PR retarget: not authorized
 - Not 100% production-ready.
 
@@ -27,7 +29,7 @@
 
 Do **not** wait for the owner to run the 192-case suite. Continue the isolated execution-and-fix cycle:
 
-1. Pack-order `QCT-037` (assign one template to mixed applicable/non-applicable legacy specs; per-spec impact/errors, no auto-publication, no rewriting of issued jobs), then `QCT-038+`. Remaining PARTIALs only when the full original procedure is proven: `COMM-01`–`COMM-07`/`COMM-09`/`COMM-10`/`COMM-12`, `REL-01`–`REL-03`, `NAV-01` tile/list/export identity, `INC-02` browser 422/409/malformed-body and post-commit response-loss, `REG-03` production-backup, `REG-04` agreed budgets/authorized AWS host, `QCT-005`/`QCT-006`/`QCT-008`/`QCT-123`. `INC-01` stays NOT_RUN until the original ID-creation screenshot SHA + console + request exist (do not invent). `REG-02` stays NOT_RUN unless real migrated production data is on a disposable isolated target (nverify dump is not that).
+1. Pack-order `QCT-040` (load all three stage templates and inspect UI/save/read contracts; exact Winding/Oven/Process field set and client names survive, not generic substitutes), then `QCT-041+`. Remaining PARTIALs only when the full original procedure is proven: `COMM-01`–`COMM-07`/`COMM-09`/`COMM-10`/`COMM-12`, `REL-01`–`REL-03`, `NAV-01` tile/list/export identity, `INC-02` browser 422/409/malformed-body and post-commit response-loss, `REG-03` production-backup, `REG-04` agreed budgets/authorized AWS host, `QCT-005`/`QCT-006`/`QCT-008`/`QCT-123`. `INC-01` stays NOT_RUN until the original ID-creation screenshot SHA + console + request exist (do not invent). `REG-02` stays NOT_RUN unless real migrated production data is on a disposable isolated target (nverify dump is not that).
 2. Do not stall on WebKit extract hang or Safari. Keep the exact owner asks above.
 3. Keep GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED as limitations until owner changes scope.
 4. If time: rebuild stale RR34/RR35 images; pending-op recovery replay on NEW disposable DBs only.

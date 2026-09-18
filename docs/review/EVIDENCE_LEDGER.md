@@ -1,11 +1,11 @@
 # Evidence ledger — Hari Om correction pass
 
-Date: 2026-09-18  
+Date: 2026-09-19  
 Branch: `cursor/ui-polish-nav-c5f9`  
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
-Docs HEAD at wave start: `151889b505be14e720d6ac13d9412dbb7b154d7b`  
-Product at wave start: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`
+Docs HEAD at wave start: `26e1001332c1f7664dcf45fe3ec810fc2e707c2e`  
+Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 
 ## Compact evidence index
 
@@ -13,27 +13,27 @@ Product at wave start: `34e116d913a51fd511fdc6e7e52d01901e5d7c3f`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-033 save-key replay/conflict + QCT-035 list Add quality parameters; parent `94e4af6` QCT-032 |
-| Served BUILD_ID | `k27eP26jMMBcNXZRNOfEk` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **27/27 PASS** on this BUILD_ID (`--workers=1`, 1.5m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`, `output/playwright/k27eP26jMMBcNXZRNOfEk-full/`). |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ this overlay |
+| Served product | QCT-037 assign-profile drafts + QCT-038/039 canonical finals; parent `bb0af79` QCT-033/035 |
+| Served BUILD_ID | `vXkaPC37ZEz_eM-c37Pxr` at `http://127.0.0.1:23000` |
+| BJ re-run | Chromium project **28/28 PASS** on this BUILD_ID (`--workers=1`, 1.5m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`, `output/playwright/vXkaPC37ZEz_eM-c37Pxr-full/`). |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
-| Schema | create_all, no `alembic_version`. Additive this wave: `specification_sheet.write_revision`; `spec_save_operations`. Prior: `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
+| Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 70 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 98 |
+| Original 56/192 overlay | PASS 73 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 95 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `k27eP26jMMBcNXZRNOfEk` pid **15410** (launcher 15377)
-- BFF `http://127.0.0.1:24000` pid **2340**, inventory **2331** :28005, production **2334** :28004, sales **2337** :28008
-- Auth **90290** :28001, master **90295** :28002, spec **14913** :28003, analytics **13483** :28007
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `vXkaPC37ZEz_eM-c37Pxr` pid **25323** (launcher 25292)
+- BFF `http://127.0.0.1:24000` pid **24251**, inventory **2331** :28005, production **2334** :28004, sales **2337** :28008
+- Auth **90290** :28001, master **90295** :28002, spec **24228** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
 
-Wave after `151889b` / product `34e116d`:
+Wave after `26e1001` / product `bb0af79`:
 
 | Suite | Result | Notes |
 | --- | --- | --- |
@@ -45,11 +45,13 @@ Wave after `151889b` / product `34e116d`:
 | COMM-08 live snapshot | 1 passed | job `7fd1e626-e3a0-4223-adae-8aeac31d0819` |
 | PLAN-07/08 live HTTP | 2 passed | holiday :28002; two-then-third oven |
 | QC-02 + REG-01 HTTP | 2 passed | QC token 403; GRN 422 BOOKS_LOCKED |
-| Chromium original-partials | 8 passed | QC-01 landing, COMM-08 banner, INC-02 401/403/timeout, QCT-029 dialog, QCT-030 Back/reopen/discard, QCT-031 incomplete draft, QCT-033 double-click, QCT-035 list Add quality parameters |
-| Chromium full project | 27 passed | BUILD_ID `k27eP26jMMBcNXZRNOfEk` workers=1 ~1.5m Chrome channel |
+| Chromium original-partials | 9 passed | QC-01 landing, COMM-08 banner, INC-02 401/403/timeout, QCT-029 dialog, QCT-030 Back/reopen/discard, QCT-031 incomplete draft, QCT-033 double-click, QCT-035 list Add quality parameters, QCT-037 assign-profile drafts |
+| Chromium full project | 28 passed | BUILD_ID `vXkaPC37ZEz_eM-c37Pxr` workers=1 ~1.5m Chrome channel |
 | QCT-032 live spec rollback | 1 passed | injected commit OperationalError; marker spec/qc absent |
 | QCT-033/034 live save-key + stale revision | 2 passed | matching replay same id; changed payload 409 SAVE_KEY_CONFLICT; stale expected_revision 409 STALE_REVISION |
 | QCT-035/036 live list QC + roles | 2 passed | approved spec QC draft keeps spec/recipe ids; Sales 403; QC cannot approve; obsolete 400 |
+| QCT-037 live assign + Chromium | 2+1 passed | mixed applicable/NOTCHING_MISMATCH/SPEC_RETIRED; publish 400; issued job snapshot frozen; Sales 403 |
+| QCT-038/039 live canonical finals | 2 passed | new+legacy editors share owner; dual write 409; process-only keeps recipe; contractual replacement keeps old rule |
 | Re-run live inventory/sales/production/BFF | 5+7+3+2 passed | PUR-05/QCT-026/028/PLAN-05/INC-02 API; wave2 7; COMM-08+PLAN-07/08; QC-02+REG-01 |
 
 Fixes patched with those tests:
@@ -68,6 +70,8 @@ Fixes patched with those tests:
 12. Spec+QC save_operation_key + payload fingerprint: matching replay returns the original spec; changed payload 409 SAVE_KEY_CONFLICT; no duplicate row (QCT-033).
 13. Optimistic write_revision: stale expected_revision 409 STALE_REVISION and does not overwrite the newer tolerance (QCT-034).
 14. Approved spec list Add quality parameters saves a QC draft only; spec and recipe ids stay; Sales cannot mutate; QC cannot approve; obsolete is read-only (QCT-035/036).
+15. Bulk Assign profile previews per-spec impact, refuses auto-publication, writes draft QC only, and does not rewrite issued job snapshots (QCT-037).
+16. Final tolerances have one canonical owner: PUT /final-limits and legacy spec columns share the same rule; conflicting dual writes 409; QC-only cannot change contractual finals (QCT-038). Process-only QC does not rewrite recipe or id_min; contractual change on an approved spec is a replacement draft (QCT-039).
 
 Honesty holds:
 

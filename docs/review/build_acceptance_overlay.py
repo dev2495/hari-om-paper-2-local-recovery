@@ -767,6 +767,34 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Author/QC can draft; Sales viewer 403 on mutate; QC cannot approve; Admin approve then Create QC revision stays same spec id with draft superseding revision; obsolete/inactive upsert 400. List labels: Add quality parameters / Complete quality setup / Review quality parameters / View pending / View quality parameters / Create QC revision.",
     },
+    "QCT-037": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct037_live.py::test_qct037_mixed_assign_preview_no_publish_no_job_rewrite",
+            "spec-service/tests/test_original_qct037_live.py::test_qct037_sales_cannot_assign",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "bj": ["BJ11"],
+        "notes": "Assign one template to mixed legacy specs: applicable create_draft, NOTCHING_MISMATCH and SPEC_RETIRED per-spec errors; publish=true 400 AUTO_PUBLICATION_FORBIDDEN with no write; apply writes draft QC only; issued job spec_snapshot stays frozen. Chromium BUILD_ID vXkaPC37ZEz_eM-c37Pxr; Sales 403.",
+    },
+    "QCT-038": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct038_039_live.py::test_qct038_one_canonical_rule_rejects_dual_writes",
+            "spec-service/tests/test_final_limits.py",
+        ],
+        "notes": "New editor PUT /final-limits and legacy PUT spec columns share specification_sheet canonical finals; GET projects qc_profile.final from that owner; dual write 409 CONFLICTING_FINAL_LIMITS; QC-only final block 409 CONTRACTUAL_FINAL_REQUIRES_SPEC_COMMAND; approved change creates a draft replacement retaining spec approval; issued job snapshot stays at the old limits.",
+    },
+    "QCT-039": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct038_039_live.py::test_qct039_process_only_does_not_rewrite_recipe_or_contract",
+        ],
+        "notes": "QC-only PROCESS moisture draft keeps approved spec id, recipe id/notes, and canonical id_min_mm. Contractual id_min change on approved spec creates a replacement draft; obsolete prior keeps 76.0 and the recipe; new spec has no copied recipe.",
+    },
     "QCT-040": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",

@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 70,
-      "NOT_RUN": 98,
+      "PASS": 73,
+      "NOT_RUN": 95,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 32,
-      "EXACT_EXECUTED": 70,
+      "EXACT_EXECUTED": 73,
       "LIMITATION": 3,
-      "NONE": 75,
+      "NONE": 72,
       "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2269,13 +2269,19 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct037_live.py::test_qct037_mixed_assign_preview_no_publish_no_job_rewrite",
+        "spec-service/tests/test_original_qct037_live.py::test_qct037_sales_cannot_assign",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
-      "bj": [],
+      "bj": [
+        "BJ11"
+      ],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Assign one template to mixed legacy specs: applicable create_draft, NOTCHING_MISMATCH and SPEC_RETIRED per-spec errors; publish=true 400 AUTO_PUBLICATION_FORBIDDEN with no write; apply writes draft QC only; issued job spec_snapshot stays frozen. Chromium BUILD_ID vXkaPC37ZEz_eM-c37Pxr; Sales 403."
     },
     {
       "id": "QCT-038",
@@ -2287,13 +2293,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct038_039_live.py::test_qct038_one_canonical_rule_rejects_dual_writes",
+        "spec-service/tests/test_final_limits.py"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "New editor PUT /final-limits and legacy PUT spec columns share specification_sheet canonical finals; GET projects qc_profile.final from that owner; dual write 409 CONFLICTING_FINAL_LIMITS; QC-only final block 409 CONTRACTUAL_FINAL_REQUIRES_SPEC_COMMAND; approved change creates a draft replacement retaining spec approval; issued job snapshot stays at the old limits."
     },
     {
       "id": "QCT-039",
@@ -2306,13 +2315,15 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct038_039_live.py::test_qct039_process_only_does_not_rewrite_recipe_or_contract"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "QC-only PROCESS moisture draft keeps approved spec id, recipe id/notes, and canonical id_min_mm. Contractual id_min change on approved spec creates a replacement draft; obsolete prior keeps 76.0 and the recipe; new spec has no copied recipe."
     },
     {
       "id": "QCT-040",
@@ -4493,7 +4504,7 @@
       "id": "QCR-08",
       "title": "Existing-spec Add/Complete/View/Revise actions",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-035",
         "QCT-036",
@@ -4501,7 +4512,8 @@
       ],
       "linked_pass": [
         "QCT-035",
-        "QCT-036"
+        "QCT-036",
+        "QCT-037"
       ],
       "limitations": []
     },
@@ -4509,12 +4521,15 @@
       "id": "QCR-09",
       "title": "One canonical final-tolerance representation",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-038",
         "QCT-039"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-038",
+        "QCT-039"
+      ],
       "limitations": []
     },
     {
@@ -4632,7 +4647,9 @@
         "QCT-116"
       ],
       "linked_pass": [
-        "QCT-020"
+        "QCT-020",
+        "QCT-037",
+        "QCT-039"
       ],
       "limitations": []
     },
