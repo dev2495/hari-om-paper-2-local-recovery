@@ -860,6 +860,7 @@ export default function SalesOrdersPage() {
                   <div className="flex flex-wrap gap-2">
                     <Link
                       href={`/planning/board?section=winder&machine_id=${releaseOutcome.winderMachineId}&order_id=${releaseOutcome.orderId}`}
+                      prefetch={false}
                       className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
                       data-testid="sales-orders:open-winder-queue"
                     >

@@ -241,6 +241,7 @@ export function ReleaseToQueueDialog({
               </div>
               <Link
                 href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`}
+                prefetch={false}
                 className="inline-flex rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
                 data-testid="sales-order-detail:open-winder-queue"
               >
