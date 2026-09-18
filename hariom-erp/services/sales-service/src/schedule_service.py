@@ -309,10 +309,12 @@ def commit_line_schedules(
         db.query(SalesOrder)
         .filter(SalesOrder.id == order.id)
         .with_for_update()
+        .populate_existing()
         .first()
     )
     if not locked:
         raise HTTPException(status_code=404, detail="Sales order not found")
+    db.refresh(locked)
     current_revision = int(locked.schedule_revision or 0)
     if int(expected_revision) != current_revision:
         raise HTTPException(
@@ -439,6 +441,37 @@ def commit_entire_po(
     default_date: Optional[date] = None,
     line_splits: Optional[dict[str, list[dict[str, Any]]]] = None,
 ) -> dict[str, Any]:
+    locked = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == order.id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
+    if not locked:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    db.refresh(locked)
+    current_revision = int(locked.schedule_revision or 0)
+    if int(expected_revision) != current_revision:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "STALE_PREVIEW",
+                "message": "Schedule revision changed since preview. Reload and review again.",
+                "current_revision": current_revision,
+            },
+        )
+    db.expire(locked)
+    order = (
+        db.query(SalesOrder)
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
+        .filter(SalesOrder.id == order.id)
+        .populate_existing()
+        .first()
+    )
     preview = preview_entire_po(order, default_date=default_date, line_splits=line_splits)
     if not preview["valid"]:
         raise HTTPException(status_code=400, detail={"code": "SCHEDULE_REJECTED", "errors": preview["errors"]})
@@ -466,9 +499,16 @@ def mutate_schedule_row(
     actor: str,
 ) -> dict[str, Any]:
     del actor
-    locked = db.query(SalesOrder).filter(SalesOrder.id == order.id).with_for_update().first()
+    locked = (
+        db.query(SalesOrder)
+        .filter(SalesOrder.id == order.id)
+        .with_for_update()
+        .populate_existing()
+        .first()
+    )
     if not locked:
         raise HTTPException(status_code=404, detail="Sales order not found")
+    db.refresh(locked)
     row = (
         db.query(SalesOrderDeliverySchedule)
         .filter(

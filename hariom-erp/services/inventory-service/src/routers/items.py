@@ -8,6 +8,7 @@ import uuid
 from ..database import get_db
 from ..models import ItemMaster, ItemType, TrackingMode
 from ..utils.audit_client import emit_audit_event
+from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..quality_profile_lifecycle import ProfileLifecycleError, apply_profile_approve, apply_profile_save
 
 _audit_logger = logging.getLogger(__name__)

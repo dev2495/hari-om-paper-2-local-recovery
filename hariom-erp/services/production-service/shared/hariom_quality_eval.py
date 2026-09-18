@@ -220,6 +220,7 @@ class InspectionEvaluation:
             "sample_id": self.sample_id,
             "profile_revision": self.profile_revision,
             "evaluator_version": self.evaluator_version,
+            "issue_summary": self.issue_summary(),
         }
 
 

@@ -21,6 +21,7 @@ from ..models import (
     TrackingMode,
 )
 from ..services.labels import reel_label_payload
+from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..quality_pin import pin_quality_profile_metadata
 
 router = APIRouter(prefix="/reels", tags=["reels"])

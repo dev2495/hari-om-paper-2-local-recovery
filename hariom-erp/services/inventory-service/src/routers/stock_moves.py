@@ -27,6 +27,17 @@ from ..utils.auth import get_current_plant, require_role
 router = APIRouter(prefix="/inventory/stock-moves", tags=["inventory-stock-moves"])
 
 STOCK_STATUSES = {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}
+HELD_STOCK_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP"}
+
+
+def _reject_held_status_escape(current: str | None, requested: str | None, entity: str) -> None:
+    current_status = str(current or "").upper()
+    next_status = str(requested or current_status).upper()
+    if current_status in HELD_STOCK_STATUSES and next_status != current_status:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{entity} is not movable off {current_status} via stock move",
+        )
 
 
 class StockMoveCreate(BaseModel):
@@ -223,6 +234,7 @@ def create_stock_move(
                     transaction_id=existing.id,
                 )
 
+        _reject_held_status_escape(batch.stock_status, payload.stock_status, "Batch")
         batch.location_id = location.id if location else batch.location_id
         batch.location = location.code if location else batch.location
         batch.stock_status = payload.stock_status or batch.stock_status
@@ -258,6 +270,7 @@ def create_stock_move(
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
 
+    _reject_held_status_escape(reel.stock_status, payload.stock_status, "Reel")
     reel.location_id = location.id if location else reel.location_id
     reel.stock_status = payload.stock_status or reel.stock_status
     event = ReelScanEvent(

@@ -73,6 +73,33 @@ VALID_DISPOSITIONS = {"ACCEPT", "REWORK", "REHEAT", "SEGREGATE", "SCRAP", "BLOCK
 CONCESSION_PERMISSION = "qc:disposition:approve"
 CONCESSION_ROLES = {"Owner", "Admin"}
 CONCESSION_ELIGIBILITY = "RELEASED_BY_CONCESSION"
+HELD_STOCK_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP"}
+
+
+def _hold_reason_text(
+    evaluation_payload: dict[str, Any],
+    computed_failures: list[dict[str, Any]],
+    status: str,
+) -> str:
+    """Hold.reason is NOT NULL. Never persist a blank explanation."""
+    summary = evaluation_payload.get("issue_summary")
+    if isinstance(summary, str) and summary.strip():
+        return summary.strip()
+    for failure in computed_failures or []:
+        if not isinstance(failure, dict):
+            continue
+        for key in ("message", "label", "detail", "code"):
+            value = failure.get(key)
+            if value:
+                return str(value)
+    for row in evaluation_payload.get("parameter_results") or []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("verdict") or "").upper() in {"FAIL", "INVALID", "INCOMPLETE"}:
+            text = row.get("message") or row.get("label")
+            if text:
+                return str(text)
+    return f"{status} incoming inspection"
 
 
 def _pin_quality_profile(item: Optional[ItemMaster], entity: Any) -> Optional[dict[str, Any]]:
@@ -819,8 +846,7 @@ def create_quality_inspection(
                 entity_id=payload.entity_id,
                 source_inspection_id=inspection.id,
                 quantity=hold_qty,
-                reason=evaluation_payload.get("issue_summary")
-                or (computed_failures[0].get("detail") if computed_failures else f"{status} incoming inspection"),
+                reason=_hold_reason_text(evaluation_payload, computed_failures, status),
                 status="HOLD",
                 hold_kind="INSPECTION",
                 created_by=current_user.get("sub"),

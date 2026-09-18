@@ -12,6 +12,7 @@ from ..models import InventoryLocation, ItemMaster, PaperReel, ReferenceType, St
 from ..services import get_batch_balance, get_item_balance
 from ..services.labels import batch_label_payload
 from ..utils.audit_client import emit_audit_event
+from ..utils.auth import get_current_plant, get_current_plant_scope, get_current_user, require_role
 from ..quality_pin import pin_quality_profile_metadata
 
 logger = logging.getLogger(__name__)
