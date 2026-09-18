@@ -51,6 +51,27 @@ class _BadResponse:
     text = "not found"
 
 
+def test_leadtime_anatomy_requests_closed_orders_with_canonical_status(monkeypatch):
+    seen = {}
+
+    def fake_service_get(url, token, **kwargs):
+        if "/sales-orders" in url:
+            seen["url"] = url
+            seen["params"] = kwargs.get("params")
+        return []
+
+    monkeypatch.setattr(deep_cuts, "service_get", fake_service_get)
+    result = deep_cuts.leadtime_anatomy(
+        start_date="2026-08-01",
+        end_date="2026-08-31",
+        token="token",
+        plant_scope={"scope_all": False, "selected_plant_id": "plant-1"},
+    )
+    assert "/sales-orders" in seen["url"]
+    assert seen["params"]["status"] == "closed"
+    assert result["samples"] == 0
+
+
 def test_required_upstream_contract_failure_is_not_reported_as_empty(monkeypatch):
     monkeypatch.setattr(utils.requests, "get", lambda *args, **kwargs: _BadResponse())
     with pytest.raises(HTTPException) as caught:

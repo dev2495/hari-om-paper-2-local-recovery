@@ -415,7 +415,7 @@ def leadtime_anatomy(
         orders = service_get(
             f"{SALES_SERVICE_URL}/sales-orders",
             token,
-            params={"limit": 500, "status": "CLOSED"},
+            params={"limit": 500, "status": "closed"},
             plant_id=plant_id,
             required=True,
         ) or []
