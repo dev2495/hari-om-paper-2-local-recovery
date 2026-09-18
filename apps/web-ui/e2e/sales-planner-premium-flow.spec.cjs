@@ -1,28 +1,11 @@
-const fs = require("fs")
-const path = require("path")
 const { test, expect } = require("@playwright/test")
-
-const workspaceRoot = path.resolve(__dirname, "..", "..", "..")
-
-function resolveRuntimeManifestPath() {
-  if (process.env.ERP_RUNTIME_MANIFEST) return process.env.ERP_RUNTIME_MANIFEST
-  const preferred = path.join(workspaceRoot, "hariom-erp", "runtime", "runtime_manifest.json")
-  if (fs.existsSync(preferred)) return preferred
-  return path.join(workspaceRoot, "hariom-erp", ".runtime", "runtime_manifest.json")
-}
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"))
-}
-
-const runtimeManifest = readJson(resolveRuntimeManifestPath())
-const browserFixture = readJson(
-  process.env.ERP_BROWSER_FIXTURE || path.join(workspaceRoot, "reports", "browser_e2e_fixture_latest.json"),
-)
+const { getRuntimeManifest, getBrowserFixture } = require("./_runtime-data.cjs")
 
 async function login(page) {
-  const email = browserFixture?.auth?.admin_email
-  const password = browserFixture?.auth?.admin_password
+  const browserFixture = getBrowserFixture()
+  const runtimeManifest = getRuntimeManifest()
+  const email = browserFixture.auth.admin_email
+  const password = browserFixture.auth.admin_password
   if (!email || !password) throw new Error("Missing admin browser fixture")
 
   await page.goto("/login", { waitUntil: "domcontentloaded" })
@@ -32,14 +15,14 @@ async function login(page) {
     window.localStorage.removeItem("hariom_sidebar_pinned_v2")
   })
 
-  const bffBaseUrl = runtimeManifest?.urls?.bff || "http://127.0.0.1:14000"
+  const bffBaseUrl = runtimeManifest.urls.bff
   const response = await page.request.post(`${bffBaseUrl}/api/auth/login`, {
     data: { email, password },
   })
   expect(response.ok()).toBeTruthy()
   const payload = await response.json()
   expect(payload?.access_token).toBeUndefined()
-  const plantA = browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1"
+  const plantA = browserFixture.plants.plant_a.id
   await page.evaluate(({ plantA }) => {
     window.localStorage.setItem("hariom_active_plant", plantA)
   }, { plantA })
@@ -50,7 +33,7 @@ async function login(page) {
     ),
   ).toBeVisible()
   await expect(page.getByText(/admin workspace|owner workspace|owner’s daily scan|admin control surface/i).first()).toBeVisible()
-  await expect(page.getByText("00000000-0000-0000-0000-0000000000a1")).toHaveCount(0)
+  await expect(page.getByText(plantA)).toHaveCount(0)
 }
 
 async function expectTransition(locator) {
@@ -66,7 +49,7 @@ async function expectTransition(locator) {
 }
 
 async function expectPlannerMoveHonorsSelectedPlant(page) {
-  const bffBaseUrl = runtimeManifest?.urls?.bff || "http://127.0.0.1:14000"
+  const bffBaseUrl = getRuntimeManifest().urls.bff
   const headers = {
     "X-Plant-ID": "PLANT_A",
   }

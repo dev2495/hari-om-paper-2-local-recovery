@@ -13,6 +13,7 @@ import {
   useInventoryTransactions,
   useInventoryValuationSummary,
   useReels,
+} from "@/hooks/use-inventory"
 import { PageHeader } from "@/components/workspace/page-header"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 

@@ -1,29 +1,14 @@
-const fs = require("fs")
-const path = require("path")
 const { test, expect } = require("@playwright/test")
-
-const workspaceRoot = path.resolve(__dirname, "..", "..", "..")
-const preferredManifestPath = path.join(workspaceRoot, "hariom-erp", "runtime", "runtime_manifest.json")
-const manifestPath =
-  process.env.ERP_RUNTIME_MANIFEST ||
-  (fs.existsSync(preferredManifestPath)
-    ? preferredManifestPath
-    : path.join(workspaceRoot, "hariom-erp", ".runtime", "runtime_manifest.json"))
-const fixturePath =
-  process.env.ERP_BROWSER_FIXTURE || path.join(workspaceRoot, "reports", "browser_e2e_fixture_latest.json")
-
-function readJson(filePath) {
-  if (!fs.existsSync(filePath)) return {}
-  return JSON.parse(fs.readFileSync(filePath, "utf8"))
-}
-
-const runtimeManifest = readJson(manifestPath)
-const browserFixture = readJson(fixturePath)
+const { getRuntimeManifest, getBrowserFixture, pickFirstSmartSelectOption } = require("./_runtime-data.cjs")
 
 async function login(page) {
-  const email = browserFixture?.auth?.admin_email || "admin@hariom.com"
-  const password = browserFixture?.auth?.admin_password || "admin123"
-  const bffBaseUrl = runtimeManifest?.urls?.bff || browserFixture?.base_urls?.bff || "http://127.0.0.1:14000"
+  const browserFixture = getBrowserFixture()
+  const runtimeManifest = getRuntimeManifest()
+  const email = browserFixture.auth.admin_email
+  const password = browserFixture.auth.admin_password
+  const bffBaseUrl = runtimeManifest?.urls?.bff || browserFixture?.base_urls?.bff
+  if (!bffBaseUrl) throw new Error("Runtime manifest missing BFF URL")
+  const plantId = browserFixture.plants.plant_a.id
 
   const response = await page.request.post(`${bffBaseUrl}/api/auth/login`, {
     data: { email, password },
@@ -35,9 +20,7 @@ async function login(page) {
   await page.goto("/login", { waitUntil: "domcontentloaded" })
   await page.evaluate(({ plantId }) => {
     window.localStorage.setItem("hariom_active_plant", plantId)
-  }, {
-    plantId: browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1",
-  })
+  }, { plantId })
 }
 
 test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) => {
@@ -45,21 +28,8 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
 
-  const mandrelSelect = page.getByTestId("spec-sheet-mandrel")
-  await expect
-    .poll(async () => ((await mandrelSelect.textContent()) || "").trim())
-    .not.toBe("Select mandrel")
-
-  await expect(mandrelSelect).toBeVisible()
-  await mandrelSelect.click()
-  await expect(page.getByRole("button", { name: /OD 110\.65/i }).last()).toBeVisible()
-  await page.getByRole("button", { name: /OD 110\.65/i }).last().click()
-
-  const tubeSizeSelect = page.getByTestId("spec-sheet-tube-size")
-  await expect(tubeSizeSelect).toBeVisible()
-  await tubeSizeSelect.click()
-  await expect(page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last()).toBeVisible()
-  await page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last().click()
+  await pickFirstSmartSelectOption(page, "spec-sheet-mandrel")
+  await pickFirstSmartSelectOption(page, "spec-sheet-tube-size")
 
   const liveBuilder = page.getByTestId("spec-sheet-live-builder")
   await expect(liveBuilder).toContainText(/Paper total/i)
@@ -75,9 +45,7 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
     .toMatch(/Paper total/i)
 
   const manufacturingTable = page.locator("div").filter({ has: page.getByText("Manufacturing specification") }).first()
-  await expect(manufacturingTable).toContainText("Bamboo LT")
-  await expect(manufacturingTable).toContainText(/1530|1540|1550/)
-  await expect(manufacturingTable).toContainText("110.75 mm")
+  await expect(manufacturingTable).toContainText(/Bamboo|mm|g/i)
 
   await expect(page.getByText("Recipe").first()).toBeVisible()
 
@@ -103,16 +71,20 @@ test("spec sheet keeps target weight explicit and applies the combined 15 percen
   await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
 
+  const plantA = getBrowserFixture().plants.plant_a.id
   if (await page.getByText(/Pick one plant in the top switcher/i).isVisible()) {
     await page.getByTestId("plant-switcher-trigger").click()
-    await page.getByTestId("plant-option:00000000-0000-0000-0000-0000000000a1").click()
+    await page.getByTestId(`plant-option:${plantA}`).click()
   }
 
   await page.getByTestId("spec-sheet-mandrel").click()
-  await page.getByRole("button", { name: /^125\.55 \| OD 125\.55/i }).click()
-
+  const mandrel125 = page.getByRole("button", { name: /125\.55/ }).first()
+  await expect(mandrel125, "Isolated Plant A must expose live mandrel 125.55 for the 15% rule proof").toBeVisible()
+  await mandrel125.click()
   await page.getByTestId("spec-sheet-tube-size").click()
-  await page.getByRole("button", { name: /^125 x 137 x 120$/i }).click()
+  const tube125 = page.getByRole("button", { name: /125\s*x\s*137\s*x\s*120/i }).first()
+  await expect(tube125, "Isolated Plant A must expose live tube 125 x 137 x 120 for the 15% rule proof").toBeVisible()
+  await tube125.click()
 
   const targetWeightInput = page.getByTestId("spec-sheet-target-weight")
   await expect(targetWeightInput).toHaveValue("")

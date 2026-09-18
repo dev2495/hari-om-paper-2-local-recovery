@@ -1,103 +1,15 @@
-const fs = require("fs")
-const path = require("path")
 const { test, expect } = require("@playwright/test")
-
-const workspaceRoot = path.resolve(__dirname, "..", "..", "..")
-function resolveRuntimeManifestPath() {
-  if (process.env.ERP_RUNTIME_MANIFEST) return process.env.ERP_RUNTIME_MANIFEST
-  const preferred = path.join(workspaceRoot, "hariom-erp", "runtime", "runtime_manifest.json")
-  if (fs.existsSync(preferred)) return preferred
-  return path.join(workspaceRoot, "hariom-erp", ".runtime", "runtime_manifest.json")
-}
-
-const manifestPath = resolveRuntimeManifestPath()
-const fixturePath =
-  process.env.ERP_BROWSER_FIXTURE || path.join(workspaceRoot, "reports", "browser_e2e_fixture_latest.json")
-
-function readJson(filePath) {
-  try {
-    return JSON.parse(fs.readFileSync(filePath, "utf8"))
-  } catch (error) {
-    throw new Error(`Unable to read JSON fixture ${filePath}: ${String(error.message || error)}`)
-  }
-}
-
-const runtimeManifest = readJson(manifestPath)
-const browserFixture = readJson(fixturePath)
-
-function requireCredential(key) {
-  if (key === "admin") {
-    const email = browserFixture?.auth?.admin_email
-    const password = browserFixture?.auth?.admin_password
-    if (!email || !password) {
-      throw new Error("Missing browser credential fixture for admin")
-    }
-    return { email, password }
-  }
-  const user = browserFixture?.users?.[key]
-  if (!user?.email || !user?.password) {
-    throw new Error(`Missing browser credential fixture for ${key}`)
-  }
-  return user
-}
+const {
+  getRuntimeManifest,
+  getBrowserFixture,
+  requireCredential,
+  beginCriticalMonitoring,
+} = require("./_runtime-data.cjs")
 
 async function waitForClientHydration(page, testId) {
   const locator = page.getByTestId(testId)
   await expect(locator).toBeVisible()
   await expect(locator).toBeEnabled()
-}
-
-function beginCriticalMonitoring(page) {
-  const critical = []
-
-  page.on("console", (msg) => {
-    if (msg.text().includes("401") && page.url().includes("/login")) {
-      return
-    }
-    if (msg.text().includes("Failed to fetch RSC payload")) {
-      return
-    }
-    if (msg.text().includes("403 (Forbidden)")) {
-      return
-    }
-    if (msg.text().includes("Failed to load resource") && msg.text().includes("400 (Bad Request)")) {
-      return
-    }
-    if (msg.text().includes("Failed to load resource") && msg.text().includes("404 (Not Found)")) {
-      return
-    }
-    if (msg.type() === "error") {
-      critical.push({ kind: "console", text: msg.text() })
-    }
-  })
-
-  page.on("pageerror", (error) => {
-    critical.push({ kind: "pageerror", text: String(error?.message || error) })
-  })
-
-  page.on("response", (response) => {
-    const url = response.url()
-    const status = response.status()
-    if (status === 401 && url.includes("/api/auth/me") && page.url().includes("/login")) {
-      return
-    }
-    if (url.includes("/_next/static/") && status >= 400) {
-      critical.push({ kind: "asset", text: `${status} ${url}` })
-      return
-    }
-    if (status >= 500) {
-      critical.push({ kind: "response", text: `${status} ${url}` })
-    }
-  })
-
-  return async () => {
-    expect(
-      critical,
-      critical.length
-        ? `Critical browser/runtime errors detected:\n${critical.map((item) => `${item.kind}: ${item.text}`).join("\n")}`
-        : "No critical browser/runtime errors detected.",
-    ).toEqual([])
-  }
 }
 
 async function login(page, key) {
@@ -117,7 +29,7 @@ async function login(page, key) {
     window.localStorage.removeItem("hariom_active_plant")
   })
 
-  const bffBaseUrl = runtimeManifest?.urls?.bff || browserFixture?.base_urls?.bff || "http://127.0.0.1:14000"
+  const bffBaseUrl = getRuntimeManifest()?.urls?.bff || getBrowserFixture()?.base_urls?.bff || "http://127.0.0.1:14000"
   const response = await page.request.post(`${bffBaseUrl}/api/auth/login`, {
     data: {
       email: user.email,
@@ -185,7 +97,7 @@ async function pickFirstSelectOption(page, testId) {
 }
 
 function plantOptionId(plantKey) {
-  return browserFixture?.plants?.[plantKey]?.id
+  return getBrowserFixture()?.plants?.[plantKey]?.id
 }
 
 async function assertPageLoads(page, route, matcher) {
@@ -257,8 +169,8 @@ test("admin shell, plant switching, and reports load cleanly", async ({ page }) 
 
   await page.goto("/reports/owner", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("analytics-owner-pack-page")).toBeVisible()
-  await expect(page.getByRole("heading", { name: /live company health, wip, variance, and exceptions/i })).toBeVisible()
-  await expect(page.getByText(/owner\/admin can use global analytics/i)).toBeVisible()
+  await expect(page.getByRole("heading", { name: /the one page that walks into the morning standup/i })).toBeVisible()
+  await expect(page.getByText(/six hero kpis, three things to ask in standup/i)).toBeVisible()
 
   await page.goto("/sales-orders", { waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: /long-horizon pos, partial releases, and planner handoff/i })).toBeVisible()
@@ -293,7 +205,7 @@ test("admin can load all critical ERP workspaces without route errors", async ({
     ["/inventory/stock-control", /\/inventory\/stock-control(\?.*)?$/],
     ["/inventory/genealogy", /\/inventory\/genealogy(\?.*)?$/],
     ["/specs", /\/specifications(\?.*)?$/],
-    ["/master", /\/masters\/papers(\?.*)?$/],
+    ["/master", /\/masters(\/papers)?(\?.*)?$/],
     ["/master/items", /\/inventory\/items(\?.*)?$/],
     ["/system/users", /\/system\/users(\?.*)?$/],
   ]
@@ -393,7 +305,7 @@ test("sales queue, approval, release, planning, and dispatch workspace are opera
   await logout(page)
 
   await login(page, "dispatch_a")
-  const completedJobCardId = browserFixture?.flows?.[0]?.job_card_id
+  const completedJobCardId = getBrowserFixture()?.flows?.[0]?.job_card_id
   if (!completedJobCardId) {
     throw new Error("Missing completed job card fixture for dispatch print validation")
   }
@@ -410,7 +322,7 @@ test("Plant II sales release resolves its active winder masters and creates the 
   const assertCritical = beginCriticalMonitoring(page)
 
   await login(page, "admin")
-  const plantId = browserFixture?.users?.sales_maker_b?.plant_id
+  const plantId = getBrowserFixture()?.users?.sales_maker_b?.plant_id
   expect(plantId, "Plant II user fixture must carry a concrete plant id").toBeTruthy()
   const customerCode = `E2E-B-${Date.now()}`
   const customerResponse = await page.request.post("/api/master/customers", {
@@ -469,7 +381,12 @@ test("Plant II sales release resolves its active winder masters and creates the 
 })
 
 test("real seeded users enforce route separation and role guards", async ({ page }) => {
-  const assertCritical = beginCriticalMonitoring(page)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [
+      { kind: "response", status: 403, urlIncludes: "/reports/owner" },
+      { kind: "response", status: 403, urlIncludes: "/api/auth/logout" },
+    ],
+  })
 
   await login(page, "owner")
   await page.goto("/reports/plants", { waitUntil: "domcontentloaded" })
@@ -482,7 +399,8 @@ test("real seeded users enforce route separation and role guards", async ({ page
 
   await login(page, "store_b")
   await page.goto("/reports/owner", { waitUntil: "domcontentloaded" })
-  await expect(page.getByText(/forbidden|access denied|not authorized/i).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId("role-gate-denied")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByRole("heading", { name: /restricted area/i })).toBeVisible()
 
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
   await expect(page.getByRole("heading", { name: /inventory/i }).first()).toBeVisible()

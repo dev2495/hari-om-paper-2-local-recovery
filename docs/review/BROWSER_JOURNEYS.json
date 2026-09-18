@@ -1,0 +1,85 @@
+{
+  "source": "executable Playwright specs plus named human UAT; not a 192-case runner",
+  "sha_binding": "Bind PLAYWRIGHT_BASE_URL to the isolated verify stack, not :13000 trash-copy listeners",
+  "journeys": [
+    {
+      "id": "BJ01",
+      "spec": "e2e/release-gate.spec.cjs",
+      "title": "Login privacy and contextual guides",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ02",
+      "spec": "e2e/release-gate.spec.cjs",
+      "title": "Admin shell, plant switching, reports",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ03",
+      "spec": "e2e/release-gate.spec.cjs",
+      "title": "Critical ERP workspaces load",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ04",
+      "spec": "e2e/release-gate.spec.cjs",
+      "title": "Sales queue approve release planning dispatch",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ05",
+      "spec": "e2e/release-gate.spec.cjs",
+      "title": "Plant II sales release",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ06",
+      "spec": "e2e/release-gate.spec.cjs",
+      "title": "Role guards including expected 403 for store_b",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ07",
+      "spec": "e2e/spec-sheet-sync.spec.cjs",
+      "title": "Spec sheet recipe and 15 percent rule",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ08",
+      "spec": "e2e/sales-planner-premium-flow.spec.cjs",
+      "title": "Sales and planner surfaces",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ09",
+      "spec": "e2e/tooling-lifecycle.spec.cjs",
+      "title": "Tooling master, spec sheet, supervisor tools",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ10",
+      "spec": "e2e/reconciliation-sidebar.spec.cjs",
+      "title": "Reconciliation actuals",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ11",
+      "spec": "e2e/correction-journeys.spec.cjs",
+      "title": "Keyboard, modal Escape, narrow viewport",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ12",
+      "spec": "e2e/correction-journeys.spec.cjs",
+      "title": "Job-card print samples and units",
+      "layer": "browser"
+    },
+    {
+      "id": "BJ13",
+      "spec": "human-UAT",
+      "title": "Safari on client devices; both implemented visual themes beyond print tones",
+      "layer": "human-UAT",
+      "status": "NOT_RUN"
+    }
+  ]
+}

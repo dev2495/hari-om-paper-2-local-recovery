@@ -63,7 +63,7 @@ function LoginPageContent() {
     <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(20,83,107,0.24),_transparent_38%),linear-gradient(180deg,_#edf4f7_0%,_#dce7eb_100%)] text-slate-950">
       <div className="mx-auto flex min-h-screen max-w-6xl items-center px-6 py-16">
         <div className="grid w-full gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="rounded-[32px] border border-white/50 bg-slate-950 px-8 py-10 text-white shadow-[0_24px_80px_rgba(15,23,42,0.24)]">
+          <section className="order-2 rounded-[32px] border border-white/50 bg-slate-950 px-8 py-10 text-white shadow-[0_24px_80px_rgba(15,23,42,0.24)] lg:order-none">
             <div className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.28em] text-teal-200/80">
               Hari Om Paper
             </div>
@@ -87,7 +87,7 @@ function LoginPageContent() {
             </div>
           </section>
 
-          <section className="rounded-[28px] border border-slate-200/80 bg-white/90 p-8 shadow-[0_20px_70px_rgba(15,23,42,0.12)] backdrop-blur">
+          <section className="order-1 rounded-[28px] border border-slate-200/80 bg-white/90 p-8 shadow-[0_20px_70px_rgba(15,23,42,0.12)] backdrop-blur lg:order-none">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-500">Sign in</p>
               <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Access the live ERP</h2>
@@ -109,6 +109,7 @@ function LoginPageContent() {
                   data-testid="login-email"
                   autoComplete="username"
                   autoCapitalize="none"
+                  autoFocus
                   spellCheck={false}
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:bg-white"
                   value={email}

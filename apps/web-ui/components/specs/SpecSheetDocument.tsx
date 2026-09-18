@@ -387,6 +387,7 @@ function SmartSelect({
                 <button
                   key={option.value}
                   type="button"
+                  data-testid={testId ? `${testId}-option:${option.value}` : undefined}
                   onClick={() => {
                     onChange(option.value)
                     setQuery("")
@@ -2544,12 +2545,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             dimensions: selectedTube ? `I.D./O.D./Height ${selectedTube.inner_diameter_mm}/${selectedTube.outer_diameter_mm}/${selectedTube.length_mm}` : undefined,
             targetWeight: form.averages?.weight ? `${form.averages.weight} g` : undefined,
             cs: form.averages?.cs ? `${form.averages.cs} N` : undefined,
-            recipe: Array.isArray(form.papers) && form.papers.length
-              ? `${form.papers.length} paper${form.papers.length === 1 ? "" : "s"}`
+            recipe: recipeDistinctPaperCount
+              ? `${recipeDistinctPaperCount} paper${recipeDistinctPaperCount === 1 ? "" : "s"}`
               : undefined,
-            ply: Array.isArray(form.papers)
-              ? String(form.papers.reduce((sum: number, row: any) => sum + Number(row.plyCount || 0), 0) || "")
-              : undefined,
+            ply: recipeTotalPlyCount ? String(recipeTotalPlyCount) : undefined,
             parchment: form.parchmentAllowed ? (form.parchmentColor || "required") : "not used",
             notching: Boolean(form.dynamicValues?.notch_type || form.dynamicValues?.notch_distance_mm || form.dynamicValues?.notch_depth_mm),
           }}

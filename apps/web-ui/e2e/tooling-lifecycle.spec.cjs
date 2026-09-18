@@ -1,20 +1,14 @@
-const fs = require("fs")
 const path = require("path")
 const { test, expect } = require("@playwright/test")
-
-const workspaceRoot = path.resolve(__dirname, "..", "..", "..")
-const fixturePath = process.env.ERP_BROWSER_FIXTURE || path.join(workspaceRoot, "reports", "browser_e2e_fixture_latest.json")
-
-function readJson(filePath) {
-  return JSON.parse(fs.readFileSync(filePath, "utf8"))
-}
-
-const browserFixture = readJson(fixturePath)
+const { getBrowserFixture, getRuntimeManifest, workspaceRoot, pickFirstSmartSelectOption } = require("./_runtime-data.cjs")
 
 async function loginThroughUi(page) {
-  const email = browserFixture?.auth?.admin_email || "admin@hariom.com"
-  const password = browserFixture?.auth?.admin_password || "admin123"
-  const bffBaseUrl = browserFixture?.base_urls?.bff || "http://127.0.0.1:14000"
+  const browserFixture = getBrowserFixture()
+  const runtimeManifest = getRuntimeManifest()
+  const email = browserFixture.auth.admin_email
+  const password = browserFixture.auth.admin_password
+  const bffBaseUrl = runtimeManifest.urls.bff || browserFixture.base_urls?.bff
+  if (!bffBaseUrl) throw new Error("Missing BFF URL from live runtime manifest")
   const response = await page.request.post(`${bffBaseUrl}/api/auth/login`, { data: { email, password } })
   expect(response.ok(), "admin login through BFF should succeed").toBeTruthy()
   const payload = await response.json()
@@ -24,7 +18,7 @@ async function loginThroughUi(page) {
   await page.evaluate(({ plantId }) => {
     window.localStorage.setItem("hariom_active_plant", plantId)
   }, {
-    plantId: browserFixture?.plants?.plant_a?.id || "00000000-0000-0000-0000-0000000000a1",
+    plantId: browserFixture.plants.plant_a.id,
   })
 }
 
@@ -73,15 +67,9 @@ test("spec sheet uses searchable mandrel and tube controls and has no suggestion
   await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
   const mandrel = page.getByTestId("spec-sheet-mandrel")
   await expect(mandrel).toBeVisible()
-  await mandrel.click()
-  await expect(page.getByRole("button", { name: /OD\s+110\.65/i }).last()).toBeVisible()
-  await page.getByRole("button", { name: /OD\s+110\.65/i }).last().click()
-
-  const tube = page.getByTestId("spec-sheet-tube-size")
-  await expect(tube).toBeEnabled()
-  await tube.click()
-  await expect(page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last()).toBeVisible()
-  await page.getByRole("button", { name: /110\s*x\s*122\s*x\s*149\.9/i }).last().click()
+  await pickFirstSmartSelectOption(page, "spec-sheet-mandrel")
+  await expect(page.getByTestId("spec-sheet-tube-size")).toBeEnabled()
+  await pickFirstSmartSelectOption(page, "spec-sheet-tube-size")
   await expect(page.getByTestId("spec-sheet-live-builder")).toContainText(/Paper total/i)
   await expect(page.getByTestId("spec-field-notch_distance_mm")).toHaveAttribute("type", "number")
   await expect(page.getByTestId("spec-field-notch_depth_mm")).toHaveAttribute("type", "number")
