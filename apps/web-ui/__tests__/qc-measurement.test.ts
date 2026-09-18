@@ -192,6 +192,23 @@ test("outside value names FAIL with measured, breached limit, and difference, no
   assert.doesNotMatch(fields, /text-red-600/)
 })
 
+test("blank print keeps writable spaces and does not treat empty as PASS", () => {
+  assert.equal(qcExceptionFeedback({ label: "Height", unit: "mm", min: 118, max: 122 }, ""), null)
+  const fields = readFileSync(resolve(process.cwd(), "components/qc/StageQcFields.tsx"), "utf8")
+  const jobCard = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
+  assert.match(fields, /qc-print-writable/)
+  assert.match(fields, /printLayout/)
+  assert.match(jobCard, /print-page-winding/)
+  assert.match(jobCard, /print-page-oven/)
+  assert.match(jobCard, /print-page-process/)
+  assert.match(jobCard, /print-oven-pair-table/)
+  assert.match(jobCard, /print-winder-sample/)
+  assert.match(jobCard, /overflow: visible/)
+  assert.match(jobCard, /page-break-after: always/)
+  assert.match(jobCard, /job-oven-side/)
+  assert.doesNotMatch(jobCard, /max-height: 287mm/)
+})
+
 test("list actions follow missing/draft/pending/approved/retired and author/viewer/approver", () => {
   const specId = "spec-1"
   const missingAuthor = qcRowActions({ qcStatus: "missing", specId, canAuthor: true, canApprove: false })

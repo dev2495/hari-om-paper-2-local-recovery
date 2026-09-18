@@ -722,4 +722,89 @@ test("QCT-045 keyboard outside value shows readable FAIL, difference, focusable 
   await assertCritical()
 })
 
+function spawnProductionPytest(testPath) {
+  const { spawnSync } = require("child_process")
+  const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
+  return spawnSync(
+    py,
+    ["-m", "pytest", testPath, "-q", "--tb=short"],
+    {
+      encoding: "utf8",
+      cwd: path.join(workspaceRoot, "hariom-erp", "services", "production-service"),
+      env: {
+        ...process.env,
+        HARI_OM_LIVE_PG: "1",
+        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+        HARI_OM_PRODUCTION_DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+      },
+    },
+  )
+}
+
+test("QCT-046 blank multi-page print keeps samples, paired oven, writable spaces, and no default PASS", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const seeded = spawnProductionPytest("tests/test_original_qct046_live.py::test_qct046_blank_job_print_has_frozen_stage_rules")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct046-job.json"), "utf8"))
+  await page.goto(`/production/job-cards/${artifact.blank_job_id}/print`, { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("print-page-winding")).toBeVisible()
+  await expect(page.getByTestId("print-page-oven")).toBeVisible()
+  await expect(page.getByTestId("print-page-process")).toBeVisible()
+  await expect(page.getByTestId("print-winder-sample")).toHaveCount(4)
+  await expect(page.getByTestId("print-process-sample")).toHaveCount(2)
+  await expect(page.getByTestId("print-winder-allowed-row")).toContainText("118")
+  await expect(page.getByTestId("print-winder-allowed-row")).toContainText("122")
+  await expect(page.getByTestId("print-oven-pair-table")).toContainText("Pre-weight")
+  await expect(page.getByTestId("print-oven-pair-table")).toContainText("Post-weight")
+  await expect(page.getByTestId("print-oven-allowed-row")).toBeVisible()
+  await expect(page.getByTestId("allowed-pre_weight")).toBeVisible()
+  await expect(page.getByTestId("allowed-post_weight")).toBeVisible()
+  await expect(page.getByTestId("allowed-pre_moisture")).toBeVisible()
+  await expect(page.getByTestId("allowed-post_moisture")).toBeVisible()
+  await expect(page.getByTestId("print-qc-process")).toBeVisible()
+  const windingQc = page.getByTestId("print-qc-winder")
+  await expect(windingQc.getByTestId("stage-qc-reading-height")).toHaveAttribute("data-blank", "true")
+  const windingText = await windingQc.innerText()
+  expect(windingText).not.toMatch(/\bPASS\b/)
+  const ovenText = await page.getByTestId("print-qc-oven").innerText()
+  expect(ovenText).not.toMatch(/\bPASS\b/)
+  await page.emulateMedia({ media: "print" })
+  const overflow = await page.getByTestId("print-page-winding").evaluate((el) => getComputedStyle(el).overflow)
+  expect(overflow).not.toBe("hidden")
+  const breakAfter = await page.getByTestId("print-page-winding").evaluate((el) => getComputedStyle(el).breakAfter || getComputedStyle(el).pageBreakAfter)
+  expect(["page", "always"]).toContain(breakAfter)
+  const ovenBreak = await page.getByTestId("print-page-oven").evaluate((el) => getComputedStyle(el).breakAfter || getComputedStyle(el).pageBreakAfter)
+  expect(["page", "always"]).toContain(ovenBreak)
+  const writable = page.locator(".qc-print-writable").first()
+  await expect(writable).toBeVisible()
+  const minHeight = await writable.evaluate((el) => parseFloat(getComputedStyle(el).minHeight))
+  expect(minHeight).toBeGreaterThan(0)
+  await assertCritical()
+})
+
+test("QCT-047 signed print keeps original Height unit and revision after later dictionary change", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const seeded = spawnProductionPytest("tests/test_original_qct046_live.py::test_qct047_signed_print_keeps_old_label_after_dictionary_change")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct047-job.json"), "utf8"))
+  await page.goto(`/production/job-cards/${artifact.job_id}/print`, { waitUntil: "domcontentloaded" })
+  const printWinder = page.getByTestId("print-qc-winder")
+  await expect(printWinder).toHaveAttribute("data-profile-revision", String(artifact.revision_a))
+  await expect(printWinder).toContainText("Height")
+  await expect(printWinder).not.toContainText("Ht-B")
+  await expect(printWinder).not.toContainText("Dict-B")
+  await expect(printWinder.getByTestId("allowed-height")).toContainText("118")
+  await expect(printWinder.getByTestId("allowed-height")).toContainText("122")
+  await expect(printWinder.getByTestId("allowed-height")).toContainText("mm")
+  await expect(printWinder.getByTestId("allowed-height")).not.toContainText("cm")
+  await expect(printWinder.getByTestId("allowed-height")).not.toContainText("14")
+  await expect(printWinder.getByTestId("stage-qc-reading-height")).toHaveAttribute("data-blank", "false")
+  await expect(printWinder.getByTestId("stage-qc-reading-height")).toContainText("120")
+  await assertCritical()
+})
+
 

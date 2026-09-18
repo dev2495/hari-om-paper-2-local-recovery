@@ -21,6 +21,7 @@ type StageQcFieldsProps = {
   paired?: boolean
   profileRevision?: number | string | null
   checkpoint?: string
+  printLayout?: boolean
 }
 
 function ExceptionMark({ verdict }: { verdict: "FAIL" | "PASS" | "INVALID" }) {
@@ -45,6 +46,7 @@ export function StageQcFields({
   paired,
   profileRevision,
   checkpoint,
+  printLayout = false,
 }: StageQcFieldsProps) {
   const issues = qcExceptionIssues(rules, readings)
   return (
@@ -74,7 +76,13 @@ export function StageQcFields({
               placeholder="Same identified sample for pre and post"
             />
           ) : (
-            <div className="text-sm font-semibold text-slate-900">{sampleId || "-"}</div>
+            <div
+              className={printLayout ? "qc-print-writable min-h-11 border border-slate-900 bg-white px-2 py-2 text-sm" : "text-sm font-semibold text-slate-900"}
+              data-testid="stage-qc-sample-id"
+              data-blank={sampleId ? "false" : "true"}
+            >
+              {sampleId || ""}
+            </div>
           )}
         </label>
       ) : null}
@@ -111,7 +119,11 @@ export function StageQcFields({
                     className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900"
                   />
                 ) : (
-                  <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-reading-${rule.code}`}>
+                  <div
+                    className={printLayout ? "qc-print-writable min-h-11 border border-slate-900 bg-white px-2 py-2 text-sm text-slate-900" : "text-sm font-semibold text-slate-900"}
+                    data-testid={`stage-qc-reading-${rule.code}`}
+                    data-blank={readings[rule.code] ? "false" : "true"}
+                  >
                     {readings[rule.code] || ""}
                   </div>
                 )}
@@ -151,7 +163,11 @@ export function StageQcFields({
                       aria-required={fail ? true : undefined}
                     />
                   ) : (
-                    <div className="text-xs text-slate-600" data-testid={`stage-qc-reason-${rule.code}`}>
+                    <div
+                      className={printLayout ? "qc-print-writable min-h-10 border border-slate-900 bg-white px-2 py-2 text-xs" : "text-xs text-slate-600"}
+                      data-testid={`stage-qc-reason-${rule.code}`}
+                      data-blank={reasons[rule.code] ? "false" : "true"}
+                    >
                       {reasons[rule.code] || ""}
                     </div>
                   )}

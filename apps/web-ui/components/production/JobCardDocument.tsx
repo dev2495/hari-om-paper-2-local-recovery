@@ -19,8 +19,10 @@ import {
 import { StageQcFields } from "@/components/qc/StageQcFields"
 import {
   collectStageQualityChecks,
+  formatAllowedRange,
   inspectionFrozenRules,
   inspectionProfileRevision,
+  type QcParameterRule,
   type QcStageKey,
 } from "@/lib/qc-measurement"
 
@@ -831,6 +833,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             sampleId={inspection?.sample_id || entry.qc_sample_id}
             paired={stage === "OVEN"}
             editable={options?.print ? false : stageEditable(stage)}
+            printLayout={Boolean(options?.print)}
             profileRevision={revision}
             checkpoint={checkpoint}
             onReadingChange={(code, value) => updateNestedSnapshotField(stage, "qc_readings", code, value)}
@@ -2452,7 +2455,23 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       ? winderPrintEntry.dimension_readings.filter((row: any) => Object.values(row || {}).some(Boolean))
       : []
     const winderRows = winderReadings.length ? winderReadings : Array.from({ length: 4 }, () => ({}))
-    const processRows = [{ ...(processPrintEntry.final_measurements || {}) }]
+    const processRows = Array.from({ length: 2 }, (_, index) => (index === 0 ? { ...(processPrintEntry.final_measurements || {}) } : {}))
+    const winderQcRules = inspectionFrozenRules(stageQcInspection("WINDER"), frozenQcProfile(), "WINDER")
+    const ovenQcRules = inspectionFrozenRules(stageQcInspection("OVEN"), frozenQcProfile(), "OVEN")
+    const processQcRules = inspectionFrozenRules(stageQcInspection("PROCESS"), frozenQcProfile(), "PROCESS")
+    function allowedCell(rules: QcParameterRule[], code: string) {
+      return formatAllowedRange(rules.find((row) => row.code === code) || null)
+    }
+    function writablePrintCell(value: any, testId: string) {
+      const text = value == null || String(value).trim() === "" || String(value) === "-" ? "" : String(value)
+      return (
+        <td>
+          <div className="qc-print-writable" data-testid={testId} data-blank={text ? "false" : "true"}>
+            {text}
+          </div>
+        </td>
+      )
+    }
     const headerFields = [
       ["Date", documentSnapshot?.header?.date || ""],
       ["Customer Name", customerName],
@@ -2485,26 +2504,34 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       </div>
     )
     const measuredDimensionRows = (rows: any[], kind: "winder" | "process") =>
-      rows.map((row, index) => (
-        <tr key={`dimension-row-${kind}-${index}`}>
-          <td>{row.height || row.length || ""}</td>
-          {kind === "winder" ? (
-            <>
-              <td>{row.id || ""}</td>
-              <td>{row.od || ""}</td>
-            </>
-          ) : null}
-          <td>{row.weight || ""}</td>
-          <td>{row.cs || ""}</td>
-          {kind === "process" ? (
-            <>
-              <td>{row.notch_distance || ""}</td>
-              <td>{row.notch_depth || ""}</td>
-              <td>{row.moisture || ""}</td>
-            </>
-          ) : null}
-        </tr>
-      ))
+      rows.map((row, index) => {
+        const sample = String(row.sample_id || (kind === "winder" ? `W${index + 1}` : `P${index + 1}`))
+        return (
+          <tr key={`dimension-row-${kind}-${index}`} data-testid={kind === "winder" ? "print-winder-sample" : "print-process-sample"}>
+            <td>
+              <div className="qc-print-writable" data-testid={`${kind}-sample-id-${index}`} data-blank={row.sample_id ? "false" : "true"}>
+                {sample}
+              </div>
+            </td>
+            {writablePrintCell(row.height || row.length, `${kind}-height-${index}`)}
+            {kind === "winder" ? (
+              <>
+                {writablePrintCell(row.id, `${kind}-id-${index}`)}
+                {writablePrintCell(row.od, `${kind}-od-${index}`)}
+              </>
+            ) : null}
+            {writablePrintCell(row.weight, `${kind}-weight-${index}`)}
+            {writablePrintCell(row.cs, `${kind}-cs-${index}`)}
+            {kind === "process" ? (
+              <>
+                {writablePrintCell(row.notch_distance, `${kind}-notch-distance-${index}`)}
+                {writablePrintCell(row.notch_depth, `${kind}-notch-depth-${index}`)}
+                {writablePrintCell(row.moisture, `${kind}-moisture-${index}`)}
+              </>
+            ) : null}
+          </tr>
+        )
+      })
 
     return (
       <div className="job-print-root mx-auto max-w-[210mm] print:max-w-none">
@@ -2520,7 +2547,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </button>
         </div>
 
-        <section className="job-print-side job-front-side">
+        <section className="job-print-side job-front-side" data-testid="print-page-winding">
           <div className="job-topbar">
             <div>
               <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
@@ -2567,17 +2594,44 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <table className="job-print-table job-dimension-table">
               <thead>
                 <tr>
+                  <th>Sample</th>
                   <th>Height</th>
                   <th>I.D</th>
                   <th>O.D</th>
                   <th>Weight</th>
                   <th>C.S</th>
                 </tr>
+                <tr className="job-print-allowed-row" data-testid="print-winder-allowed-row">
+                  <th>Allowed</th>
+                  <th>{allowedCell(winderQcRules, "height")}</th>
+                  <th>{allowedCell(winderQcRules, "id")}</th>
+                  <th>{allowedCell(winderQcRules, "od")}</th>
+                  <th>{allowedCell(winderQcRules, "weight")}</th>
+                  <th>{allowedCell(winderQcRules, "cs")}</th>
+                </tr>
               </thead>
               <tbody>{measuredDimensionRows(winderRows, "winder")}</tbody>
             </table>
             {renderStageQc("WINDER", { print: true })}
           </section>
+        </section>
+
+        <section className="job-print-side job-oven-side" data-testid="print-page-oven">
+          <div className="job-topbar">
+            <div>
+              <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
+              <div className="job-title">Job Card · Oven</div>
+            </div>
+            <div className="job-ref-box">
+              <span>Job Card No.</span>
+              <strong>{jobCardNumber}</strong>
+            </div>
+            <div className="job-ref-box">
+              <span>Paired sample</span>
+              <strong>Pre / post same ID</strong>
+            </div>
+            <QRCodeSVG value={qrValue} size={58} />
+          </div>
 
           <section className="job-band job-oven-band">
             <div className="job-section-title">
@@ -2594,11 +2648,38 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
               <PrintField label="Reject / Reason" value={`${formatNumber(ovenPrintStage?.scrap_qty, 0)} / ${ovenPrintEntry.rejection_code || "-"}`} />
             </div>
+            <table className="job-print-table job-dimension-table" data-testid="print-oven-pair-table">
+              <thead>
+                <tr>
+                  <th>Sample / pair ID</th>
+                  <th>Pre-weight</th>
+                  <th>Post-weight</th>
+                  <th>Pre-moisture</th>
+                  <th>Post-moisture</th>
+                </tr>
+                <tr className="job-print-allowed-row" data-testid="print-oven-allowed-row">
+                  <th>Allowed</th>
+                  <th>{allowedCell(ovenQcRules, "pre_weight")}</th>
+                  <th>{allowedCell(ovenQcRules, "post_weight")}</th>
+                  <th>{allowedCell(ovenQcRules, "pre_moisture")}</th>
+                  <th>{allowedCell(ovenQcRules, "post_moisture")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-testid="print-oven-pair">
+                  {writablePrintCell(ovenPrintEntry.qc_sample_id || ovenPrintEntry.sample_id, "oven-pair-id")}
+                  {writablePrintCell(ovenPrintEntry.pre_weight || ovenPrintEntry.qc_readings?.pre_weight, "oven-pre-weight")}
+                  {writablePrintCell(ovenPrintEntry.post_weight || ovenPrintEntry.qc_readings?.post_weight, "oven-post-weight")}
+                  {writablePrintCell(ovenPrintEntry.pre_moisture || ovenPrintEntry.qc_readings?.pre_moisture || ovenPrintEntry.moisture_before, "oven-pre-moisture")}
+                  {writablePrintCell(ovenPrintEntry.post_moisture || ovenPrintEntry.qc_readings?.post_moisture || ovenPrintEntry.moisture_after, "oven-post-moisture")}
+                </tr>
+              </tbody>
+            </table>
             {renderStageQc("OVEN", { print: true })}
           </section>
         </section>
 
-        <section className="job-print-side job-back-side">
+        <section className="job-print-side job-back-side" data-testid="print-page-process">
           <div className="job-topbar job-back-topbar">
             <div>
               <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
@@ -2633,12 +2714,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <table className="job-print-table job-dimension-table">
               <thead>
                 <tr>
+                  <th>Sample</th>
                   <th>Height</th>
                   <th>Weight</th>
                   <th>C.S</th>
                   <th>Notch Dist.</th>
                   <th>Notch Depth</th>
                   <th>Moisture</th>
+                </tr>
+                <tr className="job-print-allowed-row" data-testid="print-process-allowed-row">
+                  <th>Allowed</th>
+                  <th>{allowedCell(processQcRules, "height")}</th>
+                  <th>{allowedCell(processQcRules, "weight")}</th>
+                  <th>{allowedCell(processQcRules, "cs")}</th>
+                  <th>{allowedCell(processQcRules, "notch_distance")}</th>
+                  <th>{allowedCell(processQcRules, "notch_depth")}</th>
+                  <th>{allowedCell(processQcRules, "moisture")}</th>
                 </tr>
               </thead>
               <tbody>{measuredDimensionRows(processRows, "process")}</tbody>
@@ -2682,8 +2773,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             border: 2px solid #0f172a;
             background: #fff;
             padding: 18px;
-            height: 287mm;
-            overflow: hidden;
+            min-height: 287mm;
+            height: auto;
+            overflow: visible;
             display: flex;
             flex-direction: column;
             box-shadow: 0 26px 80px rgba(15, 23, 42, 0.14);
@@ -2816,11 +2908,23 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
           .job-print-table th,
           .job-print-table td {
-            height: 7mm;
+            min-height: 9mm;
+            height: auto;
             border: 1px solid #0f172a;
             border-left: 0;
             padding: 2px 4px;
             text-align: left;
+          }
+
+          .job-print-table thead {
+            display: table-header-group;
+          }
+
+          .qc-print-writable {
+            min-height: 9mm;
+            border: 1px solid #0f172a;
+            background: #fff;
+            color: #0f172a;
           }
 
           .job-print-table th {
@@ -2886,21 +2990,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
             .job-print-side {
               width: 200mm;
-              height: 287mm;
               min-height: 287mm;
-              max-height: 287mm;
-              overflow: hidden;
+              height: auto;
+              max-height: none;
+              overflow: visible;
               padding: 6mm 7mm;
               box-shadow: none !important;
-              break-inside: avoid !important;
-              page-break-inside: avoid !important;
+              break-inside: auto;
+              page-break-inside: auto;
             }
 
             .job-print-side + .job-print-side {
               margin-top: 0;
             }
 
-            .job-front-side {
+            .job-front-side,
+            .job-oven-side {
               break-after: page !important;
               page-break-after: always !important;
             }
