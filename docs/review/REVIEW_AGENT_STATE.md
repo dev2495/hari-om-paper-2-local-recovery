@@ -3,7 +3,7 @@
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
-- Local candidate HEAD: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (**not pushed**)
+- Local candidate HEAD: `f3e0e7593ea19fe01dd760391fb9d9a8340a3ca2` (**not pushed**; Chromium 15/15 ran at `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`, this commit is review docs only)
 - Group A (backend boot/correctness + live PG proofs): `8efd5f1f61e20302ece3e6d2f1a50367e019b171`
 - Group B (portable isolated runtime): `bbd42af8da94a2e2473865132276ce38722ab05e`
 - Group C (fixture setup + browser harness): `3c9395f7aad801b97bebb5b513fbaf4f6aa4c0bd`
