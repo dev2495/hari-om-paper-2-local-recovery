@@ -129,6 +129,9 @@ FINAL_SPEC_QC_FIELDS = [
 ]
 WINDER_METER_CAPACITY_UNIT = "METERS_PER_DAY"
 WINDER_BAMBOO_CAPACITY_UNIT = "BAMBOOS_PER_DAY"
+CAPACITY_SPLIT_STAGES = {"WINDER", "PROCESS", "OVEN"}
+MISSING_CAPACITY_POLICY_WARNING = "Capacity policy missing; this lane is not labelled feasible."
+CLOSED_DATE_WARNING = "Plant holiday or closed date; load is not labelled feasible."
 
 
 def _winder_override_warning(job_card: JobCard, machine_id: Optional[uuid.UUID]) -> Optional[str]:
@@ -1027,6 +1030,62 @@ def _shift_capacity_value(capacity_value: Optional[float], shift_code: Optional[
     return round(float(capacity_value), 2)
 
 
+def _fetch_plant_closed_dates(
+    token: str,
+    plant_id: str,
+    around: date,
+    horizon_days: int = 30,
+) -> set[date]:
+    years = {around.year, (around + timedelta(days=max(horizon_days, 0))).year}
+    closed: set[date] = set()
+    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": str(plant_id)}
+    try:
+        with httpx.Client(timeout=5.0) as client:
+            for year in sorted(years):
+                response = client.get(
+                    f"{settings.MASTERDATA_SERVICE_URL}/master/holidays/",
+                    params={"year": year},
+                    headers=headers,
+                )
+                if response.status_code != 200:
+                    continue
+                payload = response.json()
+                rows = payload if isinstance(payload, list) else payload.get("items") or payload.get("holidays") or []
+                for row in rows:
+                    raw = row.get("holiday_date") if isinstance(row, dict) else None
+                    if not raw:
+                        continue
+                    text = str(raw)[:10]
+                    try:
+                        closed.add(date.fromisoformat(text))
+                    except ValueError:
+                        continue
+    except Exception:
+        return set()
+    return closed
+
+
+def _feasibility_warning(
+    *,
+    plan_date: Optional[date],
+    closed_dates: Optional[set[date]],
+    capacity: Optional[float],
+    capacity_unit: Optional[str],
+    planned_total: float,
+    stage: str,
+) -> Optional[str]:
+    if plan_date is not None and closed_dates and plan_date in closed_dates:
+        return CLOSED_DATE_WARNING
+    if not capacity or capacity <= 0 or not capacity_unit:
+        return MISSING_CAPACITY_POLICY_WARNING
+    if planned_total <= capacity:
+        return None
+    return (
+        f"Capacity warning: {stage} planned load {planned_total:.2f} {capacity_unit} exceeds "
+        f"machine shift capacity {float(capacity):.2f} {capacity_unit}."
+    )
+
+
 def _capacity_warning_message(
     db: Session,
     plant_id: uuid.UUID,
@@ -1035,18 +1094,30 @@ def _capacity_warning_message(
     machine_capacity: Optional[float],
     plan_date: Optional[date] = None,
     shift_code: Optional[str] = None,
+    closed_dates: Optional[set[date]] = None,
+    resolved_capacity: Optional[float] = None,
+    resolved_unit: Optional[str] = None,
+    use_resolved: bool = False,
 ) -> Optional[str]:
     if machine_id is None or stage == "PACKING":
+        if plan_date is not None and closed_dates and plan_date in closed_dates:
+            return CLOSED_DATE_WARNING
         return None
-    capacity, capacity_unit = _resolve_capacity_profile(
-        db=db,
-        plant_id=plant_id,
-        stage=stage,
-        machine_id=machine_id,
-        machine_capacity=machine_capacity,
-    )
+    if use_resolved:
+        capacity, capacity_unit = resolved_capacity, resolved_unit
+    else:
+        capacity, capacity_unit = _resolve_capacity_profile(
+            db=db,
+            plant_id=plant_id,
+            stage=stage,
+            machine_id=machine_id,
+            machine_capacity=machine_capacity,
+            on_day=plan_date,
+        )
+    if plan_date is not None and closed_dates and plan_date in closed_dates:
+        return CLOSED_DATE_WARNING
     if not capacity or capacity <= 0 or not capacity_unit:
-        return None
+        return MISSING_CAPACITY_POLICY_WARNING
 
     queue_rows = (
         db.query(JobCardStageSegment, JobCard)
@@ -1066,11 +1137,13 @@ def _capacity_warning_message(
     planned_total = 0.0
     for queue_row, _job_card in queue_rows:
         planned_total += float(queue_row.required_capacity or 0.0)
-    if planned_total <= capacity:
-        return None
-    return (
-        f"Capacity warning: {stage} planned load {planned_total:.2f} {capacity_unit} exceeds "
-        f"machine shift capacity {capacity:.2f} {capacity_unit}."
+    return _feasibility_warning(
+        plan_date=plan_date,
+        closed_dates=closed_dates,
+        capacity=capacity,
+        capacity_unit=capacity_unit,
+        planned_total=planned_total,
+        stage=stage,
     )
 
 
@@ -1368,13 +1441,21 @@ def _capacity_allocation_to_qty(
     return qty, qty
 
 
-def _future_stage_slots(start_date: date, shift_code: Optional[str], horizon_days: int = 30) -> list[tuple[date, str]]:
+def _future_stage_slots(
+    start_date: date,
+    shift_code: Optional[str],
+    horizon_days: int = 30,
+    closed_dates: Optional[set[date]] = None,
+) -> list[tuple[date, str]]:
     ordered_codes = _shift_codes()
     current_code = shift_code if shift_code in ordered_codes else ordered_codes[0]
     start_index = ordered_codes.index(current_code)
+    closed = closed_dates or set()
     slots: list[tuple[date, str]] = []
     for day_offset in range(horizon_days):
         slot_day = start_date + timedelta(days=day_offset)
+        if slot_day in closed:
+            continue
         codes = ordered_codes[start_index:] if day_offset == 0 else ordered_codes
         for code in codes:
             slots.append((slot_day, code))
@@ -2813,7 +2894,7 @@ def _move_or_split_segment(
     remaining_qty = round(float(segment.planned_qty or 0.0), 2)
     remaining_capacity = round(float(segment.required_capacity or 0.0), 2)
 
-    if stage not in {"WINDER", "PROCESS"} or machine_id is None or normalized_date is None or normalized_shift is None:
+    if stage not in CAPACITY_SPLIT_STAGES or machine_id is None or normalized_date is None or normalized_shift is None:
         segment.status = "ASSIGNED" if machine_id is not None else _queue_status_for_stage(machine_id)
         _place_stage_segment(
             db=db,
@@ -2861,7 +2942,12 @@ def _move_or_split_segment(
 
     allocations: list[tuple[date, str, float, float]] = []
     next_sequence = desired_sequence
-    for slot_date, slot_shift in _future_stage_slots(normalized_date, normalized_shift):
+    closed_dates = _fetch_plant_closed_dates(token, plant_id, normalized_date)
+    for slot_date, slot_shift in _future_stage_slots(
+        normalized_date,
+        normalized_shift,
+        closed_dates=closed_dates,
+    ):
         slot_capacity_value, slot_capacity_unit = _oven_bamboo_capacity_profile(stage, machine)
         if not slot_capacity_value:
             slot_capacity_value, slot_capacity_unit = _resolve_capacity_profile(
@@ -2886,8 +2972,6 @@ def _move_or_split_segment(
             exclude_segment_id=segment.id,
         )
         available_capacity = max(float(shift_capacity or 0.0) - used_capacity, 0.0)
-        if stage == "OVEN":
-            available_capacity = float(shift_capacity or 0.0)
         alloc_qty, alloc_capacity = _capacity_allocation_to_qty(
             stage=stage,
             capacity_unit=effective_unit,
@@ -4358,6 +4442,7 @@ def _build_stage_board_view(
         plant_scope=plant_scope,
     )
     plant_uuid = _to_uuid(plant_id)
+    closed_dates = _fetch_plant_closed_dates(token, plant_id, plan_date or datetime.utcnow().date())
     machine_rows = _fetch_stage_machines(stage, token, plant_id) if stage in STAGE_TO_MACHINE_DEPARTMENT else []
     machine_map = {str(row.get("id")): row for row in machine_rows}
     spec_lookup: dict[str, dict[str, Any]] = {}
@@ -4419,11 +4504,12 @@ def _build_stage_board_view(
                     machine_capacity=_snapshot_float(machine.get("capacity_value")),
                     on_day=plan_date,
                 )
-            resolved_unit = capacity_unit or summary_unit
+            resolved_unit = capacity_unit
             for shift_code in _shift_codes():
                 lane_id = f"{stage}:{machine_id}:{shift_code}"
                 machine_jobs = bucket_map.get(lane_id, [])
                 shift_capacity = _shift_capacity_value(capacity_value, shift_code)
+                lane_unit = resolved_unit or summary_unit
                 lanes.append(
                     PlanningBoardLane(
                         lane_id=lane_id,
@@ -4436,10 +4522,10 @@ def _build_stage_board_view(
                         machine_name=str(machine.get("name") or machine.get("code") or "Machine"),
                         machine_department=str(machine.get("department") or ""),
                         capacity_value=shift_capacity,
-                        capacity_unit=resolved_unit,
+                        capacity_unit=lane_unit if shift_capacity else resolved_unit,
                         batch_bamboo_capacity=_snapshot_float(machine.get("batch_bamboo_capacity")),
                         cycle_time_hours=_snapshot_float(machine.get("cycle_time_hours")),
-                        current_load=_lane_load(stage, resolved_unit, machine_jobs, spec_lookup),
+                        current_load=_lane_load(stage, lane_unit, machine_jobs, spec_lookup),
                         warning=_capacity_warning_message(
                             db=db,
                             plant_id=plant_uuid,
@@ -4448,6 +4534,10 @@ def _build_stage_board_view(
                             machine_capacity=_snapshot_float(machine.get("capacity_value")),
                             plan_date=plan_date,
                             shift_code=shift_code,
+                            closed_dates=closed_dates,
+                            resolved_capacity=shift_capacity,
+                            resolved_unit=resolved_unit,
+                            use_resolved=True,
                         ),
                         constraints=_lane_constraints_from_machine(machine),
                         jobs=machine_jobs,
@@ -6230,6 +6320,13 @@ def reorder_stage_queue(
         stage=selected_stage,
         machine_id=machine_uuid,
         machine_capacity=float(machine_capacity or 0.0) if machine_uuid else None,
+        plan_date=stage.plan_date,
+        shift_code=stage.shift_code,
+        closed_dates=_fetch_plant_closed_dates(
+            current_user.get("token", ""),
+            plant_id,
+            stage.plan_date or datetime.utcnow().date(),
+        ),
     )
     if warning_message:
         warnings.append(warning_message)
@@ -6477,6 +6574,13 @@ def assign_machine_to_current_stage(
         stage=selected_stage,
         machine_id=machine_uuid,
         machine_capacity=float(machine_capacity or 0.0) if machine_uuid else None,
+        plan_date=stage.plan_date,
+        shift_code=stage.shift_code,
+        closed_dates=_fetch_plant_closed_dates(
+            current_user.get("token", ""),
+            plant_id,
+            stage.plan_date or datetime.utcnow().date(),
+        ),
     )
     db.commit()
     db.refresh(job_card)

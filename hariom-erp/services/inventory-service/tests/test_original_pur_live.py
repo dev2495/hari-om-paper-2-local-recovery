@@ -30,15 +30,25 @@ from src.models import (
     TrackingMode,
     UOM,
 )
+from src.quality_pin import pin_quality_profile_metadata
 from src.routers.purchase import (
     GrnCreate,
     GrnLineCreate,
     PurchaseOrderCreate,
     PurchaseOrderLineCreate,
+    ReceiptQcPayload,
+    SupplierScheduleCommit,
+    SupplierScheduleRowIn,
     approve_purchase_order,
+    commit_supplier_schedules,
     create_purchase_order,
+    list_supplier_schedules,
     post_grn,
+    update_receipt_line_qc,
 )
+from src.routers.quality import QualityInspectionCreate, create_quality_inspection
+from src.routers.stock_moves import WipIssueCreate, issue_batch_to_wip
+from src.services.stock_calc import get_usable_item_qty
 
 PLANT = "PLANT_A"
 Session = sessionmaker(bind=engine, autoflush=False, autocommit=False)
@@ -245,3 +255,339 @@ def test_pur03_concurrent_remaining_balance_cannot_double_inward():
         assert abs(total - 100) < 1e-9
     finally:
         check.close()
+
+
+def _approved_profile(low: float, high: float) -> dict:
+    return {
+        "status": "approved",
+        "setup_status": "approved",
+        "revision": 1,
+        "inspection_required": True,
+        "parameters": [
+            {"code": "gsm", "label": "GSM", "min": low, "max": high, "unit": "", "required": True}
+        ],
+    }
+
+
+def test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_schedule():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        specs = [
+            (ItemType.RAW_PAPER, UOM.KG, {"width_mm": 76, "gsm": 180, "plybond": 1.2}),
+            (ItemType.RAW_PAPER, UOM.KG, {"width_mm": 90, "gsm": 200, "bulk": 1.4}),
+            (ItemType.ADHESIVE, UOM.KG, {"description": "starch adhesive"}),
+            (ItemType.ADHESIVE, UOM.PCS, {"description": "adhesive pail"}),
+            (ItemType.PARCHMENT, UOM.KG, {"description": "inner parchment"}),
+            (ItemType.PARCHMENT, UOM.PCS, {"description": "outer parchment"}),
+        ]
+        items = []
+        for idx, (item_type, uom, extra) in enumerate(specs, start=1):
+            item = ItemMaster(
+                item_code=f"NV-P01-{suffix}-{idx}",
+                name=f"Verify {item_type.value} {idx}",
+                type=item_type,
+                tracking_mode=TrackingMode.BULK,
+                uom=uom,
+                plant_id=PLANT,
+                active="true",
+            )
+            db.add(item)
+            items.append((item, extra))
+        db.flush()
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-6-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Six Line Mills",
+                tax_terms="GST extra as applicable",
+                payment_terms="30 days",
+                freight_terms="Ex-works",
+                delivery_terms="Plant A stores",
+                test_report_terms="Mill TC with GRN",
+                special_instruction="Do not invent a tax amount",
+                lines=[
+                    PurchaseOrderLineCreate(
+                        item_id=item.id,
+                        qty_ordered=10 * idx,
+                        unit_cost=idx,
+                        incoming_qc_required=True,
+                        **extra,
+                    )
+                    for idx, (item, extra) in enumerate(items, start=1)
+                ],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        assert created["tax_terms"] == "GST extra as applicable"
+        assert created["payment_terms"] == "30 days"
+        assert "gst_amount" not in created
+        assert "tax_amount" not in created
+        assert len(created["lines"]) == 6
+        types = {row["item_type"] for row in created["lines"]}
+        assert {"RAW_PAPER", "ADHESIVE", "PARCHMENT"} <= types
+        assert all(row["schedules"] == [] for row in created["lines"])
+        assert created["lines"][0]["width_mm"] == 76
+        assert created["lines"][0]["uom"] == "KG"
+        assert created["lines"][3]["uom"] == "PCS"
+        amounts = [row["amount"] for row in created["lines"]]
+        assert amounts == [round(10 * idx * idx, 2) for idx in range(1, 7)]
+    finally:
+        db.close()
+
+
+def test_pur02_supplier_line_splits_stay_on_calendar_and_cannot_over_schedule():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, _loc = _item_and_location(db, suffix)
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-S-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Split Mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=12)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        line_id = uuid.UUID(created["lines"][0]["id"])
+        po_id = uuid.UUID(str(created["id"]))
+        first = commit_supplier_schedules(
+            po_id,
+            SupplierScheduleCommit(
+                rows=[
+                    SupplierScheduleRowIn(
+                        purchase_order_line_id=line_id,
+                        scheduled_qty=40,
+                        promised_date=date(2026, 10, 1),
+                        confirmation_status="CONFIRMED",
+                    ),
+                    SupplierScheduleRowIn(
+                        purchase_order_line_id=line_id,
+                        scheduled_qty=60,
+                        promised_date=date(2026, 10, 20),
+                        confirmation_status="TENTATIVE",
+                    ),
+                ]
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        assert first["ledger"] is False
+        assert [row["scheduled_qty"] for row in first["items"]] == [40.0, 60.0]
+        listed = list_supplier_schedules(db=db, plant_id=PLANT, current_user=_user("store-a"))
+        dates = {row["promised_date"] for row in listed["items"] if row["purchase_order_id"] == str(po_id)}
+        assert dates == {"2026-10-01", "2026-10-20"}
+        with pytest.raises(HTTPException) as over:
+            commit_supplier_schedules(
+                po_id,
+                SupplierScheduleCommit(
+                    rows=[
+                        SupplierScheduleRowIn(
+                            purchase_order_line_id=line_id,
+                            scheduled_qty=10,
+                            promised_date=date(2026, 11, 1),
+                        )
+                    ]
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+        assert over.value.status_code == 400
+    finally:
+        db.close()
+
+
+def test_pur04_qc_required_receipt_stays_held_until_pass():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, loc = _item_and_location(db, suffix)
+        item.quality_profile = _approved_profile(180, 220)
+        db.flush()
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-QC-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Hold Mills",
+                lines=[
+                    PurchaseOrderLineCreate(
+                        item_id=item.id, qty_ordered=50, unit_cost=9, incoming_qc_required=True
+                    )
+                ],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+        grn = post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-QC-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=50, location_id=loc.id)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        batch = db.query(StockBatch).filter(StockBatch.item_id == item.id).one()
+        assert batch.stock_status == "QC_HOLD"
+        assert get_usable_item_qty(str(item.id), db) == 0
+        receipt_line_id = uuid.UUID(grn["lines"][0]["receipt_line_id"])
+        with pytest.raises(HTTPException) as desk:
+            update_receipt_line_qc(
+                receipt_line_id,
+                ReceiptQcPayload(status="PASS"),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+        assert desk.value.status_code == 403
+        with pytest.raises(HTTPException) as blocked:
+            issue_batch_to_wip(
+                WipIssueCreate(
+                    item_id=item.id,
+                    batch_id=batch.id,
+                    qty=10,
+                    job_card_id=uuid.uuid4(),
+                    stage="WINDER",
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+        assert blocked.value.status_code == 400
+        inspection = create_quality_inspection(
+            QualityInspectionCreate(
+                entity_type="BATCH",
+                entity_id=batch.id,
+                readings={"gsm": 200},
+                disposition="ACCEPT",
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("qc-a", roles=("QC",)),
+        )
+        db.refresh(batch)
+        assert inspection.status == "PASS"
+        assert batch.stock_status == "UNRESTRICTED"
+        assert get_usable_item_qty(str(item.id), db) == 50
+    finally:
+        db.close()
+
+
+def test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        item, loc = _item_and_location(db, suffix)
+        created = create_purchase_order(
+            PurchaseOrderCreate(
+                po_no=f"PO-PR-{suffix}",
+                supplier_id=uuid.uuid4(),
+                supplier_name="Partial Mills",
+                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=8)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        po_id = uuid.UUID(str(created["id"]))
+        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+        post_grn(
+            po_id,
+            GrnCreate(
+                grn_no=f"GRN-PR-{suffix}",
+                received_date=date(2026, 9, 18),
+                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=60, location_id=loc.id)],
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=_user("store-a", roles=("Store",)),
+        )
+        db.refresh(order.lines[0])
+        assert order.lines[0].line_status == "PARTIAL"
+        remaining = float(order.lines[0].qty_ordered) - float(order.lines[0].qty_received)
+        assert abs(remaining - 40) < 1e-9
+        assert order.lines[0].line_status != "CLOSED"
+        assert "REJECTED" not in {"OPEN", "PARTIAL", "CLOSED"}
+    finally:
+        db.close()
+
+
+def test_qct015_two_same_category_items_pin_their_own_bounds_on_receipt():
+    db = Session()
+    try:
+        suffix = uuid.uuid4().hex[:8]
+        loc = InventoryLocation(code=f"NV-Q15-{suffix}", warehouse="WH", plant_id=PLANT, active="true")
+        db.add(loc)
+        items = []
+        for tag, low, high in (("A", 180.0, 200.0), ("B", 80.0, 100.0)):
+            item = ItemMaster(
+                item_code=f"NV-Q15-{suffix}-{tag}",
+                name=f"Same family paper {tag}",
+                type=ItemType.RAW_PAPER,
+                tracking_mode=TrackingMode.BULK,
+                uom=UOM.KG,
+                plant_id=PLANT,
+                active="true",
+                quality_profile=_approved_profile(low, high),
+            )
+            db.add(item)
+            items.append((item, low, high))
+        db.flush()
+        pins = []
+        for item, low, high in items:
+            created = create_purchase_order(
+                PurchaseOrderCreate(
+                    po_no=f"PO-{item.item_code[-6:]}",
+                    supplier_id=uuid.uuid4(),
+                    supplier_name="Family Mills",
+                    lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=25, unit_cost=5, incoming_qc_required=True)],
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+            po_id = uuid.UUID(str(created["id"]))
+            approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+            order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+            post_grn(
+                po_id,
+                GrnCreate(
+                    grn_no=f"GRN-{item.item_code[-6:]}",
+                    received_date=date(2026, 9, 18),
+                    lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=25, location_id=loc.id)],
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=_user("store-a", roles=("Store",)),
+            )
+            batch = db.query(StockBatch).filter(StockBatch.item_id == item.id).one()
+            pinned = (batch.inward_metadata or {}).get("quality_profile") or {}
+            param = pinned["parameters"][0]
+            assert param["min"] == low
+            assert param["max"] == high
+            pins.append((item, batch, low))
+        first_item, first_batch, first_low = pins[0]
+        first_item.quality_profile = _approved_profile(10, 20)
+        db.flush()
+        still = (first_batch.inward_metadata or {}).get("quality_profile") or {}
+        assert still["parameters"][0]["min"] == first_low
+        unit_a = pin_quality_profile_metadata({}, _approved_profile(180, 200))
+        unit_b = pin_quality_profile_metadata({}, _approved_profile(80, 100))
+        assert unit_a["quality_profile"]["parameters"][0]["min"] != unit_b["quality_profile"]["parameters"][0]["min"]
+    finally:
+        db.close()
+

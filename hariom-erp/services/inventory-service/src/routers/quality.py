@@ -808,6 +808,16 @@ def create_quality_inspection(
     if batch:
         if status == "PASS":
             batch.stock_status = stock_status_for_disposition(payload.disposition or "ACCEPT")
+            for txn in (
+                db.query(StockTransaction)
+                .filter(
+                    StockTransaction.batch_id == batch.id,
+                    StockTransaction.stock_status == "QC_HOLD",
+                    StockTransaction.transaction_type == TransactionType.INWARD,
+                )
+                .all()
+            ):
+                txn.stock_status = batch.stock_status
         elif status in held_statuses:
             batch.stock_status = (
                 stock_status_for_disposition(payload.disposition)

@@ -26,6 +26,7 @@ from ..models import (
     StockTransaction,
     TransactionType,
 )
+from ..quality_pin import pin_quality_profile_metadata
 from ..services.supplier_schedule import (
     active_scheduled_qty,
     allocate_receipt_to_schedule,
@@ -256,6 +257,8 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                 "item_id": str(line.item_id),
                 "item_code": line.item.item_code if line.item else None,
                 "item_name": line.item.name if line.item else None,
+                "item_type": (line.item.type.value if line.item and hasattr(line.item.type, "value") else (str(line.item.type) if line.item else None)),
+                "uom": (line.item.uom.value if line.item and hasattr(line.item.uom, "value") else (str(line.item.uom) if line.item else None)),
                 "qty_ordered": float(line.qty_ordered or 0.0),
                 "qty_received": float(line.qty_received or 0.0),
                 "unit_cost": float(line.unit_cost or 0.0),
@@ -526,6 +529,10 @@ def post_grn(
 
         batch_no = (line_payload.batch_no or f"{grn_no}-B{idx:03d}").strip().upper()
         stock_status = "QC_HOLD" if po_line.incoming_qc_required else "UNRESTRICTED"
+        inward_metadata = pin_quality_profile_metadata(
+            {},
+            getattr(po_line.item, "quality_profile", None) if po_line.item is not None else None,
+        )
         batch = StockBatch(
             item_id=po_line.item_id,
             batch_no=batch_no,
@@ -538,6 +545,7 @@ def post_grn(
             supplier_id=order.supplier_id,
             supplier_name_snapshot=order.supplier_name_snapshot,
             plant_id=plant_id,
+            inward_metadata=inward_metadata,
         )
         db.add(batch)
         db.flush()
