@@ -55,9 +55,11 @@ def _order(**kwargs):
     return SimpleNamespace(**defaults)
 
 
-def test_infer_source_uses_po_presence_not_a_migrated_origin_field():
-    assert infer_source(SimpleNamespace(po_number="PO-1")) == "customer_po"
-    assert infer_source(SimpleNamespace(po_number="  ")) == "internal"
+def test_infer_source_does_not_guess_internal_from_blank_po():
+    assert infer_source(SimpleNamespace(po_number="PO-1", origin="CUSTOMER_PO")) == "customer_po"
+    assert infer_source(SimpleNamespace(po_number="  ", origin="INTERNAL")) == "internal"
+    assert infer_source(SimpleNamespace(po_number="  ", origin=None)) == "review"
+    assert infer_source(SimpleNamespace(po_number=None, origin_review_required=True)) == "review"
 
 
 def test_remaining_to_schedule_does_not_double_count_unscheduled_fulfillment():

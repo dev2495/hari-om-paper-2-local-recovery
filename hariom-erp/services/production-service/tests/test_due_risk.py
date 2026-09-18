@@ -34,3 +34,15 @@ class DueRiskPredicateTests(unittest.TestCase):
         label = due_risk_label(date(2026, 9, 17))
         self.assertIn("next 3 plant days", label)
         self.assertIn("Asia/Kolkata", label)
+
+    def test_plant_midnight_boundary_keeps_overdue_separate(self):
+        just_before = datetime(2026, 9, 17, 18, 29, tzinfo=ZoneInfo("UTC"))
+        just_after = datetime(2026, 9, 17, 18, 31, tzinfo=ZoneInfo("UTC"))
+        self.assertEqual(plant_today(just_before), date(2026, 9, 17))
+        self.assertEqual(plant_today(just_after), date(2026, 9, 18))
+        today = plant_today(just_after)
+        self.assertEqual(classify_due_risk(date(2026, 9, 17), today), DUE_RISK_OVERDUE)
+        self.assertEqual(classify_due_risk(date(2026, 9, 18), today), DUE_RISK_PRIORITY)
+        self.assertEqual(classify_due_risk(date(2026, 9, 19), today), DUE_RISK_PRIORITY)
+        self.assertEqual(classify_due_risk(date(2026, 9, 20), today), DUE_RISK_PRIORITY)
+        self.assertIsNone(classify_due_risk(date(2026, 9, 21), today))

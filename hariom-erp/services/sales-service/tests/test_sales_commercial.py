@@ -9,6 +9,7 @@ from src.commercial import (
     ORIGIN_INTERNAL,
     ORIGIN_REVIEW,
     SalesCommercialError,
+    classify_historical_origin,
     delivery_date_error,
     resolve_parchment_variant,
     validate_bulk_import_order,
@@ -209,12 +210,24 @@ def test_approval_rejects_invalid_dates_and_unclassified_origin():
 
 
 def test_header_date_change_revalidates_every_line():
-    with pytest.raises(SalesCommercialError, match="Line 2:"):
+    with pytest.raises(SalesCommercialError, match="Line 2:") as exc:
         validate_order_lines_delivery_dates(
             origin=ORIGIN_CUSTOMER_PO,
             customer_po_date=date(2026, 9, 24),
             lines=[
                 SimpleNamespace(line_no=1, due_date=date(2026, 9, 26)),
                 SimpleNamespace(line_no=2, due_date=date(2026, 9, 24)),
+                SimpleNamespace(line_no=3, due_date=date(2026, 9, 20)),
             ],
         )
+    message = str(exc.value)
+    assert "Line 2:" in message
+    assert "Line 3:" in message
+    assert "Line 1:" not in message
+
+
+def test_blank_historical_po_is_review_not_guessed_internal():
+    assert classify_historical_origin(po_number=None) == ORIGIN_REVIEW
+    assert classify_historical_origin(po_number="   ") == ORIGIN_REVIEW
+    assert classify_historical_origin(po_number="PO-88") == ORIGIN_CUSTOMER_PO
+    assert classify_historical_origin(po_number=None, origin="INTERNAL") == ORIGIN_INTERNAL

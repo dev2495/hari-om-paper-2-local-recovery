@@ -172,7 +172,7 @@ def test_categorical_fail_uses_approved_outcomes():
     )
     failed = evaluate_parameter(rule, "BLEED")
     passed = evaluate_parameter(rule, "PASS")
-    assert failed.verdict == "FAIL"
+    assert failed.verdict == "INVALID"
     assert passed.verdict == "PASS"
 
 

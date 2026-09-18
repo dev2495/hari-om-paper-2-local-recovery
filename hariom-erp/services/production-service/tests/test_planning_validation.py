@@ -175,6 +175,30 @@ class PlanningValidationTests(unittest.TestCase):
             _validate_winder_queue_identity(machine, "00000000-0000-0000-0000-0000000000a1")
         self.assertEqual(exc.exception.status_code, 400)
 
+    def test_rel10_queue_admission_allows_maintenance_while_execution_still_blocks(self):
+        machine = _machine()
+        machine["id"] = "00000000-0000-0000-0000-000000000716"
+        machine["status"] = "MAINT"
+        _validate_winder_queue_identity(machine, "00000000-0000-0000-0000-0000000000a1")
+        with self.assertRaises(HTTPException) as exc:
+            _validate_machine_compatibility(
+                machine,
+                "WINDER",
+                _snapshot(),
+                "00000000-0000-0000-0000-0000000000a1",
+            )
+        self.assertIn("MAINT", str(exc.exception.detail))
+
+    def test_rel02_wrong_plant_or_missing_identity_is_rejected(self):
+        machine = _machine()
+        machine["id"] = "00000000-0000-0000-0000-000000000717"
+        machine["plant_id"] = "00000000-0000-0000-0000-0000000000b2"
+        with self.assertRaises(HTTPException):
+            _validate_winder_queue_identity(machine, "00000000-0000-0000-0000-0000000000a1")
+        missing = {**_machine(), "id": ""}
+        with self.assertRaises(HTTPException):
+            _validate_winder_queue_identity(missing, "00000000-0000-0000-0000-0000000000a1")
+
     @patch("src.routers.planning._fetch_spec")
     @patch("src.routers.planning._fetch_stage_machines")
     @patch("src.routers.planning._fetch_sales_order")

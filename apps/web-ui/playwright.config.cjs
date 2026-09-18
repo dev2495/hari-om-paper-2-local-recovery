@@ -27,7 +27,25 @@ module.exports = defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        colorScheme: "light",
         ...(process.env.PLAYWRIGHT_CHROME_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHROME_CHANNEL } : {}),
+      },
+    },
+    {
+      name: "chromium-dark",
+      testMatch: "**/theme-a11y-print.spec.cjs",
+      use: {
+        ...devices["Desktop Chrome"],
+        colorScheme: "dark",
+        ...(process.env.PLAYWRIGHT_CHROME_CHANNEL ? { channel: process.env.PLAYWRIGHT_CHROME_CHANNEL } : {}),
+      },
+    },
+    {
+      name: "webkit",
+      testMatch: "**/theme-a11y-print.spec.cjs",
+      use: {
+        ...devices["Desktop Safari"],
+        colorScheme: "light",
       },
     },
   ],

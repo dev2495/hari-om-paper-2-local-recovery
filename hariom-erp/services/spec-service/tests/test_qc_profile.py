@@ -87,6 +87,44 @@ def test_inverted_and_malformed_bounds_are_rejected():
     assert malformed.value.code == "MALFORMED_BOUNDS"
 
 
+def test_unsafe_rule_expression_is_rejected():
+    from src.qc_profile import QcProfileError
+
+    with pytest.raises(QcProfileError) as exc:
+        normalize_qc_profile(
+            {
+                "stages": {
+                    "WINDER": {
+                        "parameters": [
+                            {"code": "height", "min": 118, "max": 122, "unit": "mm", "formula": "height * 1.1"}
+                        ]
+                    }
+                }
+            },
+            mutating=True,
+        )
+    assert exc.value.code == "UNSAFE_RULE"
+
+
+def test_empty_categorical_accept_set_is_rejected():
+    from src.qc_profile import QcProfileError
+
+    with pytest.raises(QcProfileError) as exc:
+        normalize_qc_profile(
+            {
+                "stages": {
+                    "WINDER": {
+                        "parameters": [
+                            {"code": "height", "input_type": "select", "options": [], "unit": ""}
+                        ]
+                    }
+                }
+            },
+            mutating=True,
+        )
+    assert exc.value.code == "EMPTY_ACCEPT_SET"
+
+
 def test_client_approved_status_is_ignored_on_save():
     profile = normalize_qc_profile(
         {
