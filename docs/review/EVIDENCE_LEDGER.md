@@ -13,25 +13,44 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | `df3a0ca` QCT-046/047 print freeze; parent `a24b843` QCT-045 |
-| Served BUILD_ID | `Y6UYiRh5YVC2OXjR_TPZF` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **35/35 PASS** on this BUILD_ID (`--workers=1`, 1.7m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ this overlay |
+| Served product | `8db296c` QCT-048/049 oven PRE/POST pair timing; parent `df3a0ca` QCT-046/047 |
+| Served BUILD_ID | `REOh-2shYV9Ko_Fl2eA6l` at `http://127.0.0.1:23000` |
+| BJ re-run | Chromium project **37/37 PASS** on this BUILD_ID (`--workers=1`, 1.8m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 81 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 87 |
+| Original 56/192 overlay | PASS 83 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 85 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Y6UYiRh5YVC2OXjR_TPZF` pid **51784** (launcher 51750)
-- BFF `http://127.0.0.1:24000` pid **40362**, inventory **2331** :28005, production **40354** :28004, sales **2337** :28008
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `REOh-2shYV9Ko_Fl2eA6l` pid **56710** (launcher 56674)
+- BFF `http://127.0.0.1:24000` pid **40362**, inventory **2331** :28005, production **55687** :28004, sales **2337** :28008
 - Auth **90290** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `b7c11ec` / product `df3a0ca`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-048/049 live PRE then later POST + orphan/mismatch | 4 passed | isolated production HTTP; POST merges prior PRE by pair; stored POST does not copy pre weights |
+| quality_eval unit POST-due + pair mismatch | 3 passed | PRE-only still PASS; POST without post not PASS; missing pre-context INCOMPLETE |
+| qc-measurement unit | 14 passed | PRE post_* Not yet due; POST required |
+| QCT-048 Chromium | 1 passed | PRE PAIR-A save; Not yet due; later POST same pair PASS |
+| QCT-049 Chromium | 1 passed | PRE PAIR-A then POST PAIR-B is INCOMPLETE/FAIL not PASS |
+| Chromium original-partials | 18 passed | prior 16 plus QCT-048/049 |
+| Chromium full project | 37 passed | BUILD_ID `REOh-2shYV9Ko_Fl2eA6l` workers=1 1.8m Chrome channel |
+
+Fixes patched with those tests:
+
+1. Oven PRE checkpoint saves without post fields; post_* show Not yet due and are omitted from the PRE payload (QCT-048).
+2. Later POST on the same pair merges prior PRE for evaluation, requires post readings, and stores parent_inspection_id without copying pre weights into the POST row.
+3. POST without pre-context stays INCOMPLETE. Switching to POST strips leftover PRE form readings so a different sample cannot form a false valid pair (QCT-049).
+4. Shared evaluator copies stay byte-identical (`056334c91c50725c954dae43019860cf`). POST-due checkpoint no longer treats missing post as PRE-only.
 
 Wave after overlay `25e870e` / product `a24b843`:
 

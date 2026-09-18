@@ -5,9 +5,9 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `Y6UYiRh5YVC2OXjR_TPZF` (QCT-046 three-page blank print; QCT-047 signed freeze after dictionary unit/method change)
-- Full Chromium project this wave: **35 passed / 0 failed** (`--workers=1`, ~1.7m) — `output/playwright/Y6UYiRh5YVC2OXjR_TPZF-full/`
-- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–047)
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `REOh-2shYV9Ko_Fl2eA6l` (QCT-048 PRE save without blocking post; later POST same pair; QCT-049 mismatched pair not combined)
+- Full Chromium project this wave: **37 passed / 0 failed** (`--workers=1`, ~1.8m) — `output/playwright/REOh-2shYV9Ko_Fl2eA6l-full/`
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–049)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
   2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`

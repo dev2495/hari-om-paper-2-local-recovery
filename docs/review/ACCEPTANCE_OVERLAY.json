@@ -7,16 +7,16 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 81,
-      "NOT_RUN": 87,
+      "PASS": 83,
+      "NOT_RUN": 85,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 28,
-      "EXACT_EXECUTED": 81,
+      "EXACT_EXECUTED": 83,
       "LIMITATION": 3,
       "NONE": 68,
-      "UNIT_ONLY": 5,
+      "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
       "PROCESS": 1,
@@ -2516,17 +2516,19 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "UNIT_ONLY",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "production-service/tests/test_quality_eval.py::test_oven_pre_only_checkpoint_does_not_require_post"
+        "production-service/tests/test_original_qct048_live.py::test_qct048_pre_save_then_later_post_keeps_same_pair",
+        "production-service/tests/test_quality_eval.py::test_oven_post_checkpoint_requires_post_and_pre_context",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [
         "RR20"
       ],
       "bj": [],
       "limitation": null,
-      "notes": "PRE-only checkpoint. Full pre/post timing UI NOT_RUN."
+      "notes": "PRE inspection PAIR-A without post is PASS and post fields NOT_APPLICABLE. Later POST without post is not PASS. POST with same pair merges pre-context, requires post, parent_inspection_id tracks the pair. Chromium BUILD_ID REOh-2shYV9Ko_Fl2eA6l: Not yet due at PRE; empty POST not PASS; filled POST PASS; sample stays PAIR-A."
     },
     {
       "id": "QCT-049",
@@ -2539,17 +2541,19 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "UNIT_ONLY",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "production-service/tests/test_quality_eval.py::test_oven_pair_mismatch_fails"
+        "production-service/tests/test_original_qct048_live.py::test_qct049_post_without_pre_or_mismatched_pair_is_not_pass",
+        "production-service/tests/test_quality_eval.py::test_oven_pair_mismatch_fails",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [
         "RR20"
       ],
       "bj": [],
       "limitation": null,
-      "notes": "Pair mismatch FAIL in evaluator. Job-card entry adapter NOT_RUN."
+      "notes": "POST without pre-context stays INCOMPLETE not PASS. Same-payload pre PAIR-A / post PAIR-B is FAIL oven_pair, not a combined valid pair. Chromium PRE PAIR-A then POST PAIR-B is INCOMPLETE/FAIL not PASS."
     },
     {
       "id": "QCT-050",
@@ -4474,7 +4478,8 @@
       "linked_pass": [
         "QCT-024",
         "QCT-027",
-        "QCT-028"
+        "QCT-028",
+        "QCT-049"
       ],
       "limitations": []
     },
@@ -4556,7 +4561,7 @@
       "id": "QCR-10",
       "title": "Exact client stage fields",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-040",
         "QCT-041",
@@ -4567,7 +4572,9 @@
       "linked_pass": [
         "QCT-040",
         "QCT-041",
-        "QCT-042"
+        "QCT-042",
+        "QCT-048",
+        "QCT-049"
       ],
       "limitations": []
     },
