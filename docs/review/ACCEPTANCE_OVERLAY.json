@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 73,
-      "NOT_RUN": 95,
+      "PASS": 76,
+      "NOT_RUN": 92,
       "LIMITATION": 3
     },
     "coverage": {
-      "PARTIAL": 32,
-      "EXACT_EXECUTED": 73,
+      "PARTIAL": 31,
+      "EXACT_EXECUTED": 76,
       "LIMITATION": 3,
-      "NONE": 72,
+      "NONE": 70,
       "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2335,15 +2335,17 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "production-service/tests/test_quality_eval.py"
+        "spec-service/tests/test_original_qct040_041_042_live.py::test_qct040_exact_client_names_survive_ui_save_read",
+        "apps/web-ui/e2e/original-partials.spec.cjs",
+        "apps/web-ui/__tests__/qc-measurement.test.ts"
       ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Evaluator uses I.D./O.D./Height/Weight/C.S. and oven/process names. Full UI template contract NOT_RUN."
+      "notes": "Dictionary, save, and GET keep Winding I.D./O.D./Height/Weight/C.S., Oven Pre-weight/Post-weight/Pre-moisture/Post-moisture, Process Height/Weight/C.S./Notch distance/Notch depth/Moisture. Generic Inner Diameter/Length/OD/CS substitutes are overwritten. Chromium loads all three stage tabs and the read contract matches."
     },
     {
       "id": "QCT-041",
@@ -2356,13 +2358,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct040_041_042_live.py::test_qct041_not_applicable_and_unknown_changed_require_review",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Verified non-notched QC shows NOT APPLICABLE with null min/max, not zero. Unknown notching cannot complete/approve (NOTCHING_REVIEW_REQUIRED) and keeps empty notch bounds. Adding notch_type to a non-notched approved profile requires review again."
     },
     {
       "id": "QCT-042",
@@ -2375,13 +2380,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "spec-service/tests/test_original_qct040_041_042_live.py::test_qct042_stage_basis_not_copied_from_finals",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "UI identifies Height at winding vs Finished height. Winding Height min stays empty when process Height is 150 and spec length/actual height is 150. Specimens stay independent."
     },
     {
       "id": "QCT-043",
@@ -4393,7 +4401,8 @@
         "QCT-009",
         "QCT-010",
         "QCT-011",
-        "QCT-013"
+        "QCT-013",
+        "QCT-041"
       ],
       "limitations": []
     },
@@ -4480,7 +4489,7 @@
       "id": "QCR-07",
       "title": "Pre-save specification tolerance dialog",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-029",
         "QCT-030",
@@ -4496,7 +4505,8 @@
         "QCT-031",
         "QCT-032",
         "QCT-033",
-        "QCT-034"
+        "QCT-034",
+        "QCT-042"
       ],
       "limitations": []
     },
@@ -4536,7 +4546,7 @@
       "id": "QCR-10",
       "title": "Exact client stage fields",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-040",
         "QCT-041",
@@ -4544,7 +4554,11 @@
         "QCT-048",
         "QCT-049"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-040",
+        "QCT-041",
+        "QCT-042"
+      ],
       "limitations": []
     },
     {

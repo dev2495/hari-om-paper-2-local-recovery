@@ -13,25 +13,41 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-037 assign-profile drafts + QCT-038/039 canonical finals; parent `bb0af79` QCT-033/035 |
-| Served BUILD_ID | `vXkaPC37ZEz_eM-c37Pxr` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **28/28 PASS** on this BUILD_ID (`--workers=1`, 1.5m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`, `output/playwright/vXkaPC37ZEz_eM-c37Pxr-full/`). |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ this overlay |
+| Served product | `096ca77` QCT-040 exact client names + QCT-041 NOT APPLICABLE/review + QCT-042 stage basis; parent `cb30e30` QCT-037/038/039 |
+| Served BUILD_ID | `kgewJhcCUr2soAFKW5p8A` at `http://127.0.0.1:23000` |
+| BJ re-run | Chromium project **31/31 PASS** on this BUILD_ID (`--workers=1`, 1.6m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 73 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 95 |
+| Original 56/192 overlay | PASS 76 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 92 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `vXkaPC37ZEz_eM-c37Pxr` pid **25323** (launcher 25292)
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `kgewJhcCUr2soAFKW5p8A` pid **33649** (launcher 33620)
 - BFF `http://127.0.0.1:24000` pid **24251**, inventory **2331** :28005, production **2334** :28004, sales **2337** :28008
-- Auth **90290** :28001, master **90295** :28002, spec **24228** :28003, analytics **13483** :28007
+- Auth **90290** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `9eaae5f` / product `cb30e30`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| spec-service unit + QCT-037/038/039/040–042 live | 19 passed | includes assign-ops and prior canonical-finals regression |
+| qc-measurement unit | 10 passed | exact labels, NOT APPLICABLE, stage basis hints |
+| QCT-040/041/042 Chromium | 3 passed | all three stage tabs; NOT APPLICABLE vs unknown review; winding vs finished Height |
+| Chromium original-partials | 12 passed | prior 9 plus QCT-040/041/042 |
+| Chromium full project | 31 passed | BUILD_ID `kgewJhcCUr2soAFKW5p8A` workers=1 1.6m Chrome channel |
+
+Fixes patched with those tests:
+
+1. QC profile save/read always persist client names I.D./O.D./Height/Weight/C.S. and the oven/process set; generic Inner Diameter/Length/OD/CS substitutes are overwritten (QCT-040).
+2. Verified non-notched notch fields display NOT APPLICABLE with null bounds, not zero. Unknown or spec-changed notching requires review and cannot complete/approve (QCT-041).
+3. UI identifies Height at winding vs Finished height; process Height 150 is not copied into winding Height (QCT-042).
 
 Wave after `26e1001` / product `bb0af79`:
 

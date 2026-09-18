@@ -796,10 +796,32 @@ SPECIAL: dict[str, dict] = {
         "notes": "QC-only PROCESS moisture draft keeps approved spec id, recipe id/notes, and canonical id_min_mm. Contractual id_min change on approved spec creates a replacement draft; obsolete prior keeps 76.0 and the recipe; new spec has no copied recipe.",
     },
     "QCT-040": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "PARTIAL",
-        "mapped_tests": ["production-service/tests/test_quality_eval.py"],
-        "notes": "Evaluator uses I.D./O.D./Height/Weight/C.S. and oven/process names. Full UI template contract NOT_RUN.",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct040_041_042_live.py::test_qct040_exact_client_names_survive_ui_save_read",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+            "apps/web-ui/__tests__/qc-measurement.test.ts",
+        ],
+        "notes": "Dictionary, save, and GET keep Winding I.D./O.D./Height/Weight/C.S., Oven Pre-weight/Post-weight/Pre-moisture/Post-moisture, Process Height/Weight/C.S./Notch distance/Notch depth/Moisture. Generic Inner Diameter/Length/OD/CS substitutes are overwritten. Chromium loads all three stage tabs and the read contract matches.",
+    },
+    "QCT-041": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct040_041_042_live.py::test_qct041_not_applicable_and_unknown_changed_require_review",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Verified non-notched QC shows NOT APPLICABLE with null min/max, not zero. Unknown notching cannot complete/approve (NOTCHING_REVIEW_REQUIRED) and keeps empty notch bounds. Adding notch_type to a non-notched approved profile requires review again.",
+    },
+    "QCT-042": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "spec-service/tests/test_original_qct040_041_042_live.py::test_qct042_stage_basis_not_copied_from_finals",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "UI identifies Height at winding vs Finished height. Winding Height min stays empty when process Height is 150 and spec length/actual height is 150. Specimens stay independent.",
     },
     "QCT-098": {
         "overlay_status": "NOT_RUN",
