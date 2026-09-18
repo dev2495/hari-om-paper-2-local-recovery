@@ -14,6 +14,21 @@ async def get_specifications(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(SPEC_SERVICE_URL, "/specs/", request, token)
 
 
+@router.post("/specifications/qc-profile/assign-preview")
+async def preview_qc_profile_assign(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/qc-profile/assign-preview", request, token)
+
+
+@router.post("/specifications/qc-profile/assign")
+async def apply_qc_profile_assign(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, "/specs/qc-profile/assign", request, token)
+
+
+@router.put("/specifications/{spec_id}/final-limits")
+async def update_specification_final_limits(spec_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SPEC_SERVICE_URL, f"/specs/{spec_id}/final-limits", request, token)
+
+
 @router.post("/specifications")
 async def create_specification(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SPEC_SERVICE_URL, "/specs/", request, token)

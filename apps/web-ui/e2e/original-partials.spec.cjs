@@ -375,3 +375,84 @@ test("QCT-035 list Add quality parameters keeps spec and recipe on approved spec
   await assertCritical()
 })
 
+test("QCT-037 assign profile preview shows per-spec impact and apply stays draft", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const runtime = getRuntimeManifest()
+  const { spawnSync } = require("child_process")
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
+  const seeded = spawnSync(
+    py,
+    [
+      "-c",
+      [
+        "import json,os,sys,uuid",
+        "os.environ['HARI_OM_LIVE_PG']='1'",
+        "sys.path.insert(0, os.environ['HARI_OM_SPEC_SRC'])",
+        "from src.main import ensure_runtime_schema",
+        "from src.database import engine",
+        "from sqlalchemy.orm import sessionmaker",
+        "from src.models import SpecificationSheet",
+        "from src.routers.specs import QcProfileUpdate,SpecCreate,create_spec,upsert_spec_qc_profile",
+        "ensure_runtime_schema()",
+        "Session=sessionmaker(bind=engine,autoflush=False,autocommit=False)",
+        "PLANT='00000000-0000-0000-0000-0000000000a1'",
+        "ADMIN={'sub':'nverify-qct037-ui','role':'Admin'}",
+        "db=Session()",
+        "marker=f'QCT037UI-{uuid.uuid4()}'",
+        "def draft(name):",
+        "    return SpecCreate(customer_name=name,customer_name_snapshot=name,tube_size_id=uuid.uuid4(),mandrel_id=uuid.uuid4(),required_cs=100.0,target_tube_weight=250.0)",
+        "template=create_spec(draft(marker+'-template'),db=db,plant_id=PLANT,current_user=ADMIN)",
+        "tid=template['id']",
+        "upsert_spec_qc_profile(tid,QcProfileUpdate(qc_profile={'status':'complete','notching_applicable':True,'stages':{'PROCESS':{'parameters':[{'code':'notch_distance','min':10,'max':12,'applicable':True,'required':True}]}}},status='complete'),db=db,plant_id=PLANT,current_user=ADMIN)",
+        "legacy=create_spec(draft(marker+'-legacy'),db=db,plant_id=PLANT,current_user=ADMIN)",
+        "mismatch=create_spec(draft(marker+'-nonotch'),db=db,plant_id=PLANT,current_user=ADMIN)",
+        "mid=mismatch['id']",
+        "upsert_spec_qc_profile(mid,QcProfileUpdate(qc_profile={'status':'draft','notching_applicable':False}),db=db,plant_id=PLANT,current_user=ADMIN)",
+        "retired=create_spec(draft(marker+'-obsolete'),db=db,plant_id=PLANT,current_user=ADMIN)",
+        "rid=retired['id']",
+        "row=db.query(SpecificationSheet).filter(SpecificationSheet.id==rid).one()",
+        "row.status='obsolete'; row.active=False; db.commit()",
+        "print(json.dumps({'template':str(tid),'legacy':str(legacy['id']),'mismatch':str(mid),'retired':str(rid),'marker':marker}))",
+        "db.close()",
+      ].join("\n"),
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_specdb",
+        HARI_OM_LIVE_PG: "1",
+        HARI_OM_SPEC_SRC: path.join(workspaceRoot, "hariom-erp", "services", "spec-service"),
+      },
+    },
+  )
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const ids = JSON.parse(String(seeded.stdout || "").trim().split("\n").pop())
+  await page.goto("/specifications", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("spec-assign-panel")).toBeVisible()
+  await expect(page.getByTestId("spec-assign-apply")).toBeVisible()
+  await expect(page.getByRole("button", { name: /^Publish$/i })).toHaveCount(0)
+  await page.getByTestId("spec-assign-template").selectOption(ids.template)
+  await page.getByTestId(`spec-assign-select-${ids.legacy}`).check()
+  await page.getByTestId(`spec-assign-select-${ids.mismatch}`).check()
+  await page.getByRole("button", { name: /Disabled Versions/i }).click()
+  await page.getByTestId(`spec-assign-select-${ids.retired}`).check()
+  await page.getByTestId("spec-assign-preview").click()
+  await expect(page.getByTestId("spec-assign-results")).toBeVisible()
+  await expect(page.getByTestId(`spec-assign-row-${ids.legacy}`)).toContainText("Yes")
+  await expect(page.getByTestId(`spec-assign-row-${ids.mismatch}`)).toContainText("No")
+  await expect(page.getByTestId(`spec-assign-row-${ids.retired}`)).toContainText("No")
+  await page.getByTestId("spec-assign-apply").click()
+  await expect(page.getByTestId(`spec-assign-row-${ids.legacy}`)).toContainText("Unchanged")
+  const saved = await page.request.get(`${runtime.urls.bff}/api/spec/specifications/${ids.legacy}`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+  })
+  expect(saved.ok(), await saved.text()).toBeTruthy()
+  const body = await saved.json()
+  expect(String(body.qc_profile?.status || "")).toBe("draft")
+  expect(body.qc_profile?.approved_by == null || body.qc_profile?.approved_by === "").toBeTruthy()
+  await assertCritical()
+})
+

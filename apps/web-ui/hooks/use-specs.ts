@@ -248,6 +248,22 @@ export function useUpsertSpecQcProfile() {
   })
 }
 
+export function usePreviewQcProfileAssign() {
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId?: string }) => specApi.previewQcProfileAssign(data, plantId),
+  })
+}
+
+export function useApplyQcProfileAssign() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ data, plantId }: { data: any; plantId?: string }) => specApi.applyQcProfileAssign(data, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+    },
+  })
+}
+
 export function useCreateRecipe() {
   const queryClient = useQueryClient()
   return useMutation({

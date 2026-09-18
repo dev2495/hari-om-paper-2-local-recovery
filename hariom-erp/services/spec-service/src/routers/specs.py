@@ -58,7 +58,14 @@ from ..utils.auth import (
     get_current_user,
     require_role,
 )
+from ..assign_ops import apply_assign, preview_assign
 from ..config import get_settings
+from ..final_limits import (
+    canonical_from_spec,
+    merge_canonical_into_payload,
+    project_onto_profile,
+    reject_qc_contractual_final,
+)
 from ..qc_profile import QcProfileError, normalize_qc_profile, profile_status
 
 router = APIRouter(prefix="/specs", tags=["specifications"])
@@ -244,6 +251,7 @@ class SpecResponse(BaseModel):
     qc_profile: Optional[Dict[str, Any]] = None
     qc_setup_status: Optional[str] = None
     write_revision: int = 1
+    final_limits: Optional[Dict[str, Any]] = None
     dynamic_fields: List[DynamicFieldValueResponse]
 
 
@@ -592,7 +600,7 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
             }
         )
 
-    return {
+    payload = {
         "id": spec.id,
         "customer_name": spec.customer_name,
         "customer_id": dynamic_map.get("customer_id"),
@@ -639,6 +647,10 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
         "write_revision": int(spec.write_revision or 1),
         "dynamic_fields": sorted(dynamic_values, key=lambda x: x["field_key"]),
     }
+    canonical = canonical_from_spec(spec)
+    payload["final_limits"] = canonical
+    payload["qc_profile"] = project_onto_profile(payload["qc_profile"], canonical)
+    return payload
 
 
 def _upsert_dynamic_values(
@@ -903,6 +915,7 @@ def create_spec(
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     _validate_recipe_profile_limits(spec)
+    merge_canonical_into_payload(spec)
     customer_name = str(spec.customer_name or spec.customer_name_snapshot or "").strip()
     if not customer_name:
         raise HTTPException(status_code=400, detail="customer_name or customer_name_snapshot is required")
@@ -990,6 +1003,80 @@ def get_qc_parameter_dictionary(
     }
 
 
+class AssignProfilePayload(BaseModel):
+    template_spec_id: uuid.UUID
+    spec_ids: List[uuid.UUID]
+    publish: bool = False
+
+
+class FinalLimitsUpdate(BaseModel):
+    id_min_mm: Optional[float] = None
+    id_max_mm: Optional[float] = None
+    od_min_mm: Optional[float] = None
+    od_max_mm: Optional[float] = None
+    length_min_mm: Optional[float] = None
+    length_max_mm: Optional[float] = None
+    weight_min_g: Optional[float] = None
+    weight_max_g: Optional[float] = None
+    cs_min_n: Optional[float] = None
+    cs_max_n: Optional[float] = None
+    save_operation_key: Optional[str] = None
+    expected_revision: Optional[int] = None
+    qc_profile: Optional[Dict[str, Any]] = None
+
+
+@router.post("/qc-profile/assign-preview")
+def preview_qc_profile_assign(
+    payload: AssignProfilePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+):
+    _require_qc_author(current_user)
+    return preview_assign(
+        db=db,
+        plant_id=plant_id,
+        template_spec_id=payload.template_spec_id,
+        spec_ids=payload.spec_ids,
+    )
+
+
+@router.post("/qc-profile/assign")
+def apply_qc_profile_assign(
+    payload: AssignProfilePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
+):
+    _require_qc_author(current_user)
+    return apply_assign(
+        db=db,
+        plant_id=plant_id,
+        template_spec_id=payload.template_spec_id,
+        spec_ids=payload.spec_ids,
+        publish=payload.publish,
+    )
+
+
+@router.put("/{spec_id}/final-limits", response_model=SpecResponse)
+def update_spec_final_limits(
+    spec_id: uuid.UUID,
+    payload: FinalLimitsUpdate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Owner"])),
+):
+    merge_canonical_into_payload(payload)
+    updates = payload.model_dump(exclude_unset=True)
+    return update_spec(
+        spec_id,
+        SpecUpdate(**updates),
+        db=db,
+        plant_id=plant_id,
+        current_user=current_user,
+    )
+
+
 @router.get("/", response_model=List[SpecResponse])
 def get_specs(
     status: Optional[str] = Query(None),
@@ -1036,6 +1123,7 @@ def update_spec(
     current_user: dict = Depends(require_role(["Admin", "Owner"]))
 ):
     _validate_recipe_profile_limits(payload)
+    merge_canonical_into_payload(payload)
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
         SpecificationSheet.plant_id == plant_id
@@ -1149,6 +1237,7 @@ def upsert_spec_qc_profile(
     if replayed is not None:
         return _serialize_spec(replayed)
     require_expected_revision(spec, payload.expected_revision)
+    reject_qc_contractual_final(payload.qc_profile, spec)
     try:
         normalized = normalize_qc_profile(
             payload.qc_profile,

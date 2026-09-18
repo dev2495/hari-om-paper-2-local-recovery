@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { startTransition, useDeferredValue, useMemo, useState } from "react"
 import { ArrowRight, Factory, FilePlus2, Printer, Search, ScrollText } from "lucide-react"
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import { resolveSpecTitle } from "@/components/specs/spec-sheet-utils"
 import { Button } from "@/components/ui/button"
@@ -55,6 +55,35 @@ export default function SpecificationsIndexPage() {
   const canAuthorQc = Boolean(
     canManageSpecs || user?.roles?.some((role) => role === "QC") || user?.role === "QC",
   )
+  const queryClient = useQueryClient()
+  const [selectedSpecIds, setSelectedSpecIds] = useState<string[]>([])
+  const [templateSpecId, setTemplateSpecId] = useState("")
+  const [assignPreview, setAssignPreview] = useState<any>(null)
+  const [assignError, setAssignError] = useState<string | null>(null)
+
+  const previewAssign = useMutation({
+    mutationFn: (data: any) => specApi.previewQcProfileAssign(data),
+    onSuccess: (response) => {
+      setAssignError(null)
+      setAssignPreview(response.data)
+    },
+    onError: (error: any) => {
+      setAssignPreview(null)
+      setAssignError(error?.response?.data?.detail?.message || error?.response?.data?.detail || "Preview failed")
+    },
+  })
+  const applyAssign = useMutation({
+    mutationFn: (data: any) => specApi.applyQcProfileAssign(data),
+    onSuccess: (response) => {
+      setAssignError(null)
+      setAssignPreview(response.data)
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+    },
+    onError: (error: any) => {
+      const detail = error?.response?.data?.detail
+      setAssignError(detail?.message || (typeof detail === "string" ? detail : "Apply failed"))
+    },
+  })
 
   const { data: specs = [], isLoading } = useQuery({
     queryKey: ["specs", "all-versions"],
@@ -134,6 +163,18 @@ export default function SpecificationsIndexPage() {
     () => specs.filter((spec: any) => spec.active === false || String(spec.status || "").toLowerCase() === "obsolete").length,
     [specs],
   )
+  const templateSpecs = useMemo(
+    () =>
+      specs.filter((spec: any) => {
+        const status = String(spec.qc_setup_status || qcSetupStatus(spec.qc_profile) || "")
+        return spec.active !== false && status && status !== "missing"
+      }),
+    [specs],
+  )
+
+  function toggleSelected(id: string) {
+    setSelectedSpecIds((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))
+  }
 
   // Recipe-cascade health: spec is APPROVED but no recipe is approved yet.
   // Job-card creation will fail silently otherwise. Surface as a banner.
@@ -227,6 +268,108 @@ export default function SpecificationsIndexPage() {
               <p className="mt-1 text-sm text-slate-500">Approved snapshots that planning and production can rely on.</p>
             </div>
       </section>
+
+      {canAuthorQc ? (
+        <section
+          data-testid="spec-assign-panel"
+          className="space-y-4 rounded-[32px] border border-slate-200 bg-white/80 px-5 py-5 shadow-premium"
+        >
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Assign profile</p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">Assign profile to selected specs</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Preview per-spec impact first. Apply writes draft QC only — it does not publish and it does not rewrite issued jobs.
+            </p>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="min-w-[240px] flex-1 text-sm font-medium text-slate-700">
+              Template
+              <select
+                data-testid="spec-assign-template"
+                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                value={templateSpecId}
+                onChange={(event) => setTemplateSpecId(event.target.value)}
+              >
+                <option value="">Select a template spec</option>
+                {templateSpecs.map((spec: any) => (
+                  <option key={spec.id} value={spec.id}>
+                    {resolveSpecTitle(spec)} ({qcSetupStatus(spec.qc_profile)})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="spec-assign-preview"
+              disabled={!templateSpecId || selectedSpecIds.length === 0 || previewAssign.isPending}
+              onClick={() =>
+                previewAssign.mutate({
+                  template_spec_id: templateSpecId,
+                  spec_ids: selectedSpecIds,
+                  publish: false,
+                })
+              }
+            >
+              Preview impact
+            </Button>
+            <Button
+              type="button"
+              data-testid="spec-assign-apply"
+              disabled={!templateSpecId || selectedSpecIds.length === 0 || applyAssign.isPending}
+              onClick={() =>
+                applyAssign.mutate({
+                  template_spec_id: templateSpecId,
+                  spec_ids: selectedSpecIds,
+                  publish: false,
+                })
+              }
+            >
+              Apply drafts
+            </Button>
+          </div>
+          <p className="text-xs text-slate-500" data-testid="spec-assign-selected-count">
+            {selectedSpecIds.length} spec{selectedSpecIds.length === 1 ? "" : "s"} selected
+          </p>
+          {assignError ? (
+            <p className="text-sm font-medium text-rose-700" data-testid="spec-assign-error">
+              {typeof assignError === "string" ? assignError : JSON.stringify(assignError)}
+            </p>
+          ) : null}
+          {assignPreview?.results ? (
+            <div className="overflow-x-auto rounded-2xl border border-slate-200" data-testid="spec-assign-results">
+              <table className="min-w-full text-left text-sm">
+                <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Spec</th>
+                    <th className="px-3 py-2">Applicable</th>
+                    <th className="px-3 py-2">Impact</th>
+                    <th className="px-3 py-2">Unresolved</th>
+                    <th className="px-3 py-2">Published</th>
+                    <th className="px-3 py-2">Issued jobs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assignPreview.results.map((row: any) => (
+                    <tr key={row.spec_id} data-testid={`spec-assign-row-${row.spec_id}`}>
+                      <td className="px-3 py-2 font-medium text-slate-900">{row.customer_name || row.spec_id}</td>
+                      <td className="px-3 py-2">{row.applicable ? "Yes" : "No"}</td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {row.error?.message || row.action || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-slate-600">
+                        {(row.unresolved_fields || []).join(", ") || "—"}
+                      </td>
+                      <td className="px-3 py-2">{row.published ? "Yes" : "No"}</td>
+                      <td className="px-3 py-2">{row.rewrites_issued_jobs ? "Rewritten" : "Unchanged"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="rounded-[32px] border border-slate-200 bg-white/80 px-5 py-5 shadow-premium">
         <div className="mb-4 flex flex-wrap gap-2">
@@ -330,6 +473,17 @@ export default function SpecificationsIndexPage() {
                 <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
+                      {canAuthorQc ? (
+                        <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                          <input
+                            type="checkbox"
+                            data-testid={`spec-assign-select-${spec.id}`}
+                            checked={selectedSpecIds.includes(String(spec.id))}
+                            onChange={() => toggleSelected(String(spec.id))}
+                          />
+                          Select
+                        </label>
+                      ) : null}
                       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
                         Saved {formatDate(spec.created_at)}
                       </p>
