@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 83,
-      "NOT_RUN": 85,
+      "PASS": 84,
+      "NOT_RUN": 84,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 28,
-      "EXACT_EXECUTED": 83,
+      "EXACT_EXECUTED": 84,
       "LIMITATION": 3,
-      "NONE": 68,
+      "NONE": 67,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2565,13 +2565,19 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
-      "rr": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct050_live.py::test_qct050_hidden_stage_issues_returned_and_form_data_stays",
+        "production-service/tests/test_quality_eval.py::test_complete_card_returns_hidden_stage_issues_when_visible_tab_is_valid",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
+      "rr": [
+        "RR32"
+      ],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Visible WINDER PASS plus omitted hidden stages: complete-card returns PROCESS FAIL and OVEN INCOMPLETE, not a visible-tab PASS. Inspection rows stay. Chromium BUILD_ID RuDVwRuPutn9QGHEBn6so: Winding values remain after complete-card reject; PROCESS FAIL and OVEN missing issues listed."
     },
     {
       "id": "QCT-051",
@@ -4613,13 +4619,15 @@
       "id": "QCR-13",
       "title": "Full-card and alternate-entry validation",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-050",
         "QCT-051",
         "QCT-057"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-050"
+      ],
       "limitations": []
     },
     {

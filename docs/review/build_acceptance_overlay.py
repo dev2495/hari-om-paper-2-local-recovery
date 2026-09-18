@@ -722,6 +722,17 @@ SPECIAL: dict[str, dict] = {
         "rr": ["RR20"],
         "notes": "POST without pre-context stays INCOMPLETE not PASS. Same-payload pre PAIR-A / post PAIR-B is FAIL oven_pair, not a combined valid pair. Chromium PRE PAIR-A then POST PAIR-B is INCOMPLETE/FAIL not PASS.",
     },
+    "QCT-050": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct050_live.py::test_qct050_hidden_stage_issues_returned_and_form_data_stays",
+            "production-service/tests/test_quality_eval.py::test_complete_card_returns_hidden_stage_issues_when_visible_tab_is_valid",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "rr": ["RR32"],
+        "notes": "Visible WINDER PASS plus omitted hidden stages: complete-card returns PROCESS FAIL and OVEN INCOMPLETE, not a visible-tab PASS. Inspection rows stay. Chromium BUILD_ID RuDVwRuPutn9QGHEBn6so: Winding values remain after complete-card reject; PROCESS FAIL and OVEN missing issues listed.",
+    },
     "QCT-028": {
         "overlay_status": "PASS",
         "coverage": "EXACT_EXECUTED",

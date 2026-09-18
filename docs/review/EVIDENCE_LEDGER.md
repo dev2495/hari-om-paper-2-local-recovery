@@ -13,25 +13,43 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | `8db296c` QCT-048/049 oven PRE/POST pair timing; parent `df3a0ca` QCT-046/047 |
-| Served BUILD_ID | `REOh-2shYV9Ko_Fl2eA6l` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **37/37 PASS** on this BUILD_ID (`--workers=1`, 1.8m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ this overlay |
+| Served product | `72262de` QCT-050 whole-card hidden-stage errors; parent `8db296c` QCT-048/049 |
+| Served BUILD_ID | `RuDVwRuPutn9QGHEBn6so` at `http://127.0.0.1:23000` |
+| BJ re-run | Chromium project **38/38 PASS** on this BUILD_ID (`--workers=1`, 1.8m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 83 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 85 |
+| Original 56/192 overlay | PASS 84 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 84 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `REOh-2shYV9Ko_Fl2eA6l` pid **56710** (launcher 56674)
-- BFF `http://127.0.0.1:24000` pid **40362**, inventory **2331** :28005, production **55687** :28004, sales **2337** :28008
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `RuDVwRuPutn9QGHEBn6so` pid **61187** (launcher 61154)
+- BFF `http://127.0.0.1:24000` pid **61005**, inventory **2331** :28005, production **60993** :28004, sales **2337** :28008
 - Auth **90290** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `dfbc8a1` / product `8db296c`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-050 live hidden-stage complete-card | 2 passed | omitted OVEN/PROCESS still return issues; inspection count unchanged |
+| quality_eval complete-card collector | 1 passed | visible WINDER PASS does not hide PROCESS FAIL / OVEN INCOMPLETE |
+| qc-measurement unit | 15 passed | complete-card submit and tab state kept in source |
+| QCT-050 Chromium | 1 passed | Winding 120 kept; PROCESS FAIL and OVEN missing listed |
+| Chromium original-partials | 19 passed | prior 18 plus QCT-050 |
+| Chromium full project | 38 passed | BUILD_ID `RuDVwRuPutn9QGHEBn6so` workers=1 1.8m Chrome channel |
+
+Fixes patched with those tests:
+
+1. Complete job-card QC validates every due WINDER/OVEN/PROCESS sample, including stages omitted from the visible tab.
+2. Hidden-tab omit cannot become PASS. PROCESS FAIL and missing oven due readings are returned together.
+3. Complete-card review does not insert or delete inspections, so entered evidence stays.
+4. Stage QC keeps per-tab drafts and shows the structured issue list after Submit complete job card.
 
 Wave after overlay `b7c11ec` / product `df3a0ca`:
 
