@@ -27,7 +27,7 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay `NOT_RUN` | **98** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
 | Requirements overlay `PASS` | `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06` |
-| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-07`, `QCR-14`, `QCR-15`, `QCR-16`, `QCR-17`, `QCR-20`, `QCR-26`, `QCR-31`, `QCR-32`, `QCR-34` |
+| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-07`, `QCR-08`, `QCR-14`, `QCR-15`, `QCR-16`, `QCR-17`, `QCR-20`, `QCR-26`, `QCR-31`, `QCR-32`, `QCR-34` |
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Remaining requirements | `NOT_RUN` |
 
