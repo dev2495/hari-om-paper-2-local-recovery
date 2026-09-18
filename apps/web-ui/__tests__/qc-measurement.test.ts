@@ -9,6 +9,7 @@ import {
   frozenStageRules,
   qcActionLabel,
   qcMissingFieldLabels,
+  qcRowActions,
   qcSetupStatus,
 } from "../lib/qc-measurement"
 
@@ -36,8 +37,8 @@ test("winding uses Height not Length and oven/process keep client fields", () =>
 test("frozen allowed range never invents a band", () => {
   assert.equal(formatAllowedRange({ min: 118, max: 122, unit: "mm" }), "Allowed: 118–122 mm")
   assert.equal(formatAllowedRange({ min: null, max: null, unit: "mm" }), "Allowed: not configured")
-  assert.equal(qcActionLabel(qcSetupStatus(null)), "Add QC")
-  assert.equal(qcActionLabel(qcSetupStatus({ status: "draft", stages: { WINDER: { parameters: [{ code: "id", min: 1, max: 2, required: true }] } } })), "Complete QC")
+  assert.equal(qcActionLabel(qcSetupStatus(null)), "Add quality parameters")
+  assert.equal(qcActionLabel(qcSetupStatus({ status: "draft", stages: { WINDER: { parameters: [{ code: "id", min: 1, max: 2, required: true }] } } })), "Complete quality setup")
 })
 
 test("incomplete draft save is not QC-ready and keeps missing fields assigned", () => {
@@ -48,7 +49,7 @@ test("incomplete draft save is not QC-ready and keeps missing fields assigned", 
     },
   }
   assert.equal(qcSetupStatus(draft), "draft")
-  assert.equal(qcActionLabel(qcSetupStatus(draft)), "Complete QC")
+  assert.equal(qcActionLabel(qcSetupStatus(draft)), "Complete quality setup")
   assert.deepEqual(qcMissingFieldLabels(draft), ["I.D.", "O.D.", "Height", "Weight", "C.S.", "Pre-weight", "Post-weight", "Pre-moisture", "Post-moisture", "Height", "Weight", "C.S.", "Notch distance", "Notch depth", "Moisture"])
   assert.equal(qcSetupStatus({ status: "complete", stages: { WINDER: { parameters: [{ code: "id" }] } } }), "missing")
 })
@@ -125,6 +126,39 @@ test("frozen stage rules expose allowed display fields", () => {
   )
   const height = rules.find((row) => row.code === "height")
   assert.equal(formatAllowedRange(height), "Allowed: 118–122 mm")
+})
+
+test("list actions follow missing/draft/pending/approved/retired and author/viewer/approver", () => {
+  const specId = "spec-1"
+  const missingAuthor = qcRowActions({ qcStatus: "missing", specId, canAuthor: true, canApprove: false })
+  assert.deepEqual(missingAuthor.map((row) => row.label), ["Add quality parameters"])
+  assert.equal(missingAuthor[0].href, "/specifications/spec-1/edit?qc=add")
+  const missingViewer = qcRowActions({ qcStatus: "missing", specId, canAuthor: false, canApprove: false })
+  assert.deepEqual(missingViewer.map((row) => row.label), ["View quality parameters"])
+  const draftAuthor = qcRowActions({ qcStatus: "draft", specId, canAuthor: true, canApprove: true })
+  assert.deepEqual(draftAuthor.map((row) => row.label), ["Complete quality setup"])
+  const pendingApprover = qcRowActions({ qcStatus: "pending_review", specId, canAuthor: true, canApprove: true })
+  assert.deepEqual(pendingApprover.map((row) => row.label), ["Review quality parameters"])
+  const pendingViewer = qcRowActions({ qcStatus: "pending_review", specId, canAuthor: false, canApprove: false })
+  assert.deepEqual(pendingViewer.map((row) => row.label), ["View pending"])
+  const approvedAuthor = qcRowActions({ qcStatus: "approved", specId, canAuthor: true, canApprove: true })
+  assert.deepEqual(approvedAuthor.map((row) => row.label), ["View quality parameters", "Create QC revision"])
+  assert.equal(approvedAuthor[1].href, "/specifications/spec-1/edit?qc=revise")
+  const retired = qcRowActions({
+    qcStatus: "approved",
+    specId,
+    specStatus: "obsolete",
+    active: false,
+    canAuthor: true,
+    canApprove: true,
+  })
+  assert.deepEqual(retired.map((row) => row.label), ["View quality parameters"])
+  assert.equal(retired[0].href, "/specifications/spec-1")
+  assert.equal(qcActionLabel("pending_review", { role: "approver" }), "Review quality parameters")
+  assert.equal(qcActionLabel("pending_review", { role: "viewer" }), "View pending")
+  const specsPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/specifications/page.tsx"), "utf8")
+  assert.match(specsPage, /qcRowActions/)
+  assert.match(specsPage, /data-qc-action/)
 })
 
 if (failed.length) {

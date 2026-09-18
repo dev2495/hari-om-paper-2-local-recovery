@@ -57,6 +57,7 @@ class SpecificationSheet(Base):
     # Version control
     status = Column(String(20), default="draft")
     version = Column(Integer, default=1)
+    write_revision = Column(Integer, default=1, nullable=False)
     active = Column(Boolean, default=True)
     created_by = Column(String(200), nullable=True)
     approved_by = Column(String(200), nullable=True)
@@ -174,4 +175,21 @@ class SpecDynamicFieldValue(Base):
 
     __table_args__ = (
         UniqueConstraint("spec_id", "field_id", name="_spec_field_uc"),
+    )
+
+
+class SpecSaveOperation(Base):
+    """Stable save-operation key for spec + QC draft replay (QCT-033)."""
+
+    __tablename__ = "spec_save_operations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    operation_key = Column(String(120), nullable=False)
+    payload_fingerprint = Column(String(64), nullable=False)
+    spec_id = Column(UUID(as_uuid=True), ForeignKey("specification_sheet.id"), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "operation_key", name="uq_spec_save_operations_plant_key"),
     )

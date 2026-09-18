@@ -268,3 +268,110 @@ test("QCT-031 Save draft without stage thresholds persists incomplete QC", async
   await expect(dialog).toContainText(/Winding 0\//)
   await assertCritical()
 })
+
+test("QCT-033 double-click save incomplete does not duplicate the spec", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const runtime = getRuntimeManifest()
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
+  await pickFirstSmartSelectOption(page, "spec-sheet-customer")
+  await pickFirstSmartSelectOption(page, "spec-sheet-mandrel")
+  await expect(page.getByTestId("spec-sheet-tube-size")).toBeEnabled()
+  await pickFirstSmartSelectOption(page, "spec-sheet-tube-size")
+  await page.getByTestId("spec-sheet-save-draft").click()
+  const dialog = page.getByTestId("spec-qc-tolerance-dialog")
+  await expect(dialog).toBeVisible()
+  const createPosts = []
+  page.on("request", (request) => {
+    if (request.method() !== "POST") return
+    const url = request.url()
+    if (url.includes("/api/spec/specifications") && !url.includes("qc-profile") && !url.includes("recipes")) {
+      createPosts.push(url)
+    }
+  })
+  await dialog.getByTestId("spec-qc-save-incomplete").dblclick()
+  await page.waitForURL(/\/specifications\/[0-9a-f-]{36}(?:\/)?(?:\?.*)?$/i, { timeout: 30_000 })
+  const specId = page.url().match(/specifications\/([0-9a-f-]{36})/i)[1]
+  const saved = await page.request.get(`${runtime.urls.bff}/api/spec/specifications/${specId}`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+  })
+  expect(saved.ok(), await saved.text()).toBeTruthy()
+  expect(createPosts.length).toBeLessThanOrEqual(2)
+  await assertCritical()
+})
+
+test("QCT-035 list Add quality parameters keeps spec and recipe on approved spec", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const runtime = getRuntimeManifest()
+  const { spawnSync } = require("child_process")
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
+  await pickFirstSmartSelectOption(page, "spec-sheet-customer")
+  await pickFirstSmartSelectOption(page, "spec-sheet-mandrel")
+  await expect(page.getByTestId("spec-sheet-tube-size")).toBeEnabled()
+  await pickFirstSmartSelectOption(page, "spec-sheet-tube-size")
+  await page.getByTestId("spec-sheet-save-draft").click()
+  const dialog = page.getByTestId("spec-qc-tolerance-dialog")
+  await expect(dialog).toBeVisible()
+  await dialog.getByTestId("spec-qc-save-incomplete").click()
+  await page.waitForURL(/\/specifications\/[0-9a-f-]{36}(?:\/)?(?:\?.*)?$/i, { timeout: 30_000 })
+  const specId = page.url().match(/specifications\/([0-9a-f-]{36})/i)[1]
+  const recipesBefore = await page.request.get(`${runtime.urls.bff}/api/spec/recipes/spec/${specId}`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+  })
+  expect(recipesBefore.ok(), await recipesBefore.text()).toBeTruthy()
+  const recipeList = await recipesBefore.json()
+  const recipeId = Array.isArray(recipeList) ? recipeList[0]?.id : recipeList?.items?.[0]?.id
+  expect(recipeId).toBeTruthy()
+  const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
+  const seeded = spawnSync(
+    py,
+    [
+      "-c",
+      "import os,sys\nfrom sqlalchemy import create_engine,text\ne=create_engine(os.environ['DATABASE_URL'])\nwith e.begin() as c:\n    c.execute(text('UPDATE specification_sheet SET status=:st, qc_profile=NULL WHERE id=:id'), {'st':'approved','id':sys.argv[1]})",
+      specId,
+    ],
+    {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_specdb",
+      },
+    },
+  )
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  await page.goto("/specifications", { waitUntil: "domcontentloaded" })
+  const addAction = page.getByTestId(`spec-qc-action-${specId}-add`)
+  await expect(addAction).toBeVisible()
+  await expect(addAction).toContainText("Add quality parameters")
+  await addAction.click()
+  await page.waitForURL(new RegExp(`/specifications/${specId}/edit\\?qc=add`), { timeout: 20_000 })
+  await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
+  await expect(page.getByText(/Quality parameters for Spec/i)).toBeVisible()
+  await page.getByTestId("spec-sheet-save-draft").click()
+  await expect(dialog).toBeVisible()
+  await dialog.getByTestId("spec-qc-save-incomplete").click()
+  await page.waitForURL(new RegExp(`/specifications/${specId}(?:/)?(?:\\?.*)?$`), { timeout: 30_000 })
+  const saved = await page.request.get(`${runtime.urls.bff}/api/spec/specifications/${specId}`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+  })
+  expect(saved.ok(), await saved.text()).toBeTruthy()
+  const body = await saved.json()
+  expect(String(body.id)).toBe(specId)
+  expect(String(body.status || "").toLowerCase()).toBe("approved")
+  expect(["draft", "incomplete"]).toContain(String(body.qc_setup_status || "").toLowerCase())
+  expect(["approved", "complete"]).not.toContain(String(body.qc_profile?.status || "").toLowerCase())
+  const recipesAfter = await page.request.get(`${runtime.urls.bff}/api/spec/recipes/spec/${specId}`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+  })
+  expect(recipesAfter.ok(), await recipesAfter.text()).toBeTruthy()
+  const afterList = await recipesAfter.json()
+  const afterIds = (Array.isArray(afterList) ? afterList : afterList?.items || []).map((row) => String(row.id))
+  expect(afterIds).toEqual([String(recipeId)])
+  await assertCritical()
+})
+

@@ -235,6 +235,19 @@ export function useUpdateSpec() {
   })
 }
 
+export function useUpsertSpecQcProfile() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ specId, data, plantId }: { specId: string; data: any; plantId?: string }) =>
+      specApi.upsertSpecQcProfile(specId, data, plantId),
+    onSuccess: (_response, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["specs"] })
+      queryClient.invalidateQueries({ queryKey: ["spec", variables.specId] })
+      queryClient.invalidateQueries({ queryKey: ["spec-sheet-document", variables.specId] })
+    },
+  })
+}
+
 export function useCreateRecipe() {
   const queryClient = useQueryClient()
   return useMutation({

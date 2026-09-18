@@ -266,6 +266,7 @@ export type SpecRecord = {
   profile?: SpecProfile
   qc_profile?: Record<string, any> | null
   qc_setup_status?: string | null
+  write_revision?: number
   status: string
   version: number
   active: boolean

@@ -141,6 +141,30 @@ def ensure_runtime_schema() -> None:
                 "ADD COLUMN IF NOT EXISTS qc_profile JSON"
             )
         )
+        connection.execute(
+            text(
+                "ALTER TABLE IF EXISTS specification_sheet "
+                "ADD COLUMN IF NOT EXISTS write_revision INTEGER DEFAULT 1"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE specification_sheet SET write_revision = 1 WHERE write_revision IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TABLE IF NOT EXISTS spec_save_operations ("
+                "id UUID PRIMARY KEY,"
+                "plant_id VARCHAR(50) NOT NULL,"
+                "operation_key VARCHAR(120) NOT NULL,"
+                "payload_fingerprint VARCHAR(64) NOT NULL,"
+                "spec_id UUID NOT NULL,"
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
+                "UNIQUE (plant_id, operation_key)"
+                ")"
+            )
+        )
 
 
 ensure_runtime_schema()

@@ -15,6 +15,40 @@ from ..models import (
     SpecDynamicFieldValue,
     SpecificationSheet,
 )
+from ..save_ops import (
+    bump_write_revision,
+    payload_fingerprint,
+    remember_save_operation,
+    replay_or_conflict,
+    require_expected_revision,
+)
+
+_QC_AUTHOR_ROLES = {"Owner", "Admin", "QC"}
+_QC_APPROVER_ROLES = {"Owner", "Admin"}
+
+
+def _user_roles(current_user: dict) -> set[str]:
+    roles: set[str] = set()
+    raw = current_user.get("roles")
+    if isinstance(raw, list):
+        roles.update(str(item) for item in raw if item)
+    elif raw:
+        roles.add(str(raw))
+    if current_user.get("role"):
+        roles.add(str(current_user["role"]))
+    return roles
+
+
+def _require_qc_author(current_user: dict) -> None:
+    if _user_roles(current_user) & _QC_AUTHOR_ROLES:
+        return
+    raise HTTPException(status_code=403, detail="Operation not permitted for your role")
+
+
+def _require_qc_approver(current_user: dict) -> None:
+    if _user_roles(current_user) & _QC_APPROVER_ROLES:
+        return
+    raise HTTPException(status_code=403, detail="Operation not permitted for your role")
 from .. import spec_math
 from ..services.approval import ApprovalService
 from ..utils.auth import (
@@ -126,6 +160,8 @@ class SpecCreate(BaseModel):
     profile: Optional[Dict[str, Any]] = None
     qc_profile: Optional[Dict[str, Any]] = None
     dynamic_fields: Optional[List[DynamicFieldValueInput]] = None
+    save_operation_key: Optional[str] = None
+    expected_revision: Optional[int] = None
 
 
 class SpecUpdate(BaseModel):
@@ -159,6 +195,8 @@ class SpecUpdate(BaseModel):
     profile: Optional[Dict[str, Any]] = None
     qc_profile: Optional[Dict[str, Any]] = None
     dynamic_fields: Optional[List[DynamicFieldValueInput]] = None
+    save_operation_key: Optional[str] = None
+    expected_revision: Optional[int] = None
 
 
 class SpecResponse(BaseModel):
@@ -205,6 +243,7 @@ class SpecResponse(BaseModel):
     profile: Optional[Dict[str, Any]] = None
     qc_profile: Optional[Dict[str, Any]] = None
     qc_setup_status: Optional[str] = None
+    write_revision: int = 1
     dynamic_fields: List[DynamicFieldValueResponse]
 
 
@@ -597,6 +636,7 @@ def _serialize_spec(spec: SpecificationSheet) -> dict:
         "profile": _profile_from_dynamic_map(dynamic_map),
         "qc_profile": spec.qc_profile if isinstance(spec.qc_profile, dict) else None,
         "qc_setup_status": profile_status(spec.qc_profile if isinstance(spec.qc_profile, dict) else None),
+        "write_revision": int(spec.write_revision or 1),
         "dynamic_fields": sorted(dynamic_values, key=lambda x: x["field_key"]),
     }
 
@@ -703,7 +743,7 @@ def _replacement_spec_from_payload(
     plant_id: str,
     current_user: dict,
 ) -> SpecificationSheet:
-    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile"})
+    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile", "save_operation_key", "expected_revision"})
 
     def resolved(field: str):
         return updates[field] if field in updates else getattr(previous, field)
@@ -751,6 +791,7 @@ def _replacement_spec_from_payload(
         cut_loss_mm=previous.cut_loss_mm or settings.CUT_LOSS_MM,
         status="trial" if previous.status == "trial" else "draft",
         version=int(previous.version or 1) + 1,
+        write_revision=int(previous.write_revision or 1) + 1,
         active=True,
         created_by=current_user.get("sub"),
         plant_id=plant_id,
@@ -768,8 +809,9 @@ def _update_draft_in_place(
     payload: SpecUpdate,
     plant_id: str,
     db: Session,
+    fingerprint: Optional[str] = None,
 ) -> SpecificationSheet:
-    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile"})
+    updates = payload.model_dump(exclude_unset=True, exclude={"dynamic_fields", "profile", "save_operation_key", "expected_revision"})
     customer_name = str(
         updates.get("customer_name")
         or updates.get("customer_name_snapshot")
@@ -793,6 +835,7 @@ def _update_draft_in_place(
             setattr(spec, field, value)
     spec.customer_name = customer_name
     spec.customer_name_snapshot = updates.get("customer_name_snapshot") or customer_name
+    bump_write_revision(spec)
 
     _upsert_dynamic_values(spec.id, payload.dynamic_fields, plant_id, db)
     _upsert_compat_dynamic_values(
@@ -801,6 +844,14 @@ def _update_draft_in_place(
         plant_id=plant_id,
         db=db,
     )
+    if fingerprint:
+        remember_save_operation(
+            db=db,
+            plant_id=plant_id,
+            operation_key=payload.save_operation_key,
+            fingerprint=fingerprint,
+            spec_id=spec.id,
+        )
     db.commit()
     db.refresh(spec)
     return spec
@@ -856,6 +907,16 @@ def create_spec(
     if not customer_name:
         raise HTTPException(status_code=400, detail="customer_name or customer_name_snapshot is required")
 
+    fingerprint = payload_fingerprint(spec)
+    replayed = replay_or_conflict(
+        db=db,
+        plant_id=plant_id,
+        operation_key=spec.save_operation_key,
+        fingerprint=fingerprint,
+    )
+    if replayed is not None:
+        return _serialize_spec(replayed)
+
     model = SpecificationSheet(
         customer_name=customer_name,
         customer_id=uuid.UUID(str(spec.customer_id)) if spec.customer_id else None,
@@ -889,6 +950,7 @@ def create_spec(
         created_by=current_user.get("sub"),
         plant_id=plant_id,
         qc_profile=normalize_qc_profile(spec.qc_profile) if spec.qc_profile is not None else None,
+        write_revision=1,
     )
     db.add(model)
     db.flush()
@@ -899,6 +961,13 @@ def create_spec(
         _compat_dynamic_values_from_payload(spec),
         plant_id=plant_id,
         db=db,
+    )
+    remember_save_operation(
+        db=db,
+        plant_id=plant_id,
+        operation_key=spec.save_operation_key,
+        fingerprint=fingerprint,
+        spec_id=model.id,
     )
 
     db.commit()
@@ -976,9 +1045,26 @@ def update_spec(
     if not spec.active:
         raise HTTPException(status_code=400, detail="Inactive specification versions are read-only")
 
+    fingerprint = payload_fingerprint(payload)
+    replayed = replay_or_conflict(
+        db=db,
+        plant_id=plant_id,
+        operation_key=payload.save_operation_key,
+        fingerprint=fingerprint,
+    )
+    if replayed is not None:
+        return _serialize_spec(replayed)
+    require_expected_revision(spec, payload.expected_revision)
+
     if spec.status == "draft":
         return _serialize_spec(
-            _update_draft_in_place(spec=spec, payload=payload, plant_id=plant_id, db=db)
+            _update_draft_in_place(
+                spec=spec,
+                payload=payload,
+                plant_id=plant_id,
+                db=db,
+                fingerprint=fingerprint,
+            )
         )
     if spec.status == "review":
         raise HTTPException(
@@ -1011,6 +1097,13 @@ def update_spec(
         plant_id=plant_id,
         db=db,
     )
+    remember_save_operation(
+        db=db,
+        plant_id=plant_id,
+        operation_key=payload.save_operation_key,
+        fingerprint=fingerprint,
+        spec_id=replacement.id,
+    )
 
     db.commit()
     db.refresh(replacement)
@@ -1020,6 +1113,8 @@ def update_spec(
 class QcProfileUpdate(BaseModel):
     qc_profile: Dict[str, Any]
     status: Optional[str] = None
+    save_operation_key: Optional[str] = None
+    expected_revision: Optional[int] = None
 
 
 @router.put("/{spec_id}/qc-profile", response_model=SpecResponse)
@@ -1030,6 +1125,7 @@ def upsert_spec_qc_profile(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
 ):
+    _require_qc_author(current_user)
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
         SpecificationSheet.plant_id == plant_id,
@@ -1043,6 +1139,16 @@ def upsert_spec_qc_profile(
             status_code=409,
             detail="Specification is under approval review. Return it to draft before editing quality parameters.",
         )
+    fingerprint = payload_fingerprint(payload)
+    replayed = replay_or_conflict(
+        db=db,
+        plant_id=plant_id,
+        operation_key=payload.save_operation_key,
+        fingerprint=fingerprint,
+    )
+    if replayed is not None:
+        return _serialize_spec(replayed)
+    require_expected_revision(spec, payload.expected_revision)
     try:
         normalized = normalize_qc_profile(
             payload.qc_profile,
@@ -1059,6 +1165,14 @@ def upsert_spec_qc_profile(
     if payload.status in {"draft", "complete", "pending_review"}:
         normalized["status"] = payload.status
     spec.qc_profile = normalized
+    bump_write_revision(spec)
+    remember_save_operation(
+        db=db,
+        plant_id=plant_id,
+        operation_key=payload.save_operation_key,
+        fingerprint=fingerprint,
+        spec_id=spec.id,
+    )
     db.commit()
     db.refresh(spec)
     return _serialize_spec(spec)
@@ -1076,6 +1190,7 @@ def approve_spec_qc_profile(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
+    _require_qc_approver(current_user)
     spec = db.query(SpecificationSheet).filter(
         SpecificationSheet.id == spec_id,
         SpecificationSheet.plant_id == plant_id,
@@ -1101,6 +1216,7 @@ def approve_spec_qc_profile(
     normalized["approved_at"] = datetime.utcnow().isoformat()
     normalized["approved_snapshot"] = dict(normalized)
     spec.qc_profile = normalized
+    bump_write_revision(spec)
     db.commit()
     db.refresh(spec)
     return _serialize_spec(spec)

@@ -123,11 +123,59 @@ export function qcMissingFieldLabels(profile: any): string[] {
   return labels
 }
 
-export function qcActionLabel(status: ReturnType<typeof qcSetupStatus>) {
-  if (status === "missing") return "Add QC"
-  if (status === "draft") return "Complete QC"
-  if (status === "pending_review") return "View QC"
-  return "View QC"
+export type QcActorRole = "author" | "approver" | "viewer"
+
+export function qcActionLabel(
+  status: ReturnType<typeof qcSetupStatus>,
+  options?: { role?: QcActorRole; specRetired?: boolean },
+) {
+  const role = options?.role || "author"
+  if (options?.specRetired) return "View quality parameters"
+  if (status === "missing") return role === "viewer" ? "View quality parameters" : "Add quality parameters"
+  if (status === "draft") return role === "viewer" ? "View quality parameters" : "Complete quality setup"
+  if (status === "pending_review") return role === "approver" ? "Review quality parameters" : "View pending"
+  if (status === "complete") return role === "approver" ? "Review quality parameters" : role === "viewer" ? "View pending" : "Complete quality setup"
+  return "View quality parameters"
+}
+
+export function qcRowActions(args: {
+  qcStatus: ReturnType<typeof qcSetupStatus>
+  specId: string
+  specStatus?: string | null
+  active?: boolean | null
+  canAuthor: boolean
+  canApprove: boolean
+}): Array<{ label: string; href: string; kind: string }> {
+  const retired = args.active === false || String(args.specStatus || "").toLowerCase() === "obsolete"
+  const viewHref = `/specifications/${args.specId}`
+  if (retired) {
+    return [{ label: "View quality parameters", href: viewHref, kind: "view" }]
+  }
+  if (args.qcStatus === "missing") {
+    return args.canAuthor
+      ? [{ label: "Add quality parameters", href: `/specifications/${args.specId}/edit?qc=add`, kind: "add" }]
+      : [{ label: "View quality parameters", href: viewHref, kind: "view" }]
+  }
+  if (args.qcStatus === "draft") {
+    return args.canAuthor
+      ? [{ label: "Complete quality setup", href: `/specifications/${args.specId}/edit?qc=complete`, kind: "complete" }]
+      : [{ label: "View quality parameters", href: viewHref, kind: "view" }]
+  }
+  if (args.qcStatus === "pending_review" || args.qcStatus === "complete") {
+    if (args.canApprove) {
+      return [{ label: "Review quality parameters", href: viewHref, kind: "review" }]
+    }
+    return [{ label: "View pending", href: viewHref, kind: "pending" }]
+  }
+  const actions = [{ label: "View quality parameters", href: viewHref, kind: "view" }]
+  if (args.canAuthor) {
+    actions.push({
+      label: "Create QC revision",
+      href: `/specifications/${args.specId}/edit?qc=revise`,
+      kind: "revise",
+    })
+  }
+  return actions
 }
 
 export function formatAllowedRange(rule: Pick<QcParameterRule, "min" | "max" | "unit" | "applicable"> | null | undefined) {

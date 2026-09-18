@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { useAuth } from "@/context/AuthContext"
 import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data"
 import { specApi } from "@/lib/api"
-import { qcActionLabel, qcSetupStatus } from "@/lib/qc-measurement"
+import { qcRowActions, qcSetupStatus } from "@/lib/qc-measurement"
 import { formatSpecMeasure, resolveSpecSummary } from "@/lib/spec-summary"
 import { PageHeader } from "@/components/workspace/page-header"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -52,6 +52,9 @@ export default function SpecificationsIndexPage() {
   const [versionView, setVersionView] = useState<"active" | "disabled">("active")
   const deferredSearchValue = useDeferredValue(searchValue.trim().toLowerCase())
   const canManageSpecs = Boolean(user?.roles?.some((role) => role === "Owner" || role === "Admin") || user?.role === "Owner" || user?.role === "Admin")
+  const canAuthorQc = Boolean(
+    canManageSpecs || user?.roles?.some((role) => role === "QC") || user?.role === "QC",
+  )
 
   const { data: specs = [], isLoading } = useQuery({
     queryKey: ["specs", "all-versions"],
@@ -403,14 +406,24 @@ export default function SpecificationsIndexPage() {
                     </Link>
                     {(() => {
                       const qcStatus = qcSetupStatus(spec.qc_profile)
-                      const href = qcStatus === "approved" || (qcStatus !== "missing" && qcStatus !== "draft" && spec.active === false)
-                        ? `/specifications/${spec.id}`
-                        : `/specifications/${spec.id}/edit`
-                      return (
-                        <Link href={href} data-testid={`spec-qc-action-${spec.id}`}>
-                          <Button variant="outline">{qcActionLabel(qcStatus)}</Button>
+                      const actions = qcRowActions({
+                        qcStatus,
+                        specId: String(spec.id),
+                        specStatus: spec.status,
+                        active: spec.active,
+                        canAuthor: canAuthorQc,
+                        canApprove: canManageSpecs,
+                      })
+                      return actions.map((action) => (
+                        <Link
+                          key={`${action.kind}-${action.href}`}
+                          href={action.href}
+                          data-testid={`spec-qc-action-${spec.id}-${action.kind}`}
+                          data-qc-action={action.kind}
+                        >
+                          <Button variant="outline">{action.label}</Button>
                         </Link>
-                      )
+                      ))
                     })()}
                     {canManageSpecs && spec.active !== false && !["obsolete", "review"].includes(String(spec.status || "").toLowerCase()) ? (
                       <Link href={`/specifications/${spec.id}/edit`}>

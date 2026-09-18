@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 
 import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import { SpecQcToleranceDialog } from "@/components/qc/SpecQcToleranceDialog"
@@ -49,6 +49,7 @@ import {
   useSpecSheetDocument,
   useSubmitSpecForReview,
   useUpdateSpecSheet,
+  useUpsertSpecQcProfile,
 } from "@/hooks/use-specs"
 import {
   AdhesiveComponent,
@@ -654,8 +655,21 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean)), [user?.role, user?.roles])
   const canManageSpec = userRoles.has("Owner") || userRoles.has("Admin")
   const canApproveAsSuperUser = userRoles.has("Owner") || userRoles.has("Admin")
+  const canAuthorQc = canManageSpec || userRoles.has("QC")
+  const [qcIntent, setQcIntent] = useState<string | null>(null)
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    setQcIntent(new URLSearchParams(window.location.search).get("qc"))
+  }, [])
+  const qcOnly = Boolean(qcIntent)
   const hasConcreteWritePlant = Boolean(activePlant && activePlant !== "ALL")
-  const editBlockReason = !canManageSpec
+  const editBlockReason = qcOnly
+    ? !canAuthorQc
+      ? "Only Owner, Admin, or QC can add or revise quality parameters."
+      : !hasConcreteWritePlant
+        ? "Pick one plant in the top switcher before creating or editing a specification."
+        : null
+    : !canManageSpec
     ? "Only Owner and Admin can edit specification sheets."
     : !hasConcreteWritePlant
       ? "Pick one plant in the top switcher before creating or editing a specification."
@@ -666,6 +680,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const [loadedSpecSignature, setLoadedSpecSignature] = useState<string | null>(null)
   const [qcDialogOpen, setQcDialogOpen] = useState(false)
   const [qcProfile, setQcProfile] = useState<any>(null)
+  const saveOperationKeyRef = useRef<string | null>(null)
   const [catalogBootstrapped, setCatalogBootstrapped] = useState(false)
   const [defaultsBootstrappedForPlant, setDefaultsBootstrappedForPlant] = useState<string | null>(null)
   const [todayLabel, setTodayLabel] = useState("--/--/----")
@@ -693,6 +708,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
   const ensureCatalog = useEnsureSpecSheetCatalog()
   const createSpecSheet = useCreateSpecSheet()
   const updateSpecSheet = useUpdateSpecSheet()
+  const upsertSpecQcProfile = useUpsertSpecQcProfile()
   const logToolUsage = useLogToolUsage()
   const approveSpec = useApproveSpec()
   const submitSpecForReview = useSubmitSpecForReview()
@@ -1655,7 +1671,9 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       : mode === "edit"
         ? specDocument?.spec?.status === "draft"
           ? `Edit Draft v${specDocument?.spec?.version || ""}`
-          : `New Version from Spec v${specDocument?.spec?.version || ""}`
+          : qcOnly
+            ? `Quality parameters for Spec v${specDocument?.spec?.version || ""}`
+            : `New Version from Spec v${specDocument?.spec?.version || ""}`
         : mode === "print"
           ? `Print Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
           : `Specification ${specDocument?.spec?.version ? `v${specDocument.spec.version}` : ""}`
@@ -2151,7 +2169,15 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
     }
 
     try {
-      const specData = { ...buildSpecPayload(), qc_profile: nextQcProfile }
+      if (!saveOperationKeyRef.current) {
+        saveOperationKeyRef.current = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `save-${Date.now()}`
+      }
+      const specData = {
+        ...buildSpecPayload(),
+        qc_profile: nextQcProfile,
+        save_operation_key: saveOperationKeyRef.current,
+        expected_revision: isCreate ? undefined : specDocument?.spec?.write_revision,
+      }
       const recipeLayers = buildRecipeLayers()
       const recipeData = { notes: form.notes || "Factory sheet recipe" }
       const trialData = isCreate ? null : buildTrialPayload()
@@ -2162,6 +2188,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           recipeData,
           recipeLayers,
         })
+        saveOperationKeyRef.current = null
         const toolLogResults = await Promise.allSettled(
           selectedNotchToolEntries.map((entry) =>
             logToolUsage.mutateAsync({
@@ -2191,6 +2218,23 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         return
       }
 
+      if (qcOnly && specId) {
+        const saved = await upsertSpecQcProfile.mutateAsync({
+          specId,
+          data: {
+            qc_profile: nextQcProfile,
+            status: nextQcProfile?.status || "draft",
+            save_operation_key: saveOperationKeyRef.current,
+            expected_revision: specDocument?.spec?.write_revision,
+          },
+        })
+        saveOperationKeyRef.current = null
+        const savedId = saved?.data?.id || specId
+        showToast("Quality parameter draft saved. Specification and recipe identities were kept.", "success")
+        router.push(`/specifications/${savedId}`)
+        return
+      }
+
       const result = await updateSpecSheet.mutateAsync({
         specId: specId || "",
         recipeId: specDocument?.latestRecipe?.id,
@@ -2199,6 +2243,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         recipeLayers,
         trialData,
       })
+      saveOperationKeyRef.current = null
       const toolLogResults = await Promise.allSettled(
         selectedNotchToolEntries.map((entry) =>
           logToolUsage.mutateAsync({
@@ -2228,7 +2273,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       )
       router.push(`/specifications/${result.spec.id}`)
     } catch (error: any) {
-      const message = error?.response?.data?.detail || error?.message || "Failed to save the specification sheet."
+      const detail = error?.response?.data?.detail
+      const message =
+        (detail && typeof detail === "object" && detail.message) ||
+        (typeof detail === "string" ? detail : null) ||
+        error?.message ||
+        "Failed to save the specification sheet."
       showToast(typeof message === "string" ? message : JSON.stringify(message), "error")
     }
   }
@@ -2561,7 +2611,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             notching: Boolean(form.dynamicValues?.notch_type || form.dynamicValues?.notch_distance_mm || form.dynamicValues?.notch_depth_mm),
           }}
           initialProfile={qcProfile}
-          saving={createSpecSheet.isPending || updateSpecSheet.isPending}
+          saving={createSpecSheet.isPending || updateSpecSheet.isPending || upsertSpecQcProfile.isPending || upsertSpecQcProfile.isPending}
           onBack={(profile) => {
             setQcProfile(profile)
             setQcDialogOpen(false)
@@ -2651,7 +2701,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   data-testid="spec-sheet-save-draft"
                   onClick={handleSave}
-                  disabled={!canSaveDraft || createSpecSheet.isPending || updateSpecSheet.isPending}
+                  disabled={!canSaveDraft || createSpecSheet.isPending || updateSpecSheet.isPending || upsertSpecQcProfile.isPending}
                   className="rounded-lg bg-[#102832] px-3.5 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-[#183946] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Save Draft
