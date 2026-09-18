@@ -3,7 +3,7 @@
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
-- Local candidate before this follow-up commit: `83e0b54634fa90bf89bd57f0e5dd10238367afc9`
+- Local HEAD: `f6ee41c8c42408dda1b6fd14580e9f40a5656f41` (docs + overlay + live RR02/RR09 tests; Chromium candidate remains `5dd8b9b`)
 - Chromium 15/15 ran at `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e harness only after product `d071d12`)
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
 - Served Next on 23000: product `d071d122ae8725431195804cc33779c4ff1e75a6`, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`
