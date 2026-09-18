@@ -5,8 +5,8 @@ Branch: `cursor/ui-polish-nav-c5f9`
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
 Chromium / harness SHA: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67`  
-Local HEAD before this execution cycle: `5187a640ac86123806d79b0160f022346a3745a5`
-Product commit this cycle: `1e397887c5bf1d88d7d22c014f5bbd8dd1eda4ba`
+Local HEAD before this execution cycle: `5a67e6791918949ba92d1759247dc1e5dfe9f563`
+Product commit this cycle: `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b` (workbook import, PO print/evidence, QC gate, plant-scoped item_code)
 
 ## Compact evidence index
 
@@ -17,28 +17,47 @@ Product commit this cycle: `1e397887c5bf1d88d7d22c014f5bbd8dd1eda4ba`
 | Served product SHA | `d071d122ae8725431195804cc33779c4ff1e75a6` |
 | Served BUILD_ID | `Yz4l4-NEecxcN4k1Xtf_H` at `http://127.0.0.1:23000` |
 | Test-harness SHA | `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e only vs product SHA) |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ this overlay commit |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ this overlay |
 | Path-scoped product after `d071d12` | e2e harness + backend/evaluator/sales/production/spec/planning/purchase source |
-| Inventory/production/shared after `faee2ab` | **changed** (evaluator, parchment, capacity, GRN pin, incoming PASS usable sync). `faee2ab` images are stale. |
-| Schema | create_all, no `alembic_version`. No migration this cycle. GRN `inward_metadata` JSON pin only. |
+| Inventory/production/shared after `faee2ab` | **changed** (evaluator, parchment, capacity, GRN pin, workbook import, QC gate). `faee2ab` images are stale. |
+| Schema | create_all, no `alembic_version`. Additive: `purchase_workbook_imports`; item_code unique is now `(plant_id, item_code)`. |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **not rebuilt** |
 | Browser | Playwright 1.59.1 Chrome: BJ 15/15, theme 6/6, PLAN-09 1/1. WebKit BLOCKED. Safari.app BLOCKED. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 28 / PARTIAL 29 / LIMITATION 3 / NOT_RUN 132 |
+| Original 56/192 overlay | PASS 41 / PARTIAL 30 / LIMITATION 3 / NOT_RUN 118 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
 - Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`
-- BFF `http://127.0.0.1:24000`, services `28001–28008` (28006 unused)
+- BFF `http://127.0.0.1:24000` pid **75656**, services `28001–28008` (28006 unused)
 - Foreign `127.0.0.1:13000` pid 69663 left running
-- node v26.5.0, Playwright 1.59.1, python 3.11.15
-- `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Isolated production HTTP pid **70283** :28004 and inventory pid **70284** :28005 after this wave. JWT sha256 prefix `c0f8ce9c6baa035a` matches auth. Foreign 13000 pid 69663 left running.
+- Isolated production HTTP pid **75652** :28004 and inventory pid **75654** :28005 after this wave (venv-verify uvicorn)
+- JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity; UI bundle not rebuilt
 
 ## This cycle — executable original cases
 
-Wave after `5187a64` (logs `reports/nverify-5187a-exec/`):
+Wave after `5a67e67`:
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| PUR workbook unit | 3 passed | `test_purchase_workbook.py` |
+| PUR-01–08 + QCT-015/016/018 + REG-01 live | 12 passed (`test_original_pur_live` 12 + workbook 3 = 15 with units) | isolated `hariom_nverify_inventorydb` |
+| QC-03–10 unit + typed/eval/enforcement | 34 passed with retained suites | `test_original_qc_stage` + `test_quality_enforcement` + `test_quality_eval` |
+| QC-03/04/06/07/08 live | 5 passed | isolated `hariom_nverify_productiondb` |
+
+Fixes patched with those tests:
+
+1. SEP workbook had no preview/commit path → staged import flags `DATE_SHEET_MISMATCH` / `BLANK_PENDING` / `UNKNOWN_UNIT` and never posts stock; fingerprint replay is idempotent.
+2. PO print defaulted a missing issuer rather than staying unresolved → print uses explicit `legal_entity`; Hari Om is not invented.
+3. Receipt evidence was free-text terms only → TEST_REPORT/CHALLAN attach to the GRN batch; wrong batch 409.
+4. `item_code` was globally unique so two plants could not bind the same family → unique `(plant_id, item_code)`.
+5. Final QC `override_reason` skipped the gate for any actor, and a FAIL inspection with full readings satisfied completion → Owner/Admin only; out-of-range inline and FAIL inspections cannot complete.
+6. Hold 409 payload used `h.stage` (missing) instead of `stage_type`.
+7. Unapproved live profile could be used when no inward_metadata existed → pin/evaluate approved-or-missing only.
+
+## Prior wave after `5187a64` (logs `reports/nverify-5187a-exec/`)
+
 
 | Suite | Result | Log |
 | --- | --- | --- |
@@ -105,7 +124,7 @@ WebKit BLOCKED (incomplete browser install). Safari.app BLOCKED (`safaridriver -
 
 | Gate | Status |
 | --- | --- |
-| Original 192 overlay PASS | 28 of 192; 132 still NOT_RUN; 29 PARTIAL; 3 LIMITATION |
+| Original 192 overlay PASS | 41 of 192; 118 still NOT_RUN; 30 PARTIAL; 3 LIMITATION |
 | BJ13 Safari / dual product theme | NOT_RUN / BLOCKED |
 | QCT-120 full client cycle UAT | NOT_RUN |
 | QCT-125 / RR36 release sign-off, main merge, deploy | NOT_RUN |
