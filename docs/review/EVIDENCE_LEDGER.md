@@ -1,67 +1,57 @@
 # Evidence ledger — Hari Om correction pass
 
-Date: 2026-09-17  
+Date: 2026-09-18  
 Branch: `cursor/ui-polish-nav-c5f9`  
-Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
+Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
+Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
+Local candidate: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (**not pushed**)
 
-## Commands run (this machine)
+## Runtime identity
 
-Local venv: repo-root `.venv` (Python 3.11). Not committed.
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`
+- BFF `http://127.0.0.1:24000`, services `28001–28008`
+- Foreign `127.0.0.1:13000` pid 69663 left running
+- node v26.5.0, npm 11.17.0, Playwright 1.59.1, python 3.11.15, pydantic-settings 2.14.2
+- `PLAYWRIGHT_CHROME_CHANNEL=chrome`
+- Schema tables: auth 10, master 23, spec 8, sales 8, production 22, inventory 32, analytics 1
+- Manifest: `hariom-erp/runtime-verify/runtime_manifest.json` consistency PASS 29/29
+- Docker: inventory `sha256:eef5d9c383457d8a4d5314317422d7c936a0510b1e3c75f5b6612b242b04e842` tag `hariom-nverify-inventory:faee2ab`; production `sha256:e17529ec1aa42e4ef30df53b7c134eb4a6839fa8800b1baae35ed24e8eebd546` tag `hariom-nverify-production:faee2ab`; mounts `[]`
+
+## Live Postgres (venv-verify, `HARI_OM_LIVE_PG=1`)
 
 ```text
-PYTHONPATH=src pytest tests/test_quality_eval.py tests/test_quality_pass_rate.py
-# production-service → 18 passed
-
-PYTHONPATH=src pytest tests/test_due_risk.py tests/test_pending_by_order.py tests/test_quality_eval.py tests/test_quality_pass_rate.py
-# production-service → 24 passed
-
-PYTHONPATH=src pytest tests/test_pending_and_schedules.py tests/test_sales_commercial.py
-# sales-service → 24 passed
-
-PYTHONPATH=src pytest tests/test_sales_logic.py tests/test_open_demand.py
-# sales-service → 13 passed
-
-PYTHONPATH=src pytest tests/test_qc_profile.py
-# spec-service → 4 passed
-
-PYTHONPATH=src pytest tests/test_concession_and_profile.py
-# inventory-service → 7 passed
-
-PYTHONPATH=src pytest tests/test_notification_plant_scope.py
-# auth-service → 8 passed
-
-PYTHONPATH=src pytest tests/test_demand_coverage.py
-# analytics-service → 5 passed
-
-cd apps/web-ui && npm ci --include=dev && npm run test:unit
-# 23+2+20+sales-order-entry+2+8+13+10 passed
+inventory live+QC     17 passed
+sales live            4 passed
+production live+typed+planning+eval  61 passed
+auth live+notifications  9 passed
+auth test_user_lifecycle.py on hariom_nverify_hardening_test  7 passed
+analytics deep_cuts+demand_coverage  8 passed
 ```
 
-`python -m py_compile` on all touched Python modules: **PASS** after repairing a missing `}` in `inward.py`.
+Skipped auth name: `test_user_lifecycle.py` module skip `Requires isolated hardening_test PostgreSQL database` when `DATABASE_URL` lacks `hardening_test`. Closed on `hariom_nverify_hardening_test`.
 
 ## Playwright
 
 ```text
-npx playwright test --list
+PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000 PLAYWRIGHT_CHROME_CHANNEL=chrome PLAYWRIGHT_VIDEO=off PLAYWRIGHT_TRACE=retain-on-failure
+./node_modules/.bin/playwright test --config playwright.config.cjs --project=chromium --workers=1
+# 15 passed (1.3m)
+# output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/
 ```
 
-**NOT_RUN / blocked.** Specs load runtime fixtures at import:
+Job-card print: `reports/job-card-print.png`. Fixture passwords stay in gitignored `reports/browser_e2e_fixture_latest.json`.
 
-- missing `hariom-erp/.runtime/runtime_manifest.json`
-- missing `reports/browser_e2e_fixture_latest.json`
-
-No local UI at `http://127.0.0.1:13000` was exercised. Browser/UAT remains an owner gate.
-
-## Intentionally not run
+## Intentionally not run / not claimed
 
 | Gate | Why |
 | --- | --- |
-| Full named 192 V2 suite | Additive RR tests only; pack not substituted |
-| `test_quality_typed_validator.py`, planning router tests | Local `.venv` lacks `pydantic_settings` (no extra pip in this pass) |
-| Overlapping Postgres workers (RR03/RR13) | Needs live DB + two sessions |
-| Docker image boot (RR35) | No rebuild/deploy |
+| Named 56 + original 192 V2 suite | Source gitignored/missing; titles not invented (`docs/review/V2_PACK_PROVENANCE.md`) |
+| Live 501+ job-card export | RR28 stays CODE |
+| Production/supplier calendar UI | RR27 stays CODE |
+| Safari / dual theme (BJ13) | Human UAT |
 | Merge / retarget / production mutate (RR36) | Owner approval required |
+| git push of this branch | Railway/Render GitHub-app deploy unproven |
 
-## Defect found during compile
+## Push blocker
 
-`inventory-service/src/routers/inward.py` had an unclosed dict after the pin insert. Closed before commit. Receipt pin still runs after metadata is built.
+Repo contains `railway.toml` and `hariom-erp/render.yaml`. GitHub Actions, repo hooks, and Environments are empty; `main` is unprotected. That is not enough to prove a push of `cursor/ui-polish-nav-c5f9` will not trigger Railway/Render production. Local commits only.

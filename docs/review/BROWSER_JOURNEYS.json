@@ -1,78 +1,96 @@
 {
   "source": "executable Playwright specs plus named human UAT; not a 192-case runner",
   "sha_binding": "Bind PLAYWRIGHT_BASE_URL to the isolated verify stack, not :13000 trash-copy listeners",
+  "checkpoint_sha": "5dd8b9b35ba647fe06fac2758609886bb4bf8e67",
+  "last_full_run": {
+    "command": "PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000 PLAYWRIGHT_CHROME_CHANNEL=chrome PLAYWRIGHT_VIDEO=off PLAYWRIGHT_TRACE=retain-on-failure ./node_modules/.bin/playwright test --config playwright.config.cjs --project=chromium --workers=1",
+    "result": "15 passed",
+    "artifacts": "output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/"
+  },
   "journeys": [
     {
       "id": "BJ01",
       "spec": "e2e/release-gate.spec.cjs",
       "title": "Login privacy and contextual guides",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ02",
       "spec": "e2e/release-gate.spec.cjs",
       "title": "Admin shell, plant switching, reports",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ03",
       "spec": "e2e/release-gate.spec.cjs",
       "title": "Critical ERP workspaces load",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ04",
       "spec": "e2e/release-gate.spec.cjs",
       "title": "Sales queue approve release planning dispatch",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ05",
       "spec": "e2e/release-gate.spec.cjs",
       "title": "Plant II sales release",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ06",
       "spec": "e2e/release-gate.spec.cjs",
       "title": "Role guards including expected 403 for store_b",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ07",
       "spec": "e2e/spec-sheet-sync.spec.cjs",
       "title": "Spec sheet recipe and 15 percent rule",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ08",
       "spec": "e2e/sales-planner-premium-flow.spec.cjs",
       "title": "Sales and planner surfaces",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ09",
       "spec": "e2e/tooling-lifecycle.spec.cjs",
       "title": "Tooling master, spec sheet, supervisor tools",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ10",
       "spec": "e2e/reconciliation-sidebar.spec.cjs",
       "title": "Reconciliation actuals",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ11",
       "spec": "e2e/correction-journeys.spec.cjs",
       "title": "Keyboard, modal Escape, narrow viewport",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ12",
       "spec": "e2e/correction-journeys.spec.cjs",
       "title": "Job-card print samples and units",
-      "layer": "browser"
+      "layer": "browser",
+      "status": "PASS"
     },
     {
       "id": "BJ13",

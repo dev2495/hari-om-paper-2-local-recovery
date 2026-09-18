@@ -2,16 +2,20 @@
 
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
-- Published correction: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
+- Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
+- Local candidate HEAD: `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (**not pushed**)
 - Group A (backend boot/correctness + live PG proofs): `8efd5f1f61e20302ece3e6d2f1a50367e019b171`
 - Group B (portable isolated runtime): `bbd42af8da94a2e2473865132276ce38722ab05e`
 - Group C (fixture setup + browser harness): `3c9395f7aad801b97bebb5b513fbaf4f6aa4c0bd`
 - Group D (CSRF origin + live plant masters): `bad0d741d84ab6ca188c0f183128839c7fff3487`
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
+- Served Next on 23000: product `d071d122ae8725431195804cc33779c4ff1e75a6`, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H` (later commits are e2e/docs)
 - Isolated stack: `hariom-erp/runtime-verify`, ports `23000/24000/28001–28008`, DBs `hariom_nverify_*`
-- Foreign listeners on `13000/14000/1800x` were not killed
+- Foreign listeners on `13000/14000/1800x` were not killed (13000 pid 69663 still listening)
+- Chromium suite: **15 passed** at `output/playwright/5dd8b9b35ba647fe06fac2758609886bb4bf8e67-full/`
 - CODE is not PASS. GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED remain honest limitations.
-- Original 192 pack: NOT_RUN. 56-requirement source `hariom-erp/Hariom_ERP_Final_Requirements_and_Plan.md` is gitignored and was never present in git history; titles will not be invented.
-- Push: blocked until Railway/Render GitHub-app production auto-deploy is proven disconnected.
+- Original 192 pack: NOT_RUN. Provenance: `docs/review/V2_PACK_PROVENANCE.md`. Titles will not be invented.
+- `test_user_lifecycle.py` skip is closed on `hariom_nverify_hardening_test` (**7 passed**). The skip remains if `DATABASE_URL` lacks `hardening_test`.
+- Push: blocked. `railway.toml` and `hariom-erp/render.yaml` exist; Railway/Render GitHub-app production auto-deploy is not proven disconnected. No GitHub Actions, hooks, or environments. Local branch has no upstream; remote PR10 is still `74f5b45`.
 - Merge/deploy/PR retarget: not authorized
-- Exact next unfinished action: commit remaining analytics + release/spec/browser first-failure fixes; rebuild Next on 23000; rerun Chromium; RR35 evaluator on existing images; do not merge
+- Exact next unfinished action: owner must prove push will not deploy production, then push this draft branch; original 56/192 source still missing; BJ13 Safari UAT NOT_RUN; no go-live
