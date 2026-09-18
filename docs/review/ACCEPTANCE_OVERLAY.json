@@ -6,15 +6,15 @@
     "original_tests": 192,
     "original_requirements": 56,
     "overlay_status": {
-      "PARTIAL": 19,
-      "NOT_RUN": 152,
-      "PASS": 18,
+      "PARTIAL": 23,
+      "PASS": 23,
+      "NOT_RUN": 143,
       "LIMITATION": 3
     },
     "coverage": {
-      "PARTIAL": 33,
-      "NONE": 125,
-      "EXACT_EXECUTED": 18,
+      "PARTIAL": 36,
+      "EXACT_EXECUTED": 23,
+      "NONE": 117,
       "LIMITATION": 3,
       "UNIT_ONLY": 6,
       "RELATED": 4,
@@ -194,13 +194,16 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_mismatch_does_not_overwrite_approved_recipe_color",
+        "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_parchment_disallowed_on_recipe_is_conflict_not_silent_enable"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Job snapshot keeps approved recipe parchment and records CONFLICT. Live order+UI resolution NOT_RUN."
     },
     {
       "id": "COMM-09",
@@ -435,13 +438,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_rel07_lost_production_response_replays_same_lot_without_new_release"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Same release_lot_id replay returns the durable lot; job-card sync retry does not mint a second lot."
     },
     {
       "id": "REL-08",
@@ -477,13 +482,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_rel09_partial_multiline_sync_failure_retries_only_pending_line"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Line-1 job link persists while line-2 stays pending; retry links only the pending lot; two lots total."
     },
     {
       "id": "REL-10",
@@ -518,13 +525,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_rel11_status_only_header_release_does_not_invent_release_qty"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Header /release sets RELEASED with zero lot qty; line release then records 5. List/detail/bulk/legacy matrix NOT_RUN."
     },
     {
       "id": "PLAN-01",
@@ -561,13 +570,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_plan02_saved_schedule_reloads_dates_qty_and_revision"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Second session reloads dates, quantities, row ids and schedule_revision=1. Browser deep-link UI NOT_RUN."
     },
     {
       "id": "PLAN-03",
@@ -580,9 +591,10 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_plan03_two_planners_same_preview_revision_conflict_without_overallocation",
         "sales-service/tests/test_live_postgres_rr.py::test_overlapping_schedule_commits_reject_stale_revision"
       ],
       "rr": [
@@ -591,7 +603,7 @@
       ],
       "bj": [],
       "limitation": null,
-      "notes": "Two overlapping schedule commits: one 200, one 409. Calendar planner UI NOT_RUN."
+      "notes": "Two planners on revision 0: one commit, one 409; stored qty stays 100. Calendar UI NOT_RUN."
     },
     {
       "id": "PLAN-04",
@@ -604,13 +616,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_plan04_locked_or_delivered_history_cannot_move_only_editable_remainder"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Locked 40 cannot move; editable remainder date changes. Group-move of dispatched/started jobs NOT_RUN."
     },
     {
       "id": "PLAN-05",
@@ -623,13 +637,15 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PARTIAL",
+      "coverage": "PARTIAL",
+      "mapped_tests": [
+        "sales-service/tests/test_original_wave2_live.py::test_plan05_customer_schedule_save_does_not_release_or_fulfill"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Customer calendar save leaves APPROVED, zero released/fulfilled, no lots. Supplier dates and inventory postings NOT_RUN."
     },
     {
       "id": "PLAN-06",
@@ -924,13 +940,16 @@
       "release_blocking": true,
       "origin": "baseline preserved",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "inventory-service/tests/test_original_pur_live.py::test_pur03_same_grn_key_replays_and_balance_receive_does_not_overreceipt",
+        "inventory-service/tests/test_original_pur_live.py::test_pur03_concurrent_remaining_balance_cannot_double_inward"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Same GRN key idempotent; over-receipt 400; remaining 60 posts; concurrent remaining cannot double inward."
     },
     {
       "id": "PUR-04",
@@ -4044,7 +4063,9 @@
         "REL-04",
         "REL-05",
         "REL-06",
+        "REL-07",
         "REL-08",
+        "REL-09",
         "REL-10"
       ],
       "limitations": []
@@ -4088,7 +4109,10 @@
         "PLAN-09"
       ],
       "linked_pass": [
-        "PLAN-01"
+        "REL-09",
+        "PLAN-01",
+        "PLAN-02",
+        "PLAN-03"
       ],
       "limitations": []
     },
@@ -4096,7 +4120,7 @@
       "id": "R19",
       "title": "Material/vendor PO scheduling represented in workbook/PDF",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "PUR-01",
         "PUR-02",
@@ -4107,7 +4131,9 @@
         "PUR-07",
         "PUR-08"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "PUR-03"
+      ],
       "limitations": []
     },
     {
@@ -4137,6 +4163,7 @@
         "REL-04",
         "REL-05",
         "REL-06",
+        "REL-07",
         "REL-08"
       ],
       "limitations": []
@@ -4705,9 +4732,14 @@
         "QCT-060"
       ],
       "linked_pass": [
+        "REL-07",
         "REL-08",
+        "REL-09",
         "REL-10",
-        "PLAN-01"
+        "PLAN-01",
+        "PLAN-02",
+        "PLAN-03",
+        "PUR-03"
       ],
       "limitations": [
         "GROSS_ESTIMATE"

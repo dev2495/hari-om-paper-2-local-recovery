@@ -22,12 +22,12 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay | Count |
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
-| Overlay `PASS` | **18** |
-| Overlay `PARTIAL` | **19** (executed, full original procedure not closed) |
+| Overlay `PASS` | **23** |
+| Overlay `PARTIAL` | **23** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
-| Overlay `NOT_RUN` | **152** |
+| Overlay `NOT_RUN` | **143** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
-| Requirements overlay `PARTIAL` | `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-14`, `QCR-15`, `QCR-17`, `QCR-20`, `QCR-31`, `QCR-32`, `QCR-34` |
+| Requirements overlay `PARTIAL` | `R10`, `R16`, `R18`, `R19`, `R20`, `QCR-02`, `QCR-05`, `QCR-14`, `QCR-15`, `QCR-17`, `QCR-20`, `QCR-31`, `QCR-32`, `QCR-34` |
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Requirements overlay `PASS` | **none** (no requirement has every linked original case PASS) |
 | Remaining requirements | `NOT_RUN` |
@@ -36,19 +36,19 @@ Chromium 15/15 is BJ01–BJ12, not the 192-case pack.
 
 ### Overlay PASS (full criterion at the executed layer)
 
-`COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-08`, `REL-10`, `PLAN-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-027`, `QCT-052`
+`COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PUR-03`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-027`, `QCT-052`
 
 ### Overlay PARTIAL (not PASS)
 
-`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `NAV-01`, `REG-03`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-123`
+`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-08`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `REL-11`, `PLAN-04`, `PLAN-05`, `NAV-01`, `REG-03`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-123`
 
 ### Overlay LIMITATION
 
 `DEM-02`, `DEM-06` (`GROSS_ESTIMATE`); `QCT-107` (`PARTIAL_REJECTION_UNSUPPORTED`)
 
-### Overlay NOT_RUN (152)
+### Overlay NOT_RUN (143)
 
-`COMM-08`, `REL-07`, `REL-09`, `REL-11`, `PLAN-02`–`PLAN-09`, `DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `PUR-01`–`PUR-08`, `QC-01`–`QC-10`, `NAV-02`, `INC-01`, `INC-02`, `REG-01`, `REG-02`, `REG-04`, `QCT-004`, `QCT-012`, `QCT-015`–`QCT-026`, `QCT-028`–`QCT-051`, `QCT-053`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
+`PLAN-06`–`PLAN-09`, `DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `PUR-01`, `PUR-02`, `PUR-04`–`PUR-08`, `QC-01`–`QC-10`, `NAV-02`, `INC-01`, `INC-02`, `REG-01`, `REG-02`, `REG-04`, `QCT-004`, `QCT-012`, `QCT-015`–`QCT-026`, `QCT-028`–`QCT-051`, `QCT-053`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
 
 QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate), not converted to PASS.
 

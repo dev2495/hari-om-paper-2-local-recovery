@@ -23,7 +23,7 @@ Local HEAD before this execution cycle: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8
 | Images | `hariom-nverify-inventory:faee2ab` id `sha256:eef5d9c383457d8a4d5314317422d7c936a0510b1e3c75f5b6612b242b04e842`; `hariom-nverify-production:faee2ab` id `sha256:e17529ec1aa42e4ef30df53b7c134eb4a6839fa8800b1baae35ed24e8eebd546` — **not rebuilt** after evaluator change |
 | Browser | Playwright 1.59.1, Chrome channel: BJ 15/15 plus theme 6/6. WebKit BLOCKED. Safari.app BLOCKED. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 18 / PARTIAL 19 / LIMITATION 3 / NOT_RUN 152 |
+| Original 56/192 overlay | PASS 23 / PARTIAL 23 / LIMITATION 3 / NOT_RUN 143 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
@@ -37,7 +37,15 @@ Local HEAD before this execution cycle: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8
 
 ## This cycle — executable original cases
 
-Raw logs: `reports/nverify-6f50a-exec/` (gitignored).
+Wave2 after `c53b1f5` (logs `reports/nverify-c53b-exec/`):
+
+| Suite | Result | Log |
+| --- | --- | --- |
+| COMM-08 planning snapshot units | 3 passed | `comm08_unit.txt` |
+| sales REL-07/09/11 PLAN-02..05 live | 7 passed | `sales_wave2.txt` |
+| PUR-03 GRN replay + concurrent remainder | 2 passed (first concurrent run failed DetachedInstanceError, then patched) | `pur03_live.txt` after fix |
+
+Raw logs: `reports/nverify-6f50a-exec/` (gitignored) plus `reports/nverify-c53b-exec/`.
 
 | Suite | Result | Log |
 | --- | --- | --- |

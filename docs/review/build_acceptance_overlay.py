@@ -109,14 +109,48 @@ SPECIAL: dict[str, dict] = {
         "rr": ["RR08"],
         "notes": "Live PG three-line 100/40/60 over five dated rows; quantities conserved. Calendar UI still NOT_RUN.",
     },
-    "PLAN-03": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "PARTIAL",
+    "PLAN-02": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
-            "sales-service/tests/test_live_postgres_rr.py::test_overlapping_schedule_commits_reject_stale_revision"
+            "sales-service/tests/test_original_wave2_live.py::test_plan02_saved_schedule_reloads_dates_qty_and_revision"
+        ],
+        "notes": "Second session reloads dates, quantities, row ids and schedule_revision=1. Browser deep-link UI NOT_RUN.",
+    },
+    "PLAN-03": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "sales-service/tests/test_original_wave2_live.py::test_plan03_two_planners_same_preview_revision_conflict_without_overallocation",
+            "sales-service/tests/test_live_postgres_rr.py::test_overlapping_schedule_commits_reject_stale_revision",
         ],
         "rr": ["RR13", "RR14"],
-        "notes": "Two overlapping schedule commits: one 200, one 409. Calendar planner UI NOT_RUN.",
+        "notes": "Two planners on revision 0: one commit, one 409; stored qty stays 100. Calendar UI NOT_RUN.",
+    },
+    "PLAN-04": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_wave2_live.py::test_plan04_locked_or_delivered_history_cannot_move_only_editable_remainder"
+        ],
+        "notes": "Locked 40 cannot move; editable remainder date changes. Group-move of dispatched/started jobs NOT_RUN.",
+    },
+    "PLAN-05": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_wave2_live.py::test_plan05_customer_schedule_save_does_not_release_or_fulfill"
+        ],
+        "notes": "Customer calendar save leaves APPROVED, zero released/fulfilled, no lots. Supplier dates and inventory postings NOT_RUN.",
+    },
+    "PUR-03": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "inventory-service/tests/test_original_pur_live.py::test_pur03_same_grn_key_replays_and_balance_receive_does_not_overreceipt",
+            "inventory-service/tests/test_original_pur_live.py::test_pur03_concurrent_remaining_balance_cannot_double_inward",
+        ],
+        "notes": "Same GRN key idempotent; over-receipt 400; remaining 60 posts; concurrent remaining cannot double inward.",
     },
     "COMM-01": {
         "overlay_status": "PARTIAL",
@@ -178,6 +212,15 @@ SPECIAL: dict[str, dict] = {
             "sales-service/tests/test_original_comm_live.py::test_comm06_07_parchment_boolean_round_trips_and_uncheck_clears_stale"
         ],
         "notes": "Uncheck saves false/null; stale color/id cleared. Silent BOM alteration path NOT_RUN.",
+    },
+    "COMM-08": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_mismatch_does_not_overwrite_approved_recipe_color",
+            "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_comm08_parchment_disallowed_on_recipe_is_conflict_not_silent_enable",
+        ],
+        "notes": "Job snapshot keeps approved recipe parchment and records CONFLICT. Live order+UI resolution NOT_RUN.",
     },
     "COMM-09": {
         "overlay_status": "PARTIAL",
@@ -260,6 +303,14 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Two concurrent 7+7 against remaining 10: one ok, one err; stored released qty stays 7.",
     },
+    "REL-07": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "sales-service/tests/test_original_wave2_live.py::test_rel07_lost_production_response_replays_same_lot_without_new_release"
+        ],
+        "notes": "Same release_lot_id replay returns the durable lot; job-card sync retry does not mint a second lot.",
+    },
     "REL-08": {
         "overlay_status": "PASS",
         "coverage": "EXACT_EXECUTED",
@@ -268,6 +319,14 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Replay with changed qty/spec is 409 release_replay_conflict; original snapshot/qty unchanged.",
     },
+    "REL-09": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "sales-service/tests/test_original_wave2_live.py::test_rel09_partial_multiline_sync_failure_retries_only_pending_line"
+        ],
+        "notes": "Line-1 job link persists while line-2 stays pending; retry links only the pending lot; two lots total.",
+    },
     "REL-10": {
         "overlay_status": "PASS",
         "coverage": "EXACT_EXECUTED",
@@ -275,6 +334,14 @@ SPECIAL: dict[str, dict] = {
             "production-service/tests/test_planning_validation.py::PlanningValidationTests::test_rel10_queue_admission_allows_maintenance_while_execution_still_blocks"
         ],
         "notes": "Queue identity accepts MAINT winder; execution compatibility still rejects MAINT.",
+    },
+    "REL-11": {
+        "overlay_status": "PARTIAL",
+        "coverage": "PARTIAL",
+        "mapped_tests": [
+            "sales-service/tests/test_original_wave2_live.py::test_rel11_status_only_header_release_does_not_invent_release_qty"
+        ],
+        "notes": "Header /release sets RELEASED with zero lot qty; line release then records 5. List/detail/bulk/legacy matrix NOT_RUN.",
     },
     "QCT-001": {
         "overlay_status": "PASS",
