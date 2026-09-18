@@ -201,6 +201,35 @@ export function formatAllowedRange(rule: Pick<QcParameterRule, "min" | "max" | "
   return `Allowed: ≤ ${rule.max}${unit}`
 }
 
+export function qcFieldMeta(
+  rule: QcParameterRule,
+  options?: { checkpoint?: string | null; revision?: number | string | null },
+) {
+  return [
+    rule.unit ? `Unit ${rule.unit}` : null,
+    rule.method,
+    rule.specimen,
+    rule.sampling,
+    rule.basis_hint,
+    options?.checkpoint ? `Checkpoint ${options.checkpoint}` : null,
+    options?.revision != null && String(options.revision).trim() !== "" ? `Rev ${options.revision}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
+}
+
+export function inspectionFrozenRules(inspection: any, profile: any, stage: QcStageKey): QcParameterRule[] {
+  const frozen = inspection?.frozen_rules
+  if (Array.isArray(frozen) && frozen.length) return frozen
+  return frozenStageRules(profile, stage)
+}
+
+export function inspectionProfileRevision(inspection: any, profile: any) {
+  const fromInspection = inspection?.profile_revision ?? inspection?.evaluation?.profile_revision
+  if (fromInspection != null && String(fromInspection).trim() !== "") return fromInspection
+  return profile?.revision ?? null
+}
+
 export function frozenStageRules(profile: any, stage: QcStageKey): QcParameterRule[] {
   const rows = profile?.stages?.[stage]?.parameters
   if (!Array.isArray(rows) || !rows.length) return QC_STAGE_PARAMETERS[stage].map((item) => ({

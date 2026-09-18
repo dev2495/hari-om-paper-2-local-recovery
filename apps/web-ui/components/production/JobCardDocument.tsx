@@ -17,7 +17,12 @@ import {
   useSaveStageDraft,
 } from "@/hooks/use-production"
 import { StageQcFields } from "@/components/qc/StageQcFields"
-import { collectStageQualityChecks, frozenStageRules, type QcStageKey } from "@/lib/qc-measurement"
+import {
+  collectStageQualityChecks,
+  inspectionFrozenRules,
+  inspectionProfileRevision,
+  type QcStageKey,
+} from "@/lib/qc-measurement"
 
 type DocumentMode = "view" | "print" | "supervisor"
 type StageName = "SLITTING" | "WINDER" | "OVEN" | "PROCESS" | "PACKING" | "QC" | "DISPATCH"
@@ -778,24 +783,56 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return true
   }
 
-  function renderStageQc(stage: QcStageKey) {
+  function stageQcInspection(stage: QcStageKey) {
+    const rows = Array.isArray(card?.quality_inspections) ? card.quality_inspections : []
+    return [...rows]
+      .reverse()
+      .find((row: any) => String(row?.stage_type || "").toUpperCase() === stage) || null
+  }
+
+  function frozenQcProfile() {
+    return card?.spec_snapshot?.qc_profile || documentSnapshot?.qc_profile || {}
+  }
+
+  function renderStageQc(stage: QcStageKey, options?: { print?: boolean }) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
-    const profile = card?.spec_snapshot?.qc_profile || documentSnapshot?.qc_profile || {}
-    const rules = frozenStageRules(profile, stage)
+    const profile = frozenQcProfile()
+    const inspection = stageQcInspection(stage)
+    const rules = inspectionFrozenRules(inspection, profile, stage)
+    const revision = inspectionProfileRevision(inspection, profile)
+    const checkpoint = stage === "WINDER" ? "Winding" : stage === "OVEN" ? "Oven" : "Process"
+    const readings = options?.print
+      ? Object.fromEntries(
+          Object.entries(inspection?.readings || entry.qc_readings || {}).map(([key, value]) => [key, value == null ? "" : String(value)]),
+        )
+      : entry.qc_readings || {}
+    const reasons = options?.print
+      ? Object.fromEntries(
+          Object.entries(inspection?.reasons || entry.qc_reasons || {}).map(([key, value]) => [key, value == null ? "" : String(value)]),
+        )
+      : entry.qc_reasons || {}
     return (
-      <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/50 p-3" data-testid={`stage-qc-${stage.toLowerCase()}`}>
-        <div className="text-xs font-semibold uppercase tracking-wide text-cyan-900">Stage QC · frozen approved ranges</div>
+      <div
+        className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/50 p-3"
+        data-testid={options?.print ? `print-qc-${stage.toLowerCase()}` : `stage-qc-${stage.toLowerCase()}`}
+        data-profile-revision={revision == null ? "" : String(revision)}
+      >
+        <div className="text-xs font-semibold uppercase tracking-wide text-cyan-900">
+          Stage QC · frozen approved ranges · {checkpoint} · Rev {revision ?? "—"}
+        </div>
         <p className="mt-1 text-[11px] text-slate-600">
-          Allowed bands come from the job-card spec snapshot. The server computes PASS/FAIL. A reason never creates PASS.
+          Allowed bands come from the job-card snapshot and signed inspection. Later profile revisions do not relabel this card.
         </p>
         <div className="mt-3">
           <StageQcFields
             rules={rules}
-            readings={entry.qc_readings || {}}
-            reasons={entry.qc_reasons || {}}
-            sampleId={entry.qc_sample_id}
+            readings={readings}
+            reasons={reasons}
+            sampleId={inspection?.sample_id || entry.qc_sample_id}
             paired={stage === "OVEN"}
-            editable={stageEditable(stage)}
+            editable={options?.print ? false : stageEditable(stage)}
+            profileRevision={revision}
+            checkpoint={checkpoint}
             onReadingChange={(code, value) => updateNestedSnapshotField(stage, "qc_readings", code, value)}
             onReasonChange={(code, value) => updateNestedSnapshotField(stage, "qc_reasons", code, value)}
             onSampleIdChange={(value) => updateSnapshotField(stage, "qc_sample_id", value)}
@@ -2531,6 +2568,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               </thead>
               <tbody>{measuredDimensionRows(winderRows, "winder")}</tbody>
             </table>
+            {renderStageQc("WINDER", { print: true })}
           </section>
 
           <section className="job-band job-oven-band">
@@ -2548,6 +2586,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
               <PrintField label="Reject / Reason" value={`${formatNumber(ovenPrintStage?.scrap_qty, 0)} / ${ovenPrintEntry.rejection_code || "-"}`} />
             </div>
+            {renderStageQc("OVEN", { print: true })}
           </section>
         </section>
 
@@ -2596,6 +2635,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               </thead>
               <tbody>{measuredDimensionRows(processRows, "process")}</tbody>
             </table>
+            {renderStageQc("PROCESS", { print: true })}
           </section>
 
           <section className="job-band job-pack-band">

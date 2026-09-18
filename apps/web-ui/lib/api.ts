@@ -285,6 +285,8 @@ export const specApi = {
     api.post(`/api/spec/specifications/${id}/obsolete`, data ?? {}, withPlantHeader(plantId)),
   upsertSpecQcProfile: (id: string, data: any, plantId?: string) =>
     api.put(`/api/spec/specifications/${id}/qc-profile`, data, withPlantHeader(plantId)),
+  approveSpecQcProfile: (id: string, data: any, plantId?: string) =>
+    api.post(`/api/spec/specifications/${id}/qc-profile/approve`, data, withPlantHeader(plantId)),
   previewQcProfileAssign: (data: any, plantId?: string) =>
     api.post("/api/spec/specifications/qc-profile/assign-preview", data, withPlantHeader(plantId)),
   applyQcProfileAssign: (data: any, plantId?: string) =>

@@ -7,7 +7,10 @@ import {
   collectStageQualityChecks,
   formatAllowedRange,
   frozenStageRules,
+  inspectionFrozenRules,
+  inspectionProfileRevision,
   qcActionLabel,
+  qcFieldMeta,
   qcMissingFieldLabels,
   qcRowActions,
   qcSetupStatus,
@@ -142,6 +145,23 @@ test("frozen stage rules expose allowed display fields", () => {
   )
   const height = rules.find((row) => row.code === "height")
   assert.equal(formatAllowedRange(height), "Allowed: 118–122 mm")
+})
+
+test("signed inspection frozen rules and revision stay adjacent to the field", () => {
+  const profileB = {
+    revision: 2,
+    stages: { WINDER: { parameters: [{ code: "id", label: "I.D.", unit: "mm", min: 10, max: 11 }] } },
+  }
+  const inspection = {
+    profile_revision: 1,
+    frozen_rules: [{ code: "id", label: "I.D.", unit: "mm", method: "Vernier", min: 76, max: 78 }],
+  }
+  const rules = inspectionFrozenRules(inspection, profileB, "WINDER")
+  assert.equal(rules[0].max, 78)
+  assert.equal(inspectionProfileRevision(inspection, profileB), 1)
+  assert.match(qcFieldMeta(rules[0], { checkpoint: "Winding", revision: 1 }), /Unit mm/)
+  assert.match(qcFieldMeta(rules[0], { checkpoint: "Winding", revision: 1 }), /Checkpoint Winding/)
+  assert.match(qcFieldMeta(rules[0], { checkpoint: "Winding", revision: 1 }), /Rev 1/)
 })
 
 test("list actions follow missing/draft/pending/approved/retired and author/viewer/approver", () => {

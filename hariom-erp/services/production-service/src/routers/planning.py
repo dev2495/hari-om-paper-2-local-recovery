@@ -1866,6 +1866,25 @@ def _packing_instructions(dynamic_map: dict[str, Any]) -> str:
     return " | ".join(parts)
 
 
+def _serialize_job_quality_inspection(row: QualityInspection) -> dict[str, Any]:
+    evaluation = dict(getattr(row, "evaluation", None) or {})
+    frozen = list(evaluation.get("frozen_rules") or [])
+    return {
+        "id": str(row.id),
+        "stage_type": row.stage_type,
+        "status": row.status,
+        "readings": row.readings or {},
+        "failures": row.failures or [],
+        "reasons": getattr(row, "reasons", None) or {},
+        "sample_id": getattr(row, "sample_id", None),
+        "evaluation": evaluation,
+        "frozen_rules": frozen,
+        "profile_revision": evaluation.get("profile_revision"),
+        "created_by": row.created_by,
+        "created_at": row.created_at,
+    }
+
+
 def _is_stored_snapshot(spec_snapshot: dict[str, Any]) -> bool:
     required_keys = [
         "weight_min_g",
@@ -1941,6 +1960,10 @@ def _merge_spec_snapshot(base_snapshot: dict[str, Any], spec_payload: dict[str, 
     for key, value in flat_dynamic.items():
         if merged.get(key) is None and value not in (None, ""):
             merged[key] = value
+
+    # Started/issued jobs keep the frozen QC revision. Live spec rev B must not leak in.
+    if "qc_profile" not in merged and isinstance(base_snapshot.get("qc_profile"), dict):
+        merged["qc_profile"] = dict(base_snapshot.get("qc_profile") or {})
 
     return merged
 
@@ -2315,6 +2338,12 @@ def _build_document_snapshot(
             ),
             "missing_fields": sorted(set(missing_fields)),
         },
+        "qc_profile": spec_snapshot.get("qc_profile") if isinstance(spec_snapshot.get("qc_profile"), dict) else {},
+        "profile_revision": (
+            (spec_snapshot.get("qc_profile") or {}).get("revision")
+            if isinstance(spec_snapshot.get("qc_profile"), dict)
+            else None
+        ),
     }
 
 
@@ -5680,18 +5709,7 @@ def get_planning_job_card(
             if packing_record
             else None
         ),
-        quality_inspections=[
-            {
-                "id": str(row.id),
-                "stage_type": row.stage_type,
-                "status": row.status,
-                "readings": row.readings or {},
-                "failures": row.failures or [],
-                "created_by": row.created_by,
-                "created_at": row.created_at,
-            }
-            for row in quality_inspections
-        ],
+        quality_inspections=[_serialize_job_quality_inspection(row) for row in quality_inspections],
         quality_holds=[
             {
                 "id": str(row.id),
@@ -6108,18 +6126,7 @@ def get_job_card_genealogy(
         "stages": [_stage_genealogy_row(stage) for stage in sorted_stages],
         "stage_segments": [_segment_genealogy_row(segment) for segment in segments],
         "quality": {
-            "inspections": [
-                {
-                    "id": str(row.id),
-                    "stage_type": row.stage_type,
-                    "status": row.status,
-                    "readings": row.readings or {},
-                    "failures": row.failures or [],
-                    "created_by": row.created_by,
-                    "created_at": row.created_at,
-                }
-                for row in quality_inspections
-            ],
+            "inspections": [_serialize_job_quality_inspection(row) for row in quality_inspections],
             "holds": [
                 {
                     "id": str(row.id),

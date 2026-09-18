@@ -11,7 +11,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
-import { frozenStageRules, type QcStageKey } from "@/lib/qc-measurement"
+import { frozenStageRules, inspectionProfileRevision, type QcStageKey } from "@/lib/qc-measurement"
 
 const STAGES: { value: QcStageKey; label: string }[] = [
   { value: "WINDER", label: "Winding" },
@@ -54,6 +54,8 @@ export default function StageQualityPage() {
   const rules = asArray(stageBlock?.parameters).length
     ? stageBlock.parameters
     : frozenStageRules(snapshotProfile, stageType)
+  const profileRevision = inspectionProfileRevision(null, snapshotProfile || templateQuery.data)
+  const checkpoint = STAGES.find((stage) => stage.value === stageType)?.label
 
   const filteredJobs = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -172,6 +174,8 @@ export default function StageQualityPage() {
                 reasons={reasons}
                 sampleId={sampleId}
                 paired={stageType === "OVEN"}
+                profileRevision={profileRevision}
+                checkpoint={checkpoint}
                 onReadingChange={(code, value) => setReadings((current) => ({ ...current, [code]: value }))}
                 onReasonChange={(code, value) => setReasons((current) => ({ ...current, [code]: value }))}
                 onSampleIdChange={setSampleId}

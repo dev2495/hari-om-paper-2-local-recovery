@@ -606,4 +606,59 @@ test("QCT-042 winding Height basis stays distinct from finished Height", async (
   await assertCritical()
 })
 
+test("QCT-043/044 inspected job print stays rev A after rev B and frozen rule sits beside the field", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const { spawnSync } = require("child_process")
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
+  const seeded = spawnSync(
+    py,
+    ["-m", "pytest", "tests/test_original_qct043_live.py", "-q", "--tb=short"],
+    {
+      encoding: "utf8",
+      cwd: path.join(workspaceRoot, "hariom-erp", "services", "production-service"),
+      env: {
+        ...process.env,
+        HARI_OM_LIVE_PG: "1",
+        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+        HARI_OM_PRODUCTION_DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+      },
+    },
+  )
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifactPath = path.join(workspaceRoot, "reports", "qct043-job.json")
+  const artifact = JSON.parse(fs.readFileSync(artifactPath, "utf8"))
+  await page.goto(`/production/job-cards/${artifact.job_id}/print`, { waitUntil: "domcontentloaded" })
+  const printWinder = page.getByTestId("print-qc-winder")
+  await expect(printWinder).toBeVisible()
+  await expect(printWinder).toHaveAttribute("data-profile-revision", String(artifact.revision_a))
+  await expect(printWinder).toContainText(`Rev ${artifact.revision_a}`)
+  await expect(printWinder.getByTestId("allowed-height")).toContainText("118")
+  await expect(printWinder.getByTestId("allowed-height")).toContainText("122")
+  await expect(printWinder.getByTestId("stage-qc-meta-id")).toContainText("Unit mm")
+  await expect(printWinder.getByTestId("stage-qc-meta-id")).toContainText("Checkpoint Winding")
+  await expect(printWinder.getByTestId("stage-qc-meta-id")).toContainText(`Rev ${artifact.revision_a}`)
+  await expect(printWinder.getByTestId("allowed-height")).not.toContainText("10–14")
+  const evidence = await page.request.get(`${getRuntimeManifest().urls.bff}/api/production/quality/inspections`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+    params: { job_card_id: artifact.job_id },
+  })
+  expect(evidence.ok(), await evidence.text()).toBeTruthy()
+  const rows = await evidence.json()
+  const first = Array.isArray(rows) ? rows[0] : rows
+  expect(String(first.status)).toBe("PASS")
+  const idRule = (first.frozen_rules || []).find((row) => row.code === "height")
+  expect(Number(idRule.max)).toBe(122)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(printWinder.getByTestId("stage-qc-meta-id")).toBeVisible()
+  await expect(printWinder.getByTestId("stage-qc-meta-id")).toContainText(`Rev ${artifact.revision_a}`)
+  await page.goto(`/production/job-cards/${artifact.prospective_job_id}/print`, { waitUntil: "domcontentloaded" })
+  const printB = page.getByTestId("print-qc-winder")
+  await expect(printB).toHaveAttribute("data-profile-revision", String(artifact.revision_b))
+  await expect(printB.getByTestId("allowed-height")).toContainText("10")
+  await expect(printB.getByTestId("allowed-height")).toContainText("14")
+  await assertCritical()
+})
+
 

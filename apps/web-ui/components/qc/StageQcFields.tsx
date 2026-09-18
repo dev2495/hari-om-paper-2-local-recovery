@@ -1,6 +1,6 @@
 "use client"
 
-import { formatAllowedRange, type QcParameterRule } from "@/lib/qc-measurement"
+import { formatAllowedRange, qcFieldMeta, type QcParameterRule } from "@/lib/qc-measurement"
 
 type StageQcFieldsProps = {
   rules: QcParameterRule[]
@@ -13,6 +13,8 @@ type StageQcFieldsProps = {
   onReasonChange?: (code: string, value: string) => void
   onSampleIdChange?: (value: string) => void
   paired?: boolean
+  profileRevision?: number | string | null
+  checkpoint?: string
 }
 
 export function StageQcFields({
@@ -26,6 +28,8 @@ export function StageQcFields({
   onReasonChange,
   onSampleIdChange,
   paired,
+  profileRevision,
+  checkpoint,
 }: StageQcFieldsProps) {
   return (
     <div className="space-y-3" data-testid="stage-qc-fields">
@@ -68,9 +72,9 @@ export function StageQcFields({
             <p className="mt-2 text-xs font-semibold text-slate-600" data-testid={`allowed-${rule.code}`}>
               {formatAllowedRange(rule)}
             </p>
-            {rule.method || rule.specimen || rule.sampling || rule.basis_hint ? (
-              <p className="mt-1 text-[11px] text-slate-500">
-                {[rule.method, rule.specimen, rule.sampling, rule.basis_hint].filter(Boolean).join(" · ")}
+            {qcFieldMeta(rule, { checkpoint, revision: profileRevision }) ? (
+              <p className="mt-1 text-[11px] text-slate-500" data-testid={`stage-qc-meta-${rule.code}`}>
+                {qcFieldMeta(rule, { checkpoint, revision: profileRevision })}
               </p>
             ) : null}
             {showReasons && rule.applicable !== false ? (
