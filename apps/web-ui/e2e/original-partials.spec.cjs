@@ -661,4 +661,65 @@ test("QCT-043/044 inspected job print stays rev A after rev B and frozen rule si
   await assertCritical()
 })
 
+test("QCT-045 keyboard outside value shows readable FAIL, difference, focusable reason, and print text", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const { spawnSync } = require("child_process")
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
+  const seeded = spawnSync(
+    py,
+    ["-m", "pytest", "tests/test_original_qct043_live.py", "-q", "--tb=short"],
+    {
+      encoding: "utf8",
+      cwd: path.join(workspaceRoot, "hariom-erp", "services", "production-service"),
+      env: {
+        ...process.env,
+        HARI_OM_LIVE_PG: "1",
+        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+        HARI_OM_PRODUCTION_DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+      },
+    },
+  )
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct043-job.json"), "utf8"))
+  await page.goto("/quality/stage", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("quality-stage-page")).toBeVisible()
+  await page.getByTestId("quality-stage-job-search").fill(String(artifact.prospective_job_id))
+  await expect(page.getByTestId("quality-stage-job").locator(`option[value="${artifact.prospective_job_id}"]`)).toHaveCount(1, { timeout: 20_000 })
+  await page.getByTestId("quality-stage-job").selectOption(String(artifact.prospective_job_id))
+  const height = page.getByTestId("stage-qc-reading-height")
+  await expect(height).toBeVisible()
+  await height.click()
+  await page.keyboard.type("120")
+  const feedback = page.getByTestId("stage-qc-feedback-height")
+  await expect(feedback).toContainText("FAIL")
+  await expect(feedback).toContainText("14")
+  await expect(feedback).toContainText("106")
+  await expect(feedback).toContainText("difference")
+  await expect(feedback).toHaveAttribute("role", "status")
+  await expect(height).toHaveAttribute("aria-invalid", "true")
+  await page.keyboard.press("Tab")
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeFocused()
+  await page.keyboard.type("outside winding height")
+  await expect(page.getByTestId("stage-qc-issue-summary")).toContainText("Height FAIL")
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(feedback).toBeVisible()
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto(`/production/job-cards/${artifact.prospective_job_id}/print`, { waitUntil: "domcontentloaded" })
+  await page.emulateMedia({ media: "print" })
+  const printFail = page.getByTestId("print-qc-winder").getByTestId("stage-qc-feedback-height")
+  await expect(printFail).toBeVisible()
+  await expect(printFail).toContainText("FAIL")
+  await expect(printFail).toContainText("difference")
+  await expect(printFail).toContainText("14")
+  const printText = await printFail.innerText()
+  expect(printText).toMatch(/FAIL/)
+  expect(printText).not.toMatch(/^$/)
+  const color = await printFail.evaluate((el) => getComputedStyle(el).color)
+  expect(color).toBeTruthy()
+  await assertCritical()
+})
+
 

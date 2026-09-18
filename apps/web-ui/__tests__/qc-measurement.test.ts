@@ -10,6 +10,7 @@ import {
   inspectionFrozenRules,
   inspectionProfileRevision,
   qcActionLabel,
+  qcExceptionFeedback,
   qcFieldMeta,
   qcMissingFieldLabels,
   qcRowActions,
@@ -162,6 +163,33 @@ test("signed inspection frozen rules and revision stay adjacent to the field", (
   assert.match(qcFieldMeta(rules[0], { checkpoint: "Winding", revision: 1 }), /Unit mm/)
   assert.match(qcFieldMeta(rules[0], { checkpoint: "Winding", revision: 1 }), /Checkpoint Winding/)
   assert.match(qcFieldMeta(rules[0], { checkpoint: "Winding", revision: 1 }), /Rev 1/)
+})
+
+test("outside value names FAIL with measured, breached limit, and difference, not color", () => {
+  const rule = { label: "Height", unit: "mm", min: 118, max: 122, inclusive_min: true, inclusive_max: true }
+  const fail = qcExceptionFeedback(rule, "130")
+  assert.equal(fail?.verdict, "FAIL")
+  assert.match(String(fail?.text), /FAIL/)
+  assert.equal(fail?.measured, "130 mm")
+  assert.equal(fail?.breachedLimit, "122 mm")
+  assert.equal(fail?.difference, "8 mm")
+  const low = qcExceptionFeedback(rule, 110)
+  assert.equal(low?.verdict, "FAIL")
+  assert.equal(low?.breachedLimit, "118 mm")
+  assert.equal(low?.difference, "8 mm")
+  const pass = qcExceptionFeedback(rule, "122")
+  assert.equal(pass?.verdict, "PASS")
+  assert.equal(qcExceptionFeedback(rule, ""), null)
+  assert.equal(qcExceptionFeedback(rule, "   "), null)
+  const invalid = qcExceptionFeedback(rule, "abc")
+  assert.equal(invalid?.verdict, "INVALID")
+  const fields = readFileSync(resolve(process.cwd(), "components/qc/StageQcFields.tsx"), "utf8")
+  assert.match(fields, /stage-qc-feedback-\$\{rule\.code\}/)
+  assert.match(fields, /stage-qc-reason-\$\{rule\.code\}/)
+  assert.match(fields, /role="status"/)
+  assert.match(fields, /aria-invalid/)
+  assert.match(fields, /qc-exception-fail/)
+  assert.doesNotMatch(fields, /text-red-600/)
 })
 
 test("list actions follow missing/draft/pending/approved/retired and author/viewer/approver", () => {

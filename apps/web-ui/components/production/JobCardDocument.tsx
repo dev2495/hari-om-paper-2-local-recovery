@@ -2384,6 +2384,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             body {
               background: #fff !important;
             }
+
+            .qc-exception,
+            .qc-exception-fail,
+            .qc-exception-fail * {
+              color: #000 !important;
+              background: #fff !important;
+              border-color: #000 !important;
+            }
           }
         `}</style>
       </div>
@@ -2861,6 +2869,16 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               background: #fff !important;
             }
 
+            .qc-exception,
+            .qc-exception-fail,
+            .qc-exception-fail * {
+              color: #000 !important;
+              background: #fff !important;
+              border-color: #000 !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
             .job-print-root {
               width: 200mm;
               max-width: none !important;
@@ -3150,6 +3168,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
           body {
             background: #fff !important;
+          }
+
+          .qc-exception,
+          .qc-exception-fail,
+          .qc-exception-fail * {
+            color: #000 !important;
+            background: #fff !important;
+            border-color: #000 !important;
           }
 
           section,

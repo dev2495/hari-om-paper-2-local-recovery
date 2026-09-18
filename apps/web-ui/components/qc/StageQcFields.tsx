@@ -1,6 +1,12 @@
 "use client"
 
-import { formatAllowedRange, qcFieldMeta, type QcParameterRule } from "@/lib/qc-measurement"
+import {
+  formatAllowedRange,
+  qcExceptionFeedback,
+  qcExceptionIssues,
+  qcFieldMeta,
+  type QcParameterRule,
+} from "@/lib/qc-measurement"
 
 type StageQcFieldsProps = {
   rules: QcParameterRule[]
@@ -17,6 +23,15 @@ type StageQcFieldsProps = {
   checkpoint?: string
 }
 
+function ExceptionMark({ verdict }: { verdict: "FAIL" | "PASS" | "INVALID" }) {
+  const mark = verdict === "PASS" ? "✓" : "!"
+  return (
+    <span className="qc-exception-icon mr-1 inline-flex h-5 w-5 items-center justify-center rounded-full border border-current text-[11px] font-black" aria-hidden="true">
+      {mark}
+    </span>
+  )
+}
+
 export function StageQcFields({
   rules,
   readings,
@@ -31,8 +46,23 @@ export function StageQcFields({
   profileRevision,
   checkpoint,
 }: StageQcFieldsProps) {
+  const issues = qcExceptionIssues(rules, readings)
   return (
     <div className="space-y-3" data-testid="stage-qc-fields">
+      {issues.length ? (
+        <div className="rounded-xl border border-slate-900 bg-white p-3 text-sm text-slate-900" data-testid="stage-qc-issue-summary" aria-label="Stage QC issues">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">Issues</div>
+          <ul className="mt-1 space-y-1">
+            {issues.map((issue) => (
+              <li key={issue.code}>
+                <a className="font-semibold underline" href={`#qc-field-${issue.code}`}>
+                  {issue.label} FAIL
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {paired ? (
         <label className="block space-y-1">
           <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sample / pair ID</span>
@@ -49,51 +79,87 @@ export function StageQcFields({
         </label>
       ) : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {rules.map((rule) => (
-          <div key={rule.code} className="rounded-2xl border border-slate-200 bg-white p-3">
-            <label className="space-y-1">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{rule.label}</span>
-              {rule.applicable === false ? (
-                <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-na-${rule.code}`}>
-                  NOT APPLICABLE
-                </div>
-              ) : editable ? (
-                <input
-                  type="number"
-                  step="0.001"
-                  value={readings[rule.code] || ""}
-                  onChange={(event) => onReadingChange?.(rule.code, event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm"
-                />
-              ) : (
-                <div className="text-sm font-semibold text-slate-900">{readings[rule.code] || ""}</div>
-              )}
-            </label>
-            <p className="mt-2 text-xs font-semibold text-slate-600" data-testid={`allowed-${rule.code}`}>
-              {formatAllowedRange(rule)}
-            </p>
-            {qcFieldMeta(rule, { checkpoint, revision: profileRevision }) ? (
-              <p className="mt-1 text-[11px] text-slate-500" data-testid={`stage-qc-meta-${rule.code}`}>
-                {qcFieldMeta(rule, { checkpoint, revision: profileRevision })}
-              </p>
-            ) : null}
-            {showReasons && rule.applicable !== false ? (
-              <label className="mt-2 block space-y-1">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Reason if FAIL</span>
-                {editable ? (
+        {rules.map((rule) => {
+          const feedback = qcExceptionFeedback(rule, readings[rule.code])
+          const describedBy = [
+            `allowed-${rule.code}`,
+            qcFieldMeta(rule, { checkpoint, revision: profileRevision }) ? `stage-qc-meta-${rule.code}` : null,
+            feedback ? `stage-qc-feedback-${rule.code}` : null,
+          ]
+            .filter(Boolean)
+            .join(" ")
+          const fail = feedback?.verdict === "FAIL"
+          return (
+            <div key={rule.code} id={`qc-field-${rule.code}`} className="rounded-2xl border border-slate-200 bg-white p-3">
+              <label className="space-y-1" htmlFor={editable ? `stage-qc-reading-${rule.code}` : undefined}>
+                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{rule.label}</span>
+                {rule.applicable === false ? (
+                  <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-na-${rule.code}`}>
+                    NOT APPLICABLE
+                  </div>
+                ) : editable ? (
                   <input
-                    value={reasons[rule.code] || ""}
-                    onChange={(event) => onReasonChange?.(rule.code, event.target.value)}
-                    className="h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
-                    placeholder="Required only for out-of-range readings"
+                    id={`stage-qc-reading-${rule.code}`}
+                    data-testid={`stage-qc-reading-${rule.code}`}
+                    type="number"
+                    step="0.001"
+                    inputMode="decimal"
+                    value={readings[rule.code] || ""}
+                    onChange={(event) => onReadingChange?.(rule.code, event.target.value)}
+                    aria-invalid={fail || feedback?.verdict === "INVALID" ? true : undefined}
+                    aria-describedby={describedBy || undefined}
+                    className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-900"
                   />
                 ) : (
-                  <div className="text-xs text-slate-600">{reasons[rule.code] || ""}</div>
+                  <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-reading-${rule.code}`}>
+                    {readings[rule.code] || ""}
+                  </div>
                 )}
               </label>
-            ) : null}
-          </div>
-        ))}
+              <p className="mt-2 text-xs font-semibold text-slate-600" data-testid={`allowed-${rule.code}`} id={`allowed-${rule.code}`}>
+                {formatAllowedRange(rule)}
+              </p>
+              {qcFieldMeta(rule, { checkpoint, revision: profileRevision }) ? (
+                <p className="mt-1 text-[11px] text-slate-500" data-testid={`stage-qc-meta-${rule.code}`} id={`stage-qc-meta-${rule.code}`}>
+                  {qcFieldMeta(rule, { checkpoint, revision: profileRevision })}
+                </p>
+              ) : null}
+              {feedback ? (
+                <p
+                  className={`qc-exception mt-2 text-xs font-semibold text-slate-950 ${
+                    fail || feedback.verdict === "INVALID" ? "qc-exception-fail border border-slate-950 bg-white p-2" : "qc-exception-pass"
+                  }`}
+                  data-testid={`stage-qc-feedback-${rule.code}`}
+                  id={`stage-qc-feedback-${rule.code}`}
+                  role="status"
+                >
+                  <ExceptionMark verdict={feedback.verdict} />
+                  {feedback.text}
+                </p>
+              ) : null}
+              {showReasons && rule.applicable !== false ? (
+                <label className="mt-2 block space-y-1" htmlFor={editable ? `stage-qc-reason-${rule.code}` : undefined}>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Reason if FAIL</span>
+                  {editable ? (
+                    <input
+                      id={`stage-qc-reason-${rule.code}`}
+                      data-testid={`stage-qc-reason-${rule.code}`}
+                      value={reasons[rule.code] || ""}
+                      onChange={(event) => onReasonChange?.(rule.code, event.target.value)}
+                      className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                      placeholder="Required only for out-of-range readings"
+                      aria-required={fail ? true : undefined}
+                    />
+                  ) : (
+                    <div className="text-xs text-slate-600" data-testid={`stage-qc-reason-${rule.code}`}>
+                      {reasons[rule.code] || ""}
+                    </div>
+                  )}
+                </label>
+              ) : null}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

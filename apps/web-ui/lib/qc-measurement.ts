@@ -218,6 +218,78 @@ export function qcFieldMeta(
     .join(" · ")
 }
 
+export type QcExceptionFeedback = {
+  verdict: "FAIL" | "PASS" | "INVALID"
+  text: string
+  measured?: string
+  breachedLimit?: string
+  difference?: string
+}
+
+function formatQcNumber(value: number) {
+  if (!Number.isFinite(value)) return String(value)
+  const text = value.toFixed(6).replace(/\.?0+$/, "")
+  return text === "-0" ? "0" : text
+}
+
+export function qcExceptionFeedback(
+  rule: Pick<QcParameterRule, "label" | "unit" | "min" | "max" | "inclusive_min" | "inclusive_max" | "applicable">,
+  raw: unknown,
+): QcExceptionFeedback | null {
+  if (rule.applicable === false) return null
+  const parsed = parseNumericReading(raw)
+  if (parsed.missing) return null
+  const unit = rule.unit ? ` ${rule.unit}` : ""
+  const label = rule.label || "Reading"
+  if (parsed.invalid || parsed.value == null) {
+    return {
+      verdict: "INVALID",
+      text: `INVALID: ${label} is not a numeric measurement.`,
+    }
+  }
+  const value = parsed.value
+  const inclusiveMin = rule.inclusive_min !== false
+  const inclusiveMax = rule.inclusive_max !== false
+  const min = rule.min == null ? null : Number(rule.min)
+  const max = rule.max == null ? null : Number(rule.max)
+  const belowMin = min != null && Number.isFinite(min) ? (inclusiveMin ? value < min : value <= min) : false
+  const aboveMax = max != null && Number.isFinite(max) ? (inclusiveMax ? value > max : value >= max) : false
+  if (!belowMin && !aboveMax) {
+    return {
+      verdict: "PASS",
+      text: `PASS: measured ${formatQcNumber(value)}${unit} is within the frozen rule.`,
+      measured: `${formatQcNumber(value)}${unit}`.trim(),
+    }
+  }
+  const candidates: Array<{ limit: number; kind: "min" | "max" }> = []
+  if (belowMin && min != null) candidates.push({ limit: min, kind: "min" })
+  if (aboveMax && max != null) candidates.push({ limit: max, kind: "max" })
+  const nearest = candidates.sort((left, right) => Math.abs(value - left.limit) - Math.abs(value - right.limit))[0]
+  const difference = Math.abs(value - nearest.limit)
+  const measured = `${formatQcNumber(value)}${unit}`.trim()
+  const breachedLimit = `${formatQcNumber(nearest.limit)}${unit}`.trim()
+  const differenceText = `${formatQcNumber(difference)}${unit}`.trim()
+  return {
+    verdict: "FAIL",
+    text: `FAIL: measured ${measured} · breached limit ${breachedLimit} · difference ${differenceText}`,
+    measured,
+    breachedLimit,
+    difference: differenceText,
+  }
+}
+
+export function qcExceptionIssues(
+  rules: QcParameterRule[],
+  readings: Record<string, unknown>,
+) {
+  return rules
+    .map((rule) => {
+      const feedback = qcExceptionFeedback(rule, readings?.[rule.code])
+      return feedback?.verdict === "FAIL" ? { code: rule.code, label: rule.label, feedback } : null
+    })
+    .filter((row): row is { code: string; label: string; feedback: QcExceptionFeedback } => Boolean(row))
+}
+
 export function inspectionFrozenRules(inspection: any, profile: any, stage: QcStageKey): QcParameterRule[] {
   const frozen = inspection?.frozen_rules
   if (Array.isArray(frozen) && frozen.length) return frozen

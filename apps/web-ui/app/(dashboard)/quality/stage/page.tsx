@@ -20,13 +20,25 @@ const STAGES: { value: QcStageKey; label: string }[] = [
 ]
 
 function asArray(value: any) {
-  return Array.isArray(value) ? value : []
+  if (Array.isArray(value)) return value
+  if (Array.isArray(value?.items)) return value.items
+  if (Array.isArray(value?.results)) return value.results
+  return []
 }
 
 function jobLabel(job: any) {
   return [job.job_card_no || job.job_no || String(job.id || "").slice(0, 8), job.product_code || job.spec_no, job.current_stage]
     .filter(Boolean)
     .join(" | ")
+}
+
+function jobMatchesSearch(job: any, needle: string) {
+  if (!needle) return true
+  const hay = [jobLabel(job), job.id, job.job_card_no, job.job_no, job.product_code, job.spec_no]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase()
+  return hay.includes(needle)
 }
 
 function plantForJob(job: any) {
@@ -43,7 +55,7 @@ export default function StageQualityPage() {
   const [readings, setReadings] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [sampleId, setSampleId] = useState("")
-  const jobCardsQuery = usePlanningJobCards({ limit: 200 })
+  const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
   const jobs = useMemo(() => asArray(jobCardsQuery.data), [jobCardsQuery.data])
   const selectedJob = jobs.find((job: any) => String(job.id) === selectedJobId) || null
@@ -59,7 +71,7 @@ export default function StageQualityPage() {
 
   const filteredJobs = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    const rows = needle ? jobs.filter((job: any) => jobLabel(job).toLowerCase().includes(needle)) : jobs
+    const rows = needle ? jobs.filter((job: any) => jobMatchesSearch(job, needle)) : jobs
     return rows.slice(0, 80)
   }, [jobs, search])
 
@@ -132,6 +144,7 @@ export default function StageQualityPage() {
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search job card"
+                  data-testid="quality-stage-job-search"
                   className="mb-2 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
                 />
                 <select
@@ -141,6 +154,7 @@ export default function StageQualityPage() {
                     setReadings({})
                     setReasons({})
                   }}
+                  data-testid="quality-stage-job"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
                 >
                   <option value="">Select job card</option>
