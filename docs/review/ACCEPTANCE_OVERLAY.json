@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 76,
-      "NOT_RUN": 92,
+      "PASS": 79,
+      "NOT_RUN": 89,
       "LIMITATION": 3
     },
     "coverage": {
-      "PARTIAL": 31,
-      "EXACT_EXECUTED": 76,
+      "PARTIAL": 30,
+      "EXACT_EXECUTED": 79,
       "LIMITATION": 3,
-      "NONE": 70,
+      "NONE": 68,
       "UNIT_ONLY": 5,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2401,17 +2401,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "PARTIAL",
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
       "mapped_tests": [
-        "inventory-service/tests/test_live_postgres_rr.py::test_receipt_pin_survives_later_master_edit"
+        "production-service/tests/test_original_qct043_live.py::test_qct043_old_evidence_and_print_stay_rev_a_after_rev_b",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
       ],
       "rr": [
         "RR15"
       ],
       "bj": [],
       "limitation": null,
-      "notes": "Receipt pin survives later master edit. Job-card print remaining on rev A after rev B NOT_RUN."
+      "notes": "Inspect under rev A then approve rev B. Old inspection frozen_rules/result and job-card print stay rev A Height 118\u2013122. Unstarted queued snapshot stays A. Only a new prospective job binds B (Height 10\u201314) and 120 is not PASS."
     },
     {
       "id": "QCT-044",
@@ -2423,13 +2424,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "apps/web-ui/__tests__/qc-measurement.test.ts",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Job-card print/stage fields show frozen Allowed range, unit, checkpoint, and Rev adjacent to each actual field on desktop and 390px. Not hidden in a separate report."
     },
     {
       "id": "QCT-045",
@@ -2441,13 +2445,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "apps/web-ui/__tests__/qc-measurement.test.ts",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Keyboard outside Height 120 vs frozen 10\u201314 shows readable FAIL, breached limit 14 mm, difference 106 mm, role=status, aria-invalid, and Tab-focusable reason. 390px keeps FAIL+reason. Print media keeps FAIL/difference as text, not color alone."
     },
     {
       "id": "QCT-046",
@@ -4565,13 +4572,16 @@
       "id": "QCR-11",
       "title": "Tolerance helper below job inputs",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-044",
         "QCT-045",
         "QCT-126"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-044",
+        "QCT-045"
+      ],
       "limitations": []
     },
     {
@@ -4663,7 +4673,8 @@
       "linked_pass": [
         "QCT-020",
         "QCT-037",
-        "QCT-039"
+        "QCT-039",
+        "QCT-043"
       ],
       "limitations": []
     },

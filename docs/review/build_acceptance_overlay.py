@@ -651,13 +651,32 @@ SPECIAL: dict[str, dict] = {
         "notes": "Notification boom after GRN leaves QC_HOLD PENDING; retry_incoming_qc_tasks delivers this-batch outbox once; second retry does not re-deliver the same event_id.",
     },
     "QCT-043": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "PARTIAL",
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
-            "inventory-service/tests/test_live_postgres_rr.py::test_receipt_pin_survives_later_master_edit"
+            "production-service/tests/test_original_qct043_live.py::test_qct043_old_evidence_and_print_stay_rev_a_after_rev_b",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
         ],
         "rr": ["RR15"],
-        "notes": "Receipt pin survives later master edit. Job-card print remaining on rev A after rev B NOT_RUN.",
+        "notes": "Inspect under rev A then approve rev B. Old inspection frozen_rules/result and job-card print stay rev A Height 118–122. Unstarted queued snapshot stays A. Only a new prospective job binds B (Height 10–14) and 120 is not PASS.",
+    },
+    "QCT-044": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "apps/web-ui/__tests__/qc-measurement.test.ts",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Job-card print/stage fields show frozen Allowed range, unit, checkpoint, and Rev adjacent to each actual field on desktop and 390px. Not hidden in a separate report.",
+    },
+    "QCT-045": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "apps/web-ui/__tests__/qc-measurement.test.ts",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Keyboard outside Height 120 vs frozen 10–14 shows readable FAIL, breached limit 14 mm, difference 106 mm, role=status, aria-invalid, and Tab-focusable reason. 390px keeps FAIL+reason. Print media keeps FAIL/difference as text, not color alone.",
     },
     "QCT-046": {
         "overlay_status": "NOT_RUN",
