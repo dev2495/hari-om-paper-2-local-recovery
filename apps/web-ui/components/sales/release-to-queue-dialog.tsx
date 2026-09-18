@@ -1,6 +1,5 @@
 "use client"
 
-import Link from "next/link"
 import { CheckCircle2, Factory } from "lucide-react"
 import { useMemo, useState } from "react"
 
