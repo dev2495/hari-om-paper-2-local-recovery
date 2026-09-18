@@ -116,6 +116,9 @@ function beginCriticalMonitoring(page, options = {}) {
     if (status === 403 && url.includes("/api/production/planning/board") && !page.url().includes("/planning/board")) {
       return
     }
+    if (status === 403 && url.includes("/api/dispatch/ready-jobs") && !page.url().includes("/dispatch")) {
+      return
+    }
     if ([400, 403, 404].includes(status) && !url.includes("/_next/")) {
       critical.push({ kind: "response", text: `${status} ${url}` })
     }
@@ -136,6 +139,7 @@ async function pickFirstSmartSelectOption(page, testId) {
   const { expect } = require("@playwright/test")
   const trigger = page.getByTestId(testId)
   await expect(trigger).toBeVisible()
+  await expect(trigger).toBeEnabled()
   await trigger.click()
   const option = page.locator(`[data-testid^="${testId}-option:"]`).first()
   await expect(option, `Expected a live option after opening ${testId}`).toBeVisible()

@@ -27,6 +27,11 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   await login(page)
   await page.goto("/specifications/new", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
+  const plantA = getBrowserFixture().plants.plant_a.id
+  if (await page.getByText(/Pick one plant in the top switcher/i).isVisible()) {
+    await page.getByTestId("plant-switcher-trigger").click()
+    await page.getByTestId(`plant-option:${plantA}`).click()
+  }
 
   await pickFirstSmartSelectOption(page, "spec-sheet-mandrel")
   await pickFirstSmartSelectOption(page, "spec-sheet-tube-size")
