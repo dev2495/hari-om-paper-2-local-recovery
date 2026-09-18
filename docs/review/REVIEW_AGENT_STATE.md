@@ -3,7 +3,7 @@
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
-- Local HEAD at start of this cycle: `6f50a76d65b5715427b57ec05e53b0ce12d4ea8f` (newer dirty work preserved; commits land after this file)
+- Local HEAD: `ffa2ca200dacfaa74f0278c0b96a1ce9a2e83093` (this cycle: `7a46b96` product, `e19aead` tests, `ffa2ca2` overlay/docs). Started from `6f50a76`; no force-push, no discarded work.
 - Chromium 15/15 ran at `5dd8b9b35ba647fe06fac2758609886bb4bf8e67` (e2e harness only after product `d071d12`)
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
 - Served Next on 23000: product `d071d122ae8725431195804cc33779c4ff1e75a6`, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`
