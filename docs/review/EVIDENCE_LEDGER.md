@@ -30,9 +30,9 @@ Product commit this cycle: `b69edb6a84d1dc18e5fb71998f72ddf083d5dd3b` (workbook 
 ## Runtime identity
 
 - Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Yz4l4-NEecxcN4k1Xtf_H`
-- BFF `http://127.0.0.1:24000` pid **75656**, services `28001–28008` (28006 unused)
+- BFF `http://127.0.0.1:24000` pid **77260**, services `28001–28008` (28006 unused)
 - Foreign `127.0.0.1:13000` pid 69663 left running
-- Isolated production HTTP pid **75652** :28004 and inventory pid **75654** :28005 after this wave (venv-verify uvicorn)
+- Isolated production HTTP pid **77256** :28004 and inventory pid **77258** :28005 after this wave (venv-verify uvicorn)
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity; UI bundle not rebuilt
 
 ## This cycle — executable original cases
