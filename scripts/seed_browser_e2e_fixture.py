@@ -513,16 +513,41 @@ def main() -> int:
     catalog_b = seed_plant_catalog(session, bff, plant_b, "B")
     order_a = seed_sales_order(session, bff, plant_a, catalog_a, users.get("sales_approver_a"))
 
-    job_cards = session.get(f"{bff}/api/production/job-cards", params={"limit": 20}, timeout=TIMEOUT)
+    plant_headers = {"X-Plant-ID": str(plant_a)}
+    job_cards = session.get(
+        f"{bff}/api/production/job-cards",
+        params={"limit": 50},
+        headers=plant_headers,
+        timeout=TIMEOUT,
+    )
     flows = []
     if job_cards.status_code == 200:
         body = job_cards.json()
         items = body.get("items") if isinstance(body, dict) else body
         for row in items or []:
-            job_id = row.get("id") or row.get("job_card_id")
-            if job_id:
-                flows.append({"job_card_id": str(job_id), "status": row.get("status"), "product_code": row.get("product_code")})
-                break
+            job_id = str(row.get("id") or row.get("job_card_id") or "")
+            if not job_id:
+                continue
+            detail = session.get(
+                f"{bff}/api/production/job-cards/{job_id}",
+                headers=plant_headers,
+                timeout=TIMEOUT,
+            )
+            if detail.status_code != 200:
+                continue
+            payload = detail.json() if detail.content else {}
+            plant_id = str(payload.get("plant_id") or row.get("plant_id") or "")
+            if plant_id and plant_id != str(plant_a):
+                continue
+            flows.append(
+                {
+                    "job_card_id": job_id,
+                    "status": payload.get("status") or row.get("status"),
+                    "product_code": payload.get("product_code") or row.get("product_code"),
+                    "plant_id": plant_id or str(plant_a),
+                }
+            )
+            break
 
     fixture = {
         "generated_at": datetime.now().isoformat(),
