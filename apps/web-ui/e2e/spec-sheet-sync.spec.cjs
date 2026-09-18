@@ -62,7 +62,7 @@ test("spec sheet keeps recipe, totals, and matrices in sync", async ({ page }) =
   expect(Date.now() - startedAt).toBeLessThan(2500)
   await expect(targetWeightInput).toHaveValue("300")
   await expect(page.locator('[data-testid^="spec-sheet-suggestion-"]')).toHaveCount(0)
-  await expect(liveBuilder).toContainText(/Target wet/i)
+  await expect(liveBuilder).toContainText(/Target 300\.00 g/i)
 })
 
 test("spec sheet keeps target weight explicit and applies the combined 15 percent rule", async ({ page }) => {

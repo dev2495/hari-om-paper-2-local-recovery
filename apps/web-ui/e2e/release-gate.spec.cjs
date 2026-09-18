@@ -52,6 +52,7 @@ async function login(page, key) {
 }
 
 async function logout(page) {
+  await page.keyboard.press("Escape")
   const trigger = page.getByTestId("workspace-user-menu-trigger")
   if (await trigger.count()) {
     await trigger.click()
