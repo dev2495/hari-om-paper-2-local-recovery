@@ -209,6 +209,15 @@ test("blank print keeps writable spaces and does not treat empty as PASS", () =>
   assert.doesNotMatch(jobCard, /max-height: 287mm/)
 })
 
+test("oven PRE checkpoint marks post fields not yet due", () => {
+  const fields = readFileSync(resolve(process.cwd(), "components/qc/StageQcFields.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/quality/stage/page.tsx"), "utf8")
+  assert.match(fields, /Not yet due/)
+  assert.match(fields, /dueTiming/)
+  assert.match(page, /quality-stage-checkpoint/)
+  assert.match(page, /oven_checkpoint/)
+})
+
 test("list actions follow missing/draft/pending/approved/retired and author/viewer/approver", () => {
   const specId = "spec-1"
   const missingAuthor = qcRowActions({ qcStatus: "missing", specId, canAuthor: true, canApprove: false })

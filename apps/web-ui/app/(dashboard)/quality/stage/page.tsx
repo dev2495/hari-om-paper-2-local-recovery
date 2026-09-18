@@ -55,6 +55,8 @@ export default function StageQualityPage() {
   const [readings, setReadings] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [sampleId, setSampleId] = useState("")
+  const [ovenCheckpoint, setOvenCheckpoint] = useState<"PRE" | "POST">("PRE")
+  const [lastVerdict, setLastVerdict] = useState("")
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
   const jobs = useMemo(() => asArray(jobCardsQuery.data), [jobCardsQuery.data])
@@ -67,7 +69,9 @@ export default function StageQualityPage() {
     ? stageBlock.parameters
     : frozenStageRules(snapshotProfile, stageType)
   const profileRevision = inspectionProfileRevision(null, snapshotProfile || templateQuery.data)
-  const checkpoint = STAGES.find((stage) => stage.value === stageType)?.label
+  const checkpoint = stageType === "OVEN"
+    ? (ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
+    : STAGES.find((stage) => stage.value === stageType)?.label
 
   const filteredJobs = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -88,12 +92,28 @@ export default function StageQualityPage() {
     try {
       const numericReadings = Object.fromEntries(
         Object.entries(readings)
-          .filter(([, value]) => String(value).trim() !== "")
+          .filter(([key, value]) => {
+            if (String(value).trim() === "") return false
+            if (stageType === "OVEN" && ovenCheckpoint === "PRE" && String(key).startsWith("post_")) return false
+            if (stageType === "OVEN" && ovenCheckpoint === "POST" && (key === "pre_weight" || key === "pre_moisture")) return false
+            return true
+          })
           .map(([key, value]) => {
             const number = Number(value)
             return [key, Number.isFinite(number) ? number : value]
           }),
       )
+      if (stageType === "OVEN") {
+        numericReadings.oven_checkpoint = ovenCheckpoint
+        if (sampleId) {
+          numericReadings.sample_id = sampleId
+          if (ovenCheckpoint === "PRE") numericReadings.pre_specimen_id = sampleId
+          if (ovenCheckpoint === "POST") {
+            numericReadings.post_specimen_id = sampleId
+            numericReadings.pre_specimen_id = sampleId
+          }
+        }
+      }
       const response = await createInspection.mutateAsync({
         plantId,
         data: {
@@ -106,10 +126,19 @@ export default function StageQualityPage() {
         },
       })
       const status = String(response?.data?.status || "")
-      showToast(`Server verdict: ${status}`, status === "FAIL" ? "error" : "success")
-      setReadings({})
+      setLastVerdict(status)
+      showToast(`Server verdict: ${status}`, status === "FAIL" || status === "INCOMPLETE" || status === "INVALID" ? "error" : "success")
+      setReadings((current) => {
+        if (stageType !== "OVEN") return {}
+        const next: Record<string, string> = {}
+        if (ovenCheckpoint === "PRE") {
+          for (const [key, value] of Object.entries(current)) {
+            if (String(key).startsWith("pre_")) next[key] = value
+          }
+        }
+        return next
+      })
       setReasons({})
-      setSampleId("")
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Inspection save failed."
       showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
@@ -172,7 +201,10 @@ export default function StageQualityPage() {
                     setReadings({})
                     setReasons({})
                     setSampleId("")
+                    setOvenCheckpoint("PRE")
+                    setLastVerdict("")
                   }}
+                  data-testid="quality-stage-type"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
                 >
                   {STAGES.map((stage) => (
@@ -181,6 +213,36 @@ export default function StageQualityPage() {
                 </select>
               </label>
             </div>
+            {stageType === "OVEN" ? (
+              <label className="block space-y-1">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Oven checkpoint</span>
+                <select
+                  value={ovenCheckpoint}
+                  onChange={(event) => {
+                    setOvenCheckpoint(event.target.value as "PRE" | "POST")
+                    setLastVerdict("")
+                    if (event.target.value === "POST") {
+                      setReadings((current) => {
+                        const next: Record<string, string> = {}
+                        for (const [key, value] of Object.entries(current)) {
+                          if (key === "pre_weight" || key === "pre_moisture") continue
+                          next[key] = value
+                        }
+                        return next
+                      })
+                    }
+                  }}
+                  data-testid="quality-stage-checkpoint"
+                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm md:max-w-sm"
+                >
+                  <option value="PRE">Before oven — pre-weight / pre-moisture</option>
+                  <option value="POST">After oven — post-weight / post-moisture</option>
+                </select>
+                <p className="text-xs text-slate-500">
+                  Post fields are not due at the pre checkpoint. The later post checkpoint requires the same sample / pair ID.
+                </p>
+              </label>
+            ) : null}
             {selectedJobId ? (
               <StageQcFields
                 rules={rules}
@@ -190,6 +252,7 @@ export default function StageQualityPage() {
                 paired={stageType === "OVEN"}
                 profileRevision={profileRevision}
                 checkpoint={checkpoint}
+                dueTiming={stageType === "OVEN" ? ovenCheckpoint : null}
                 onReadingChange={(code, value) => setReadings((current) => ({ ...current, [code]: value }))}
                 onReasonChange={(code, value) => setReasons((current) => ({ ...current, [code]: value }))}
                 onSampleIdChange={setSampleId}
@@ -197,8 +260,14 @@ export default function StageQualityPage() {
             ) : (
               <EmptyState label="Select a job card to load frozen Allowed ranges." />
             )}
+            {lastVerdict ? (
+              <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
+                {lastVerdict}
+              </div>
+            ) : null}
             <button
               type="submit"
+              data-testid="quality-stage-submit"
               disabled={!selectedJobId || createInspection.isPending}
               className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
             >

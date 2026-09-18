@@ -30,6 +30,80 @@ FINAL_SPEC_QC_FIELDS = [
 ]
 
 
+def _oven_checkpoint(readings: Optional[dict[str, Any]]) -> str:
+    return str((readings or {}).get("oven_checkpoint") or (readings or {}).get("checkpoint") or "").strip().upper()
+
+
+def _oven_pair_id(sample_id: Optional[str], readings: Optional[dict[str, Any]]) -> str:
+    payload = readings or {}
+    return str(
+        sample_id
+        or payload.get("sample_id")
+        or payload.get("pre_specimen_id")
+        or payload.get("post_specimen_id")
+        or payload.get("pre_pair_id")
+        or payload.get("post_pair_id")
+        or ""
+    ).strip()
+
+
+def _has_oven_pre(readings: Optional[dict[str, Any]]) -> bool:
+    payload = readings or {}
+    return any(payload.get(code) not in (None, "") for code in ("pre_weight", "pre_moisture"))
+
+
+def _has_oven_post(readings: Optional[dict[str, Any]]) -> bool:
+    payload = readings or {}
+    return any(payload.get(code) not in (None, "") for code in ("post_weight", "post_moisture"))
+
+
+def _latest_oven_pre_inspection(
+    db: Session,
+    *,
+    job_card_id: uuid.UUID,
+    plant_id: uuid.UUID,
+    pair_id: str,
+) -> Optional[QualityInspection]:
+    if not pair_id:
+        return None
+    rows = (
+        db.query(QualityInspection)
+        .filter(
+            QualityInspection.job_card_id == job_card_id,
+            QualityInspection.plant_id == plant_id,
+            QualityInspection.stage_type == "OVEN",
+        )
+        .order_by(QualityInspection.created_at.desc())
+        .all()
+    )
+    for row in rows:
+        readings = row.readings or {}
+        checkpoint = _oven_checkpoint(readings)
+        if checkpoint in {"POST", "POST_ONLY"}:
+            continue
+        if not _has_oven_pre(readings):
+            continue
+        if _has_oven_post(readings) and checkpoint not in {"PRE", "PRE_ONLY"}:
+            continue
+        stored_pair = _oven_pair_id(getattr(row, "sample_id", None), readings)
+        if stored_pair == pair_id:
+            return row
+    return None
+
+
+def _merge_oven_pre_context(readings: dict[str, Any], prior: QualityInspection) -> dict[str, Any]:
+    merged = dict(readings or {})
+    prior_readings = prior.readings or {}
+    pair = _oven_pair_id(getattr(prior, "sample_id", None), prior_readings)
+    if pair:
+        merged.setdefault("pre_specimen_id", pair)
+        merged.setdefault("sample_id", pair)
+    for code in ("pre_weight", "pre_moisture"):
+        if merged.get(code) in (None, "") and prior_readings.get(code) not in (None, ""):
+            merged[code] = prior_readings.get(code)
+    return merged
+
+
 def _to_uuid(value: str, field: str = "id") -> uuid.UUID:
     normalized = str(value or "").strip().upper()
     if normalized in {"PLANT_A", "PLANT-1", "PLANT_1", "PLANT1"}:
@@ -310,12 +384,31 @@ def create_inspection(
     )
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
+    readings = dict(payload.readings or {})
+    sample_id = payload.sample_id
+    parent_id = payload.parent_inspection_id
+    if payload.stage_type == "OVEN" and _oven_checkpoint(readings) in {"POST", "POST_ONLY"}:
+        pair_id = _oven_pair_id(sample_id, readings)
+        prior = _latest_oven_pre_inspection(
+            db,
+            job_card_id=job_card.id,
+            plant_id=plant_uuid,
+            pair_id=pair_id,
+        )
+        if prior is not None:
+            readings = _merge_oven_pre_context(readings, prior)
+            if parent_id is None:
+                parent_id = prior.id
+            if not sample_id:
+                sample_id = _oven_pair_id(getattr(prior, "sample_id", None), prior.readings or {})
+        elif pair_id:
+            readings.setdefault("post_specimen_id", pair_id)
     evaluation = evaluate_job_stage(
         stage=payload.stage_type,
         spec_snapshot=job_card.spec_snapshot or {},
-        readings=payload.readings or {},
+        readings=readings,
         reasons=payload.reasons or {},
-        sample_id=payload.sample_id,
+        sample_id=sample_id,
         require_reasons_on_fail=True,
     )
     reason_pending = bool(evaluation.missing_reasons)
@@ -348,6 +441,8 @@ def create_inspection(
         evaluation_payload["exposure_after_dispatch"] = True
     if payload.parent_inspection_id:
         evaluation_payload["parent_inspection_id"] = str(payload.parent_inspection_id)
+    elif parent_id:
+        evaluation_payload["parent_inspection_id"] = str(parent_id)
 
     failures = list(evaluation.failures)
     inspection = QualityInspection(
@@ -359,8 +454,8 @@ def create_inspection(
         failures=failures,
         reasons=payload.reasons or {},
         evaluation=evaluation_payload,
-        sample_id=payload.sample_id,
-        parent_inspection_id=payload.parent_inspection_id,
+        sample_id=sample_id,
+        parent_inspection_id=parent_id or payload.parent_inspection_id,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)

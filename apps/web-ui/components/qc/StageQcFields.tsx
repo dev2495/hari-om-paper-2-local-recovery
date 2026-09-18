@@ -22,6 +22,7 @@ type StageQcFieldsProps = {
   profileRevision?: number | string | null
   checkpoint?: string
   printLayout?: boolean
+  dueTiming?: "PRE" | "POST" | null
 }
 
 function ExceptionMark({ verdict }: { verdict: "FAIL" | "PASS" | "INVALID" }) {
@@ -47,6 +48,7 @@ export function StageQcFields({
   profileRevision,
   checkpoint,
   printLayout = false,
+  dueTiming = null,
 }: StageQcFieldsProps) {
   const issues = qcExceptionIssues(rules, readings)
   return (
@@ -72,6 +74,7 @@ export function StageQcFields({
             <input
               value={sampleId || ""}
               onChange={(event) => onSampleIdChange?.(event.target.value)}
+              data-testid="stage-qc-sample-id"
               className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 text-sm"
               placeholder="Same identified sample for pre and post"
             />
@@ -97,13 +100,18 @@ export function StageQcFields({
             .filter(Boolean)
             .join(" ")
           const fail = feedback?.verdict === "FAIL"
+          const notYetDue = dueTiming === "PRE" && String(rule.code).startsWith("post_")
           return (
             <div key={rule.code} id={`qc-field-${rule.code}`} className="rounded-2xl border border-slate-200 bg-white p-3">
-              <label className="space-y-1" htmlFor={editable ? `stage-qc-reading-${rule.code}` : undefined}>
+              <label className="space-y-1" htmlFor={editable && !notYetDue ? `stage-qc-reading-${rule.code}` : undefined}>
                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{rule.label}</span>
                 {rule.applicable === false ? (
                   <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-na-${rule.code}`}>
                     NOT APPLICABLE
+                  </div>
+                ) : notYetDue ? (
+                  <div className="text-sm font-semibold text-slate-900" data-testid={`stage-qc-not-due-${rule.code}`}>
+                    Not yet due
                   </div>
                 ) : editable ? (
                   <input
@@ -149,7 +157,7 @@ export function StageQcFields({
                   {feedback.text}
                 </p>
               ) : null}
-              {showReasons && rule.applicable !== false ? (
+              {showReasons && rule.applicable !== false && !notYetDue ? (
                 <label className="mt-2 block space-y-1" htmlFor={editable ? `stage-qc-reason-${rule.code}` : undefined}>
                   <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Reason if FAIL</span>
                   {editable ? (

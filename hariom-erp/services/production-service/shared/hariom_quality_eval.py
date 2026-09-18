@@ -703,7 +703,10 @@ def evaluate_stage(
     pre_codes = {"pre_weight", "pre_moisture"}
     post_present = any(_reading_for(readings or {}, code) not in (None, "") for code in post_codes)
     pre_present = any(_reading_for(readings or {}, code) not in (None, "") for code in pre_codes)
-    pre_only = stage_key == STAGE_OVEN and (checkpoint in {"PRE", "PRE_ONLY"} or (pre_present and not post_present))
+    post_due = stage_key == STAGE_OVEN and checkpoint in {"POST", "POST_ONLY"}
+    pre_only = stage_key == STAGE_OVEN and not post_due and (
+        checkpoint in {"PRE", "PRE_ONLY"} or (pre_present and not post_present)
+    )
     for rule in rules:
         if pre_only and rule.code in post_codes:
             results.append(
@@ -726,7 +729,7 @@ def evaluate_stage(
 
     if stage_key == STAGE_OVEN:
         pair_id = str(sample_id or (readings or {}).get("sample_id") or (readings or {}).get("pair_id") or "").strip()
-        if post_present and not pair_id and not post_pair:
+        if (post_present or post_due) and not pair_id and not post_pair:
             results.append(
                 ParameterResult(
                     code="sample_id",
@@ -734,6 +737,16 @@ def evaluate_stage(
                     verdict=VERDICT_INCOMPLETE,
                     submitted=sample_id,
                     message="Post readings require the same identified sample/pair as the pre readings.",
+                )
+            )
+        if post_due and not pre_present:
+            results.append(
+                ParameterResult(
+                    code="oven_pair",
+                    label="Oven pair",
+                    verdict=VERDICT_INCOMPLETE,
+                    submitted=sample_id,
+                    message="Post checkpoint requires the identified pre specimen and its pre-readings. Post values without that pre-context are not a complete pair.",
                 )
             )
         if post_present and pre_pair and post_pair and pre_pair != post_pair:

@@ -140,6 +140,28 @@ def test_oven_pre_only_checkpoint_does_not_require_post():
     assert post_codes["post_weight"] == "NOT_APPLICABLE"
 
 
+def test_oven_post_checkpoint_requires_post_and_pre_context():
+    missing_post = evaluate_job_stage(
+        stage="OVEN",
+        spec_snapshot=_winder_snapshot(),
+        readings={"pre_weight": 240, "pre_moisture": 10, "oven_checkpoint": "POST", "pre_specimen_id": "S1"},
+        sample_id="S1",
+        require_reasons_on_fail=False,
+    )
+    assert missing_post.verdict != "PASS"
+    post = {row.code: row.verdict for row in missing_post.parameter_results}
+    assert post["post_weight"] == "INCOMPLETE"
+    no_pre = evaluate_job_stage(
+        stage="OVEN",
+        spec_snapshot=_winder_snapshot(),
+        readings={"post_weight": 220, "post_moisture": 6, "oven_checkpoint": "POST", "post_specimen_id": "S2"},
+        sample_id="S2",
+        require_reasons_on_fail=False,
+    )
+    assert no_pre.verdict != "PASS"
+    assert any(row.code == "oven_pair" and row.verdict == "INCOMPLETE" for row in no_pre.parameter_results)
+
+
 def test_oven_pair_mismatch_fails():
     evaluation = evaluate_job_stage(
         stage="OVEN",
