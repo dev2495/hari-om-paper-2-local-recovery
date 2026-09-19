@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** `5306970` QCT-051/053 adapters on parent `72262de` QCT-050 (served BUILD_ID `RuDVwRuPutn9QGHEBn6so`; overlay parent `f78e288`).  
-**Chromium candidate:** BUILD_ID `RuDVwRuPutn9QGHEBn6so` on `:23000` — Chromium project **38/38 PASS** still only through QCT-050. Focused QCT-051/053 Chromium **did not PASS** (job-cards 504 then CSRF 403 / 180s hang kill).  
+**Local product HEAD this cycle:** `5306970` QCT-051/053 adapters on parent `72262de` QCT-050 (served BUILD_ID `RuDVwRuPutn9QGHEBn6so`; overlay parent `f65f476` then this PASS-86 overlay).  
+**Chromium candidate:** BUILD_ID `RuDVwRuPutn9QGHEBn6so` on `:23000` — focused QCT-051+053 **2/2 PASS** (5.9s). BJ sales-queue / Plant-II / seeded-roles **3/3 PASS** after BFF CSRF origin. Prior 38/38 does **not** include those new journeys; a later full-40 was not closed after BFF pid churn.  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -21,8 +21,8 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay | Count |
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
-| Overlay `PASS` | **84** |
-| Overlay `PARTIAL` | **23** (executed, full original procedure not closed) |
+| Overlay `PASS` | **86** |
+| Overlay `PARTIAL` | **21** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
 | Overlay `NOT_RUN` | **82** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
@@ -31,15 +31,15 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Remaining requirements | `NOT_RUN` |
 
-Chromium project 38/38 on BUILD_ID `RuDVwRuPutn9QGHEBn6so` includes BJ01–BJ12 plus original-partials QCT-040–050; that is not the 192-case pack.
+Chromium original-partials on BUILD_ID `RuDVwRuPutn9QGHEBn6so` now includes QCT-051/053. That is not the 192-case pack.
 
 ### Overlay PASS (full criterion at the executed layer)
 
-`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-052`
+`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`
 
 ### Overlay PARTIAL (not PASS)
 
-`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `NAV-01`, `INC-02`, `REG-03`, `REG-04`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-051`, `QCT-053`, `QCT-123`
+`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `NAV-01`, `INC-02`, `REG-03`, `REG-04`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-123`
 
 ### Overlay LIMITATION
 
@@ -73,7 +73,7 @@ Chromium project 38/38 on BUILD_ID `RuDVwRuPutn9QGHEBn6so` includes BJ01–BJ12 
 
 ## Browser journeys
 
-See `docs/review/BROWSER_JOURNEYS.md`. BJ01–BJ12 Chromium **re-run PASS** on BUILD_ID `RuDVwRuPutn9QGHEBn6so` (original-partials QC-01/COMM-08/INC-02/QCT-029–050 PASS). Theme Chromium light+dark 6 PASS historically. PLAN-09 keyboard/narrow Chromium 1 PASS. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
+See `docs/review/BROWSER_JOURNEYS.md`. Original-partials through QCT-051/053 PASS on BUILD_ID `RuDVwRuPutn9QGHEBn6so`. BJ sales-queue / Plant-II / seeded-roles **3/3 PASS** after BFF CSRF origin. Full 40 Chromium project was not closed this wave. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
 
 ## Human UAT
 

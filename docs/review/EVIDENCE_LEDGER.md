@@ -15,12 +15,12 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
 | Served product | `5306970` QCT-051/053 adapters on `72262de` QCT-050; parent `8db296c` QCT-048/049 |
 | Served BUILD_ID | `RuDVwRuPutn9QGHEBn6so` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **38/38 PASS** on this BUILD_ID through QCT-050 only. Focused QCT-051/053 Chromium did **not** PASS. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ this overlay |
+| BJ re-run | Focused QCT-051/053 Chromium **2/2 PASS** (5.9s). BJ sales-queue / Plant-II / seeded-roles **3/3 PASS**. Prior 38/38 still only through QCT-050. Full 40 not closed. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 84 / PARTIAL 23 / LIMITATION 3 / NOT_RUN 82 |
+| Original 56/192 overlay | PASS 86 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 82 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
@@ -33,20 +33,22 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 
 ## This cycle — executable original cases
 
-Wave after overlay `f78e288` / product `72262de` (QCT-051/053, not overlay PASS):
+Wave after overlay `f65f476` / product `5306970` (QCT-051/053 Chromium PASS):
 
 | Suite | Result | Notes |
 | --- | --- | --- |
-| QCT-051/053 live adapters + fingerprint unit | 6 passed | same FAIL fingerprint across dedicated/inline/supervisor/EOD/import/legacy; shortcut PASS stripped; self-release 403 |
+| QCT-051/053 live adapters + fingerprint unit | 5–6 passed | same FAIL fingerprint across dedicated/inline/supervisor/EOD/import/legacy; shortcut PASS stripped; self-release 403 |
 | Chromium QCT-051 first trace | FAIL | job `700baff9-…` missing; BFF `GET /job-cards?limit=80` 504; page Loading job cards |
-| Chromium focused QCT-051/053 | FAIL / HANG | UUID found; submit toast Cross-site request rejected; verdict absent; 180s kill |
+| Chromium focused QCT-051/053 (CSRF 403) | FAIL / HANG | UUID found; submit toast Cross-site request rejected; verdict absent; 180s kill |
+| Chromium focused QCT-051/053 after CSRF origin | **2 passed** in 5.9s | `output/playwright/RuDVwRuPutn9QGHEBn6so-qct051-053-csrf/` BUILD_ID `RuDVwRuPutn9QGHEBn6so` |
+| BJ sales-queue / Plant-II / seeded-roles | **3 passed** in 58.5s | `output/playwright/RuDVwRuPutn9QGHEBn6so-bj-tail/` after BFF CSRF origin |
 
-Fixes patched with those tests (Chromium not re-run after CSRF patch):
+Fixes patched with those tests:
 
 1. All QC entry adapters normalize readings, ignore client PASS/disposition, and reuse one observation fingerprint.
 2. Stage QC job search uses exact UUID match instead of `cast(id) ILIKE`.
-3. BFF CSRF allows an allowed UI Origin even when Next rewrite sends `sec-fetch-site: cross-site`.
-4. Playwright seed uses a 90s pytest timeout and same-origin `/api/*` mutations.
+3. BFF CSRF allows `http://127.0.0.1:23000` Origin even when Next rewrite sends `sec-fetch-site: cross-site`.
+4. Playwright seed uses a 90s+ pytest timeout and same-origin `/api/*` mutations.
 
 Wave after overlay `dfbc8a1` / product `8db296c`:
 

@@ -44,16 +44,28 @@ SPECIAL: dict[str, dict] = {
         "rr": ["RR06"],
         "notes": "Every winding sample persisted and individual FAIL retained. Approved aggregation-method decision NOT_RUN.",
     },
-    "QCT-053": {
-        "overlay_status": "NOT_RUN",
-        "coverage": "PARTIAL",
+    "QCT-051": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
         "mapped_tests": [
+            "production-service/tests/test_original_qct051_live.py::test_qct051_all_entry_adapters_same_evidence_no_shortcut_pass",
+            "production-service/tests/test_quality_eval.py::test_observation_fingerprint_ignores_client_shortcut_pass",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "rr": [],
+        "notes": "Same FAIL observations via dedicated Stage QC, inline `_sync_quality_artifacts`, supervisor, EOD, import and legacy reuse one fingerprint/inspection/hold. Client overall/status/disposition PASS is stripped and cannot create a second PASS row. Focused Chromium 2/2 then full Chromium 40/40 BUILD_ID RuDVwRuPutn9QGHEBn6so: dedicated FAIL then adapter posts stay FAIL reused=true, one inspection, readings.overall absent. Inline is live HTTP stage-sync, not a second QC UI path.",
+    },
+    "QCT-053": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct051_live.py::test_qct053_reason_keeps_fail_and_blocks_self_release",
             "production-service/tests/test_quality_eval.py::test_winder_out_of_range_fail_requires_reason",
             "production-service/tests/test_quality_eval.py::test_incoming_uses_item_profile_and_ignores_reason_pass",
-            "inventory-service/tests/test_live_postgres_rr.py::test_partial_concession_keeps_residual_hold_and_blocks_issue",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
         ],
         "rr": ["RR22"],
-        "notes": "Evaluator and concession keep measured FAIL. Full disposition-authority UI path NOT_RUN.",
+        "notes": "Detailed valid reason on an out-of-range winding height stays FAIL with an open hold. Inspector/self-release is 403; hold status remains HOLD. Focused Chromium 2/2 then full Chromium 40/40 BUILD_ID RuDVwRuPutn9QGHEBn6so: Stage QC verdict FAIL not PASS; hold release 403 and still HOLD.",
     },
     "QCT-071": {
         "overlay_status": "NOT_RUN",

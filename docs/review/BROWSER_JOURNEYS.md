@@ -6,8 +6,11 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
 - Served origin: `http://127.0.0.1:23000` BUILD_ID `RuDVwRuPutn9QGHEBn6so` (QCT-050 complete job card returns hidden-stage issues; form data stays)
-- Full Chromium project this wave: **38 passed / 0 failed** (`--workers=1`, ~1.8m) — `output/playwright/RuDVwRuPutn9QGHEBn6so-full/`
-- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–050)
+- Full Chromium project through QCT-050: **38 passed / 0 failed** (`--workers=1`, ~1.8m) — `output/playwright/RuDVwRuPutn9QGHEBn6so-full/`
+- Focused QCT-051/053 Chromium: **2 passed / 0 failed** in 5.9s — `output/playwright/RuDVwRuPutn9QGHEBn6so-qct051-053-csrf/`
+- BJ sales-queue / Plant-II / seeded-roles: **3 passed / 0 failed** in 58.5s — `output/playwright/RuDVwRuPutn9QGHEBn6so-bj-tail/`
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–053)
+- Full 40 Chromium project was not closed this wave (BFF pid churn mid-run)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
   2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`
