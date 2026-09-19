@@ -11,7 +11,7 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 - Focused QCT-045+051/053/054/055 on peLxeky: **5 passed / 0 failed** in 12.5s — `output/playwright/peLxekyXOJkjRqV0nc9oN-qct045-055/`
 - Full Chromium on peLxeky: **34 passed / 8 failed** in 6.9m after isolated auth `:28001` died — `output/playwright/peLxekyXOJkjRqV0nc9oN-full/`
 - Those 8 BJ logins re-ran **8 passed / 0 failed** in 13.2s after auth restore — `output/playwright/peLxekyXOJkjRqV0nc9oN-bj-tail/`
-- Combined bind on peLxeky is 42/42 across two process groups, not one uninterrupted 42/42. `Jsi64h520Xs_8mFfUP9Qr` has **no** full 42.
+- Combined bind on peLxeky is 42/42 across two process groups, not one uninterrupted 42/42. Full Chromium on `Jsi64h520Xs_8mFfUP9Qr`: **42 passed / 1 failed** in 4.2m — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-full-after-056/` (QCT-037 GET status empty).
 - Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–056)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text

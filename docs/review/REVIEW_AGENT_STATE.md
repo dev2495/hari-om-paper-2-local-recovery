@@ -5,7 +5,7 @@
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
 - Local product HEAD: `4cb6d72` books-state catalog resilience on parent `e060c56` QCT-056 correction audit. Overlay parent `f422f9a` PASS 89. Parents `a43e2d1` QCT-054/055 / `5306970` QCT-051/053. No force-push, no discarded work.
 - Served Next on 23000: BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` pid **90619**. Prior `peLxekyXOJkjRqV0nc9oN` / `AOG_OtZsA38lwPCoQOXkx` / `RuDVwRuPutn9QGHEBn6so` do **not** bind this bundle.
-- Focused Chromium on `Jsi64h520Xs_8mFfUP9Qr`: QCT-056 **1 passed / 0 failed** in 5.2s; QCT-051+053 **2 passed / 0 failed** in 6.1s. Full Chromium 43 in flight (`Jsi64h520Xs_8mFfUP9Qr-full-after-056`). peLxeky focused 5/5; combined 42/42 was two process groups after auth death.
+- Focused Chromium on `Jsi64h520Xs_8mFfUP9Qr`: QCT-056 **1 passed / 0 failed** in 5.2s; QCT-051+053 **2 passed / 0 failed** in 6.1s. Full Chromium **42 passed / 1 failed** in 4.2m (`Jsi64h520Xs_8mFfUP9Qr-full-after-056`). The one fail is QCT-037 GET `qc_profile.status` empty after Apply drafts. peLxeky combined 42/42 was two process groups after auth death.
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
 - Isolated stack: `hariom-erp/runtime-verify`, ports `23000/24000/28001–28008` (28006 unused), DBs `hariom_nverify_*` (left running; foreign `13000` pid 69663 not killed)
 - Original 56/192 restored at `docs/review/baseline-v2/`. Overlay this cycle: **PASS 89 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 79**.
@@ -36,8 +36,8 @@
 
 Do **not** wait for the owner to run the 192-case suite. Continue the isolated execution-and-fix cycle:
 
-1. Pack-order **QCT-057+** (record physically completed output that fails QC — actual production/WIP/FG retained as restricted; failed quantity is not labelled good or hidden by form rejection). Prove the original procedure, not the title.
-2. Finish the in-flight full Chromium `--workers=1` on BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` (`output/playwright/Jsi64h520Xs_8mFfUP9Qr-full-after-056/`). If a test hangs >180s, kill hung pids and stop; do not loop.
+1. Repair Chromium QCT-037 on BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` (Apply drafts then GET `qc_profile.status` was `""`, expected `"draft"`). Do not title-match; prove apply stays draft. Then pack-order **QCT-057+** (record physically completed output that fails QC — actual production/WIP/FG retained as restricted; failed quantity is not labelled good or hidden by form rejection).
+2. Do not re-loop the full 43 until QCT-037 is repaired; re-run QCT-037 then the affected Chromium tests. If a test hangs >180s, kill hung pids and stop.
 3. Do not stall on WebKit extract hang or Safari. Keep the exact owner asks above.
 4. Keep GROSS_ESTIMATE and PARTIAL_REJECTION_UNSUPPORTED as limitations. `INC-01` stays NOT_RUN. `REG-02` stays NOT_RUN. `REG-04` stays PARTIAL.
 5. Remaining PARTIALs only when the full original procedure is proven: `COMM-01`–`COMM-07`/`COMM-09`/`COMM-10`/`COMM-12`, `REL-01`–`REL-03`, `NAV-01`, `INC-02` browser 422/409/malformed-body and post-commit response-loss, `REG-03`, `REG-04`, `QCT-005`/`QCT-006`/`QCT-008`/`QCT-123`.

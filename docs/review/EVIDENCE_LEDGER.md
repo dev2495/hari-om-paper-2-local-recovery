@@ -15,7 +15,7 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
 | Served product | QCT-056 correction audit `e060c56` + books-state catalog resilience `4cb6d72`; served BUILD_ID `Jsi64h520Xs_8mFfUP9Qr`; overlay `f422f9a` PASS 89 |
 | Served BUILD_ID | `Jsi64h520Xs_8mFfUP9Qr` at `http://127.0.0.1:23000` |
-| BJ re-run | QCT-056 Chromium **1/1 PASS** (5.2s) and QCT-051+053 **2/2 PASS** (6.1s) on `Jsi64h520Xs_8mFfUP9Qr` after books-state 200. Full 43 in flight. peLxeky focused 5/5; combined 42/42 was two process groups. |
+| BJ re-run | QCT-056 Chromium **1/1 PASS** (5.2s) and QCT-051+053 **2/2 PASS** (6.1s) on `Jsi64h520Xs_8mFfUP9Qr` after books-state 200. Full Chromium **42 passed / 1 failed** in 4.2m (QCT-037). peLxeky focused 5/5; combined 42/42 was two process groups. |
 | Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
@@ -42,6 +42,7 @@ Wave after overlay `b1958f5` / product `e060c56` (QCT-056):
 | books-state catalog resilience + MASTERDATA_SERVICE_URL | 200 | `_fetch_paper_catalog` / `_fetch_inventory_item_catalog` return `{}` on `httpx.ConnectError`; start.sh exports `MASTERDATA_SERVICE_URL` |
 | Chromium focused QCT-056 after books-state 200 | **1 passed** in 5.2s | `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct056-after-books/` |
 | Chromium focused QCT-051+053 after that bind | **2 passed** in 6.1s | `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct051-053-after-056/` |
+| Chromium full 43 on Jsi64h520Xs | **42 passed / 1 failed** in 4.2m | QCT-037 GET `qc_profile.status` `""` after Apply drafts; QCT-051–056 all passed in that run |
 
 Fixes patched with those tests:
 
