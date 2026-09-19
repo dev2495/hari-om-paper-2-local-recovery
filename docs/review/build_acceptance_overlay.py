@@ -130,7 +130,16 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Offline/paper draft is not an authoritative release. After the server quality_context_version changes, reconnect submit is 409 STALE_CONTEXT: observations (height 90) and signed profile fingerprint are retained, no inspection/hold is written, offline_release is false. Chromium BUILD_ID hSNF8iFPDPUtJa-w74ao_: Keep paper/offline draft, OFFLINE_DRAFT 409, bump version, reconnect shows stale-conflict banner with retained height and signed profile; inspections stay empty.",
     },
-    "QCT-071": {
+    "QCT-063": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct063_live.py::test_qct063_signed_multi_fail_retry_keeps_one_case_hold_and_quantity",
+            "production-service/tests/test_quality_eval.py::test_qct063_replay_lock_unique_fingerprint_and_quantity_scope",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Signed multi-field FAIL (id/od/height) with common case is recorded once; identical retry returns reused=true with the same inspection and hold. All three failures stay on the case; affected_quantity is planned_qty once, not doubled; job qty unchanged. Chromium BUILD_ID EYFrs5GhOyHNGtioE2__r: Stage QC three FAILs, grouped-case COMMON, retry POST reused, inspections length 1, holds length 1.",
+    },
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
         "mapped_tests": [

@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 95,
-      "NOT_RUN": 73,
+      "PASS": 96,
+      "NOT_RUN": 72,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 27,
-      "EXACT_EXECUTED": 95,
+      "EXACT_EXECUTED": 96,
       "LIMITATION": 3,
-      "NONE": 57,
+      "NONE": 56,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2867,13 +2867,17 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct063_live.py::test_qct063_signed_multi_fail_retry_keeps_one_case_hold_and_quantity",
+        "production-service/tests/test_quality_eval.py::test_qct063_replay_lock_unique_fingerprint_and_quantity_scope",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Signed multi-field FAIL (id/od/height) with common case is recorded once; identical retry returns reused=true with the same inspection and hold. All three failures stay on the case; affected_quantity is planned_qty once, not doubled; job qty unchanged. Chromium BUILD_ID EYFrs5GhOyHNGtioE2__r: Stage QC three FAILs, grouped-case COMMON, retry POST reused, inspections length 1, holds length 1."
     },
     {
       "id": "QCT-064",
@@ -4801,7 +4805,8 @@
         "QCT-064"
       ],
       "linked_pass": [
-        "QCT-055"
+        "QCT-055",
+        "QCT-063"
       ],
       "limitations": []
     },

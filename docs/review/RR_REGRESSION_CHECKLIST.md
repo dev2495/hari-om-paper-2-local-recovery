@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: QCT-062 required instrument evidence; served UI BUILD_ID `EYFrs5GhOyHNGtioE2__r`; overlay parent `0edff86` PASS 94  
+Local candidate: QCT-063 durable multi-field FAIL replay; served UI BUILD_ID `EYFrs5GhOyHNGtioE2__r`; overlay parent `886abd3` PASS 95  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.

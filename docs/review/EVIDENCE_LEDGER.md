@@ -4,8 +4,8 @@ Date: 2026-09-19
 Branch: `cursor/ui-polish-nav-c5f9`  
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
-Docs HEAD at wave start: `0edff86e7cfd214551ab22fc6f6a201d4cc28d5a`  
-Product at wave start: `279dfc0` (Queue commercial releases that lack QC setup and require an approved attach before checkpoint.)
+Docs HEAD at wave start: `886abd3271515a875f38bd373e5508b299164f51`  
+Product at wave start: `1943b30` (Require documented in-cal instrument evidence before a measured QC PASS.)
 
 ## Compact evidence index
 
@@ -13,24 +13,38 @@ Product at wave start: `279dfc0` (Queue commercial releases that lack QC setup a
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-062 required instrument evidence; served BUILD_ID `EYFrs5GhOyHNGtioE2__r`; overlay parent `0edff86` PASS 94 |
+| Served product | QCT-063 durable multi-field FAIL replay; served BUILD_ID `EYFrs5GhOyHNGtioE2__r`; overlay parent `886abd3` PASS 95 |
 | Served BUILD_ID | `EYFrs5GhOyHNGtioE2__r` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-062 **1/1** in 4.9s. Uncontended full Chromium **48 passed / 0 failed** in 2.5m; auth `:28001` stayed up. One uninterrupted 48/48. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ `0edff86` ⊂ `1943b30` ⊂ this overlay |
+| BJ re-run | Focused QCT-063 **1/1** in 4.1s. Uncontended full Chromium **49 passed / 0 failed** in 2.2m after auth restore; auth `:28001` stayed up. One uninterrupted 49/49. An earlier attempt aborted when auth pid **9821** died. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ `0edff86` ⊂ `1943b30` ⊂ `886abd3` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
-| Schema | create_all, no `alembic_version`. No new tables this wave. Quality context version lives in existing `job_cards.spec_snapshot` JSONB. |
+| Schema | create_all, no `alembic_version`. No new tables this wave. Unique fingerprint index on existing `quality_inspections.observation_fingerprint`. Affected quantity lives on inspection evaluation JSON. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 95 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 73 |
+| Original 56/192 overlay | PASS 96 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 72 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
 - Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `EYFrs5GhOyHNGtioE2__r` pid **32109** (npm parent **32080**)
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **31662** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
-- Auth **9821** :28001 (stayed up through this full Chromium), master **90295** :28002, spec **31660** :28003, analytics **13483** :28007
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **39306** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
+- Auth **42087** :28001 (restored after pid **9821** died; stayed up through the uninterrupted 49/49 Chromium), master **90295** :28002, spec **31660** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 
 ## This cycle — executable original cases
+
+Wave after overlay `886abd3` / product `1943b30` (QCT-063 durable multi-field FAIL replay):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-063 unit + live + QCT-055/048/062 regression | 4+ live passed; router unit green | Signed three-field FAIL retry reused=true; 1 inspection, 1 hold, qty 10 not doubled |
+| Chromium focused QCT-063 | **1 passed** in 4.1s | Stage QC COMMON case, retry POST reused, inspections/holds length 1 |
+| Chromium full project | **49 passed / 0 failed** in 2.2m | workers=1 Chrome channel; one uninterrupted 49/49 after auth restore. Prior attempt aborted when auth 9821 died at QCT-048. |
+
+Fixes patched with those tests:
+
+1. Replay of an identical signed multi-field FAIL reuses the original inspection (`reused=true`) under a transaction fingerprint lock and unique `observation_fingerprint` index. One HOLD per sample scope/round.
+2. `affected_quantity` is stamped from planned_qty on the evaluation JSON and is not summed on retry. Job planned/released qty is unchanged.
+3. Inspection list attaches the source hold. CSRF Origin checks kept. Isolated production restarted with jwt_len 23 and localhost MASTER/SALES URLs. Auth `:28001` restored after pid 9821 died; foreign `:13000` pid 69663 not killed.
 
 Wave after overlay `0edff86` / product `279dfc0` (QCT-062 instrument readiness):
 
