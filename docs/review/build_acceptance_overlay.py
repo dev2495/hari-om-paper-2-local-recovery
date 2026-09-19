@@ -53,7 +53,7 @@ SPECIAL: dict[str, dict] = {
             "apps/web-ui/e2e/original-partials.spec.cjs",
         ],
         "rr": [],
-        "notes": "Same FAIL observations via dedicated Stage QC, inline `_sync_quality_artifacts`, supervisor, EOD, import and legacy reuse one fingerprint/inspection/hold. Client overall/status/disposition PASS is stripped and cannot create a second PASS row. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: dedicated FAIL then adapter posts stay FAIL reused=true, one inspection, readings.overall absent.",
+        "notes": "Same FAIL observations via dedicated Stage QC, inline `_sync_quality_artifacts`, supervisor, EOD, import and legacy reuse one fingerprint/inspection/hold. Client overall/status/disposition PASS is stripped and cannot create a second PASS row. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: dedicated FAIL then adapter posts stay FAIL reused=true, one inspection, readings.overall absent.",
     },
     "QCT-053": {
         "overlay_status": "PASS",
@@ -65,7 +65,7 @@ SPECIAL: dict[str, dict] = {
             "apps/web-ui/e2e/original-partials.spec.cjs",
         ],
         "rr": ["RR22"],
-        "notes": "Detailed valid reason on an out-of-range winding height stays FAIL with an open hold. Inspector/self-release is 403; hold status remains HOLD. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: Stage QC verdict FAIL not PASS; hold release 403 and still HOLD.",
+        "notes": "Detailed valid reason on an out-of-range winding height stays FAIL with an open hold. Inspector/self-release is 403; hold status remains HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: Stage QC verdict FAIL not PASS; hold release 403 and still HOLD.",
     },
     "QCT-054": {
         "overlay_status": "PASS",
@@ -76,7 +76,7 @@ SPECIAL: dict[str, dict] = {
             "apps/web-ui/e2e/original-partials.spec.cjs",
         ],
         "rr": ["RR22"],
-        "notes": "Cause under investigation plus factual note/containment/assignee saves FAIL without a fabricated root cause. Client CLOSED/rca_complete is stripped; investigation_status stays OPEN; hold remains HOLD. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: Stage QC select Cause under investigation, verdict FAIL, investigation OPEN.",
+        "notes": "Cause under investigation plus factual note/containment/assignee saves FAIL without a fabricated root cause. Client CLOSED/rca_complete is stripped; investigation_status stays OPEN; hold remains HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: Stage QC select Cause under investigation, verdict FAIL, investigation OPEN.",
     },
     "QCT-055": {
         "overlay_status": "PASS",
@@ -86,7 +86,7 @@ SPECIAL: dict[str, dict] = {
             "production-service/tests/test_quality_eval.py::test_common_cause_links_three_failures_without_losing_parameters",
             "apps/web-ui/e2e/original-partials.spec.cjs",
         ],
-        "notes": "One common-cause explanation links ID/OD/height FAILs; each parameter remains on the inspection. Grouped case COMMON, hold HOLD. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: three failing fields, grouped-case COMMON, all three reasons share common_cause_id.",
+        "notes": "One common-cause explanation links ID/OD/height FAILs; each parameter remains on the inspection. Grouped case COMMON, hold HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: three failing fields, grouped-case COMMON, all three reasons share common_cause_id.",
     },
     "QCT-071": {
         "overlay_status": "NOT_RUN",

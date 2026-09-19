@@ -5,10 +5,12 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `AOG_OtZsA38lwPCoQOXkx` (QCT-054/055 unknown-cause + common-cause UI)
-- Focused QCT-054/055 Chromium: **2 passed / 0 failed** in 5.6s — `output/playwright/AOG_OtZsA38lwPCoQOXkx-qct054-055/`
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `peLxekyXOJkjRqV0nc9oN` (unknown-cause + common-cause; Tab from FAIL reading lands on the reason field)
+- Focused QCT-045+051/053/054/055: **5 passed / 0 failed** in 12.5s — `output/playwright/peLxekyXOJkjRqV0nc9oN-qct045-055/`
+- Full Chromium: **34 passed / 8 failed** in 6.9m after isolated auth `:28001` died — `output/playwright/peLxekyXOJkjRqV0nc9oN-full/`
+- Those 8 BJ logins re-ran **8 passed / 0 failed** in 13.2s after auth restore — `output/playwright/peLxekyXOJkjRqV0nc9oN-bj-tail/`
+- Combined bind on this BUILD_ID is 42/42 across two process groups, not one uninterrupted 42/42
 - Prior full Chromium through QCT-053: **40 passed / 0 failed** on BUILD_ID `RuDVwRuPutn9QGHEBn6so` — does not bind this bundle
-- Full 42-test Chromium on `AOG_OtZsA38lwPCoQOXkx` stalled after test 15 under a concurrent second Playwright suite and was killed (>180s); not looped
 - Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–055)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text

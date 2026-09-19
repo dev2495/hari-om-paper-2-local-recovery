@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** QCT-054/055 unknown-cause + common-cause on parent `5306970` (served BUILD_ID `AOG_OtZsA38lwPCoQOXkx`; overlay parent `bf2207d`).  
-**Chromium candidate:** BUILD_ID `AOG_OtZsA38lwPCoQOXkx` on `:23000` — focused QCT-054+055 **2/2 PASS** (5.6s). Full 42-test Chromium stalled after test 15 under a concurrent second Playwright suite and was killed (>180s, not looped). Prior `RuDVwRuPutn9QGHEBn6so` 40/40 does **not** bind this bundle.  
+**Local product HEAD this cycle:** QCT-054/055 on parent `5306970` (tab-order fix served as BUILD_ID `peLxekyXOJkjRqV0nc9oN`; overlay `dd6973a` PASS 88).  
+**Chromium candidate:** BUILD_ID `peLxekyXOJkjRqV0nc9oN` on `:23000` — focused QCT-045+051/053/054/055 **5/5 PASS**. Full Chromium **34/42** in one process after auth `:28001` died; those 8 BJ logins **re-ran 8/8 PASS** after auth restore. Combined bind 42/42 on this BUILD_ID, not a single uninterrupted process. Prior `RuDVwRuPutn9QGHEBn6so` 40/40 does **not** bind this bundle.  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -67,13 +67,13 @@ Chromium original-partials on BUILD_ID `AOG_OtZsA38lwPCoQOXkx` now includes QCT-
 | RR27 | CODE | calendars remain policy text; live production-calendar UI **NOT_RUN**; supplier schedule API executed as PUR-02 |
 | RR28 | PASS | production live `test_export_includes_more_than_500_job_cards` **PASSED** |
 | RR29–RR31 | PASS | prior auth live + notifications (9 passed) |
-| RR32–RR33 | PASS | Chromium BJ11/BJ12 on BUILD_ID `AOG_OtZsA38lwPCoQOXkx`; QCT-029–055 including unknown-cause OPEN and common-cause grouped FAILs |
+| RR32–RR33 | PASS | Chromium BJ11/BJ12 on BUILD_ID `peLxekyXOJkjRqV0nc9oN`; QCT-029–055 including unknown-cause OPEN and common-cause grouped FAILs |
 | RR34–RR35 | STALE vs current source | Docker images `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` still exist — rebuild required |
 | RR36 | NOT_RUN | no PR retarget / main merge / deploy |
 
 ## Browser journeys
 
-See `docs/review/BROWSER_JOURNEYS.md`. Focused QCT-054/055 **2/2 PASS** on BUILD_ID `AOG_OtZsA38lwPCoQOXkx`. Full 42 Chromium was killed after a >180s stall (concurrent second Playwright suite); not looped. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
+See `docs/review/BROWSER_JOURNEYS.md`. Focused QCT-045/051/053/054/055 **5/5 PASS** on BUILD_ID `peLxekyXOJkjRqV0nc9oN`. Full Chromium 34/42 then BJ-tail **8/8** after auth restore. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
 
 ## Human UAT
 

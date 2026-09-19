@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: `5306970` QCT-051/053; served UI BUILD_ID `RuDVwRuPutn9QGHEBn6so`; parent `72262de`  
+Local candidate: `a43e2d1` QCT-054/055; served UI BUILD_ID `peLxekyXOJkjRqV0nc9oN`; parent `5306970`  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.

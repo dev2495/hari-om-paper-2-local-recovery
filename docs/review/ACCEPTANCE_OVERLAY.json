@@ -2600,7 +2600,7 @@
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "Same FAIL observations via dedicated Stage QC, inline `_sync_quality_artifacts`, supervisor, EOD, import and legacy reuse one fingerprint/inspection/hold. Client overall/status/disposition PASS is stripped and cannot create a second PASS row. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: dedicated FAIL then adapter posts stay FAIL reused=true, one inspection, readings.overall absent."
+      "notes": "Same FAIL observations via dedicated Stage QC, inline `_sync_quality_artifacts`, supervisor, EOD, import and legacy reuse one fingerprint/inspection/hold. Client overall/status/disposition PASS is stripped and cannot create a second PASS row. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: dedicated FAIL then adapter posts stay FAIL reused=true, one inspection, readings.overall absent."
     },
     {
       "id": "QCT-052",
@@ -2649,7 +2649,7 @@
       ],
       "bj": [],
       "limitation": null,
-      "notes": "Detailed valid reason on an out-of-range winding height stays FAIL with an open hold. Inspector/self-release is 403; hold status remains HOLD. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: Stage QC verdict FAIL not PASS; hold release 403 and still HOLD."
+      "notes": "Detailed valid reason on an out-of-range winding height stays FAIL with an open hold. Inspector/self-release is 403; hold status remains HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: Stage QC verdict FAIL not PASS; hold release 403 and still HOLD."
     },
     {
       "id": "QCT-054",
@@ -2673,7 +2673,7 @@
       ],
       "bj": [],
       "limitation": null,
-      "notes": "Cause under investigation plus factual note/containment/assignee saves FAIL without a fabricated root cause. Client CLOSED/rca_complete is stripped; investigation_status stays OPEN; hold remains HOLD. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: Stage QC select Cause under investigation, verdict FAIL, investigation OPEN."
+      "notes": "Cause under investigation plus factual note/containment/assignee saves FAIL without a fabricated root cause. Client CLOSED/rca_complete is stripped; investigation_status stays OPEN; hold remains HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: Stage QC select Cause under investigation, verdict FAIL, investigation OPEN."
     },
     {
       "id": "QCT-055",
@@ -2696,7 +2696,7 @@
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "One common-cause explanation links ID/OD/height FAILs; each parameter remains on the inspection. Grouped case COMMON, hold HOLD. Chromium BUILD_ID AOG_OtZsA38lwPCoQOXkx: three failing fields, grouped-case COMMON, all three reasons share common_cause_id."
+      "notes": "One common-cause explanation links ID/OD/height FAILs; each parameter remains on the inspection. Grouped case COMMON, hold HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: three failing fields, grouped-case COMMON, all three reasons share common_cause_id."
     },
     {
       "id": "QCT-056",
