@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 94,
-      "NOT_RUN": 74,
+      "PASS": 95,
+      "NOT_RUN": 73,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 27,
-      "EXACT_EXECUTED": 94,
+      "EXACT_EXECUTED": 95,
       "LIMITATION": 3,
-      "NONE": 58,
+      "NONE": 57,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2845,13 +2845,17 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct062_live.py::test_qct062_missing_and_expired_instrument_block_then_documented_evidence_passes",
+        "production-service/tests/test_quality_eval.py::test_required_instrument_missing_never_passes",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Readings that require a calibrated instrument with missing instrument, expired instrument, or status-only valid without documented due/certificate are 409 INVALID_INSTRUMENT; no inspection/hold; calibration is not invented and in-range numbers are not measured PASS. Documented in-cal evidence then PASS. Chromium BUILD_ID EYFrs5GhOyHNGtioE2__r: missing conflict, expired conflict, then PASS with CERT-QCT062."
     },
     {
       "id": "QCT-063",
@@ -5129,7 +5133,8 @@
         "QCT-110"
       ],
       "linked_pass": [
-        "QCT-011"
+        "QCT-011",
+        "QCT-062"
       ],
       "limitations": []
     },

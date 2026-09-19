@@ -4,8 +4,8 @@ Date: 2026-09-19
 Branch: `cursor/ui-polish-nav-c5f9`  
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
-Docs HEAD at wave start: `a77adbde30f500a0de7f3c82b3a325b1687527b3`  
-Product at wave start: `243535a` (Keep offline QC drafts from releasing when the signed profile version has moved.)
+Docs HEAD at wave start: `0edff86e7cfd214551ab22fc6f6a201d4cc28d5a`  
+Product at wave start: `279dfc0` (Queue commercial releases that lack QC setup and require an approved attach before checkpoint.)
 
 ## Compact evidence index
 
@@ -13,24 +13,38 @@ Product at wave start: `243535a` (Keep offline QC drafts from releasing when the
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-060 missing-QC queue admission + QCT-061 attach; served BUILD_ID `_opGJjeYOkhKoqBiWqi2C`; overlay parent `a77adbd` PASS 92 |
-| Served BUILD_ID | `_opGJjeYOkhKoqBiWqi2C` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-060 **1/1** in 5.7s. Uncontended full Chromium **45 passed / 2 failed** in 6.2m; auth `:28001` stayed up. Release-winder 500 from missing `SALES_SERVICE_URL`; after isolated sales URL those two **2/2** in 46s. Combined 47/47 across two process groups. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ this overlay |
+| Served product | QCT-062 required instrument evidence; served BUILD_ID `EYFrs5GhOyHNGtioE2__r`; overlay parent `0edff86` PASS 94 |
+| Served BUILD_ID | `EYFrs5GhOyHNGtioE2__r` at `http://127.0.0.1:23000` |
+| BJ re-run | Focused QCT-062 **1/1** in 4.9s. Uncontended full Chromium **48 passed / 0 failed** in 2.5m; auth `:28001` stayed up. One uninterrupted 48/48. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ `0edff86` ⊂ `1943b30` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Quality context version lives in existing `job_cards.spec_snapshot` JSONB. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 94 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 74 |
+| Original 56/192 overlay | PASS 95 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 73 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `_opGJjeYOkhKoqBiWqi2C` pid **24285** (npm parent **24256**)
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **26874** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
-- Auth **9821** :28001 (stayed up through this full Chromium), master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `EYFrs5GhOyHNGtioE2__r` pid **32109** (npm parent **32080**)
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **31662** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
+- Auth **9821** :28001 (stayed up through this full Chromium), master **90295** :28002, spec **31660** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 
 ## This cycle — executable original cases
+
+Wave after overlay `0edff86` / product `279dfc0` (QCT-062 instrument readiness):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-062 unit + live + QCT-060 regression | 35 passed in quality_eval+live batch | Missing/expired/undocumented instrument 409 INVALID_INSTRUMENT; documented in-cal then PASS; no invented calibration |
+| Chromium focused QCT-062 | **1 passed** in 4.9s | `output/playwright/EYFrs5GhOyHNGtioE2__r-qct062/` missing conflict, expired conflict, then PASS CERT-QCT062 |
+| Chromium full project | **48 passed / 0 failed** in 2.5m | `output/playwright/EYFrs5GhOyHNGtioE2__r-full/` workers=1 Chrome channel; one uninterrupted 48/48 |
+
+Fixes patched with those tests:
+
+1. Frozen QC parameters can require a calibrated instrument. Inspection and inline quality_checks 409 `INVALID_INSTRUMENT` when evidence is missing or expired. In-range numbers are not measured PASS.
+2. Status-only `valid` without a due date or certificate is not invented calibration. Documented in-cal evidence (id + due/certificate) allows measured evaluation.
+3. Stage QC UI collects instrument id, due, status, and evidence ref; CSRF Origin checks kept. Isolated production/spec restarted with jwt_len 23 and localhost MASTER/SALES URLs.
 
 Wave after overlay `a77adbd` / product `243535a` (QCT-060 missing-setup + QCT-061 attach):
 
