@@ -18,8 +18,8 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import sessionmaker
 
 from src.database import Base, engine
-from src.models import JobCard, PLANT_A_UUID, QualityHold, QualityInspection, SalesOrder
-from src.routers.planning import capture_stage_output
+from src.models import JobCard, JobCardStage, PLANT_A_UUID, QualityHold, QualityInspection, SalesOrder
+from src.routers.planning import _ensure_job_card_stages, _routing_stages_from_snapshot, capture_stage_output
 from src.routers.quality import InspectionCreate, create_inspection, release_hold
 from src.schemas.planning import StageOutputPayload
 
@@ -88,6 +88,17 @@ def _job(db, suffix: str, notch: bool = True) -> JobCard:
     db.add(job)
     db.flush()
     return job
+
+
+def _ensure_stages(db, job: JobCard) -> None:
+    routing = _routing_stages_from_snapshot(job.spec_snapshot or {})
+    _ensure_job_card_stages(
+        db=db,
+        job_card=job,
+        routing_stages=routing,
+        first_stage=job.current_stage or "WINDER",
+    )
+    db.flush()
 
 
 def test_qc03_persists_winding_oven_and_process_field_names():
@@ -296,15 +307,45 @@ def test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_c
         )
         assert failed.status == "FAIL"
         assert failed.hold_id is not None
+        _ensure_stages(db, job)
+        db.commit()
+        recorded = capture_stage_output(
+            job.id,
+            StageOutputPayload(
+                stage="WINDER",
+                output_qty=1,
+                save_mode="complete",
+                actuals={"stock_status": "UNRESTRICTED", "disposition": "RELEASED"},
+            ),
+            db=db,
+            plant_id=str(PLANT_A_UUID),
+            current_user={"sub": "pm-1", "roles": ["PlantManager"]},
+        )
+        assert recorded.entry_saved is True
+        assert recorded.job_card_status == "IN_PROGRESS"
+        assert recorded.current_stage == "WINDER"
+        assert recorded.stage_status != "COMPLETED"
+        assert recorded.quality_hold_ids
+        db.expire_all()
+        winder = (
+            db.query(JobCardStage)
+            .filter(JobCardStage.job_card_id == job.id, JobCardStage.stage_type == "WINDER")
+            .one()
+        )
+        assert winder.output_qty == 1
+        assert (winder.actuals_snapshot or {}).get("stock_status") == "QC_HOLD"
+        assert (winder.actuals_snapshot or {}).get("failed_qty_labelled_good") is False
+        assert winder.status != "COMPLETED"
         with pytest.raises(HTTPException) as blocked:
             capture_stage_output(
                 job.id,
-                StageOutputPayload(stage="WINDER", output_qty=1, save_mode="complete"),
+                StageOutputPayload(stage="OVEN", output_qty=1, save_mode="complete"),
                 db=db,
                 plant_id=str(PLANT_A_UUID),
                 current_user={"sub": "pm-1", "roles": ["PlantManager"]},
             )
         assert blocked.value.status_code == 409
+        assert blocked.value.detail["code"] == "JOB_HAS_ACTIVE_QC_HOLD"
         retest = create_inspection(
             InspectionCreate(
                 job_card_id=job.id,

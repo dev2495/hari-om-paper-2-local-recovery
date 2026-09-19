@@ -502,6 +502,17 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return status !== "COMPLETED"
   })
   const dispatchGateBlocked = incompleteUpstreamStages.length > 0 || activeHoldCount > 0
+  const restrictedPhysicalStage =
+    stages.find((stage: any) => {
+      const actuals = stage?.actuals_snapshot || {}
+      return (
+        Boolean(actuals.quality_review_pending) ||
+        String(actuals.stock_status || "").toUpperCase() === "QC_HOLD"
+      )
+    }) ||
+    (activeHoldCount > 0
+      ? stages.find((stage: any) => stage?.output_qty != null && Number(stage.output_qty) > 0)
+      : undefined)
   const wipQty = Math.max(
     0,
     Number(documentSnapshot?.material_truth?.planned_output_qty || card?.planned_qty || 0) -
@@ -1055,6 +1066,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           type="button"
           onClick={() => saveStage(stage, "complete")}
           disabled={disabled}
+          data-testid={`complete-stage-${stage}`}
           className="inline-flex items-center gap-2 bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <CheckCircle2 className="h-4 w-4" />
@@ -1112,6 +1124,30 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return renderDispatchSection()
   }
 
+  function renderRestrictedPhysicalOutput() {
+    if (!restrictedPhysicalStage) return null
+    return (
+      <section
+        data-testid="restricted-physical-output"
+        className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3"
+      >
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">
+          Restricted physical output
+        </div>
+        <p className="mt-1 text-sm font-semibold text-amber-950">
+          Actual production is retained. Failed quantity is not unrestricted good stock.
+        </p>
+        <div className="mt-2 grid gap-2 text-sm text-amber-950 md:grid-cols-3">
+          <div>Stage {restrictedPhysicalStage.stage_type}</div>
+          <div data-testid="restricted-output-qty">Qty {formatNumber(restrictedPhysicalStage.output_qty, 0)}</div>
+          <div data-testid="restricted-stock-status">
+            {String(restrictedPhysicalStage.actuals_snapshot?.stock_status || "QC_HOLD")}
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   function renderCompactExecutionLayout() {
     const previousStageRows = stages.filter((row: any) => row.stage_type !== currentStage && row.status === "COMPLETED")
     return (
@@ -1147,6 +1183,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             </div>
           </div>
         ) : null}
+        {renderRestrictedPhysicalOutput()}
         <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_24rem]">
             <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1f2937_60%,#334155_100%)] px-6 py-6 text-white lg:border-b-0 lg:border-r">
@@ -1190,6 +1227,18 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   </div>
                 </div>
               ) : null}
+              <div
+                data-testid="dispatch-gate"
+                className={`rounded-2xl border px-4 py-3 ${dispatchGateBlocked ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}
+              >
+                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Dispatch Gate</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{dispatchGateBlocked ? "Blocked" : "Ready"}</div>
+                <div className="mt-1 text-xs text-slate-600">
+                  {dispatchGateBlocked
+                    ? `Pending: ${incompleteUpstreamStages.join(", ")}${activeHoldCount > 0 ? ` | QC holds ${activeHoldCount}` : ""}`
+                    : "Packing and QC are complete with no active hold."}
+                </div>
+              </div>
               <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -3156,6 +3205,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </div>
         </section>
 
+        {renderRestrictedPhysicalOutput()}
         <section className="mt-4 border border-slate-800">
           <div className="border-b border-slate-800 bg-slate-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-900">
             Material Truth
@@ -3182,7 +3232,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               {carryForward.suggested ? carryForward.reason : "No remainder suggestion from completed stages yet."}
             </div>
           </div>
-          <div className={`rounded-xl border p-4 ${dispatchGateBlocked ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
+          <div className={`rounded-xl border p-4 ${dispatchGateBlocked ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`} data-testid="dispatch-gate">
             <div className={`text-xs font-semibold uppercase tracking-wide ${dispatchGateBlocked ? "text-rose-800" : "text-emerald-800"}`}>Dispatch Gate</div>
             <div className="mt-2 text-2xl font-semibold text-slate-900">{dispatchGateBlocked ? "Blocked" : "Ready"}</div>
             <div className="mt-1 text-sm text-slate-600">

@@ -1208,4 +1208,58 @@ test("QCT-056 changing a failing number keeps original FAIL, requires correction
   await assertCritical()
 })
 
+test("QCT-057 physically completed FAIL-QC output stays recorded as restricted and is not labelled good", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [{ kind: "response", status: 409, urlIncludes: "/stage-output" }],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct057_live.py::test_qct057_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct057-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const recorded = await page.request.post(`/api/production/job-cards/${jobId}/stage-output`, {
+    headers: plantHeaders,
+    data: {
+      stage: "WINDER",
+      output_qty: 8,
+      scrap_qty: 1,
+      save_mode: "complete",
+      actuals: { stock_status: "UNRESTRICTED", disposition: "RELEASED" },
+      quality_checks: { overall: "PASS", status: "PASS", stock_status: "UNRESTRICTED" },
+    },
+  })
+  expect(recorded.status(), await recorded.text()).toBe(200)
+  const body = await recorded.json()
+  expect(body.entry_saved).toBeTruthy()
+  expect(body.job_card_status).toBe("IN_PROGRESS")
+  expect(body.current_stage).toBe("WINDER")
+  expect(String(body.stage_status || "")).not.toBe("COMPLETED")
+  expect(body.quality_hold_ids.length).toBeGreaterThan(0)
+  expect(JSON.stringify(body.warnings || [])).toMatch(/restricted/i)
+
+  const moved = await page.request.post(`/api/production/job-cards/${jobId}/stage-output`, {
+    headers: plantHeaders,
+    data: { stage: "OVEN", output_qty: 8, save_mode: "complete" },
+  })
+  expect(moved.status()).toBe(409)
+  expect(await moved.text()).toMatch(/JOB_HAS_ACTIVE_QC_HOLD/)
+
+  await page.goto(`/production/job-cards/${jobId}`, { waitUntil: "domcontentloaded" })
+  const banner = page.getByTestId("restricted-physical-output")
+  await expect(banner).toBeVisible()
+  await expect(banner).toContainText(/not unrestricted good stock/i)
+  await expect(page.getByTestId("restricted-output-qty")).toContainText("8")
+  await expect(page.getByTestId("restricted-stock-status")).toHaveText(/QC_HOLD/)
+  await expect(page.getByTestId("dispatch-gate")).toContainText(/Blocked/i)
+  const holds = await page.request.get(`/api/production/quality/holds?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect((await holds.json())[0].status).toBe("HOLD")
+  await assertCritical()
+})
+
+
 

@@ -118,6 +118,45 @@ STAGE_DEFAULT_CAPACITY_UNITS = {
     "DISPATCH": "TUBES_PER_DAY",
 }
 QC_BLOCKING_STATUSES = {"HOLD"}
+_CLAIMED_GOOD_STOCK_LABELS = {"UNRESTRICTED", "RELEASED", "GOOD", "AVAILABLE", "PASS", "FREE"}
+_CLAIMED_GOOD_ELIGIBILITY = {"UNRESTRICTED", "RELEASED", "ELIGIBLE", "PASS", "GOOD"}
+
+
+def _restricted_stock_actuals(actuals: Optional[dict[str, Any]]) -> dict[str, Any]:
+    payload = dict(actuals or {})
+    claimed_status = str(payload.get("stock_status") or "").strip().upper()
+    claimed_disposition = str(payload.get("disposition") or "").strip().upper()
+    claimed_eligibility = str(payload.get("eligibility") or "").strip().upper()
+    payload["stock_status"] = "QC_HOLD"
+    payload["eligibility"] = "BLOCKED"
+    payload["quality_review_pending"] = True
+    payload["physical_output_recorded"] = True
+    payload["failed_qty_labelled_good"] = False
+    if (
+        claimed_status in _CLAIMED_GOOD_STOCK_LABELS
+        or claimed_disposition in _CLAIMED_GOOD_STOCK_LABELS
+        or claimed_eligibility in _CLAIMED_GOOD_ELIGIBILITY
+    ):
+        payload["disposition"] = "HOLD"
+        payload["client_good_label_rejected"] = True
+    elif claimed_disposition:
+        payload["disposition"] = claimed_disposition
+    return payload
+
+
+def _active_hold_summaries(holds: list[QualityHold]) -> list[dict[str, Any]]:
+    return [
+        {
+            "id": str(hold.id),
+            "stage": hold.stage_type,
+            "reason": hold.reason,
+            "status": hold.status,
+            "created_by": hold.created_by,
+        }
+        for hold in holds
+    ]
+
+
 PROCESS_QC_STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING"}
 FINAL_SPEC_QC_STAGE = "QC"
 FINAL_SPEC_QC_FIELDS = [
@@ -6633,8 +6672,9 @@ def capture_stage_output(
     if job_card.status in ["COMPLETED", "CANCELLED"] or job_card.current_stage == "DONE":
         raise HTTPException(status_code=400, detail="Job card is not in executable state")
 
-    # P1.2 — Active QC hold gates stage advancement. PlantManager+ may override
-    # with an explicit override_reason; Operator can never override.
+    # P1.2 / QCT-057 — Active QC hold gates stage advancement, not physical
+    # output recording. Record actuals as restricted QC_HOLD; do not 409 the form
+    # on the held/current stage. PlantManager+ may override to advance.
     active_holds = (
         db.query(QualityHold)
         .filter(
@@ -6644,28 +6684,6 @@ def capture_stage_output(
         .all()
     )
     override_reason = (payload.override_reason or "").strip() if hasattr(payload, "override_reason") else ""
-    if active_holds and not override_reason:
-        hold_summaries = [
-            {
-                "id": str(h.id),
-                "stage": h.stage_type,
-                "reason": h.reason,
-                "status": h.status,
-                "created_by": h.created_by,
-            }
-            for h in active_holds
-        ]
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "code": "JOB_HAS_ACTIVE_QC_HOLD",
-                "message": (
-                    f"Job has {len(active_holds)} active QC hold(s) blocking stage advancement. "
-                    "Release the hold(s) or provide an override_reason (PlantManager+ only)."
-                ),
-                "holds": hold_summaries,
-            },
-        )
     qc_hold_override_roles = {"Owner", "Admin", "PlantManager"}
     if active_holds and override_reason and actor_role not in qc_hold_override_roles:
         raise HTTPException(
@@ -6675,6 +6693,22 @@ def capture_stage_output(
 
     selected_stage = payload.stage or job_card.current_stage
     selected_stage = _normalize_stage(selected_stage)
+    if active_holds and not override_reason:
+        hold_stages = {str(hold.stage_type or "").upper() for hold in active_holds}
+        current = str(job_card.current_stage or "").upper()
+        if selected_stage not in hold_stages and selected_stage != current:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "JOB_HAS_ACTIVE_QC_HOLD",
+                    "message": (
+                        f"Job has {len(active_holds)} active QC hold(s) blocking stage advancement. "
+                        "Physical output on the held stage is recorded as restricted. "
+                        "Release the hold(s) or provide an override_reason (PlantManager+ only) to advance."
+                    ),
+                    "holds": _active_hold_summaries(active_holds),
+                },
+            )
     if actor_role == "Operator" and selected_stage != job_card.current_stage:
         raise HTTPException(status_code=403, detail="Operator can only enter data for the current stage")
     routing_stages = list((job_card.routing_snapshot or {}).get("stages") or _routing_stages_from_snapshot(job_card.spec_snapshot or {}))
@@ -6736,6 +6770,8 @@ def capture_stage_output(
     if payload.end_time is not None:
         stage.entry_snapshot["end_time"] = payload.end_time.isoformat()
     stage.actuals_snapshot = payload.actuals or {}
+    if active_holds and not override_reason:
+        stage.actuals_snapshot = _restricted_stock_actuals(stage.actuals_snapshot)
     quality_checks = dict(payload.quality_checks or {})
     if getattr(payload, "entry_mode", None):
         quality_checks.setdefault("entry_mode", payload.entry_mode)
@@ -6772,8 +6808,30 @@ def capture_stage_output(
         segment.status = "RUNNING"
         stage.actual_start = stage.actual_start or segment.started_at
         _sync_stage_row_from_segments(stage, _all_stage_segments(db, job_card.id, selected_stage))
+        if payload.output_qty is not None:
+            stage.output_qty = float(payload.output_qty)
+            segment.output_qty = float(payload.output_qty)
+        if payload.scrap_qty is not None:
+            stage.scrap_qty = float(payload.scrap_qty)
+            segment.scrap_qty = float(payload.scrap_qty)
+        if active_holds and not override_reason and selected_stage == "PACKING":
+            _sync_packing_record(
+                db=db,
+                plant_id=plant_uuid,
+                job_card=job_card,
+                stage=stage,
+                current_user=current_user,
+            )
         job_card.status = "IN_PROGRESS"
         job_card.current_stage = selected_stage
+        hold_warnings = (
+            [
+                "Physical output recorded as restricted pending quality review.",
+                "Failed quantity is not unrestricted good stock.",
+            ]
+            if active_holds and not override_reason
+            else []
+        )
         _record_audit_event(
             db=db,
             plant_id=plant_uuid,
@@ -6787,6 +6845,7 @@ def capture_stage_output(
                 "stage": selected_stage,
                 "save_mode": save_mode,
                 "location_id": str(stage.location_id) if stage.location_id else None,
+                "quality_hold_ids": [str(hold.id) for hold in active_holds],
             },
             before_payload=before_payload,
             after_payload={
@@ -6796,13 +6855,18 @@ def capture_stage_output(
                 "output_qty": stage.output_qty,
                 "scrap_qty": stage.scrap_qty,
                 "location_id": str(stage.location_id) if stage.location_id else None,
+                "stock_status": (stage.actuals_snapshot or {}).get("stock_status"),
             },
         )
         db.commit()
         db.refresh(job_card)
         db.refresh(stage)
         return StageActionResponse(
-            message="Stage draft saved",
+            message=(
+                "Physical output recorded as restricted pending quality review"
+                if hold_warnings
+                else "Stage draft saved"
+            ),
             job_card_id=job_card.id,
             stage=selected_stage,
             segment_id=segment.id,
@@ -6812,7 +6876,9 @@ def capture_stage_output(
             stage_status=stage.status,
             remaining_open_segments=len(_open_stage_segments(db, job_card.id, selected_stage)),
             entry_saved=True,
+            warnings=hold_warnings,
             reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
+            quality_hold_ids=[str(hold.id) for hold in active_holds],
         )
 
     if payload.output_qty is None:
@@ -6821,6 +6887,80 @@ def capture_stage_output(
         raise HTTPException(
             status_code=400,
             detail="Dispatch completion is sealed from the dispatch module so inventory and sales stay synchronized",
+        )
+
+    if active_holds and not override_reason:
+        if not segment.started_at:
+            segment.started_at = actual_start_value
+        segment.status = "RUNNING"
+        segment.output_qty = float(payload.output_qty or 0.0)
+        segment.scrap_qty = float(payload.scrap_qty or 0.0)
+        if payload.input_qty is not None:
+            segment.input_qty = payload.input_qty
+        stage.actual_start = stage.actual_start or segment.started_at
+        _sync_stage_row_from_segments(stage, _all_stage_segments(db, job_card.id, selected_stage))
+        stage.output_qty = float(payload.output_qty or 0.0)
+        stage.scrap_qty = float(payload.scrap_qty or 0.0)
+        stage.actuals_snapshot = _restricted_stock_actuals(stage.actuals_snapshot)
+        packing_record = None
+        if selected_stage == "PACKING":
+            packing_record = _sync_packing_record(
+                db=db,
+                plant_id=plant_uuid,
+                job_card=job_card,
+                stage=stage,
+                current_user=current_user,
+            )
+        job_card.status = "IN_PROGRESS"
+        warnings = [
+            "Physical output recorded as restricted pending quality review.",
+            "Failed quantity is not unrestricted good stock.",
+        ]
+        _record_audit_event(
+            db=db,
+            plant_id=plant_uuid,
+            entity_type="job_card_stage",
+            entity_id=stage.id,
+            action="physical_output_recorded_restricted",
+            actor_id=current_user.get("sub"),
+            actor_role=actor_role,
+            job_card_id=job_card.id,
+            payload={
+                "stage": selected_stage,
+                "save_mode": save_mode,
+                "quality_hold_ids": [str(hold.id) for hold in active_holds],
+                "location_id": str(stage.location_id) if stage.location_id else None,
+                "packing_record_id": str(packing_record.id) if packing_record else None,
+                "stock_status": "QC_HOLD",
+            },
+            before_payload=before_payload,
+            after_payload={
+                "status": stage.status,
+                "machine_id": str(stage.machine_id) if stage.machine_id else None,
+                "input_qty": stage.input_qty,
+                "output_qty": stage.output_qty,
+                "scrap_qty": stage.scrap_qty,
+                "location_id": str(stage.location_id) if stage.location_id else None,
+                "stock_status": (stage.actuals_snapshot or {}).get("stock_status"),
+            },
+        )
+        db.commit()
+        db.refresh(job_card)
+        db.refresh(stage)
+        return StageActionResponse(
+            message="Physical output recorded as restricted pending quality review",
+            job_card_id=job_card.id,
+            stage=selected_stage,
+            segment_id=segment.id,
+            job_card_status=job_card.status,
+            current_stage=job_card.current_stage,
+            save_mode=save_mode,
+            stage_status=stage.status,
+            remaining_open_segments=len(_open_stage_segments(db, job_card.id, selected_stage)),
+            entry_saved=True,
+            warnings=warnings,
+            reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
+            quality_hold_ids=[str(hold.id) for hold in active_holds],
         )
 
     selected_index = routing_stages.index(selected_stage)

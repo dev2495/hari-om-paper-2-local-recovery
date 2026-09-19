@@ -450,3 +450,19 @@ def test_changed_measured_values_detects_failing_number_correction():
     )
     assert completing_post == {}
 
+
+def test_restricted_stock_actuals_rejects_client_unrestricted_label():
+    from src.routers.planning import _restricted_stock_actuals
+
+    out = _restricted_stock_actuals(
+        {"stock_status": "UNRESTRICTED", "disposition": "RELEASED", "eligibility": "ELIGIBLE"}
+    )
+    assert out["stock_status"] == "QC_HOLD"
+    assert out["eligibility"] == "BLOCKED"
+    assert out["failed_qty_labelled_good"] is False
+    assert out["physical_output_recorded"] is True
+    assert out["quality_review_pending"] is True
+    assert out["client_good_label_rejected"] is True
+    assert out["disposition"] == "HOLD"
+
+
