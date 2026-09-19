@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 92,
-      "NOT_RUN": 76,
+      "PASS": 94,
+      "NOT_RUN": 74,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 27,
-      "EXACT_EXECUTED": 92,
+      "EXACT_EXECUTED": 94,
       "LIMITATION": 3,
-      "NONE": 60,
+      "NONE": 58,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2803,13 +2803,17 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct060_live.py::test_qct060_queue_missing_qc_then_checkpoint_requires_resolution",
+        "production-service/tests/test_quality_eval.py::test_empty_qc_profile_is_missing_setup_and_never_pass",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Valid commercial release-sync of an approved spec lacking new QC stage setup queues PLANNED/QUEUED with explicit missing_qc_setup / missing_profile_marker. Inspection and complete stage-output are 409 MISSING_QC_SETUP (requires_approved_resolution); empty setup is not measured PASS; no inspection/hold written. Chromium BUILD_ID _opGJjeYOkhKoqBiWqi2C: missing-setup banner, submit 409, inspections stay empty."
     },
     {
       "id": "QCT-061",
@@ -2821,13 +2825,15 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct060_live.py::test_qct061_attach_then_replay_does_not_reset"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Authorized Attach approved QC profile on an unstarted missing-setup job is audited with before/after and is idempotent on repeat. Ordinary release-sync replay of the same lot is a noop: attached snapshot, schedule, and actuals are unchanged. Checkpoint after attach measures against the attached approved profile (PASS in range)."
     },
     {
       "id": "QCT-062",
@@ -4735,7 +4741,9 @@
         "QCT-037",
         "QCT-039",
         "QCT-043",
-        "QCT-047"
+        "QCT-047",
+        "QCT-060",
+        "QCT-061"
       ],
       "limitations": []
     },
@@ -5087,7 +5095,8 @@
         "PUR-05",
         "PUR-06",
         "PUR-07",
-        "PUR-08"
+        "PUR-08",
+        "QCT-060"
       ],
       "limitations": [
         "GROSS_ESTIMATE"

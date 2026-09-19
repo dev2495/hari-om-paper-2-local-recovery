@@ -4,8 +4,8 @@ Date: 2026-09-19
 Branch: `cursor/ui-polish-nav-c5f9`  
 Base SHA: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
 Remote PR10 HEAD: `74f5b45300ce1f121b5efd89f319b0d4e1027b33`  
-Docs HEAD at wave start: `26e1001332c1f7664dcf45fe3ec810fc2e707c2e`  
-Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
+Docs HEAD at wave start: `a77adbde30f500a0de7f3c82b3a325b1687527b3`  
+Product at wave start: `243535a` (Keep offline QC drafts from releasing when the signed profile version has moved.)
 
 ## Compact evidence index
 
@@ -13,24 +13,40 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-059 offline/paper draft stale reconnect; served BUILD_ID `hSNF8iFPDPUtJa-w74ao_`; overlay parent `494b211` PASS 91 |
-| Served BUILD_ID | `hSNF8iFPDPUtJa-w74ao_` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-059 **1/1** in 5.3s. Uncontended full Chromium **44 passed / 2 failed** in 6.2m; auth `:28001` stayed up. Release-gate winder picker failed; QCT-037/057/058/059 and PLAN-09 passed. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ this overlay |
+| Served product | QCT-060 missing-QC queue admission + QCT-061 attach; served BUILD_ID `_opGJjeYOkhKoqBiWqi2C`; overlay parent `a77adbd` PASS 92 |
+| Served BUILD_ID | `_opGJjeYOkhKoqBiWqi2C` at `http://127.0.0.1:23000` |
+| BJ re-run | Focused QCT-060 **1/1** in 5.7s. Uncontended full Chromium **45 passed / 2 failed** in 6.2m; auth `:28001` stayed up. Release-winder 500 from missing `SALES_SERVICE_URL`; after isolated sales URL those two **2/2** in 46s. Combined 47/47 across two process groups. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Quality context version lives in existing `job_cards.spec_snapshot` JSONB. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 92 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 76 |
+| Original 56/192 overlay | PASS 94 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 74 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `hSNF8iFPDPUtJa-w74ao_` pid **14112** (npm parent **14076**)
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **13739** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002`), sales **2337** :28008
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `_opGJjeYOkhKoqBiWqi2C` pid **24285** (npm parent **24256**)
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **26874** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
 - Auth **9821** :28001 (stayed up through this full Chromium), master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 
 ## This cycle — executable original cases
+
+Wave after overlay `a77adbd` / product `243535a` (QCT-060 missing-setup + QCT-061 attach):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-060/061 unit + live + QCT-059 regression | 8 passed (plus QCT-059/REL replay) | Queue admission with missing_qc_setup; checkpoint 409 MISSING_QC_SETUP; attach audited+idempotent; replay noop; then PASS |
+| Chromium focused QCT-060 | **1 passed** in 5.7s | `output/playwright/_opGJjeYOkhKoqBiWqi2C-qct060/` missing-setup banner, submit 409, inspections empty |
+| Chromium full project | **45 passed / 2 failed** in 6.2m | `output/playwright/_opGJjeYOkhKoqBiWqi2C-full/` workers=1 Chrome channel; release-winder 500 from docker DNS `sales-service:8008` |
+| Chromium release-winder after sales URL | **2 passed** in 46s | `output/playwright/_opGJjeYOkhKoqBiWqi2C-release-winder/` isolated `SALES_SERVICE_URL=http://127.0.0.1:28008`; not original COMM/REL PASS |
+
+Fixes patched with those tests:
+
+1. Commercial queue admission is not vetoed by missing new QC setup. `_build_spec_snapshot` stamps `missing_qc_setup` / `missing_profile_marker` on existing `job_cards.spec_snapshot` JSONB.
+2. Inspection and complete stage-output 409 `MISSING_QC_SETUP` until an approved resolution; empty setup is never measured PASS.
+3. `POST /quality/job-cards/{id}/attach-qc-profile` attaches an approved profile on unstarted missing-setup jobs, audited and idempotent. Ordinary release-sync replay does not rebind or reset schedule/actuals.
+4. Isolated production must carry explicit `SALES_SERVICE_URL=http://127.0.0.1:28008` (Settings default is docker DNS). CSRF Origin checks kept.
 
 Wave after overlay `494b211` / product `a381b37` (QCT-059 offline draft):
 
