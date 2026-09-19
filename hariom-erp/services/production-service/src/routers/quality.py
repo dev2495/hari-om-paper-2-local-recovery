@@ -367,6 +367,219 @@ OBSERVATION_META_KEYS = SHORTCUT_OBSERVATION_KEYS | {
     "unit_conflicts",
 }
 ENTRY_MODES = {"DEDICATED_QC", "INLINE", "SUPERVISOR", "EOD", "IMPORT", "LEGACY"}
+CAUSE_UNDER_INVESTIGATION = "CAUSE_UNDER_INVESTIGATION"
+_CAUSE_UNDER_INVESTIGATION_TOKENS = {
+    "CAUSEUNDERINVESTIGATION",
+    "UNDERINVESTIGATION",
+}
+
+
+def _reason_alnum_token(value: Any) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def _is_cause_under_investigation_token(value: Any) -> bool:
+    return _reason_alnum_token(value) in _CAUSE_UNDER_INVESTIGATION_TOKENS
+
+
+def _normalize_reason_entry(raw: Any) -> Any:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        if _is_cause_under_investigation_token(text):
+            return {
+                "code": CAUSE_UNDER_INVESTIGATION,
+                "explanation": "",
+                "note": "",
+                "containment": "",
+                "assignee": "",
+                "investigation_status": "OPEN",
+            }
+        return text
+    if isinstance(raw, dict):
+        code = raw.get("code") or raw.get("reason_code") or raw.get("label") or ""
+        if _is_cause_under_investigation_token(code) or _is_cause_under_investigation_token(raw.get("label")):
+            explanation = str(
+                raw.get("note")
+                or raw.get("explanation")
+                or raw.get("reason")
+                or raw.get("text")
+                or raw.get("factual_note")
+                or ""
+            ).strip()
+            containment = str(
+                raw.get("containment")
+                or raw.get("immediate_containment")
+                or raw.get("scope")
+                or ""
+            ).strip()
+            assignee = str(
+                raw.get("assignee")
+                or raw.get("owner")
+                or raw.get("responsible")
+                or raw.get("responsible_person")
+                or ""
+            ).strip()
+            return {
+                "code": CAUSE_UNDER_INVESTIGATION,
+                "explanation": explanation,
+                "note": explanation,
+                "containment": containment,
+                "assignee": assignee,
+                "investigation_status": "OPEN",
+            }
+        return raw
+    return raw
+
+
+def _as_reason_dict(entry: Any) -> dict[str, Any]:
+    if isinstance(entry, dict):
+        return dict(entry)
+    if isinstance(entry, str) and entry.strip():
+        return {"explanation": entry.strip(), "note": entry.strip()}
+    return {}
+
+
+def _expand_common_cause(reasons: dict[str, Any]) -> dict[str, Any]:
+    common_raw = reasons.get("__common__") or reasons.get("__overall__")
+    if common_raw in (None, "", {}):
+        return reasons
+    common = _as_reason_dict(common_raw)
+    if not common:
+        return reasons
+    common_id = str(common.get("id") or common.get("common_cause_id") or "COMMON").strip() or "COMMON"
+    explanation = str(common.get("explanation") or common.get("note") or common.get("reason") or common.get("text") or "").strip()
+    containment = str(common.get("containment") or common.get("immediate_containment") or "").strip()
+    assignee = str(common.get("assignee") or common.get("owner") or common.get("responsible") or "").strip()
+    applies = common.get("applies_to") or common.get("parameters") or common.get("linked_parameters") or []
+    if isinstance(applies, str):
+        applies = [applies]
+    apply_codes = [str(item).strip() for item in applies if str(item).strip()]
+    common_blob = {
+        "id": common_id,
+        "common_cause_id": common_id,
+        "explanation": explanation,
+        "note": explanation,
+        "containment": containment,
+        "assignee": assignee,
+        "applies_to": apply_codes,
+    }
+    if _is_cause_under_investigation_token(common.get("code") or common.get("reason_code") or common.get("label")):
+        common_blob.update(
+            _normalize_reason_entry(
+                {
+                    "code": CAUSE_UNDER_INVESTIGATION,
+                    "note": explanation,
+                    "containment": containment,
+                    "assignee": assignee,
+                }
+            )
+            or {}
+        )
+        common_blob["id"] = common_id
+        common_blob["common_cause_id"] = common_id
+        common_blob["applies_to"] = apply_codes
+    expanded = dict(reasons)
+    expanded["__common__"] = common_blob
+    linked_codes = set(apply_codes)
+    for key, entry in list(expanded.items()):
+        if key in {"__common__", "__overall__"}:
+            continue
+        as_dict = _as_reason_dict(entry)
+        if str(as_dict.get("common_cause_id") or "") == common_id:
+            linked_codes.add(key)
+    for code in linked_codes:
+        current = _as_reason_dict(expanded.get(code))
+        merged = {
+            "explanation": str(current.get("explanation") or current.get("note") or explanation).strip(),
+            "note": str(current.get("note") or current.get("explanation") or explanation).strip(),
+            "containment": str(current.get("containment") or containment).strip(),
+            "assignee": str(current.get("assignee") or assignee).strip(),
+            "common_cause_id": common_id,
+            "grouped": True,
+        }
+        if current.get("code") or common_blob.get("code"):
+            code_value = current.get("code") or common_blob.get("code")
+            if _is_cause_under_investigation_token(code_value):
+                unknown = _normalize_reason_entry(
+                    {
+                        "code": CAUSE_UNDER_INVESTIGATION,
+                        "note": merged["note"],
+                        "containment": merged["containment"],
+                        "assignee": merged["assignee"],
+                    }
+                )
+                if isinstance(unknown, dict):
+                    merged.update(unknown)
+                    merged["common_cause_id"] = common_id
+                    merged["grouped"] = True
+            else:
+                merged["code"] = code_value
+        expanded[code] = merged
+    return expanded
+
+
+def _normalize_reasons_map(reasons: Optional[dict[str, Any]]) -> dict[str, Any]:
+    cleaned: dict[str, Any] = {}
+    for key, value in (reasons or {}).items():
+        token = str(key or "").strip()
+        if not token:
+            continue
+        normalized = _normalize_reason_entry(value)
+        if normalized in (None, "", {}):
+            continue
+        cleaned[token] = normalized
+    return _expand_common_cause(cleaned)
+
+
+def _grouped_case_meta(reasons: Optional[dict[str, Any]]) -> tuple[Optional[str], list[str]]:
+    stored = reasons or {}
+    common = stored.get("__common__")
+    if not isinstance(common, dict):
+        return None, []
+    case_id = str(common.get("common_cause_id") or common.get("id") or "").strip() or None
+    linked = [
+        key
+        for key, entry in stored.items()
+        if key not in {"__common__", "__overall__"}
+        and isinstance(entry, dict)
+        and str(entry.get("common_cause_id") or "") == str(case_id or "")
+    ]
+    return case_id, linked
+
+
+def _is_normalized_unknown_cause(entry: Any) -> bool:
+    return isinstance(entry, dict) and str(entry.get("code") or "") == CAUSE_UNDER_INVESTIGATION
+
+
+def _unknown_cause_package_complete(entry: Any) -> bool:
+    if not _is_normalized_unknown_cause(entry):
+        return False
+    return bool(
+        str(entry.get("note") or entry.get("explanation") or "").strip()
+        and str(entry.get("containment") or "").strip()
+        and str(entry.get("assignee") or "").strip()
+    )
+
+
+def _unknown_cause_gaps(reasons: Optional[dict[str, Any]], fail_codes: list[str]) -> list[str]:
+    gaps: list[str] = []
+    stored = reasons or {}
+    for code in fail_codes:
+        entry = stored.get(code)
+        if not _is_normalized_unknown_cause(entry):
+            continue
+        if not _unknown_cause_package_complete(entry):
+            gaps.append(code)
+    return gaps
+
+
+def _has_open_investigation(reasons: Optional[dict[str, Any]], fail_codes: list[str]) -> bool:
+    stored = reasons or {}
+    return any(_is_normalized_unknown_cause(stored.get(code)) for code in fail_codes)
 
 
 def _canonical_observation_value(value: Any) -> Any:
@@ -499,6 +712,10 @@ def _to_inspection_response(
         entry_mode=getattr(inspection, "entry_mode", None),
         observation_fingerprint=getattr(inspection, "observation_fingerprint", None),
         reused=reused,
+        investigation_open=bool(evaluation_blob.get("investigation_open")),
+        investigation_status=evaluation_blob.get("investigation_status"),
+        grouped_case_id=evaluation_blob.get("grouped_case_id"),
+        grouped_parameters=list(evaluation_blob.get("grouped_parameters") or []),
     )
 
 
@@ -526,7 +743,7 @@ def record_stage_inspection(
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
     sanitized_readings = _sanitize_observation_map(readings)
-    stored_reasons = dict(reasons or {})
+    stored_reasons = _normalize_reasons_map(reasons)
     eval_readings = dict(sanitized_readings)
     eval_sample_id = sample_id
     parent_id = parent_inspection_id
@@ -576,11 +793,20 @@ def record_stage_inspection(
         sample_id=eval_sample_id,
         require_reasons_on_fail=True,
     )
-    reason_pending = bool(evaluation.missing_reasons)
+    fail_codes = [row.code for row in evaluation.parameter_results if row.verdict == "FAIL"]
+    unknown_gaps = _unknown_cause_gaps(stored_reasons, fail_codes)
+    investigation_open = _has_open_investigation(stored_reasons, fail_codes)
+    grouped_case_id, grouped_parameters = _grouped_case_meta(stored_reasons)
+    reason_pending = bool(evaluation.missing_reasons) or bool(unknown_gaps)
     if final_submission:
         error = submission_error(evaluation)
         if error:
             raise HTTPException(status_code=400, detail=error)
+        if unknown_gaps:
+            raise HTTPException(
+                status_code=400,
+                detail="Cause under investigation requires a factual note, containment, and assignee; investigation remains open.",
+            )
     if stage_type == "QC" and evaluation.verdict == "INCOMPLETE":
         missing = [
             row.label
@@ -602,6 +828,16 @@ def record_stage_inspection(
     if reason_pending:
         evaluation_payload["workflow_status"] = "REASON_PENDING"
         evaluation_payload["reason_pending"] = True
+    if investigation_open:
+        evaluation_payload["investigation_open"] = True
+        evaluation_payload["investigation_status"] = "OPEN"
+        if unknown_gaps:
+            evaluation_payload["investigation_incomplete"] = unknown_gaps
+        evaluation_payload.pop("root_cause", None)
+        evaluation_payload.pop("rca_complete", None)
+    if grouped_case_id:
+        evaluation_payload["grouped_case_id"] = grouped_case_id
+        evaluation_payload["grouped_parameters"] = grouped_parameters
     if exposure_after_dispatch:
         evaluation_payload["exposure_after_dispatch"] = True
     if parent_id:
@@ -655,6 +891,8 @@ def record_stage_inspection(
             "hold_id": str(hold.id) if hold else None,
             "entry_mode": inspection.entry_mode,
             "observation_fingerprint": fingerprint,
+            "grouped_case_id": grouped_case_id,
+            "grouped_parameters": grouped_parameters,
         },
         after_payload={
             "status": inspection.status,
@@ -834,6 +1072,10 @@ class InspectionResponse(BaseModel):
     entry_mode: Optional[str] = None
     observation_fingerprint: Optional[str] = None
     reused: bool = False
+    investigation_open: bool = False
+    investigation_status: Optional[str] = None
+    grouped_case_id: Optional[str] = None
+    grouped_parameters: list[str] = Field(default_factory=list)
 
 
 class HoldCreate(BaseModel):

@@ -11,7 +11,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { useCompleteJobCardQc, useCreateQualityInspection, useJobQcTemplate, usePlanningJobCards } from "@/hooks/use-production"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
-import { frozenStageRules, inspectionProfileRevision, type QcStageKey } from "@/lib/qc-measurement"
+import { frozenStageRules, inspectionProfileRevision, qcExceptionIssues, type QcStageKey } from "@/lib/qc-measurement"
 
 const STAGES: { value: QcStageKey; label: string }[] = [
   { value: "WINDER", label: "Winding" },
@@ -22,12 +22,72 @@ const STAGES: { value: QcStageKey; label: string }[] = [
 type StageDraft = {
   readings: Record<string, string>
   reasons: Record<string, string>
+  reasonCodes: Record<string, string>
+  containments: Record<string, string>
+  assignees: Record<string, string>
+  commonExplanation: string
+  commonContainment: string
+  commonAssignee: string
   sampleId: string
   ovenCheckpoint: "PRE" | "POST"
 }
 
 function emptyDraft(): StageDraft {
-  return { readings: {}, reasons: {}, sampleId: "", ovenCheckpoint: "PRE" }
+  return {
+    readings: {},
+    reasons: {},
+    reasonCodes: {},
+    containments: {},
+    assignees: {},
+    commonExplanation: "",
+    commonContainment: "",
+    commonAssignee: "",
+    sampleId: "",
+    ovenCheckpoint: "PRE",
+  }
+}
+
+function packedReasons(draft: StageDraft, failCodes: string[] = []) {
+  const packed: Record<string, any> = {}
+  const codes = new Set([...Object.keys(draft.reasons || {}), ...Object.keys(draft.reasonCodes || {})])
+  codes.forEach((code) => {
+    const reasonCode = String(draft.reasonCodes?.[code] || "")
+    const explanation = String(draft.reasons?.[code] || "").trim()
+    if (reasonCode === "CAUSE_UNDER_INVESTIGATION") {
+      packed[code] = {
+        code: "CAUSE_UNDER_INVESTIGATION",
+        note: explanation,
+        explanation,
+        containment: String(draft.containments?.[code] || "").trim(),
+        assignee: String(draft.assignees?.[code] || "").trim(),
+      }
+      return
+    }
+    if (explanation) packed[code] = explanation
+  })
+  const commonText = String(draft.commonExplanation || "").trim()
+  if (commonText && failCodes.length >= 2) {
+    const caseId = "COMMON"
+    packed.__common__ = {
+      id: caseId,
+      explanation: commonText,
+      note: commonText,
+      containment: String(draft.commonContainment || "").trim(),
+      assignee: String(draft.commonAssignee || "").trim(),
+      applies_to: failCodes,
+    }
+    failCodes.forEach((code) => {
+      const existing = packed[code]
+      if (existing && typeof existing === "object") {
+        packed[code] = { ...existing, common_cause_id: caseId, grouped: true }
+      } else if (typeof existing === "string" && existing.trim()) {
+        packed[code] = { explanation: existing, common_cause_id: caseId, grouped: true }
+      } else {
+        packed[code] = { common_cause_id: caseId, grouped: true }
+      }
+    })
+  }
+  return packed
 }
 
 function asArray(value: any) {
@@ -97,6 +157,8 @@ export default function StageQualityPage() {
     PROCESS: emptyDraft(),
   })
   const [lastVerdict, setLastVerdict] = useState("")
+  const [investigationStatus, setInvestigationStatus] = useState("")
+  const [groupedCaseId, setGroupedCaseId] = useState("")
   const [cardIssues, setCardIssues] = useState<any[]>([])
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
@@ -112,6 +174,7 @@ export default function StageQualityPage() {
     : frozenStageRules(snapshotProfile, stageType)
   const profileRevision = inspectionProfileRevision(null, snapshotProfile || templateQuery.data)
   const draft = drafts[stageType]
+  const failCodes = qcExceptionIssues(rules, draft.readings).map((row) => row.code)
   const checkpoint = stageType === "OVEN"
     ? (draft.ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
     : STAGES.find((stage) => stage.value === stageType)?.label
@@ -147,13 +210,15 @@ export default function StageQualityPage() {
           job_card_id: selectedJobId,
           stage_type: stageType,
           readings: numericReadings(stageType, draft),
-          reasons: draft.reasons,
+          reasons: packedReasons(draft, failCodes),
           sample_id: draft.sampleId || undefined,
           create_hold_on_fail: true,
         },
       })
       const status = String(response?.data?.status || "")
       setLastVerdict(status)
+      setInvestigationStatus(String(response?.data?.investigation_status || ""))
+      setGroupedCaseId(String(response?.data?.grouped_case_id || ""))
       showToast(`Server verdict: ${status}`, status === "FAIL" || status === "INCOMPLETE" || status === "INVALID" ? "error" : "success")
       updateDraft(stageType, (current) => {
         if (stageType !== "OVEN") return { ...emptyDraft(), sampleId: current.sampleId }
@@ -163,7 +228,7 @@ export default function StageQualityPage() {
             if (String(key).startsWith("pre_")) nextReadings[key] = value
           }
         }
-        return { ...current, readings: nextReadings, reasons: {} }
+        return { ...current, readings: nextReadings, reasons: {}, reasonCodes: {}, containments: {}, assignees: {} }
       })
     } catch (error: any) {
       const detail = error?.response?.data?.detail || error?.message || "Inspection save failed."
@@ -186,12 +251,21 @@ export default function StageQualityPage() {
         plantId,
         data: {
           visible_stage: stageType,
-          stages: STAGES.map((stage) => ({
-            stage_type: stage.value,
-            readings: numericReadings(stage.value, drafts[stage.value]),
-            reasons: drafts[stage.value].reasons,
-            sample_id: drafts[stage.value].sampleId || undefined,
-          })),
+          stages: STAGES.map((stage) => {
+            const stageDraft = drafts[stage.value]
+            const stageRules = asArray(templateQuery.data?.stages?.[stage.value]?.parameters).length
+              ? templateQuery.data.stages[stage.value].parameters
+              : frozenStageRules(snapshotProfile, stage.value)
+            return {
+              stage_type: stage.value,
+              readings: numericReadings(stage.value, stageDraft),
+              reasons: packedReasons(
+                stageDraft,
+                qcExceptionIssues(stageRules, stageDraft.readings).map((row) => row.code),
+              ),
+              sample_id: stageDraft.sampleId || undefined,
+            }
+          }),
         },
       })
       const body = response?.data || {}
@@ -326,21 +400,74 @@ export default function StageQualityPage() {
                 rules={rules}
                 readings={draft.readings}
                 reasons={draft.reasons}
+                reasonCodes={draft.reasonCodes}
+                containments={draft.containments}
+                assignees={draft.assignees}
                 sampleId={draft.sampleId}
                 paired={stageType === "OVEN"}
                 profileRevision={profileRevision}
                 checkpoint={checkpoint}
                 dueTiming={stageType === "OVEN" ? draft.ovenCheckpoint : null}
+                allowUnknownCause
                 onReadingChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, readings: { ...current.readings, [code]: value } }))}
                 onReasonChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, reasons: { ...current.reasons, [code]: value } }))}
+                onReasonCodeChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, reasonCodes: { ...current.reasonCodes, [code]: value } }))}
+                onContainmentChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, containments: { ...current.containments, [code]: value } }))}
+                onAssigneeChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, assignees: { ...current.assignees, [code]: value } }))}
                 onSampleIdChange={(value) => updateDraft(stageType, { sampleId: value })}
               />
             ) : (
               <EmptyState label="Select a job card to load frozen Allowed ranges." />
             )}
+            {selectedJobId && failCodes.length >= 2 ? (
+              <div className="space-y-2 rounded-2xl border border-slate-900 bg-white p-4" data-testid="quality-stage-common-cause">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Common cause for related failures</div>
+                <p className="text-xs text-slate-600">One explanation can cover {failCodes.join(", ")}. Each failed parameter stays listed.</p>
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Common-cause explanation</span>
+                  <input
+                    data-testid="stage-qc-common-explanation"
+                    value={draft.commonExplanation}
+                    onChange={(event) => updateDraft(stageType, { commonExplanation: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    placeholder="Link one cause to all related failing fields"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Containment</span>
+                  <input
+                    data-testid="stage-qc-common-containment"
+                    value={draft.commonContainment}
+                    onChange={(event) => updateDraft(stageType, { commonContainment: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    placeholder="Immediate containment / affected scope"
+                  />
+                </label>
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Assignee</span>
+                  <input
+                    data-testid="stage-qc-common-assignee"
+                    value={draft.commonAssignee}
+                    onChange={(event) => updateDraft(stageType, { commonAssignee: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    placeholder="Responsible person"
+                  />
+                </label>
+              </div>
+            ) : null}
             {lastVerdict ? (
               <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
                 {lastVerdict}
+              </div>
+            ) : null}
+            {investigationStatus ? (
+              <div className="text-sm text-slate-800" data-testid="quality-stage-investigation">
+                {investigationStatus}
+              </div>
+            ) : null}
+            {groupedCaseId ? (
+              <div className="text-sm text-slate-800" data-testid="quality-stage-grouped-case">
+                {groupedCaseId}
               </div>
             ) : null}
             {cardIssues.length ? (

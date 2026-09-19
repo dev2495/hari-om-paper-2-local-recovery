@@ -268,6 +268,7 @@ def test_qct053_reason_keeps_fail_and_blocks_self_release():
         assert recorded.status == "FAIL"
         assert recorded.reason_pending is False
         assert recorded.hold_id is not None
+        assert recorded.investigation_open is False
         with pytest.raises(HTTPException) as blocked:
             release_hold(
                 recorded.hold_id,
@@ -299,3 +300,164 @@ def test_qct053_ui_job_seed():
         _reports().joinpath("qct053-ui-job.json").write_text(json.dumps({"job_id": str(job.id)}))
     finally:
         db.close()
+
+
+UNKNOWN_CAUSE = {
+    "code": "CAUSE_UNDER_INVESTIGATION",
+    "note": "height measured short versus Allowed 118-122 mm; cause not yet known",
+    "containment": "quarantine the wound reel at the QC cage",
+    "assignee": "qc.supervisor",
+    "investigation_status": "CLOSED",
+    "root_cause": "invented operator error",
+    "rca_complete": True,
+}
+
+
+def test_qct054_unknown_cause_honestly_recorded():
+    headers = _admin_headers()
+    marker = f"QCT054-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "UNKNOWN", status="IN_PROGRESS")
+        db.commit()
+        with pytest.raises(HTTPException) as blocked:
+            create_inspection(
+                InspectionCreate(
+                    job_card_id=job.id,
+                    stage_type="WINDER",
+                    readings=dict(FAIL_READINGS),
+                    reasons={"height": "Cause under investigation"},
+                    sample_id="UNKNOWN-1",
+                    final_submission=True,
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=QC,
+            )
+        assert blocked.value.status_code == 400
+        recorded = create_inspection(
+            InspectionCreate(
+                job_card_id=job.id,
+                stage_type="WINDER",
+                readings=dict(FAIL_READINGS),
+                reasons={"height": UNKNOWN_CAUSE},
+                sample_id="UNKNOWN-1",
+                final_submission=True,
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert recorded.status == "FAIL"
+        assert recorded.reason_pending is False
+        assert recorded.investigation_open is True
+        assert recorded.investigation_status == "OPEN"
+        assert recorded.hold_id is not None
+        height = recorded.reasons["height"]
+        assert height["code"] == "CAUSE_UNDER_INVESTIGATION"
+        assert height["investigation_status"] == "OPEN"
+        assert height["note"]
+        assert height["containment"]
+        assert height["assignee"] == "qc.supervisor"
+        assert "root_cause" not in height
+        assert height.get("rca_complete") is None
+        stored = db.query(QualityInspection).filter(QualityInspection.id == recorded.id).one()
+        assert stored.status == "FAIL"
+        assert stored.evaluation.get("investigation_status") == "OPEN"
+        assert stored.evaluation.get("investigation_open") is True
+        hold = db.query(QualityHold).filter(QualityHold.id == recorded.hold_id).one()
+        assert hold.status == "HOLD"
+        _reports().joinpath("qct054-job.json").write_text(
+            json.dumps({"job_id": str(job.id), "inspection_id": str(recorded.id), "hold_id": str(recorded.hold_id)})
+        )
+    finally:
+        db.close()
+
+
+def test_qct054_ui_job_seed():
+    headers = _admin_headers()
+    marker = f"QCT054UI-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "UNKNOWN-UI", status="IN_PROGRESS")
+        db.commit()
+        _reports().joinpath("qct054-ui-job.json").write_text(json.dumps({"job_id": str(job.id)}))
+    finally:
+        db.close()
+
+
+THREE_FAIL_READINGS = {"id": 70, "od": 80, "height": 90, "weight": 250, "cs": 100}
+
+
+def test_qct055_common_reason_for_several_fields():
+    headers = _admin_headers()
+    marker = f"QCT055-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "COMMON", status="IN_PROGRESS")
+        db.commit()
+        recorded = create_inspection(
+            InspectionCreate(
+                job_card_id=job.id,
+                stage_type="WINDER",
+                readings=dict(THREE_FAIL_READINGS),
+                reasons={
+                    "id": {"common_cause_id": "CASE-1"},
+                    "od": {"common_cause_id": "CASE-1"},
+                    "height": {"common_cause_id": "CASE-1"},
+                    "__common__": {
+                        "id": "CASE-1",
+                        "explanation": "crushed core during winding affected ID, OD and height",
+                        "containment": "hold the entire winder cage",
+                        "assignee": "qc.supervisor",
+                        "applies_to": ["id", "od", "height"],
+                    },
+                },
+                sample_id="COMMON-1",
+                final_submission=True,
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert recorded.status == "FAIL"
+        assert recorded.reason_pending is False
+        assert recorded.grouped_case_id == "CASE-1"
+        assert set(recorded.grouped_parameters) == {"id", "od", "height"}
+        fail_codes = {str(row.get("code") or row.get("parameter") or "") for row in (recorded.failures or [])}
+        assert {"id", "od", "height"}.issubset(fail_codes)
+        for code in ("id", "od", "height"):
+            entry = recorded.reasons[code]
+            assert entry["common_cause_id"] == "CASE-1"
+            assert "crushed core" in entry["explanation"]
+        assert recorded.hold_id is not None
+        hold = db.query(QualityHold).filter(QualityHold.id == recorded.hold_id).one()
+        assert hold.status == "HOLD"
+        stored = db.query(QualityInspection).filter(QualityInspection.id == recorded.id).one()
+        assert stored.evaluation.get("grouped_case_id") == "CASE-1"
+        _reports().joinpath("qct055-job.json").write_text(
+            json.dumps({"job_id": str(job.id), "inspection_id": str(recorded.id), "hold_id": str(recorded.hold_id)})
+        )
+    finally:
+        db.close()
+
+
+def test_qct055_ui_job_seed():
+    headers = _admin_headers()
+    marker = f"QCT055UI-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "COMMON-UI", status="IN_PROGRESS")
+        db.commit()
+        _reports().joinpath("qct055-ui-job.json").write_text(json.dumps({"job_id": str(job.id)}))
+    finally:
+        db.close()
+

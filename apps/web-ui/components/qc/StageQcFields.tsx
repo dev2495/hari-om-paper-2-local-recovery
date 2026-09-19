@@ -12,11 +12,18 @@ type StageQcFieldsProps = {
   rules: QcParameterRule[]
   readings: Record<string, string>
   reasons: Record<string, string>
+  reasonCodes?: Record<string, string>
+  containments?: Record<string, string>
+  assignees?: Record<string, string>
   sampleId?: string
   editable?: boolean
   showReasons?: boolean
+  allowUnknownCause?: boolean
   onReadingChange?: (code: string, value: string) => void
   onReasonChange?: (code: string, value: string) => void
+  onReasonCodeChange?: (code: string, value: string) => void
+  onContainmentChange?: (code: string, value: string) => void
+  onAssigneeChange?: (code: string, value: string) => void
   onSampleIdChange?: (value: string) => void
   paired?: boolean
   profileRevision?: number | string | null
@@ -38,11 +45,18 @@ export function StageQcFields({
   rules,
   readings,
   reasons,
+  reasonCodes,
+  containments,
+  assignees,
   sampleId,
   editable = true,
   showReasons = true,
+  allowUnknownCause = false,
   onReadingChange,
   onReasonChange,
+  onReasonCodeChange,
+  onContainmentChange,
+  onAssigneeChange,
   onSampleIdChange,
   paired,
   profileRevision,
@@ -158,28 +172,94 @@ export function StageQcFields({
                 </p>
               ) : null}
               {showReasons && rule.applicable !== false && !notYetDue ? (
-                <label className="mt-2 block space-y-1" htmlFor={editable ? `stage-qc-reason-${rule.code}` : undefined}>
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Reason if FAIL</span>
-                  {editable ? (
-                    <input
-                      id={`stage-qc-reason-${rule.code}`}
-                      data-testid={`stage-qc-reason-${rule.code}`}
-                      value={reasons[rule.code] || ""}
-                      onChange={(event) => onReasonChange?.(rule.code, event.target.value)}
-                      className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
-                      placeholder="Required only for out-of-range readings"
-                      aria-required={fail ? true : undefined}
-                    />
-                  ) : (
-                    <div
-                      className={printLayout ? "qc-print-writable min-h-10 border border-slate-900 bg-white px-2 py-2 text-xs" : "text-xs text-slate-600"}
-                      data-testid={`stage-qc-reason-${rule.code}`}
-                      data-blank={reasons[rule.code] ? "false" : "true"}
-                    >
-                      {reasons[rule.code] || ""}
-                    </div>
-                  )}
-                </label>
+                <div className="mt-2 space-y-2">
+                  <label className="block space-y-1" htmlFor={editable ? `stage-qc-reason-${rule.code}` : undefined}>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      {reasonCodes?.[rule.code] === "CAUSE_UNDER_INVESTIGATION" ? "Factual note" : "Reason if FAIL"}
+                    </span>
+                    {editable ? (
+                      <input
+                        id={`stage-qc-reason-${rule.code}`}
+                        data-testid={`stage-qc-reason-${rule.code}`}
+                        value={reasons[rule.code] || ""}
+                        onChange={(event) => onReasonChange?.(rule.code, event.target.value)}
+                        className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                        placeholder={
+                          reasonCodes?.[rule.code] === "CAUSE_UNDER_INVESTIGATION"
+                            ? "Facts only — do not invent a root cause"
+                            : "Required only for out-of-range readings"
+                        }
+                        aria-required={fail ? true : undefined}
+                      />
+                    ) : (
+                      <div
+                        className={printLayout ? "qc-print-writable min-h-10 border border-slate-900 bg-white px-2 py-2 text-xs" : "text-xs text-slate-600"}
+                        data-testid={`stage-qc-reason-${rule.code}`}
+                        data-blank={reasons[rule.code] ? "false" : "true"}
+                      >
+                        {reasons[rule.code] || ""}
+                      </div>
+                    )}
+                  </label>
+                  {allowUnknownCause && editable ? (
+                    <label className="block space-y-1" htmlFor={`stage-qc-reason-code-${rule.code}`}>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Reason code</span>
+                      <select
+                        id={`stage-qc-reason-code-${rule.code}`}
+                        data-testid={`stage-qc-reason-code-${rule.code}`}
+                        value={reasonCodes?.[rule.code] || ""}
+                        onChange={(event) => onReasonCodeChange?.(rule.code, event.target.value)}
+                        className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                      >
+                        <option value="">Known explanation</option>
+                        <option value="CAUSE_UNDER_INVESTIGATION">Cause under investigation</option>
+                      </select>
+                    </label>
+                  ) : null}
+                  {allowUnknownCause && reasonCodes?.[rule.code] === "CAUSE_UNDER_INVESTIGATION" ? (
+                    <>
+                      <label className="block space-y-1" htmlFor={`stage-qc-containment-${rule.code}`}>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Containment</span>
+                        {editable ? (
+                          <input
+                            id={`stage-qc-containment-${rule.code}`}
+                            data-testid={`stage-qc-containment-${rule.code}`}
+                            value={containments?.[rule.code] || ""}
+                            onChange={(event) => onContainmentChange?.(rule.code, event.target.value)}
+                            className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                            placeholder="Immediate containment / affected scope"
+                            aria-required={fail ? true : undefined}
+                          />
+                        ) : (
+                          <div className="text-xs text-slate-600" data-testid={`stage-qc-containment-${rule.code}`}>
+                            {containments?.[rule.code] || ""}
+                          </div>
+                        )}
+                      </label>
+                      <label className="block space-y-1" htmlFor={`stage-qc-assignee-${rule.code}`}>
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Assignee</span>
+                        {editable ? (
+                          <input
+                            id={`stage-qc-assignee-${rule.code}`}
+                            data-testid={`stage-qc-assignee-${rule.code}`}
+                            value={assignees?.[rule.code] || ""}
+                            onChange={(event) => onAssigneeChange?.(rule.code, event.target.value)}
+                            className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                            placeholder="Responsible person"
+                            aria-required={fail ? true : undefined}
+                          />
+                        ) : (
+                          <div className="text-xs text-slate-600" data-testid={`stage-qc-assignee-${rule.code}`}>
+                            {assignees?.[rule.code] || ""}
+                          </div>
+                        )}
+                      </label>
+                      <p className="text-[11px] text-slate-600" data-testid={`stage-qc-investigation-hint-${rule.code}`}>
+                        Investigation remains open. A completed root-cause analysis is a later controlled action.
+                      </p>
+                    </>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           )

@@ -357,3 +357,72 @@ def test_complete_card_returns_hidden_stage_issues_when_visible_tab_is_valid():
     assert process_height["outcome"] == "FAIL"
     assert process_height["sample"] == "P1"
     assert any(row["stage"] == "OVEN" and row["outcome"] == "INCOMPLETE" for row in with_hidden_fail)
+
+
+def test_unknown_cause_stays_open_and_does_not_require_fabricated_root_cause():
+    from src.routers.quality import (
+        CAUSE_UNDER_INVESTIGATION,
+        _has_open_investigation,
+        _normalize_reasons_map,
+        _unknown_cause_gaps,
+    )
+
+    closed = _normalize_reasons_map(
+        {
+            "height": {
+                "code": "CAUSE_UNDER_INVESTIGATION",
+                "note": "winding height measured short vs Allowed 118-122 mm",
+                "containment": "quarantine reel on hold location",
+                "assignee": "qc.supervisor",
+                "investigation_status": "CLOSED",
+                "root_cause": "operator error",
+                "rca_complete": True,
+            }
+        }
+    )
+    height = closed["height"]
+    assert height["code"] == CAUSE_UNDER_INVESTIGATION
+    assert height["investigation_status"] == "OPEN"
+    assert "root_cause" not in height
+    assert "rca_complete" not in height
+    assert _unknown_cause_gaps(closed, ["height"]) == []
+    assert _has_open_investigation(closed, ["height"]) is True
+
+    incomplete = _normalize_reasons_map({"height": "Cause under investigation"})
+    assert incomplete["height"]["code"] == CAUSE_UNDER_INVESTIGATION
+    assert _unknown_cause_gaps(incomplete, ["height"]) == ["height"]
+
+    ordinary = _normalize_reasons_map({"height": "core crushed during winding"})
+    assert ordinary["height"] == "core crushed during winding"
+    assert _unknown_cause_gaps(ordinary, ["height"]) == []
+    assert _has_open_investigation(ordinary, ["height"]) is False
+
+
+def test_common_cause_links_three_failures_without_losing_parameters():
+    from src.routers.quality import _grouped_case_meta, _normalize_reasons_map
+
+    grouped = _normalize_reasons_map(
+        {
+            "id": {"common_cause_id": "CASE-1"},
+            "od": {"common_cause_id": "CASE-1"},
+            "height": {"common_cause_id": "CASE-1"},
+            "__common__": {
+                "id": "CASE-1",
+                "explanation": "crushed core during winding affected ID, OD and height",
+                "containment": "hold the entire winder cage",
+                "assignee": "qc.supervisor",
+                "applies_to": ["id", "od", "height"],
+            },
+        }
+    )
+    case_id, linked = _grouped_case_meta(grouped)
+    assert case_id == "CASE-1"
+    assert set(linked) == {"id", "od", "height"}
+    for code in ("id", "od", "height"):
+        assert grouped[code]["common_cause_id"] == "CASE-1"
+        assert grouped[code]["grouped"] is True
+        assert "crushed core" in grouped[code]["explanation"]
+        assert grouped[code]["containment"]
+        assert grouped[code]["assignee"] == "qc.supervisor"
+    assert grouped["__common__"]["common_cause_id"] == "CASE-1"
+
