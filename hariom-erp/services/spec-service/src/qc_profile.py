@@ -29,6 +29,10 @@ NOTCH_SPEC_KEYS = (
     "punch",
 )
 NOT_APPLICABLE_LABEL = "NOT APPLICABLE"
+GATING_ADVISORY = "advisory"
+GATING_BLOCKING = "blocking"
+_ADVISORY_TOKENS = {"advisory", "nonblocking", "non_blocking", "informational", "info", "watch"}
+_BLOCKING_TOKENS = {"blocking", "mandatory", "required", "block", "gate"}
 
 STAGE_PARAMETER_DEFS: dict[str, tuple[dict[str, Any], ...]] = {
     "WINDER": (
@@ -146,6 +150,35 @@ def _reject_unsafe_rule_payload(raw: dict[str, Any], *, code: str) -> None:
             )
 
 
+def _has_explicit_gating(raw: Any) -> bool:
+    if isinstance(raw, str):
+        return bool(raw.strip())
+    if not isinstance(raw, dict):
+        return False
+    for key in ("gating", "gate", "checkpoint_gating", "advisory", "blocking"):
+        if key in raw and raw.get(key) not in (None, ""):
+            return True
+    return False
+
+
+def _normalize_gating(raw: Any) -> Optional[str]:
+    """Persist explicit approved gating only. Omission stays unspecified so evaluator defaults to blocking."""
+    if not _has_explicit_gating(raw):
+        return None
+    blob = raw if isinstance(raw, dict) else {"gating": raw}
+    for key in ("gating", "gate", "checkpoint_gating"):
+        token = str(blob.get(key) or "").strip().lower()
+        if token in _ADVISORY_TOKENS:
+            return GATING_ADVISORY
+        if token in _BLOCKING_TOKENS:
+            return GATING_BLOCKING
+    if "advisory" in blob and blob.get("advisory") not in (None, ""):
+        return GATING_ADVISORY if bool(blob.get("advisory")) else GATING_BLOCKING
+    if "blocking" in blob and blob.get("blocking") not in (None, ""):
+        return GATING_BLOCKING if bool(blob.get("blocking")) else GATING_ADVISORY
+    return None
+
+
 def _normalize_parameter(
     raw: dict[str, Any],
     fallback: dict[str, Any],
@@ -187,7 +220,7 @@ def _normalize_parameter(
                 code="EMPTY_ACCEPT_SET",
             )
         options = cleaned
-    return {
+    payload = {
         "code": fallback["code"],
         "label": fallback["label"],
         "unit": _clean_text(raw.get("unit")) or fallback["unit"],
@@ -226,6 +259,10 @@ def _normalize_parameter(
             else None
         ),
     }
+    gating = _normalize_gating(raw)
+    if gating is not None:
+        payload["gating"] = gating
+    return payload
 
 
 def _stage_complete(parameters: list[dict[str, Any]]) -> bool:
@@ -436,6 +473,9 @@ def normalize_qc_profile(
                 for item in defs
             ]
         }
+        source_gating = _normalize_gating(source_block if isinstance(source_block, dict) else {})
+        if source_gating is not None:
+            merged_stages[stage]["gating"] = source_gating
     notching_flag = _infer_notching_flag(merged_stages, notching_flag)
     previous_revision = previous.get("revision") or 1
     try:

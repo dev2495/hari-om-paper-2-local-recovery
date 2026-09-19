@@ -130,6 +130,9 @@ class ParameterRule:
     pair_group: Optional[str] = None
     input_type: str = "number"
     options: Optional[list[Any]] = None
+    requires_instrument: bool = False
+    required_instrument_id: Optional[str] = None
+    gating: str = "blocking"
 
     def allowed_display(self) -> str:
         if not self.applicable:
@@ -164,8 +167,52 @@ class ParameterRule:
             "pair_group": self.pair_group,
             "input_type": self.input_type,
             "options": list(self.options or []),
+            "requires_instrument": self.requires_instrument,
+            "required_instrument_id": self.required_instrument_id,
+            "gating": normalize_gating_policy(self.gating),
             "allowed_display": self.allowed_display(),
         }
+
+
+GATING_ADVISORY = "advisory"
+GATING_BLOCKING = "blocking"
+_ADVISORY_TOKENS = {"advisory", "nonblocking", "non_blocking", "informational", "info", "watch"}
+_BLOCKING_TOKENS = {"blocking", "mandatory", "required", "block", "gate"}
+
+
+def _has_explicit_gating(raw: Any) -> bool:
+    if isinstance(raw, str):
+        return bool(raw.strip())
+    if not isinstance(raw, dict):
+        return False
+    for key in ("gating", "gate", "checkpoint_gating", "advisory", "blocking"):
+        if key in raw and raw.get(key) not in (None, ""):
+            return True
+    return False
+
+
+def normalize_gating_policy(raw: Any, *, default: str = GATING_BLOCKING) -> str:
+    """Approved-profile gating. Omitted policy is blocking, never incidental advisory."""
+    fallback = GATING_ADVISORY if str(default or "").strip().lower() == GATING_ADVISORY else GATING_BLOCKING
+    if isinstance(raw, bool):
+        return GATING_BLOCKING if raw else GATING_ADVISORY
+    if isinstance(raw, str):
+        token = raw.strip().lower()
+        if token in _ADVISORY_TOKENS:
+            return GATING_ADVISORY
+        if token in _BLOCKING_TOKENS:
+            return GATING_BLOCKING
+        return fallback
+    if not isinstance(raw, dict):
+        return fallback
+    for key in ("gating", "gate", "checkpoint_gating"):
+        if key in raw and raw.get(key) not in (None, ""):
+            return normalize_gating_policy(raw.get(key), default=fallback)
+    if "advisory" in raw and raw.get("advisory") not in (None, ""):
+        return GATING_ADVISORY if bool(raw.get("advisory")) else GATING_BLOCKING
+    if "blocking" in raw and raw.get("blocking") not in (None, ""):
+        return GATING_BLOCKING if bool(raw.get("blocking")) else GATING_ADVISORY
+    return fallback
 
 
 @dataclass
@@ -194,6 +241,7 @@ class ParameterResult:
             payload["min"] = _decimal_to_number(self.rule.lower)
             payload["max"] = _decimal_to_number(self.rule.upper)
             payload["unit"] = self.rule.unit
+            payload["gating"] = normalize_gating_policy(self.rule.gating)
         return payload
 
 
@@ -207,6 +255,7 @@ class InspectionEvaluation:
     sample_id: Optional[str] = None
     profile_revision: Optional[int] = None
     evaluator_version: str = "qc-eval/1"
+    instrument_readiness: Optional[dict[str, Any]] = None
 
     @property
     def status(self) -> str:
@@ -234,7 +283,37 @@ class InspectionEvaluation:
             "profile_revision": self.profile_revision,
             "evaluator_version": self.evaluator_version,
             "issue_summary": self.issue_summary(),
+            "instrument_readiness": self.instrument_readiness,
+            "gating": inspection_gating_policy(self.parameter_results) if self.verdict == VERDICT_FAIL else GATING_BLOCKING,
+            "movement_gate": movement_gate_for_gating(
+                inspection_gating_policy(self.parameter_results),
+                verdict=self.verdict,
+            ),
+            "gating_source": "approved_profile",
         }
+
+
+def inspection_gating_policy(results: list[ParameterResult]) -> str:
+    failed = [
+        row
+        for row in results
+        if row.verdict == VERDICT_FAIL and getattr(getattr(row, "rule", None), "applicable", True)
+    ]
+    if not failed:
+        return GATING_BLOCKING
+    for row in failed:
+        gating = normalize_gating_policy(getattr(getattr(row, "rule", None), "gating", GATING_BLOCKING))
+        if gating != GATING_ADVISORY:
+            return GATING_BLOCKING
+    return GATING_ADVISORY
+
+
+def movement_gate_for_gating(gating: str, *, verdict: str) -> str:
+    if str(verdict or "").upper() != VERDICT_FAIL:
+        return "allow"
+    if normalize_gating_policy(gating) == GATING_ADVISORY:
+        return "allow"
+    return "block"
 
 
 def _format_bound(value: Decimal) -> str:
@@ -360,12 +439,20 @@ def empty_stage_parameters(stage: str) -> list[dict[str, Any]]:
                 "pair_group": item.pair_group,
                 "conditional": item.conditional,
                 "input_type": "number",
+                "requires_instrument": False,
+                "required_instrument_id": None,
+                "gating": GATING_BLOCKING,
             }
         )
     return rows
 
 
-def normalize_parameter_rule(raw: dict[str, Any], fallback: Optional[ParameterDef] = None) -> Optional[ParameterRule]:
+def normalize_parameter_rule(
+    raw: dict[str, Any],
+    fallback: Optional[ParameterDef] = None,
+    *,
+    inherited_gating: str = GATING_BLOCKING,
+) -> Optional[ParameterRule]:
     if not isinstance(raw, dict):
         return None
     code = str(raw.get("code") or raw.get("parameter_key") or raw.get("parameter_code") or "").strip()
@@ -381,6 +468,18 @@ def normalize_parameter_rule(raw: dict[str, Any], fallback: Optional[ParameterDe
     required = raw.get("required")
     if required is None:
         required = True
+    required_instrument_id = str(raw.get("required_instrument_id") or "").strip()
+    if not required_instrument_id and raw.get("instrument_id") not in (None, ""):
+        required_instrument_id = str(raw.get("instrument_id")).strip()
+    instrument_blob = raw.get("instrument") if isinstance(raw.get("instrument"), dict) else {}
+    if not required_instrument_id:
+        required_instrument_id = str(instrument_blob.get("id") or instrument_blob.get("instrument_id") or "").strip()
+    requires_instrument = _truthy_requires_instrument(raw)
+    gating = (
+        normalize_gating_policy(raw, default=inherited_gating)
+        if _has_explicit_gating(raw)
+        else normalize_gating_policy(inherited_gating)
+    )
     return ParameterRule(
         code=code,
         label=label,
@@ -397,6 +496,9 @@ def normalize_parameter_rule(raw: dict[str, Any], fallback: Optional[ParameterDe
         pair_group=raw.get("pair_group") or (fallback.pair_group if fallback else None),
         input_type=str(raw.get("input_type") or "number").strip().lower() or "number",
         options=list(raw.get("options") or []) if isinstance(raw.get("options"), list) else None,
+        requires_instrument=requires_instrument,
+        required_instrument_id=required_instrument_id or None,
+        gating=gating,
     )
 
 
@@ -404,12 +506,14 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
     stage_key = str(stage or "").strip().upper()
     defs = {item.code: item for item in STAGE_PARAMETER_DEFS.get(stage_key, ())}
     rows: list[dict[str, Any]] = []
+    inherited_gating = GATING_BLOCKING
     if isinstance(profile, dict):
         stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else profile
         stage_block = stages.get(stage_key) if isinstance(stages, dict) else None
         if stage_block is None and isinstance(stages, dict):
             stage_block = stages.get(stage_key.lower())
         if isinstance(stage_block, dict):
+            inherited_gating = normalize_gating_policy(stage_block)
             raw_params = stage_block.get("parameters") or stage_block.get("metrics") or []
             if isinstance(raw_params, list):
                 rows = [item for item in raw_params if isinstance(item, dict)]
@@ -418,7 +522,7 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
     by_code: dict[str, ParameterRule] = {}
     for raw in rows:
         fallback = defs.get(str(raw.get("code") or raw.get("parameter_key") or "").strip())
-        rule = normalize_parameter_rule(raw, fallback)
+        rule = normalize_parameter_rule(raw, fallback, inherited_gating=inherited_gating)
         if rule:
             by_code[rule.code] = rule
     ordered: list[ParameterRule] = []
@@ -436,6 +540,322 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
         if code not in seen:
             ordered.append(rule)
     return ordered
+
+
+QC_SETUP_MISSING_STATUSES = {"missing", "draft", "incomplete", "pending_review"}
+QC_SETUP_RESOLVED_STATUSES = {"approved", "attached"}
+MISSING_QC_SETUP_CODE = "MISSING_QC_SETUP"
+MISSING_QC_SETUP_MESSAGE = (
+    "Missing QC setup. Queue admission succeeded; this execution checkpoint "
+    "requires an approved resolution. Empty setup is not measured PASS."
+)
+
+
+def qc_profile_setup_status(profile: Any) -> str:
+    """Classify a frozen QC profile. Empty setup is missing, never PASS."""
+    if not isinstance(profile, dict) or not profile:
+        return "missing"
+    explicit = str(profile.get("status") or profile.get("setup_status") or "").strip().lower()
+    if explicit == "attached":
+        return "attached"
+    if explicit == "approved" or profile.get("approved_by"):
+        return "approved"
+    if explicit in {"pending_review", "draft", "incomplete", "missing"}:
+        return "missing" if explicit == "missing" else explicit
+    stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else {}
+    if not stages:
+        return "missing"
+    any_bounds = False
+    for stage_block in stages.values():
+        params = stage_block.get("parameters") if isinstance(stage_block, dict) else []
+        if not isinstance(params, list):
+            continue
+        if any(
+            isinstance(row, dict) and (row.get("min") is not None or row.get("max") is not None)
+            for row in params
+        ):
+            any_bounds = True
+            break
+    if not any_bounds:
+        return "draft" if explicit == "draft" else "missing"
+    if explicit == "draft":
+        return "draft"
+    if explicit == "complete":
+        return "complete"
+    return "complete"
+
+
+def apply_qc_setup_marker(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Stamp an explicit missing-profile marker. Queue admission is not vetoed."""
+    if not isinstance(snapshot, dict):
+        return {
+            "qc_setup_status": "missing",
+            "missing_qc_setup": True,
+            "missing_profile_marker": True,
+        }
+    if str(snapshot.get("qc_setup_status") or "").strip().lower() == "attached":
+        snapshot["missing_qc_setup"] = False
+        snapshot["missing_profile_marker"] = False
+        snapshot["qc_setup_status"] = "attached"
+        return snapshot
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    status = qc_profile_setup_status(profile)
+    snapshot["qc_setup_status"] = status
+    queue_missing = status in QC_SETUP_MISSING_STATUSES
+    snapshot["missing_qc_setup"] = queue_missing
+    snapshot["missing_profile_marker"] = queue_missing
+    return snapshot
+
+
+def missing_qc_setup_blocks_checkpoint(snapshot: Any) -> bool:
+    """True when a QC/execution checkpoint still needs approved resolution.
+
+    Legacy jobs without the marker that already freeze an approved profile stay
+    executable. Newly queued missing-setup jobs never become measured PASS.
+    """
+    if not isinstance(snapshot, dict):
+        return False
+    if snapshot.get("missing_qc_setup") is True or snapshot.get("missing_profile_marker") is True:
+        return True
+    status = str(snapshot.get("qc_setup_status") or "").strip().lower()
+    if status in QC_SETUP_RESOLVED_STATUSES:
+        return False
+    if status in QC_SETUP_MISSING_STATUSES or status == "complete":
+        return True
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    computed = qc_profile_setup_status(profile)
+    if computed in QC_SETUP_RESOLVED_STATUSES:
+        return False
+    if not profile and not status:
+        return False
+    return computed not in QC_SETUP_RESOLVED_STATUSES
+
+
+def missing_qc_setup_detail(
+    snapshot: Any = None,
+    observations: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    return {
+        "code": MISSING_QC_SETUP_CODE,
+        "message": MISSING_QC_SETUP_MESSAGE,
+        "missing_qc_setup": True,
+        "qc_setup_status": str(snap.get("qc_setup_status") or "missing"),
+        "requires_approved_resolution": True,
+        "approved_resolution": False,
+        "observations": observations or {},
+    }
+
+
+def _truthy_requires_instrument(raw: dict[str, Any]) -> bool:
+    if not isinstance(raw, dict):
+        return False
+    for key in ("requires_instrument", "instrument_required", "requires_calibrated_instrument"):
+        value = raw.get(key)
+        if value is True:
+            return True
+        token = str(value or "").strip().lower()
+        if token in {"1", "true", "yes", "required", "calibrated"}:
+            return True
+    instrument = raw.get("instrument")
+    if isinstance(instrument, dict):
+        return bool(instrument.get("required") or instrument.get("requires_calibration") or instrument.get("requires_instrument"))
+    return False
+
+
+INSTRUMENT_EVIDENCE_KEYS = {
+    "instrument",
+    "instrument_id",
+    "instrument_status",
+    "calibration_status",
+    "calibration_due",
+    "calibration_certificate",
+    "calibration_evidence",
+    "evidence_ref",
+    "instrument_evidence",
+}
+INVALID_INSTRUMENT_CODE = "INVALID_INSTRUMENT"
+INVALID_INSTRUMENT_MESSAGE = (
+    "Required instrument evidence controls readiness. Missing or expired "
+    "instrument is not measured PASS. Calibration was not invented."
+)
+INSTRUMENT_EXPIRED_STATUSES = {
+    "expired",
+    "overdue",
+    "lapsed",
+    "invalid",
+    "suspect",
+    "out_of_cal",
+    "out_of_calibration",
+}
+INSTRUMENT_READY_STATUSES = {
+    "valid",
+    "current",
+    "calibrated",
+    "ok",
+    "in_cal",
+    "in_calibration",
+}
+
+
+def extract_instrument_evidence(readings: Any) -> dict[str, Any]:
+    payload = readings if isinstance(readings, dict) else {}
+    nested = payload.get("instrument") if isinstance(payload.get("instrument"), dict) else {}
+    blob = payload.get("instrument_evidence") if isinstance(payload.get("instrument_evidence"), dict) else {}
+    source = {**blob, **nested}
+
+    def first(*keys: str) -> Any:
+        for key in keys:
+            value = source.get(key)
+            if value not in (None, ""):
+                return value
+            value = payload.get(key)
+            if value not in (None, "") and key not in {"instrument", "id"}:
+                return value
+        return None
+
+    instrument_id = first("instrument_id")
+    if instrument_id in (None, "") and isinstance(nested, dict):
+        instrument_id = nested.get("id")
+    return {
+        "instrument_id": str(instrument_id or "").strip() or None,
+        "calibration_status": str(first("calibration_status", "instrument_status", "status") or "").strip() or None,
+        "calibration_due": first("calibration_due", "due_date", "valid_until"),
+        "evidence_ref": str(
+            first("evidence_ref", "calibration_certificate", "certificate", "certificate_no") or ""
+        ).strip()
+        or None,
+    }
+
+
+def instrument_readiness(
+    rules: Iterable[ParameterRule],
+    readings: Any,
+    *,
+    as_of: Any = None,
+) -> dict[str, Any]:
+    required_rules = [
+        rule
+        for rule in (rules or [])
+        if getattr(rule, "requires_instrument", False) and getattr(rule, "applicable", True)
+    ]
+    if not required_rules:
+        return {
+            "required": False,
+            "ready": True,
+            "instrument_status": "not_required",
+            "invented_calibration": False,
+            "silent_pass": False,
+            "code": None,
+        }
+    evidence = extract_instrument_evidence(readings)
+    as_of_date = _parse_as_of_date(as_of) or date.today()
+    instrument_id = evidence.get("instrument_id")
+    expected = {
+        str(getattr(rule, "required_instrument_id", None) or "").strip()
+        for rule in required_rules
+    }
+    expected.discard("")
+    status_token = str(evidence.get("calibration_status") or "").strip().lower()
+    due = _parse_as_of_date(evidence.get("calibration_due"))
+    evidence_ref = evidence.get("evidence_ref")
+    base = {
+        "required": True,
+        "ready": False,
+        "invented_calibration": False,
+        "silent_pass": False,
+        "evidence": evidence,
+        "message": INVALID_INSTRUMENT_MESSAGE,
+        "code": INVALID_INSTRUMENT_CODE,
+    }
+    if not instrument_id:
+        return {**base, "instrument_status": "missing", "reason": "missing_instrument"}
+    if expected and instrument_id not in expected:
+        return {**base, "instrument_status": "missing", "reason": "instrument_mismatch"}
+    if status_token in INSTRUMENT_EXPIRED_STATUSES:
+        return {**base, "instrument_status": "expired", "reason": "expired_status"}
+    if due is not None and due < as_of_date:
+        return {**base, "instrument_status": "expired", "reason": "calibration_due_passed"}
+    documented = due is not None or bool(evidence_ref)
+    if not documented:
+        return {**base, "instrument_status": "missing", "reason": "undocumented_calibration"}
+    if status_token and status_token not in INSTRUMENT_READY_STATUSES and due is None:
+        return {**base, "instrument_status": "missing", "reason": "undocumented_calibration"}
+    return {
+        **base,
+        "ready": True,
+        "instrument_status": "valid",
+        "reason": "documented",
+        "code": None,
+        "message": "Documented in-calibration instrument evidence.",
+    }
+
+
+def instrument_readiness_for_snapshot(
+    snapshot: Any,
+    stage: str,
+    readings: Any,
+    *,
+    as_of: Any = None,
+) -> dict[str, Any]:
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    profile = snap.get("qc_profile") if isinstance(snap.get("qc_profile"), dict) else {}
+    notching = snap.get("notch_capability_required")
+    if notching is None:
+        notching = bool(snap.get("notch_type") or snap.get("notch_distance_mm") or snap.get("notch_depth_mm"))
+    stage_key = str(stage or "").strip().upper()
+    rules = rules_from_qc_profile(
+        profile,
+        stage_key,
+        notching_applicable=bool(notching) if stage_key == STAGE_PROCESS else None,
+    )
+    return instrument_readiness(rules, readings, as_of=as_of)
+
+
+def instrument_not_ready_detail(
+    readiness: Any = None,
+    observations: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    blob = readiness if isinstance(readiness, dict) else {}
+    return {
+        "code": INVALID_INSTRUMENT_CODE,
+        "message": INVALID_INSTRUMENT_MESSAGE,
+        "instrument_status": blob.get("instrument_status") or "missing",
+        "reason": blob.get("reason") or "missing_instrument",
+        "invented_calibration": False,
+        "silent_pass": False,
+        "ready": False,
+        "required": True,
+        "observations": observations or {},
+        "evidence": blob.get("evidence") or {},
+    }
+
+
+def _apply_instrument_gate(
+    *,
+    rules: list[ParameterRule],
+    readings: Any,
+    results: list[ParameterResult],
+    overall: str,
+    as_of: Any = None,
+) -> tuple[str, dict[str, Any]]:
+    readiness = instrument_readiness(rules, readings, as_of=as_of)
+    if not readiness.get("required") or readiness.get("ready"):
+        return overall, readiness
+    results.append(
+        ParameterResult(
+            code="instrument",
+            label="Instrument",
+            verdict=VERDICT_INVALID,
+            submitted=readiness.get("evidence"),
+            message=str(readiness.get("message") or INVALID_INSTRUMENT_MESSAGE),
+        )
+    )
+    if overall == VERDICT_PASS:
+        overall = VERDICT_INVALID
+    else:
+        overall = _combine_verdicts([overall, VERDICT_INVALID], empty_verdict=VERDICT_INVALID)
+    return overall, readiness
 
 
 def _parse_as_of_date(value: Any) -> Optional[date]:
@@ -771,6 +1191,12 @@ def evaluate_stage(
     overall = _combine_verdicts((row.verdict for row in results), empty_verdict=VERDICT_INCOMPLETE)
     if overall == VERDICT_PASS and _reason_is_linked(_reason_for(reasons, "__overall__")):
         overall = VERDICT_PASS
+    overall, readiness = _apply_instrument_gate(
+        rules=rules,
+        readings=readings,
+        results=results,
+        overall=overall,
+    )
     return InspectionEvaluation(
         verdict=overall,
         parameter_results=results,
@@ -779,6 +1205,7 @@ def evaluate_stage(
         frozen_rules=[rule.as_dict() for rule in rules],
         sample_id=sample_id,
         profile_revision=revision,
+        instrument_readiness=readiness,
     )
 
 
@@ -825,6 +1252,13 @@ def evaluate_incoming(
             if require_reasons_on_fail and not _reason_is_linked(result.reason):
                 missing_reasons.append(result.code)
     overall = _combine_verdicts((row.verdict for row in results), empty_verdict=VERDICT_INCOMPLETE)
+    overall, readiness = _apply_instrument_gate(
+        rules=rules,
+        readings=readings,
+        results=results,
+        overall=overall,
+        as_of=as_of,
+    )
     revision = profile.get("revision") if isinstance(profile, dict) else None
     return InspectionEvaluation(
         verdict=overall,
@@ -833,6 +1267,7 @@ def evaluate_incoming(
         missing_reasons=missing_reasons,
         frozen_rules=[rule.as_dict() for rule in rules],
         profile_revision=revision,
+        instrument_readiness=readiness,
     )
 
 

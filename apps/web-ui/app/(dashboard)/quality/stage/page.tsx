@@ -193,6 +193,8 @@ export default function StageQualityPage() {
     PROCESS: emptyDraft(),
   })
   const [lastVerdict, setLastVerdict] = useState("")
+  const [lastGatingPolicy, setLastGatingPolicy] = useState("")
+  const [lastMovementGate, setLastMovementGate] = useState("")
   const [investigationStatus, setInvestigationStatus] = useState("")
   const [groupedCaseId, setGroupedCaseId] = useState("")
   const [originalInspection, setOriginalInspection] = useState<{
@@ -304,6 +306,8 @@ export default function StageQualityPage() {
       const status = String(body.status || "")
       setStaleConflict(null)
       setLastVerdict(status)
+      setLastGatingPolicy(String(body.evaluation?.gating || "").toUpperCase())
+      setLastMovementGate(String(body.evaluation?.movement_gate || "").toUpperCase())
       setInvestigationStatus(String(body.investigation_status || ""))
       setGroupedCaseId(String(body.grouped_case_id || ""))
       setLastLateException(body.late_quality_exception ? body : null)
@@ -430,6 +434,8 @@ export default function StageQualityPage() {
                     setSelectedJobId(event.target.value)
                     setDrafts({ WINDER: emptyDraft(), OVEN: emptyDraft(), PROCESS: emptyDraft() })
                     setLastVerdict("")
+                    setLastGatingPolicy("")
+                    setLastMovementGate("")
                     setCardIssues([])
                     setOriginalInspection(null)
                     setCorrectionReason("")
@@ -694,6 +700,16 @@ export default function StageQualityPage() {
             {lastVerdict ? (
               <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
                 {lastVerdict}
+              </div>
+            ) : null}
+            {lastGatingPolicy ? (
+              <div className="text-sm text-slate-800" data-testid="quality-stage-gating-policy">
+                {lastGatingPolicy}
+              </div>
+            ) : null}
+            {lastMovementGate ? (
+              <div className="text-sm text-slate-800" data-testid="quality-stage-movement-gate">
+                {lastMovementGate}
               </div>
             ) : null}
             {lastLateException ? (

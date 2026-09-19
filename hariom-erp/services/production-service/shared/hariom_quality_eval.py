@@ -132,6 +132,7 @@ class ParameterRule:
     options: Optional[list[Any]] = None
     requires_instrument: bool = False
     required_instrument_id: Optional[str] = None
+    gating: str = "blocking"
 
     def allowed_display(self) -> str:
         if not self.applicable:
@@ -168,8 +169,50 @@ class ParameterRule:
             "options": list(self.options or []),
             "requires_instrument": self.requires_instrument,
             "required_instrument_id": self.required_instrument_id,
+            "gating": normalize_gating_policy(self.gating),
             "allowed_display": self.allowed_display(),
         }
+
+
+GATING_ADVISORY = "advisory"
+GATING_BLOCKING = "blocking"
+_ADVISORY_TOKENS = {"advisory", "nonblocking", "non_blocking", "informational", "info", "watch"}
+_BLOCKING_TOKENS = {"blocking", "mandatory", "required", "block", "gate"}
+
+
+def _has_explicit_gating(raw: Any) -> bool:
+    if isinstance(raw, str):
+        return bool(raw.strip())
+    if not isinstance(raw, dict):
+        return False
+    for key in ("gating", "gate", "checkpoint_gating", "advisory", "blocking"):
+        if key in raw and raw.get(key) not in (None, ""):
+            return True
+    return False
+
+
+def normalize_gating_policy(raw: Any, *, default: str = GATING_BLOCKING) -> str:
+    """Approved-profile gating. Omitted policy is blocking, never incidental advisory."""
+    fallback = GATING_ADVISORY if str(default or "").strip().lower() == GATING_ADVISORY else GATING_BLOCKING
+    if isinstance(raw, bool):
+        return GATING_BLOCKING if raw else GATING_ADVISORY
+    if isinstance(raw, str):
+        token = raw.strip().lower()
+        if token in _ADVISORY_TOKENS:
+            return GATING_ADVISORY
+        if token in _BLOCKING_TOKENS:
+            return GATING_BLOCKING
+        return fallback
+    if not isinstance(raw, dict):
+        return fallback
+    for key in ("gating", "gate", "checkpoint_gating"):
+        if key in raw and raw.get(key) not in (None, ""):
+            return normalize_gating_policy(raw.get(key), default=fallback)
+    if "advisory" in raw and raw.get("advisory") not in (None, ""):
+        return GATING_ADVISORY if bool(raw.get("advisory")) else GATING_BLOCKING
+    if "blocking" in raw and raw.get("blocking") not in (None, ""):
+        return GATING_BLOCKING if bool(raw.get("blocking")) else GATING_ADVISORY
+    return fallback
 
 
 @dataclass
@@ -198,6 +241,7 @@ class ParameterResult:
             payload["min"] = _decimal_to_number(self.rule.lower)
             payload["max"] = _decimal_to_number(self.rule.upper)
             payload["unit"] = self.rule.unit
+            payload["gating"] = normalize_gating_policy(self.rule.gating)
         return payload
 
 
@@ -240,7 +284,36 @@ class InspectionEvaluation:
             "evaluator_version": self.evaluator_version,
             "issue_summary": self.issue_summary(),
             "instrument_readiness": self.instrument_readiness,
+            "gating": inspection_gating_policy(self.parameter_results) if self.verdict == VERDICT_FAIL else GATING_BLOCKING,
+            "movement_gate": movement_gate_for_gating(
+                inspection_gating_policy(self.parameter_results),
+                verdict=self.verdict,
+            ),
+            "gating_source": "approved_profile",
         }
+
+
+def inspection_gating_policy(results: list[ParameterResult]) -> str:
+    failed = [
+        row
+        for row in results
+        if row.verdict == VERDICT_FAIL and getattr(getattr(row, "rule", None), "applicable", True)
+    ]
+    if not failed:
+        return GATING_BLOCKING
+    for row in failed:
+        gating = normalize_gating_policy(getattr(getattr(row, "rule", None), "gating", GATING_BLOCKING))
+        if gating != GATING_ADVISORY:
+            return GATING_BLOCKING
+    return GATING_ADVISORY
+
+
+def movement_gate_for_gating(gating: str, *, verdict: str) -> str:
+    if str(verdict or "").upper() != VERDICT_FAIL:
+        return "allow"
+    if normalize_gating_policy(gating) == GATING_ADVISORY:
+        return "allow"
+    return "block"
 
 
 def _format_bound(value: Decimal) -> str:
@@ -368,12 +441,18 @@ def empty_stage_parameters(stage: str) -> list[dict[str, Any]]:
                 "input_type": "number",
                 "requires_instrument": False,
                 "required_instrument_id": None,
+                "gating": GATING_BLOCKING,
             }
         )
     return rows
 
 
-def normalize_parameter_rule(raw: dict[str, Any], fallback: Optional[ParameterDef] = None) -> Optional[ParameterRule]:
+def normalize_parameter_rule(
+    raw: dict[str, Any],
+    fallback: Optional[ParameterDef] = None,
+    *,
+    inherited_gating: str = GATING_BLOCKING,
+) -> Optional[ParameterRule]:
     if not isinstance(raw, dict):
         return None
     code = str(raw.get("code") or raw.get("parameter_key") or raw.get("parameter_code") or "").strip()
@@ -396,6 +475,11 @@ def normalize_parameter_rule(raw: dict[str, Any], fallback: Optional[ParameterDe
     if not required_instrument_id:
         required_instrument_id = str(instrument_blob.get("id") or instrument_blob.get("instrument_id") or "").strip()
     requires_instrument = _truthy_requires_instrument(raw)
+    gating = (
+        normalize_gating_policy(raw, default=inherited_gating)
+        if _has_explicit_gating(raw)
+        else normalize_gating_policy(inherited_gating)
+    )
     return ParameterRule(
         code=code,
         label=label,
@@ -414,6 +498,7 @@ def normalize_parameter_rule(raw: dict[str, Any], fallback: Optional[ParameterDe
         options=list(raw.get("options") or []) if isinstance(raw.get("options"), list) else None,
         requires_instrument=requires_instrument,
         required_instrument_id=required_instrument_id or None,
+        gating=gating,
     )
 
 
@@ -421,12 +506,14 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
     stage_key = str(stage or "").strip().upper()
     defs = {item.code: item for item in STAGE_PARAMETER_DEFS.get(stage_key, ())}
     rows: list[dict[str, Any]] = []
+    inherited_gating = GATING_BLOCKING
     if isinstance(profile, dict):
         stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else profile
         stage_block = stages.get(stage_key) if isinstance(stages, dict) else None
         if stage_block is None and isinstance(stages, dict):
             stage_block = stages.get(stage_key.lower())
         if isinstance(stage_block, dict):
+            inherited_gating = normalize_gating_policy(stage_block)
             raw_params = stage_block.get("parameters") or stage_block.get("metrics") or []
             if isinstance(raw_params, list):
                 rows = [item for item in raw_params if isinstance(item, dict)]
@@ -435,7 +522,7 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
     by_code: dict[str, ParameterRule] = {}
     for raw in rows:
         fallback = defs.get(str(raw.get("code") or raw.get("parameter_key") or "").strip())
-        rule = normalize_parameter_rule(raw, fallback)
+        rule = normalize_parameter_rule(raw, fallback, inherited_gating=inherited_gating)
         if rule:
             by_code[rule.code] = rule
     ordered: list[ParameterRule] = []

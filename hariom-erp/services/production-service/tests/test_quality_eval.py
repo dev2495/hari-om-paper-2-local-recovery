@@ -700,5 +700,60 @@ def test_documented_in_cal_instrument_allows_measured_pass():
     assert readiness["instrument_status"] == "valid"
 
 
+def test_omitted_gating_is_blocking_never_incidental_advisory():
+    evaluation = evaluate_job_stage(
+        stage="WINDER",
+        spec_snapshot=_winder_snapshot(),
+        readings={"id": 77, "od": 91, "height": 90, "weight": 250, "cs": 320},
+        reasons={"height": "measured short on winding"},
+        require_reasons_on_fail=True,
+    )
+    payload = evaluation.as_dict()
+    assert evaluation.verdict == "FAIL"
+    assert payload["gating"] == "blocking"
+    assert payload["movement_gate"] == "block"
+    assert payload["gating_source"] == "approved_profile"
+    height = next(row for row in payload["parameter_results"] if row["code"] == "height")
+    assert height["gating"] == "blocking"
+
+
+def test_declared_advisory_checkpoint_allows_movement_on_fail():
+    snapshot = _winder_snapshot()
+    snapshot["qc_profile"]["stages"]["WINDER"]["gating"] = "advisory"
+    evaluation = evaluate_job_stage(
+        stage="WINDER",
+        spec_snapshot=snapshot,
+        readings={"id": 77, "od": 91, "height": 90, "weight": 250, "cs": 320},
+        reasons={"height": "measured short on winding"},
+        require_reasons_on_fail=True,
+    )
+    payload = evaluation.as_dict()
+    assert evaluation.verdict == "FAIL"
+    assert payload["gating"] == "advisory"
+    assert payload["movement_gate"] == "allow"
+    assert payload["gating_source"] == "approved_profile"
+
+
+def test_mixed_fail_any_blocking_parameter_blocks_movement():
+    snapshot = _winder_snapshot()
+    params = snapshot["qc_profile"]["stages"]["WINDER"]["parameters"]
+    for row in params:
+        if row["code"] == "height":
+            row["gating"] = "advisory"
+        if row["code"] == "id":
+            row["gating"] = "blocking"
+    evaluation = evaluate_job_stage(
+        stage="WINDER",
+        spec_snapshot=snapshot,
+        readings={"id": 70, "od": 91, "height": 90, "weight": 250, "cs": 320},
+        reasons={"id": "crushed", "height": "short"},
+        require_reasons_on_fail=True,
+    )
+    payload = evaluation.as_dict()
+    assert evaluation.verdict == "FAIL"
+    assert payload["gating"] == "blocking"
+    assert payload["movement_gate"] == "block"
+
+
 
 

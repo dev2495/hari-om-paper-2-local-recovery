@@ -524,6 +524,12 @@ SHORTCUT_OBSERVATION_KEYS = {
     "quality_status",
     "qc_status",
     "hold_status",
+    "gating",
+    "gate",
+    "checkpoint_gating",
+    "advisory",
+    "blocking",
+    "movement_gate",
 }
 OBSERVATION_META_KEYS = SHORTCUT_OBSERVATION_KEYS | {
     "reasons",

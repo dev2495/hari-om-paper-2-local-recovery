@@ -63,6 +63,30 @@ async function createQcUser(page, suffix) {
   return { email, password: "Nverify_Qc1!", plantId: fixture.plants.plant_a.id }
 }
 
+async function createStoreUser(page, suffix) {
+  const runtime = getRuntimeManifest()
+  const fixture = getBrowserFixture()
+  const adminLogin = await page.request.post(`${runtime.urls.bff}/api/auth/login`, {
+    data: { email: fixture.auth.admin_email, password: fixture.auth.admin_password },
+  })
+  expect(adminLogin.ok()).toBeTruthy()
+  const email = `nverify.store.${suffix}.${Date.now()}@example.com`
+  const created = await page.request.post(`${runtime.urls.bff}/api/auth/users`, {
+    headers: { "X-Plant-ID": fixture.plants.plant_a.id },
+    data: {
+      name: `Nverify Store ${suffix}`,
+      email,
+      password: "Nverify_St1!",
+      plant_id: fixture.plants.plant_a.id,
+      role_names: ["Store"],
+      allowed_plant_ids: [fixture.plants.plant_a.id],
+      is_owner_all_plants: false,
+    },
+  })
+  expect(created.ok(), await created.text()).toBeTruthy()
+  return { email, password: "Nverify_St1!", plantId: fixture.plants.plant_a.id }
+}
+
 test("QC-01 QC sign-in lands on /landing/qc and is not Plant Manager", async ({ page }) => {
   const assertCritical = beginCriticalMonitoring(page, {
     expected: [{ kind: "response", status: 403 }],
@@ -1215,6 +1239,168 @@ test("QCT-063 signed multi-field FAIL retry keeps one case/hold and does not dup
     expect(replayed.hold_id).toBe(rows[0].hold_id)
     expect(again[0].hold_id).toBe(holdRows[0].id)
   }
+  await assertCritical()
+})
+
+test("QCT-064 declared advisory and mandatory blocking checkpoints keep FAIL and only approved policy gates movement", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [{ kind: "response", status: 409, urlIncludes: "/stage-output" }],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct064_live.py::test_qct064_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct064-ui-jobs.json"), "utf8"))
+  const advisoryJobId = String(artifact.advisory_job_id)
+  const blockingJobId = String(artifact.blocking_job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+
+  async function failHeight(jobId, sampleId) {
+    await selectSeededQualityJob(page, jobId)
+    await page.getByTestId("quality-stage-tab-WINDER").click()
+    await page.getByTestId("stage-qc-sample-id").fill(sampleId)
+    await page.getByTestId("stage-qc-reading-id").fill("77")
+    await page.getByTestId("stage-qc-reading-od").fill("91")
+    await page.getByTestId("stage-qc-reading-height").fill("90")
+    await page.getByTestId("stage-qc-reading-weight").fill("250")
+    await page.getByTestId("stage-qc-reading-cs").fill("100")
+    await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+    await page.getByTestId("stage-qc-reason-height").fill("measured short on winding")
+    await page.getByTestId("quality-stage-submit").click()
+    await expect(page.getByTestId("quality-stage-verdict")).toHaveText("FAIL")
+  }
+
+  await failHeight(advisoryJobId, "QCT064-A")
+  await expect(page.getByTestId("quality-stage-gating-policy")).toHaveText("ADVISORY")
+  await expect(page.getByTestId("quality-stage-movement-gate")).toHaveText("ALLOW")
+  const advisoryListed = await page.request.get(`/api/production/quality/inspections?job_card_id=${advisoryJobId}`, {
+    headers: plantHeaders,
+  })
+  expect(advisoryListed.ok(), await advisoryListed.text()).toBeTruthy()
+  const advisoryRows = await advisoryListed.json()
+  expect(advisoryRows).toHaveLength(1)
+  expect(advisoryRows[0].status).toBe("FAIL")
+  expect(advisoryRows[0].reasons.height).toBe("measured short on winding")
+  expect(advisoryRows[0].evaluation?.gating).toBe("advisory")
+  expect(advisoryRows[0].evaluation?.movement_gate).toBe("allow")
+  expect(advisoryRows[0].evaluation?.gating_source).toBe("approved_profile")
+  const advisoryHolds = await page.request.get(`/api/production/quality/holds?job_card_id=${advisoryJobId}`, {
+    headers: plantHeaders,
+  })
+  expect((await advisoryHolds.json())[0].status).toBe("HOLD")
+  const advisoryWinder = await page.request.post(`/api/production/job-cards/${advisoryJobId}/stage-output`, {
+    headers: plantHeaders,
+    data: {
+      stage: "WINDER",
+      output_qty: 8,
+      scrap_qty: 1,
+      save_mode: "complete",
+      actuals: { stock_status: "UNRESTRICTED", disposition: "RELEASED" },
+    },
+  })
+  expect(advisoryWinder.status(), await advisoryWinder.text()).toBe(200)
+  const advisoryOven = await page.request.post(`/api/production/job-cards/${advisoryJobId}/stage-output`, {
+    headers: plantHeaders,
+    data: { stage: "OVEN", output_qty: 8, save_mode: "complete" },
+  })
+  expect(advisoryOven.status(), await advisoryOven.text()).toBe(200)
+
+  await failHeight(blockingJobId, "QCT064-B")
+  await expect(page.getByTestId("quality-stage-gating-policy")).toHaveText("BLOCKING")
+  await expect(page.getByTestId("quality-stage-movement-gate")).toHaveText("BLOCK")
+  const shortcut = await page.request.post("/api/production/quality/inspections", {
+    headers: plantHeaders,
+    data: {
+      job_card_id: blockingJobId,
+      stage_type: "WINDER",
+      readings: {
+        id: 77,
+        od: 91,
+        height: 90,
+        weight: 250,
+        cs: 100,
+        gating: "advisory",
+        movement_gate: "allow",
+      },
+      reasons: { height: "measured short on winding" },
+      sample_id: "QCT064-SHORTCUT",
+    },
+  })
+  expect(shortcut.ok(), await shortcut.text()).toBeTruthy()
+  const shortcutBody = await shortcut.json()
+  expect(shortcutBody.status).toBe("FAIL")
+  expect(shortcutBody.evaluation?.gating).toBe("blocking")
+  expect(shortcutBody.evaluation?.movement_gate).toBe("block")
+  expect(shortcutBody.readings?.gating).toBeUndefined()
+  const blockingWinder = await page.request.post(`/api/production/job-cards/${blockingJobId}/stage-output`, {
+    headers: plantHeaders,
+    data: {
+      stage: "WINDER",
+      output_qty: 8,
+      scrap_qty: 1,
+      save_mode: "complete",
+      actuals: { stock_status: "UNRESTRICTED", disposition: "RELEASED" },
+    },
+  })
+  expect(blockingWinder.status(), await blockingWinder.text()).toBe(200)
+  const blockingOven = await page.request.post(`/api/production/job-cards/${blockingJobId}/stage-output`, {
+    headers: plantHeaders,
+    data: { stage: "OVEN", output_qty: 8, save_mode: "complete" },
+  })
+  expect(blockingOven.status()).toBe(409)
+  expect(await blockingOven.text()).toMatch(/JOB_HAS_ACTIVE_QC_HOLD/)
+  await assertCritical()
+})
+
+test("QCT-065 inspector and store cannot grant major concession through direct API", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [{ kind: "response", status: 403, urlIncludes: "/holds/" }],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct065_live.py::test_qct065_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct065-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  const qc = await createQcUser(page, "qct065")
+  const store = await createStoreUser(page, "qct065")
+  await cookieLogin(page, qc.email, qc.password, qc.plantId)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await page.getByTestId("stage-qc-sample-id").fill("QCT065-1")
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("90")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+  await page.getByTestId("stage-qc-reason-height").fill("measured short on winding")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveText("FAIL")
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const listed = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(listed.ok(), await listed.text()).toBeTruthy()
+  const holdId = (await listed.json())[0].hold_id
+  expect(holdId).toBeTruthy()
+  const inspectorRelease = await page.request.post(`/api/production/quality/holds/${holdId}/release`, {
+    headers: plantHeaders,
+  })
+  expect(inspectorRelease.status()).toBe(403)
+  await page.context().clearCookies()
+  await cookieLogin(page, store.email, store.password, store.plantId)
+  const storeRelease = await page.request.post(`/api/production/quality/holds/${holdId}/release`, {
+    headers: plantHeaders,
+  })
+  expect(storeRelease.status()).toBe(403)
+  await page.context().clearCookies()
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  const holds = await page.request.get(`/api/production/quality/holds?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect((await holds.json())[0].status).toBe("HOLD")
   await assertCritical()
 })
 

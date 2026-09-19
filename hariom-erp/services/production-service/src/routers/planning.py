@@ -3688,6 +3688,26 @@ def _sync_packing_record(
     return existing
 
 
+def _hold_is_movement_blocking(db: Session, hold: QualityHold) -> bool:
+    if str(hold.status or "").upper() not in QC_BLOCKING_STATUSES:
+        return False
+    if hold.source_inspection_id is None:
+        return True
+    inspection = (
+        db.query(QualityInspection)
+        .filter(QualityInspection.id == hold.source_inspection_id)
+        .first()
+    )
+    if inspection is None:
+        return True
+    gating = str((inspection.evaluation or {}).get("gating") or "blocking").strip().lower()
+    return gating != "advisory"
+
+
+def _movement_blocking_holds(db: Session, holds: list[QualityHold]) -> list[QualityHold]:
+    return [hold for hold in holds if _hold_is_movement_blocking(db, hold)]
+
+
 def _job_has_active_hold(db: Session, job_card_id: uuid.UUID) -> bool:
     count = (
         db.query(func.count(QualityHold.id))
@@ -6725,9 +6745,10 @@ def capture_stage_output(
         )
         .all()
     )
+    movement_holds = _movement_blocking_holds(db, active_holds)
     override_reason = (payload.override_reason or "").strip() if hasattr(payload, "override_reason") else ""
     qc_hold_override_roles = {"Owner", "Admin", "PlantManager"}
-    if active_holds and override_reason and actor_role not in qc_hold_override_roles:
+    if movement_holds and override_reason and actor_role not in qc_hold_override_roles:
         raise HTTPException(
             status_code=403,
             detail="Only Owner, Admin, or PlantManager can override an active QC hold.",
@@ -6769,8 +6790,8 @@ def capture_stage_output(
                 status_code=409,
                 detail=instrument_not_ready_detail(instrument_state),
             )
-    if active_holds and not override_reason:
-        hold_stages = {str(hold.stage_type or "").upper() for hold in active_holds}
+    if movement_holds and not override_reason:
+        hold_stages = {str(hold.stage_type or "").upper() for hold in movement_holds}
         current = str(job_card.current_stage or "").upper()
         if selected_stage not in hold_stages and selected_stage != current:
             raise HTTPException(
@@ -6778,11 +6799,11 @@ def capture_stage_output(
                 detail={
                     "code": "JOB_HAS_ACTIVE_QC_HOLD",
                     "message": (
-                        f"Job has {len(active_holds)} active QC hold(s) blocking stage advancement. "
+                        f"Job has {len(movement_holds)} active QC hold(s) blocking stage advancement. "
                         "Physical output on the held stage is recorded as restricted. "
                         "Release the hold(s) or provide an override_reason (PlantManager+ only) to advance."
                     ),
-                    "holds": _active_hold_summaries(active_holds),
+                    "holds": _active_hold_summaries(movement_holds),
                 },
             )
     if actor_role == "Operator" and selected_stage != job_card.current_stage:

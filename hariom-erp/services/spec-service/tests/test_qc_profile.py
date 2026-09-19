@@ -3,6 +3,41 @@ import pytest
 from src.qc_profile import normalize_qc_profile, profile_status
 
 
+def test_normalize_persists_explicit_gating_and_does_not_invent_advisory():
+    profile = normalize_qc_profile(
+        {
+            "stages": {
+                "WINDER": {
+                    "gating": "advisory",
+                    "parameters": [
+                        {"code": "height", "min": 118, "max": 122, "unit": "mm", "gating": "blocking"},
+                    ],
+                }
+            }
+        }
+    )
+    assert profile["stages"]["WINDER"]["gating"] == "advisory"
+    height = next(row for row in profile["stages"]["WINDER"]["parameters"] if row["code"] == "height")
+    assert height["gating"] == "blocking"
+    id_row = next(row for row in profile["stages"]["WINDER"]["parameters"] if row["code"] == "id")
+    assert "gating" not in id_row
+
+    omitted = normalize_qc_profile(
+        {
+            "stages": {
+                "WINDER": {
+                    "parameters": [
+                        {"code": "height", "min": 118, "max": 122, "unit": "mm"},
+                    ]
+                }
+            }
+        }
+    )
+    assert "gating" not in omitted["stages"]["WINDER"]
+    omitted_height = next(row for row in omitted["stages"]["WINDER"]["parameters"] if row["code"] == "height")
+    assert "gating" not in omitted_height
+
+
 def test_normalize_keeps_submitted_bounds_and_does_not_invent():
     profile = normalize_qc_profile(
         {
