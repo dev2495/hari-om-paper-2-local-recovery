@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** QCT-063 durable multi-field FAIL replay on parents overlay `886abd3` / product `1943b30`. Served BUILD_ID `EYFrs5GhOyHNGtioE2__r`.  
-**Chromium candidate:** BUILD_ID `EYFrs5GhOyHNGtioE2__r` on `:23000` — focused QCT-063 **1/1** in 4.1s; uncontended full Chromium **49 passed / 0 failed** in 2.2m after auth restore (auth `:28001` stayed up). One uninterrupted 49/49. Not original COMM/REL pack PASS.  
+**Local product HEAD this cycle:** QCT-064 advisory vs blocking movement gate and QCT-065 inspector/store concession denial on parents overlay `4e22c5b` / product `3c086b3`. Served BUILD_ID `fhU-eojOBt4PFHRjxMete`.  
+**Chromium candidate:** BUILD_ID `fhU-eojOBt4PFHRjxMete` on `:23000` — focused QCT-064+065 **2/2** in 10.6s; uncontended full Chromium **51 passed / 0 failed** in 2.4m (auth `:28001` stayed up). One uninterrupted 51/51. Not original COMM/REL pack PASS.  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -21,21 +21,21 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay | Count |
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
-| Overlay `PASS` | **96** |
+| Overlay `PASS` | **98** |
 | Overlay `PARTIAL` | **21** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
-| Overlay `NOT_RUN` | **72** |
+| Overlay `NOT_RUN` | **70** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
-| Requirements overlay `PASS` | `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`, `QCR-07`, `QCR-08`, `QCR-09`, `QCR-10`, `QCR-12`, `QCR-13`, `QCR-14`, `QCR-17` |
-| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-15`, `QCR-16`, `QCR-19`, `QCR-20`, `QCR-21`, `QCR-24`, `QCR-26`, `QCR-29`, `QCR-31`, `QCR-32`, `QCR-34` |
+| Requirements overlay `PASS` | `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`, `QCR-07`, `QCR-08`, `QCR-09`, `QCR-10`, `QCR-12`, `QCR-13`, `QCR-14`, `QCR-17`, `QCR-19` |
+| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-15`, `QCR-16`, `QCR-18`, `QCR-20`, `QCR-21`, `QCR-24`, `QCR-26`, `QCR-29`, `QCR-31`, `QCR-32`, `QCR-34` |
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Remaining requirements | `NOT_RUN` |
 
-Chromium original-partials on BUILD_ID `EYFrs5GhOyHNGtioE2__r` includes QCT-063 signed multi-field FAIL replay. That is not the 192-case pack.
+Chromium original-partials on BUILD_ID `fhU-eojOBt4PFHRjxMete` includes QCT-064 advisory vs blocking and QCT-065 inspector/store concession denial. That is not the 192-case pack.
 
 ### Overlay PASS (full criterion at the executed layer)
 
-`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`, `QCT-054`, `QCT-055`, `QCT-056`, `QCT-057`, `QCT-058`, `QCT-059`, `QCT-060`, `QCT-061`, `QCT-062`, `QCT-063`
+`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`, `QCT-054`, `QCT-055`, `QCT-056`, `QCT-057`, `QCT-058`, `QCT-059`, `QCT-060`, `QCT-061`, `QCT-062`, `QCT-063`, `QCT-064`, `QCT-065`
 
 ### Overlay PARTIAL (not PASS)
 
@@ -45,9 +45,9 @@ Chromium original-partials on BUILD_ID `EYFrs5GhOyHNGtioE2__r` includes QCT-063 
 
 `DEM-02`, `DEM-06` (`GROSS_ESTIMATE`); `QCT-107` (`PARTIAL_REJECTION_UNSUPPORTED`)
 
-### Overlay NOT_RUN (72)
+### Overlay NOT_RUN (70)
 
-`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-064`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
+`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-066`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
 
 `INC-01` stays NOT_RUN: missing original ID-creation screenshot SHA, browser console/stack, and corresponding request. `REG-02` stays NOT_RUN: isolated nverify dump is not migrated production data. QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate).
 
@@ -73,7 +73,7 @@ Chromium original-partials on BUILD_ID `EYFrs5GhOyHNGtioE2__r` includes QCT-063 
 
 ## Browser journeys
 
-See `docs/review/BROWSER_JOURNEYS.md`. Focused QCT-063 **1/1** on BUILD_ID `EYFrs5GhOyHNGtioE2__r`. Full Chromium **49 passed / 0 failed** in 2.2m (auth stayed up after restore). WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
+See `docs/review/BROWSER_JOURNEYS.md`. Focused QCT-064+065 **2/2** on BUILD_ID `fhU-eojOBt4PFHRjxMete`. Full Chromium **51 passed / 0 failed** in 2.4m (auth stayed up). WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
 
 ## Human UAT
 

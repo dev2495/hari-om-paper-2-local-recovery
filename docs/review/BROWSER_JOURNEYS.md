@@ -5,16 +5,16 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `EYFrs5GhOyHNGtioE2__r` (QCT-063 durable multi-field FAIL replay on the same bundle). Prior QCT-062 instrument evidence.
-- Focused QCT-063: **1 passed / 0 failed** in 4.1s
-- Uncontended full Chromium on this BUILD_ID: **49 passed / 0 failed** in 2.2m. Auth `:28001` pid **42087** stayed up (restored after **9821** died). One uninterrupted 49/49. QCT-063 passed as test 26. Do not overlay-PASS those release-gate tests as original COMM/REL IDs.
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `fhU-eojOBt4PFHRjxMete` (QCT-064 advisory vs blocking + QCT-065 concession denial). Prior BUILD_ID `EYFrs5GhOyHNGtioE2__r` was QCT-063.
+- Focused QCT-064+065: **2 passed / 0 failed** in 10.6s
+- Uncontended full Chromium on this BUILD_ID: **51 passed / 0 failed** in 2.4m. Auth `:28001` pid **42087** stayed up. One uninterrupted 51/51. QCT-064 passed as test 27; QCT-065 as test 28. Do not overlay-PASS those release-gate tests as original COMM/REL IDs.
 - Focused QCT-056: **1 passed / 0 failed** in 5.2s — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct056-after-books/`
 - Focused QCT-051+053 after that bind: **2 passed / 0 failed** in 6.1s — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct051-053-after-056/`
 - Focused QCT-045+051/053/054/055 on peLxeky: **5 passed / 0 failed** in 12.5s — `output/playwright/peLxekyXOJkjRqV0nc9oN-qct045-055/`
 - Full Chromium on peLxeky: **34 passed / 8 failed** in 6.9m after isolated auth `:28001` died — `output/playwright/peLxekyXOJkjRqV0nc9oN-full/`
 - Those 8 BJ logins re-ran **8 passed / 0 failed** in 13.2s after auth restore — `output/playwright/peLxekyXOJkjRqV0nc9oN-bj-tail/`
 - Combined bind on peLxeky is 42/42 across two process groups, not one uninterrupted 42/42. Full Chromium on `Jsi64h520Xs_8mFfUP9Qr`: **42 passed / 1 failed** in 4.2m — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-full-after-056/` (QCT-037 GET status empty).
-- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–063)
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–065)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
   2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`

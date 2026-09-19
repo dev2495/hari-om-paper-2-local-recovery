@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 96,
-      "NOT_RUN": 72,
+      "PASS": 98,
+      "NOT_RUN": 70,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 27,
-      "EXACT_EXECUTED": 96,
+      "EXACT_EXECUTED": 98,
       "LIMITATION": 3,
-      "NONE": 56,
+      "NONE": 54,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -2890,13 +2890,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct064_live.py::test_qct064_advisory_and_blocking_checkpoints_separate_fixtures",
+        "production-service/tests/test_quality_eval.py::test_omitted_gating_is_blocking_never_incidental_advisory",
+        "production-service/tests/test_quality_eval.py::test_declared_advisory_checkpoint_allows_movement_on_fail",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "Separate fixtures: approved WINDER gating advisory vs omitted/blocking. Both FAIL height with reason and HOLD. Advisory movement_gate allow and OVEN stage-output is not 409. Blocking movement_gate block and OVEN is 409 JOB_HAS_ACTIVE_QC_HOLD. Client readings.gating=advisory cannot convert blocking to advisory. Omitted policy defaults to blocking, never incidental advisory. Chromium BUILD_ID fhU-eojOBt4PFHRjxMete: ADVISORY/ALLOW then BLOCKING/BLOCK; shortcut POST stays blocking; blocking OVEN 409."
     },
     {
       "id": "QCT-065",
@@ -2909,13 +2914,16 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct065_live.py::test_qct065_inspector_and_store_concession_denied",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "QC inspector can save FAIL measurements but hold release is 403. Store role hold release is 403. Hold stays HOLD. Measurement save permission does not grant disposition authority. Chromium BUILD_ID fhU-eojOBt4PFHRjxMete: QC FAIL then inspector and store POST /holds/{id}/release both 403, hold HOLD."
     },
     {
       "id": "QCT-066",
@@ -4780,7 +4788,7 @@
       "id": "QCR-18",
       "title": "Canonical QC role and scoped capabilities",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-065",
         "QCT-085",
@@ -4791,14 +4799,16 @@
         "QCT-113",
         "QCT-125"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-065"
+      ],
       "limitations": []
     },
     {
       "id": "QCR-19",
       "title": "Nonconformance, containment and hold workbench",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-055",
         "QCT-063",
@@ -4806,7 +4816,8 @@
       ],
       "linked_pass": [
         "QCT-055",
-        "QCT-063"
+        "QCT-063",
+        "QCT-064"
       ],
       "limitations": []
     },
@@ -4828,7 +4839,9 @@
       ],
       "linked_pass": [
         "QCT-027",
-        "QCT-028"
+        "QCT-028",
+        "QCT-064",
+        "QCT-065"
       ],
       "limitations": [
         "PARTIAL_REJECTION_UNSUPPORTED"

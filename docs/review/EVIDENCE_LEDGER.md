@@ -13,24 +13,38 @@ Product at wave start: `1943b30` (Require documented in-cal instrument evidence 
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-063 durable multi-field FAIL replay; served BUILD_ID `EYFrs5GhOyHNGtioE2__r`; overlay parent `886abd3` PASS 95 |
-| Served BUILD_ID | `EYFrs5GhOyHNGtioE2__r` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-063 **1/1** in 4.1s. Uncontended full Chromium **49 passed / 0 failed** in 2.2m after auth restore; auth `:28001` stayed up. One uninterrupted 49/49. An earlier attempt aborted when auth pid **9821** died. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ `0edff86` ⊂ `1943b30` ⊂ `886abd3` ⊂ this overlay |
+| Served product | QCT-064 advisory vs blocking + QCT-065 concession denial; served BUILD_ID `fhU-eojOBt4PFHRjxMete`; overlay parent `4e22c5b` PASS 96 |
+| Served BUILD_ID | `fhU-eojOBt4PFHRjxMete` at `http://127.0.0.1:23000` |
+| BJ re-run | Focused QCT-064+065 **2/2** in 10.6s. Uncontended full Chromium **51 passed / 0 failed** in 2.4m; auth `:28001` stayed up. One uninterrupted 51/51. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ `4863ee8` ⊂ `62e68fd` ⊂ `a381b37` ⊂ `494b211` ⊂ `243535a` ⊂ `a77adbd` ⊂ `279dfc0` ⊂ `0edff86` ⊂ `1943b30` ⊂ `886abd3` ⊂ `3c086b3` ⊂ `4e22c5b` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Unique fingerprint index on existing `quality_inspections.observation_fingerprint`. Affected quantity lives on inspection evaluation JSON. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 96 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 72 |
+| Original 56/192 overlay | PASS 98 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 70 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `EYFrs5GhOyHNGtioE2__r` pid **32109** (npm parent **32080**)
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **39306** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
-- Auth **42087** :28001 (restored after pid **9821** died; stayed up through the uninterrupted 49/49 Chromium), master **90295** :28002, spec **31660** :28003, analytics **13483** :28007
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `fhU-eojOBt4PFHRjxMete` pid **47918** (npm parent **47888**)
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **47263** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002` + SALES_SERVICE_URL `http://127.0.0.1:28008`), sales **2337** :28008
+- Auth **42087** :28001 (stayed up through the uninterrupted 51/51 Chromium), master **90295** :28002, spec **47261** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 
 ## This cycle — executable original cases
+
+Wave after overlay `4e22c5b` / product `3c086b3` (QCT-064 advisory vs blocking + QCT-065 concession denial):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-064/065 unit + live + QCT-057 regression | 4 live passed; 3 eval + 1 spec unit | Advisory FAIL/HOLD/reason, OVEN 200; blocking FAIL/HOLD/reason, client gating ignored, OVEN 409; inspector and store hold-release 403 |
+| Chromium focused QCT-064+065 | **2 passed** in 10.6s | ADVISORY/ALLOW then BLOCKING/BLOCK; inspector and store 403; hold HOLD |
+| Chromium full project | **51 passed / 0 failed** in 2.4m | workers=1 Chrome channel; one uninterrupted 51/51; auth 42087 stayed up |
+
+Fixes patched with those tests:
+
+1. Approved QC profile may declare checkpoint `gating` advisory or blocking. Omitted gating is blocking, never incidental advisory. Client readings cannot set the movement gate.
+2. FAIL still records reason/case/HOLD on both fixtures. Advancement 409 `JOB_HAS_ACTIVE_QC_HOLD` applies only to blocking holds. Restricted labeling still uses any HOLD.
+3. Inspector measurement save does not grant FAIL-hold release. Store direct API release is 403. CSRF Origin checks kept. Isolated spec/production restarted with jwt_len 23 and localhost MASTER/SALES URLs. Foreign `:13000` pid 69663 not killed.
 
 Wave after overlay `886abd3` / product `1943b30` (QCT-063 durable multi-field FAIL replay):
 

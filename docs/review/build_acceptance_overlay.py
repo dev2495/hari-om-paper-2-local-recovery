@@ -140,6 +140,55 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "Signed multi-field FAIL (id/od/height) with common case is recorded once; identical retry returns reused=true with the same inspection and hold. All three failures stay on the case; affected_quantity is planned_qty once, not doubled; job qty unchanged. Chromium BUILD_ID EYFrs5GhOyHNGtioE2__r: Stage QC three FAILs, grouped-case COMMON, retry POST reused, inspections length 1, holds length 1.",
     },
+    "QCT-060": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct060_live.py::test_qct060_queue_missing_qc_then_checkpoint_requires_resolution",
+            "production-service/tests/test_quality_eval.py::test_empty_qc_profile_is_missing_setup_and_never_pass",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Valid commercial release-sync of an approved spec lacking new QC stage setup queues PLANNED/QUEUED with explicit missing_qc_setup / missing_profile_marker. Inspection and complete stage-output are 409 MISSING_QC_SETUP (requires_approved_resolution); empty setup is not measured PASS; no inspection/hold written. Chromium BUILD_ID _opGJjeYOkhKoqBiWqi2C: missing-setup banner, submit 409, inspections stay empty.",
+    },
+    "QCT-061": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct060_live.py::test_qct061_attach_then_replay_does_not_reset",
+        ],
+        "notes": "Authorized Attach approved QC profile on an unstarted missing-setup job is audited with before/after and is idempotent on repeat. Ordinary release-sync replay of the same lot is a noop: attached snapshot, schedule, and actuals are unchanged. Checkpoint after attach measures against the attached approved profile (PASS in range).",
+    },
+    "QCT-062": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct062_live.py::test_qct062_missing_and_expired_instrument_block_then_documented_evidence_passes",
+            "production-service/tests/test_quality_eval.py::test_required_instrument_missing_never_passes",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Readings that require a calibrated instrument with missing instrument, expired instrument, or status-only valid without documented due/certificate are 409 INVALID_INSTRUMENT; no inspection/hold; calibration is not invented and in-range numbers are not measured PASS. Documented in-cal evidence then PASS. Chromium BUILD_ID EYFrs5GhOyHNGtioE2__r: missing conflict, expired conflict, then PASS with CERT-QCT062.",
+    },
+    "QCT-064": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct064_live.py::test_qct064_advisory_and_blocking_checkpoints_separate_fixtures",
+            "production-service/tests/test_quality_eval.py::test_omitted_gating_is_blocking_never_incidental_advisory",
+            "production-service/tests/test_quality_eval.py::test_declared_advisory_checkpoint_allows_movement_on_fail",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Separate fixtures: approved WINDER gating advisory vs omitted/blocking. Both FAIL height with reason and HOLD. Advisory movement_gate allow and OVEN stage-output is not 409. Blocking movement_gate block and OVEN is 409 JOB_HAS_ACTIVE_QC_HOLD. Client readings.gating=advisory cannot convert blocking to advisory. Omitted policy defaults to blocking, never incidental advisory. Chromium BUILD_ID fhU-eojOBt4PFHRjxMete: ADVISORY/ALLOW then BLOCKING/BLOCK; shortcut POST stays blocking; blocking OVEN 409.",
+    },
+    "QCT-065": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct065_live.py::test_qct065_inspector_and_store_concession_denied",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "QC inspector can save FAIL measurements but hold release is 403. Store role hold release is 403. Hold stays HOLD. Measurement save permission does not grant disposition authority. Chromium BUILD_ID fhU-eojOBt4PFHRjxMete: QC FAIL then inspector and store POST /holds/{id}/release both 403, hold HOLD.",
+    },
+    "QCT-071": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
         "mapped_tests": [
