@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 89,
-      "NOT_RUN": 79,
+      "PASS": 90,
+      "NOT_RUN": 78,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 27,
-      "EXACT_EXECUTED": 89,
+      "EXACT_EXECUTED": 90,
       "LIMITATION": 3,
-      "NONE": 63,
+      "NONE": 62,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -1261,7 +1261,7 @@
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "FAIL opens HOLD; stage-output 409; later PASS retest leaves HOLD; inspector cannot release own FAIL; Owner concession releases. Earlier PASS does not clear the new hold."
+      "notes": "FAIL opens HOLD; held-stage physical output is recorded as QC_HOLD without form 409; later-stage advancement stays 409 JOB_HAS_ACTIVE_QC_HOLD. Later PASS retest leaves HOLD; inspector cannot release own FAIL; Owner concession releases. Earlier PASS does not clear the new hold."
     },
     {
       "id": "QC-09",
@@ -2734,13 +2734,18 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct057_live.py::test_qct057_fail_qc_output_retained_restricted_not_hidden",
+        "production-service/tests/test_quality_eval.py::test_restricted_stock_actuals_rejects_client_unrestricted_label",
+        "production-service/tests/test_original_qc_live.py::test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_clear_new_hold",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "FAIL-QC physical output is saved (WINDER qty 8 / PACKING qty 5) as QC_HOLD, not UNRESTRICTED/good, and not 409-hidden. Advancement to OVEN stays 409 JOB_HAS_ACTIVE_QC_HOLD; job remains IN_PROGRESS. Chromium BUILD_ID zBHhpAo5567LO6B9wJwqR: 1 passed / 0 failed in 4.0s; form retains qty 8, stock QC_HOLD, dispatch blocked, hold HOLD."
     },
     {
       "id": "QCT-058",
@@ -4640,7 +4645,7 @@
       "id": "QCR-13",
       "title": "Full-card and alternate-entry validation",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-050",
         "QCT-051",
@@ -4648,7 +4653,8 @@
       ],
       "linked_pass": [
         "QCT-050",
-        "QCT-051"
+        "QCT-051",
+        "QCT-057"
       ],
       "limitations": []
     },
@@ -4729,7 +4735,7 @@
       "id": "QCR-17",
       "title": "Separate workflow, measurement and eligibility",
       "original_status": "NOT_STARTED",
-      "overlay_status": "PARTIAL",
+      "overlay_status": "PASS",
       "acceptance_test_ids": [
         "QCT-010",
         "QCT-019",
@@ -4741,7 +4747,8 @@
         "QCT-010",
         "QCT-019",
         "QCT-023",
-        "QCT-053"
+        "QCT-053",
+        "QCT-057"
       ],
       "limitations": []
     },

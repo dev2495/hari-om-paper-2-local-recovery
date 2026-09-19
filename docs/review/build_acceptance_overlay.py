@@ -99,6 +99,17 @@ SPECIAL: dict[str, dict] = {
         "rr": ["RR22"],
         "notes": "Changing recorded height 90 FAIL to 120 PASS keeps the original FAIL row, requires correction reason/actor/time/revision 2, and leaves the hold HOLD. Missing reason is 400; stale expected_revision is 409. Chromium BUILD_ID Jsi64h520Xs_8mFfUP9Qr: 1 passed / 0 failed in 5.2s after books-state 200 (catalog fetch no longer 500s when master hostname is unresolved). Original FAIL 90 retained, 400 without reason, PASS correction revision 2, hold HOLD.",
     },
+    "QCT-057": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct057_live.py::test_qct057_fail_qc_output_retained_restricted_not_hidden",
+            "production-service/tests/test_quality_eval.py::test_restricted_stock_actuals_rejects_client_unrestricted_label",
+            "production-service/tests/test_original_qc_live.py::test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_clear_new_hold",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "FAIL-QC physical output is saved (WINDER qty 8 / PACKING qty 5) as QC_HOLD, not UNRESTRICTED/good, and not 409-hidden. Advancement to OVEN stays 409 JOB_HAS_ACTIVE_QC_HOLD; job remains IN_PROGRESS. Chromium BUILD_ID zBHhpAo5567LO6B9wJwqR: 1 passed / 0 failed in 4.0s; form retains qty 8, stock QC_HOLD, dispatch blocked, hold HOLD.",
+    },
     "QCT-071": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
@@ -1028,7 +1039,7 @@ SPECIAL: dict[str, dict] = {
         "mapped_tests": [
             "production-service/tests/test_original_qc_live.py::test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_clear_new_hold",
         ],
-        "notes": "FAIL opens HOLD; stage-output 409; later PASS retest leaves HOLD; inspector cannot release own FAIL; Owner concession releases. Earlier PASS does not clear the new hold.",
+        "notes": "FAIL opens HOLD; held-stage physical output is recorded as QC_HOLD without form 409; later-stage advancement stays 409 JOB_HAS_ACTIVE_QC_HOLD. Later PASS retest leaves HOLD; inspector cannot release own FAIL; Owner concession releases. Earlier PASS does not clear the new hold.",
     },
     "QC-09": {
         "overlay_status": "PASS",
