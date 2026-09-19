@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** QCT-057 restricted physical output on parent `4cb6d72` / `e060c56`. Overlay parent `ee77d3e`. Served BUILD_ID `zBHhpAo5567LO6B9wJwqR`.  
-**Chromium candidate:** BUILD_ID `zBHhpAo5567LO6B9wJwqR` on `:23000` — QCT-057 **1/1** in 4.0s; uncontended full Chromium **43 passed / 1 failed** in 4.0m (PLAN-09 390px overflow). Jsi64h full **42 passed / 1 failed** (QCT-037). peLxeky combined 42/42 was two process groups.  
+**Local product HEAD this cycle:** QCT-058 late exception + PLAN-09 overflow repair on parent `4863ee8` / `62e68fd`. Served BUILD_ID `6zk33xI-C0oXl9okpNOFU`.  
+**Chromium candidate:** BUILD_ID `6zk33xI-C0oXl9okpNOFU` on `:23000` — focused PLAN-09+QCT-058 **2/2** in 5.5s; full Chromium **37 passed / 8 failed** in 6.8m then BJ-tail **9/9** after auth restore. Combined 45/45 across two groups. Prior zBHhpAo full **43 passed / 1 failed** (PLAN-09 overflow, now repaired).  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -21,21 +21,21 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay | Count |
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
-| Overlay `PASS` | **90** |
+| Overlay `PASS` | **91** |
 | Overlay `PARTIAL` | **21** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
-| Overlay `NOT_RUN` | **78** |
+| Overlay `NOT_RUN` | **77** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
 | Requirements overlay `PASS` | `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`, `QCR-07`, `QCR-08`, `QCR-09`, `QCR-10`, `QCR-12`, `QCR-13`, `QCR-14`, `QCR-17` |
-| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-15`, `QCR-16`, `QCR-19`, `QCR-20`, `QCR-21`, `QCR-26`, `QCR-29`, `QCR-31`, `QCR-32`, `QCR-34` |
+| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-15`, `QCR-16`, `QCR-19`, `QCR-20`, `QCR-21`, `QCR-24`, `QCR-26`, `QCR-29`, `QCR-31`, `QCR-32`, `QCR-34` |
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Remaining requirements | `NOT_RUN` |
 
-Chromium original-partials on BUILD_ID `zBHhpAo5567LO6B9wJwqR` includes QCT-057 restricted physical output. That is not the 192-case pack.
+Chromium original-partials on BUILD_ID `6zk33xI-C0oXl9okpNOFU` includes QCT-058 late exception. That is not the 192-case pack.
 
 ### Overlay PASS (full criterion at the executed layer)
 
-`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`, `QCT-054`, `QCT-055`, `QCT-056`, `QCT-057`
+`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`, `QCT-054`, `QCT-055`, `QCT-056`, `QCT-057`, `QCT-058`
 
 ### Overlay PARTIAL (not PASS)
 
@@ -45,9 +45,9 @@ Chromium original-partials on BUILD_ID `zBHhpAo5567LO6B9wJwqR` includes QCT-057 
 
 `DEM-02`, `DEM-06` (`GROSS_ESTIMATE`); `QCT-107` (`PARTIAL_REJECTION_UNSUPPORTED`)
 
-### Overlay NOT_RUN (78)
+### Overlay NOT_RUN (77)
 
-`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-058`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
+`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-059`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
 
 `INC-01` stays NOT_RUN: missing original ID-creation screenshot SHA, browser console/stack, and corresponding request. `REG-02` stays NOT_RUN: isolated nverify dump is not migrated production data. QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate).
 
@@ -73,7 +73,7 @@ Chromium original-partials on BUILD_ID `zBHhpAo5567LO6B9wJwqR` includes QCT-057 
 
 ## Browser journeys
 
-See `docs/review/BROWSER_JOURNEYS.md`. Focused QCT-045/051/053/054/055 **5/5 PASS** on BUILD_ID `peLxekyXOJkjRqV0nc9oN`. Full Chromium 34/42 then BJ-tail **8/8** after auth restore. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
+See `docs/review/BROWSER_JOURNEYS.md`. Focused PLAN-09+QCT-058 **2/2** on BUILD_ID `6zk33xI-C0oXl9okpNOFU`. Full Chromium 37/45 then BJ-tail **9/9** after auth restore. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
 
 ## Human UAT
 

@@ -110,6 +110,16 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "FAIL-QC physical output is saved (WINDER qty 8 / PACKING qty 5) as QC_HOLD, not UNRESTRICTED/good, and not 409-hidden. Advancement to OVEN stays 409 JOB_HAS_ACTIVE_QC_HOLD; job remains IN_PROGRESS. Chromium BUILD_ID zBHhpAo5567LO6B9wJwqR: 1 passed / 0 failed in 4.0s; form retains qty 8, stock QC_HOLD, dispatch blocked, hold HOLD.",
     },
+    "QCT-058": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct058_live.py::test_qct058_retrospective_fail_after_later_stage_and_dispatch",
+            "production-service/tests/test_quality_eval.py::test_late_exception_distinct_clocks_trace_without_retroactive_claim",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "WINDER FAIL recorded with earlier measured_at after OVEN/PACKING and a SEALED dispatch of 6. Clocks distinct; labeled Late quality exception; surviving FG 4 traced; sealed shipment remains SEALED; retroactive_prevention_claimed is false. Chromium BUILD_ID 6zk33xI-C0oXl9okpNOFU: Stage QC measured-at submit FAIL, late-exception banner, surviving stock and earlier SEALED shipment visible.",
+    },
     "QCT-071": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
@@ -232,7 +242,7 @@ SPECIAL: dict[str, dict] = {
         "coverage": "EXACT_EXECUTED",
         "mapped_tests": ["apps/web-ui/e2e/planner-keyboard-narrow.spec.cjs"],
         "bj": ["BJ03"],
-        "notes": "Chromium 390px planner: keyboard schedule form visible, Tab/Escape, overflow <48px. Same scheduleSegment path as drag. WebKit/Safari NOT_RUN.",
+        "notes": "Chromium 390px planner on BUILD_ID 6zk33xI-C0oXl9okpNOFU: keyboard schedule form visible, Tab/Escape, documentElement overflow <48px after header search min-w-0 and planner calendar containment. Same scheduleSegment path as drag. Prior zBHhpAo run failed overflow 146 vs <48. WebKit/Safari NOT_RUN.",
     },
     "PUR-01": {
         "overlay_status": "PASS",

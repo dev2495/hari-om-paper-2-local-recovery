@@ -7,15 +7,15 @@
     "original_requirements": 56,
     "overlay_status": {
       "PARTIAL": 21,
-      "PASS": 90,
-      "NOT_RUN": 78,
+      "PASS": 91,
+      "NOT_RUN": 77,
       "LIMITATION": 3
     },
     "coverage": {
       "PARTIAL": 27,
-      "EXACT_EXECUTED": 90,
+      "EXACT_EXECUTED": 91,
       "LIMITATION": 3,
-      "NONE": 62,
+      "NONE": 61,
       "UNIT_ONLY": 3,
       "RELATED": 4,
       "HUMAN_UAT": 1,
@@ -740,7 +740,7 @@
         "BJ03"
       ],
       "limitation": null,
-      "notes": "Chromium 390px planner: keyboard schedule form visible, Tab/Escape, overflow <48px. Same scheduleSegment path as drag. WebKit/Safari NOT_RUN."
+      "notes": "Chromium 390px planner on BUILD_ID 6zk33xI-C0oXl9okpNOFU: keyboard schedule form visible, Tab/Escape, documentElement overflow <48px after header search min-w-0 and planner calendar containment. Same scheduleSegment path as drag. Prior zBHhpAo run failed overflow 146 vs <48. WebKit/Safari NOT_RUN."
     },
     {
       "id": "DEM-01",
@@ -2757,13 +2757,17 @@
       "release_blocking": true,
       "origin": "quality expansion v2",
       "original_status": "NOT_RUN",
-      "overlay_status": "NOT_RUN",
-      "coverage": "NONE",
-      "mapped_tests": [],
+      "overlay_status": "PASS",
+      "coverage": "EXACT_EXECUTED",
+      "mapped_tests": [
+        "production-service/tests/test_original_qct058_live.py::test_qct058_retrospective_fail_after_later_stage_and_dispatch",
+        "production-service/tests/test_quality_eval.py::test_late_exception_distinct_clocks_trace_without_retroactive_claim",
+        "apps/web-ui/e2e/original-partials.spec.cjs"
+      ],
       "rr": [],
       "bj": [],
       "limitation": null,
-      "notes": "No executed test maps to this original procedure yet."
+      "notes": "WINDER FAIL recorded with earlier measured_at after OVEN/PACKING and a SEALED dispatch of 6. Clocks distinct; labeled Late quality exception; surviving FG 4 traced; sealed shipment remains SEALED; retroactive_prevention_claimed is false. Chromium BUILD_ID 6zk33xI-C0oXl9okpNOFU: Stage QC measured-at submit FAIL, late-exception banner, surviving stock and earlier SEALED shipment visible."
     },
     {
       "id": "QCT-059",
@@ -4862,14 +4866,16 @@
       "id": "QCR-24",
       "title": "Genealogy and late/retrospective entry",
       "original_status": "NOT_STARTED",
-      "overlay_status": "NOT_RUN",
+      "overlay_status": "PARTIAL",
       "acceptance_test_ids": [
         "QCT-058",
         "QCT-059",
         "QCT-084",
         "QCT-105"
       ],
-      "linked_pass": [],
+      "linked_pass": [
+        "QCT-058"
+      ],
       "limitations": []
     },
     {

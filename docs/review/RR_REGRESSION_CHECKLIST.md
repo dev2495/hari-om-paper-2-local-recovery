@@ -2,7 +2,7 @@
 
 Branch: `cursor/ui-polish-nav-c5f9`  
 Audited base: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`  
-Local candidate: QCT-057 restricted output on parent `4cb6d72` / `e060c56`; served UI BUILD_ID `zBHhpAo5567LO6B9wJwqR`; overlay parent `ee77d3e` PASS 90  
+Local candidate: QCT-058 late exception + PLAN-09 overflow repair; served UI BUILD_ID `6zk33xI-C0oXl9okpNOFU`; overlay parent `62e68fd` PASS 91  
 Original 192 V2 cases: restored at `docs/review/baseline-v2/`, overlay in `ACCEPTANCE_OVERLAY.json`. These RR rows stay additive.
 
 Legend: `PASS` = automated proof in this pass. `CODE` = implemented and unit-covered, live DB/UI not exercised. `NOT_RUN` = remaining gate. `STALE` = prior proof no longer binds to current source.

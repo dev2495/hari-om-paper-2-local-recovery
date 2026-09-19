@@ -13,24 +13,38 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-057 restricted physical output + QCT-056 `e060c56` + books-state `4cb6d72`; served BUILD_ID `zBHhpAo5567LO6B9wJwqR`; overlay parent `ee77d3e` PASS 90 |
-| Served BUILD_ID | `zBHhpAo5567LO6B9wJwqR` at `http://127.0.0.1:23000` |
-| BJ re-run | QCT-057 Chromium **1/1 PASS** (4.0s) on `zBHhpAo5567LO6B9wJwqR`. Uncontended full Chromium **43 passed / 1 failed** in 4.0m (PLAN-09 overflow). Jsi64h QCT-056 **1/1**; full **42 passed / 1 failed** (QCT-037). |
+| Served product | QCT-058 late exception + PLAN-09 overflow repair; served BUILD_ID `6zk33xI-C0oXl9okpNOFU`; overlay parent `62e68fd` PASS 91 |
+| Served BUILD_ID | `6zk33xI-C0oXl9okpNOFU` at `http://127.0.0.1:23000` |
+| BJ re-run | Focused PLAN-09+QCT-058 **2/2** in 5.5s. Full Chromium **37 passed / 8 failed** in 6.8m after auth `:28001` died; BJ-tail **9/9** in 13.4s after auth restore. Combined 45/45 across two groups, not one uninterrupted 45/45. |
 | Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ `ee77d3e` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 90 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 78 |
+| Original 56/192 overlay | PASS 91 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 77 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `zBHhpAo5567LO6B9wJwqR` pid **436** (npm parent **391**)
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **98748** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002`), sales **2337** :28008
-- Auth **89325** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `6zk33xI-C0oXl9okpNOFU` pid **6969** (npm parent **6934**)
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **6497** :28004 (JWT len 23 + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002`), sales **2337** :28008
+- Auth **9821** :28001 (restored after full-suite death), master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 
 ## This cycle — executable original cases
+
+Wave after overlay `62e68fd` / product `4863ee8` (QCT-058 + PLAN-09 overflow):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-058 unit + live + QC-08/057 regression | 5 passed | Distinct measured/recorded clocks; Late quality exception after OVEN/PACKING + SEALED 6; surviving FG 4; dispatch stays SEALED |
+| Chromium focused PLAN-09 + QCT-058 | **2 passed** in 5.5s | `output/playwright/6zk33xI-C0oXl9okpNOFU-plan09-qct058/` overflow <48; Stage QC late-exception banner |
+| Chromium full 45 on 6zk33xI-C0oXl9okpNOFU | **37 passed / 8 failed** in 6.8m | Auth `:28001` died after test 36; PLAN-09 and QCT-058 passed in that run |
+| Chromium BJ-tail after auth restore | **9 passed** in 13.4s | `output/playwright/6zk33xI-C0oXl9okpNOFU-bj-tail/` |
+
+Fixes patched with those tests:
+
+1. InspectionCreate stores `measured_at` vs `recorded_at` in evaluation JSONB. FAIL after later stage/dispatch is labeled Late quality exception and traces surviving FG plus earlier SEALED shipment without claiming the shipment was prevented.
+2. 390px planner overflow was the header search input min-content plus calendar min-width leaking to documentElement; header `min-w-0` and planner containment keep overflow <48.
 
 Wave after overlay `ee77d3e` / product `4cb6d72` (QCT-057):
 
