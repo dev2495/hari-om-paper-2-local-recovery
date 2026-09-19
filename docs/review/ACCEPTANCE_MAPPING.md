@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** QCT-054/055 on parent `5306970` (tab-order fix served as BUILD_ID `peLxekyXOJkjRqV0nc9oN`; overlay `dd6973a` PASS 88).  
-**Chromium candidate:** BUILD_ID `peLxekyXOJkjRqV0nc9oN` on `:23000` — focused QCT-045+051/053/054/055 **5/5 PASS**. Full Chromium **34/42** in one process after auth `:28001` died; those 8 BJ logins **re-ran 8/8 PASS** after auth restore. Combined bind 42/42 on this BUILD_ID, not a single uninterrupted process. Prior `RuDVwRuPutn9QGHEBn6so` 40/40 does **not** bind this bundle.  
+**Local product HEAD this cycle:** `e060c56` QCT-056 correction audit on parent `a43e2d1` / `5306970`. Overlay parent `b1958f5`. Served BUILD_ID `Jsi64h520Xs_8mFfUP9Qr`.  
+**Chromium candidate:** BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` on `:23000` — QCT-056 original-procedure asserts passed; Playwright listed FAIL on unrelated books-state 500 (MASTERDATA_SERVICE_URL missing after restart; now 200, not looped). peLxeky combined 42/42 was two process groups.  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -21,21 +21,21 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | Overlay | Count |
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
-| Overlay `PASS` | **88** |
+| Overlay `PASS` | **89** |
 | Overlay `PARTIAL` | **21** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
-| Overlay `NOT_RUN` | **80** |
+| Overlay `NOT_RUN` | **79** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
 | Requirements overlay `PASS` | `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`, `QCR-07`, `QCR-08`, `QCR-09`, `QCR-10`, `QCR-12`, `QCR-14` |
-| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-13`, `QCR-15`, `QCR-16`, `QCR-17`, `QCR-19`, `QCR-20`, `QCR-26`, `QCR-31`, `QCR-32`, `QCR-34` |
+| Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-13`, `QCR-15`, `QCR-16`, `QCR-17`, `QCR-19`, `QCR-20`, `QCR-21`, `QCR-26`, `QCR-29`, `QCR-31`, `QCR-32`, `QCR-34` |
 | Requirements overlay `LIMITATION` | `R17`, `QCR-33` |
 | Remaining requirements | `NOT_RUN` |
 
-Chromium original-partials on BUILD_ID `AOG_OtZsA38lwPCoQOXkx` now includes QCT-051/053/054/055. That is not the 192-case pack.
+Chromium original-partials on BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` includes QCT-056 correction audit. That is not the 192-case pack.
 
 ### Overlay PASS (full criterion at the executed layer)
 
-`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`, `QCT-054`, `QCT-055`
+`COMM-08`, `COMM-11`, `REL-04`, `REL-05`, `REL-06`, `REL-07`, `REL-08`, `REL-09`, `REL-10`, `REL-11`, `PLAN-01`, `PLAN-02`, `PLAN-03`, `PLAN-04`, `PLAN-05`, `PLAN-06`, `PLAN-07`, `PLAN-08`, `PLAN-09`, `PUR-01`, `PUR-02`, `PUR-03`, `PUR-04`, `PUR-05`, `PUR-06`, `PUR-07`, `PUR-08`, `QC-01`, `QC-02`, `QC-03`, `QC-04`, `QC-05`, `QC-06`, `QC-07`, `QC-08`, `QC-09`, `QC-10`, `REG-01`, `QCT-001`, `QCT-002`, `QCT-003`, `QCT-007`, `QCT-009`, `QCT-010`, `QCT-011`, `QCT-013`, `QCT-014`, `QCT-015`, `QCT-016`, `QCT-017`, `QCT-018`, `QCT-019`, `QCT-020`, `QCT-021`, `QCT-022`, `QCT-023`, `QCT-024`, `QCT-025`, `QCT-026`, `QCT-027`, `QCT-028`, `QCT-029`, `QCT-030`, `QCT-031`, `QCT-032`, `QCT-033`, `QCT-034`, `QCT-035`, `QCT-036`, `QCT-037`, `QCT-038`, `QCT-039`, `QCT-040`, `QCT-041`, `QCT-042`, `QCT-043`, `QCT-044`, `QCT-045`, `QCT-046`, `QCT-047`, `QCT-048`, `QCT-049`, `QCT-050`, `QCT-051`, `QCT-052`, `QCT-053`, `QCT-054`, `QCT-055`, `QCT-056`
 
 ### Overlay PARTIAL (not PASS)
 
@@ -45,9 +45,9 @@ Chromium original-partials on BUILD_ID `AOG_OtZsA38lwPCoQOXkx` now includes QCT-
 
 `DEM-02`, `DEM-06` (`GROSS_ESTIMATE`); `QCT-107` (`PARTIAL_REJECTION_UNSUPPORTED`)
 
-### Overlay NOT_RUN (80)
+### Overlay NOT_RUN (79)
 
-`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-056`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
+`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-057`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
 
 `INC-01` stays NOT_RUN: missing original ID-creation screenshot SHA, browser console/stack, and corresponding request. `REG-02` stays NOT_RUN: isolated nverify dump is not migrated production data. QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate).
 

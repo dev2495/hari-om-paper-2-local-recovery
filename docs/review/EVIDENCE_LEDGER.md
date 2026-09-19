@@ -13,25 +13,39 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-054/055 on parent `5306970`; tab-order fix BUILD_ID `peLxekyXOJkjRqV0nc9oN`; overlay `dd6973a` |
-| Served BUILD_ID | `peLxekyXOJkjRqV0nc9oN` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-045+051/053/054/055 **5/5 PASS**. Full Chromium 34/42 after auth died; BJ-tail **8/8 PASS** after auth restore. Combined 42/42 on this BUILD_ID. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ this overlay |
+| Served product | QCT-056 correction audit `e060c56`; served BUILD_ID `Jsi64h520Xs_8mFfUP9Qr`; overlay parent `b1958f5` |
+| Served BUILD_ID | `Jsi64h520Xs_8mFfUP9Qr` at `http://127.0.0.1:23000` |
+| BJ re-run | QCT-056 Chromium original asserts passed on `Jsi64h520Xs_8mFfUP9Qr`; Playwright listed FAIL on books-state 500 (MASTERDATA_SERVICE_URL restored, books-state 200, not looped). peLxeky focused 5/5; combined 42/42 was two process groups. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 88 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 80 |
+| Original 56/192 overlay | PASS 89 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 79 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `AOG_OtZsA38lwPCoQOXkx` pid **83274**
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **82189** :28004, sales **2337** :28008
-- Auth **75328** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` pid **90619**
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **93154** :28004 (JWT + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002`), sales **2337** :28008
+- Auth **89325** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
-- JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `b1958f5` / product `e060c56` (QCT-056):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-056 unit + live + QCT-048/QC-08 regression | 4 passed | missing correction reason 400; stale revision 409; original height 90 FAIL retained; correction PASS revision 2; hold HOLD |
+| Chromium focused QCT-056 first | FAIL | seeded job missing from Stage QC (production restart lacked JWT_SECRET) |
+| Chromium focused QCT-056 retest | original asserts passed; process FAIL | FAIL 90 retained, 400 without reason, PASS correction revision 2, hold HOLD; assertCritical tripped on `/api/production/books-state` 500 |
+| books-state after MASTERDATA_SERVICE_URL restore | 200 | not Chromium-looped |
+
+Fixes patched with those tests:
+
+1. Same-sample measured-value change is a correction: original FAIL row immutable, linked PASS requires reason/actor/time/revision, hold not auto-cleared.
+2. Oven PRE/POST pairing and incomplete-then-filled POST are not treated as measured corrections.
+3. Production isolated restart must carry JWT_SECRET and MASTERDATA_SERVICE_URL=http://127.0.0.1:28002.
 
 Wave after overlay `bf2207d` / product `5306970` (QCT-054/055):
 

@@ -88,6 +88,17 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "One common-cause explanation links ID/OD/height FAILs; each parameter remains on the inspection. Grouped case COMMON, hold HOLD. Chromium BUILD_ID peLxekyXOJkjRqV0nc9oN: three failing fields, grouped-case COMMON, all three reasons share common_cause_id.",
     },
+    "QCT-056": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct051_live.py::test_qct056_correction_keeps_original_fail_and_hold",
+            "production-service/tests/test_quality_eval.py::test_changed_measured_values_detects_failing_number_correction",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "rr": ["RR22"],
+        "notes": "Changing recorded height 90 FAIL to 120 PASS keeps the original FAIL row, requires correction reason/actor/time/revision 2, and leaves the hold HOLD. Missing reason is 400; stale expected_revision is 409. Chromium BUILD_ID Jsi64h520Xs_8mFfUP9Qr executed that original UI procedure (FAIL retained, 400 without reason, PASS correction revision 2, hold HOLD). Playwright process then listed FAIL on unrelated /api/production/books-state 500 from a production restart missing MASTERDATA_SERVICE_URL; that URL is restored and books-state is 200. Not looped.",
+    },
     "QCT-071": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
