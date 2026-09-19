@@ -5,10 +5,11 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `RuDVwRuPutn9QGHEBn6so` (QCT-050 complete job card returns hidden-stage issues; form data stays)
-- Full Chromium project through QCT-053: **40 passed / 0 failed** (`--workers=1`, 2.0m) — `output/playwright/RuDVwRuPutn9QGHEBn6so-full-after-051-053/`
-- Focused QCT-051/053 Chromium: **2 passed / 0 failed** in 5.6s — `output/playwright/RuDVwRuPutn9QGHEBn6so-qct051-053-csrf/`
-- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–053)
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `AOG_OtZsA38lwPCoQOXkx` (QCT-054/055 unknown-cause + common-cause UI)
+- Focused QCT-054/055 Chromium: **2 passed / 0 failed** in 5.6s — `output/playwright/AOG_OtZsA38lwPCoQOXkx-qct054-055/`
+- Prior full Chromium through QCT-053: **40 passed / 0 failed** on BUILD_ID `RuDVwRuPutn9QGHEBn6so` — does not bind this bundle
+- Full 42-test Chromium on `AOG_OtZsA38lwPCoQOXkx` stalled after test 15 under a concurrent second Playwright suite and was killed (>180s); not looped
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–055)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
   2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`

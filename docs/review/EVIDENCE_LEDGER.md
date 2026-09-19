@@ -13,25 +13,40 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | `5306970` QCT-051/053 adapters on `72262de` QCT-050; parent `8db296c` QCT-048/049 |
-| Served BUILD_ID | `RuDVwRuPutn9QGHEBn6so` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-051/053 Chromium **2/2 PASS** then full Chromium **40/40 PASS** (2.0m, `--workers=1`) on BUILD_ID `RuDVwRuPutn9QGHEBn6so`. |
+| Served product | QCT-054/055 on parent `5306970` QCT-051/053 adapters |
+| Served BUILD_ID | `AOG_OtZsA38lwPCoQOXkx` at `http://127.0.0.1:23000` |
+| BJ re-run | Focused QCT-054/055 Chromium **2/2 PASS** (5.6s). Full 42-test Chromium on this BUILD_ID was killed after a >180s stall (concurrent second Playwright suite); not looped. Prior 40/40 binds only `RuDVwRuPutn9QGHEBn6so`. |
 | Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 86 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 82 |
+| Original 56/192 overlay | PASS 88 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 80 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
-- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `RuDVwRuPutn9QGHEBn6so` pid **61187** (launcher 61154)
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow loaded from current source), inventory **2331** :28005, production **70492** :28004, sales **2337** :28008
+- Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `AOG_OtZsA38lwPCoQOXkx` pid **83274**
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **82189** :28004, sales **2337** :28008
 - Auth **75328** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `bf2207d` / product `5306970` (QCT-054/055):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-054/055 unit + live | 4 passed | unknown-cause OPEN without fabricated RCA; three FAILs share one grouped case |
+| Chromium focused QCT-054/055 | **2 passed** in 5.6s | `output/playwright/AOG_OtZsA38lwPCoQOXkx-qct054-055/` BUILD_ID `AOG_OtZsA38lwPCoQOXkx` |
+| Chromium full 42 on this BUILD_ID | HANG killed | stalled after test 15 under a concurrent second Playwright suite; >180s kill; not looped |
+
+Fixes patched with those tests:
+
+1. Cause under investigation stores factual note/containment/assignee, forces investigation OPEN, and drops client root_cause/rca_complete.
+2. Incomplete investigation (label only) cannot final-submit (400); detailed string reasons still work (QCT-053).
+3. One common-cause explanation links several FAIL parameters; each parameter remains accessible; one hold / grouped_case_id.
+4. Stage QC UI: reason-code select, containment/assignee, common-cause panel when two or more fields fail.
 
 Wave after overlay `f65f476` / product `5306970` (QCT-051/053 Chromium PASS):
 
