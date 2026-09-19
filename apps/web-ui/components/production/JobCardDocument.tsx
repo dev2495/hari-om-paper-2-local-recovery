@@ -1124,6 +1124,39 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return renderDispatchSection()
   }
 
+  function renderLateQualityException() {
+    const rows = Array.isArray(card?.quality_inspections) ? card.quality_inspections : []
+    const late = rows.find((row: any) => row?.late_quality_exception || row?.evaluation?.late_quality_exception)
+    if (!late) return null
+    const evaluation = late.evaluation || {}
+    const surviving = late.surviving_stock || evaluation.surviving_stock || []
+    const shipments = late.earlier_shipments || evaluation.earlier_shipments || []
+    return (
+      <section data-testid="late-quality-exception" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">
+          {late.late_exception_label || evaluation.late_exception_label || "Late quality exception"}
+        </div>
+        <p className="mt-1 text-sm font-semibold text-amber-950">
+          Measured and recorded clocks are distinct. Surviving stock is traced. Earlier shipment remains as it occurred.
+        </p>
+        <div className="mt-2 grid gap-2 text-sm text-amber-950 md:grid-cols-2">
+          <div data-testid="qc-measured-at">Measured {String(late.measured_at || evaluation.measured_at || "")}</div>
+          <div data-testid="qc-recorded-at">Recorded {String(late.recorded_at || evaluation.recorded_at || "")}</div>
+        </div>
+        {surviving.length ? (
+          <div className="mt-2 text-sm" data-testid="surviving-stock">
+            Surviving {surviving.map((row: any) => `${row.kind} ${row.qty}`).join(" · ")}
+          </div>
+        ) : null}
+        {shipments.length ? (
+          <div className="mt-1 text-sm" data-testid="earlier-shipment">
+            Earlier shipment {shipments.map((row: any) => `${row.status} ${row.qty}`).join(" · ")}
+          </div>
+        ) : null}
+      </section>
+    )
+  }
+
   function renderRestrictedPhysicalOutput() {
     if (!restrictedPhysicalStage) return null
     return (
@@ -1184,6 +1217,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </div>
         ) : null}
         {renderRestrictedPhysicalOutput()}
+        {renderLateQualityException()}
         <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_24rem]">
             <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1f2937_60%,#334155_100%)] px-6 py-6 text-white lg:border-b-0 lg:border-r">
@@ -3206,6 +3240,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </section>
 
         {renderRestrictedPhysicalOutput()}
+        {renderLateQualityException()}
         <section className="mt-4 border border-slate-800">
           <div className="border-b border-slate-800 bg-slate-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-900">
             Material Truth

@@ -1293,7 +1293,7 @@ export default function PlanningBoardPage() {
   return (
     <>
       <div
-        className="space-y-3 pb-3"
+        className="min-w-0 max-w-full space-y-3 overflow-x-hidden pb-3"
         data-testid="planner-page"
       >
         <section
@@ -1398,8 +1398,8 @@ export default function PlanningBoardPage() {
         />
 
         {plannerView === "calendar" ? calendarBoard : (
-        <div className="grid h-[calc(100vh-9rem)] min-h-[650px] gap-3 xl:grid-cols-[330px_minmax(0,1fr)]">
-          <aside className="min-h-0">
+        <div className="grid h-[calc(100vh-9rem)] min-h-[650px] min-w-0 gap-3 xl:grid-cols-[minmax(0,330px)_minmax(0,1fr)]">
+          <aside className="min-h-0 min-w-0">
             <section className="flex h-full min-h-0 flex-col rounded-[1.65rem] border border-slate-200 bg-white p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -1563,7 +1563,7 @@ export default function PlanningBoardPage() {
 
           </aside>
 
-          <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-[1.65rem] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
+          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[1.65rem] border border-slate-200 bg-white shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
             <div className="shrink-0 border-b border-slate-200 px-4 py-2.5">
               <div className="flex flex-col gap-1.5 xl:flex-row xl:items-end xl:justify-between">
                 <div>
@@ -1578,7 +1578,7 @@ export default function PlanningBoardPage() {
               </div>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div className="min-h-0 min-w-0 flex-1 overflow-auto">
               <div className="min-w-[1720px] px-4 py-3">
                 <div
                   className="grid gap-3"

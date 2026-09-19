@@ -29,6 +29,7 @@ type StageDraft = {
   commonContainment: string
   commonAssignee: string
   sampleId: string
+  measuredAt: string
   ovenCheckpoint: "PRE" | "POST"
 }
 
@@ -43,6 +44,7 @@ function emptyDraft(): StageDraft {
     commonContainment: "",
     commonAssignee: "",
     sampleId: "",
+    measuredAt: "",
     ovenCheckpoint: "PRE",
   }
 }
@@ -171,6 +173,7 @@ export default function StageQualityPage() {
   const [lastOriginalStatus, setLastOriginalStatus] = useState("")
   const [lastCorrectionRevision, setLastCorrectionRevision] = useState("")
   const [cardIssues, setCardIssues] = useState<any[]>([])
+  const [lastLateException, setLastLateException] = useState<any>(null)
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
   const completeCard = useCompleteJobCardQc()
@@ -224,6 +227,9 @@ export default function StageQualityPage() {
           reasons: packedReasons(draft, failCodes),
           sample_id: draft.sampleId || undefined,
           create_hold_on_fail: true,
+          ...(draft.measuredAt
+            ? { measured_at: new Date(draft.measuredAt).toISOString() }
+            : {}),
           ...(originalInspection
             ? {
                 parent_inspection_id: originalInspection.id,
@@ -238,6 +244,7 @@ export default function StageQualityPage() {
       setLastVerdict(status)
       setInvestigationStatus(String(body.investigation_status || ""))
       setGroupedCaseId(String(body.grouped_case_id || ""))
+      setLastLateException(body.late_quality_exception ? body : null)
       if (body.correction_revision || body.original_status) {
         setLastOriginalStatus(String(body.original_status || originalInspection?.status || ""))
         setLastCorrectionRevision(String(body.correction_revision || ""))
@@ -434,7 +441,21 @@ export default function StageQualityPage() {
               </label>
             ) : null}
             {selectedJobId ? (
-              <StageQcFields
+              <>
+                <label className="block space-y-1">
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Measured at</span>
+                  <input
+                    type="datetime-local"
+                    data-testid="quality-stage-measured-at"
+                    value={draft.measuredAt}
+                    onChange={(event) => updateDraft(stageType, { measuredAt: event.target.value })}
+                    className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 text-sm md:max-w-sm"
+                  />
+                  <p className="text-xs text-slate-500">
+                    Physical measurement time. Recorded time is stored separately when this is saved after later work or dispatch.
+                  </p>
+                </label>
+                <StageQcFields
                 rules={rules}
                 readings={draft.readings}
                 reasons={draft.reasons}
@@ -454,6 +475,7 @@ export default function StageQualityPage() {
                 onAssigneeChange={(code, value) => updateDraft(stageType, (current) => ({ ...current, assignees: { ...current.assignees, [code]: value } }))}
                 onSampleIdChange={(value) => updateDraft(stageType, { sampleId: value })}
               />
+              </>
             ) : (
               <EmptyState label="Select a job card to load frozen Allowed ranges." />
             )}
@@ -520,6 +542,26 @@ export default function StageQualityPage() {
             {lastVerdict ? (
               <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
                 {lastVerdict}
+              </div>
+            ) : null}
+            {lastLateException ? (
+              <div className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="late-quality-exception">
+                <div className="font-semibold">{lastLateException.late_exception_label || "Late quality exception"}</div>
+                <p>
+                  Measured and recorded clocks are stored separately. Surviving stock is traced. Earlier shipment remains as it occurred.
+                </p>
+                <div data-testid="qc-measured-at">Measured {String(lastLateException.measured_at || "")}</div>
+                <div data-testid="qc-recorded-at">Recorded {String(lastLateException.recorded_at || "")}</div>
+                {(lastLateException.surviving_stock || []).length ? (
+                  <div data-testid="surviving-stock">
+                    Surviving {(lastLateException.surviving_stock || []).map((row: any) => `${row.kind} ${row.qty}`).join(" · ")}
+                  </div>
+                ) : null}
+                {(lastLateException.earlier_shipments || []).length ? (
+                  <div data-testid="earlier-shipment">
+                    Earlier shipment {(lastLateException.earlier_shipments || []).map((row: any) => `${row.status} ${row.qty}`).join(" · ")}
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {lastOriginalStatus ? (

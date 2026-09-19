@@ -74,7 +74,7 @@ export function KeyboardScheduleForm({
       onSubmit={submit}
       onKeyDown={onKeyDown}
       data-testid="planner-keyboard-schedule"
-      className="rounded-[1.2rem] border border-slate-200 bg-white/90 p-3 shadow-sm"
+      className="min-w-0 max-w-full overflow-hidden rounded-[1.2rem] border border-slate-200 bg-white/90 p-3 shadow-sm"
     >
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Keyboard scheduling</p>
       <p className="mt-1 text-xs text-slate-600">Same move as drag-and-drop. Focus a queue card and press Enter, or pick a card here.</p>

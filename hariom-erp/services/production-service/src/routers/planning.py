@@ -1921,6 +1921,13 @@ def _serialize_job_quality_inspection(row: QualityInspection) -> dict[str, Any]:
         "profile_revision": evaluation.get("profile_revision"),
         "created_by": row.created_by,
         "created_at": row.created_at,
+        "measured_at": evaluation.get("measured_at"),
+        "recorded_at": evaluation.get("recorded_at"),
+        "late_quality_exception": bool(evaluation.get("late_quality_exception")),
+        "late_exception_label": evaluation.get("late_exception_label"),
+        "surviving_stock": list(evaluation.get("surviving_stock") or []),
+        "earlier_shipments": list(evaluation.get("earlier_shipments") or []),
+        "retroactive_prevention_claimed": bool(evaluation.get("retroactive_prevention_claimed")),
     }
 
 
@@ -3532,7 +3539,7 @@ def _sync_quality_artifacts(
     readings = {
         key: value
         for key, value in quality_payload.items()
-        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode"}
+        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode", "measured_at", "measured_time", "correction_reason", "expected_revision"}
     }
     samples = quality_payload.get("samples") if isinstance(quality_payload.get("samples"), list) else None
     created_holds: list[QualityHold] = []
@@ -3573,6 +3580,7 @@ def _sync_quality_artifacts(
             entry_mode=entry_mode,
             correction_reason=quality_payload.get("correction_reason") or item.get("correction_reason"),
             expected_revision=quality_payload.get("expected_revision"),
+            measured_at=quality_payload.get("measured_at"),
             commit=False,
         )
         if recorded.hold_id:

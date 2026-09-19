@@ -541,11 +541,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <div className={cn("min-h-screen transition-all duration-300", layoutOffsetClass)}>
-        <header className={cn("sticky top-0 z-30 px-4 pb-3 pt-5 md:px-6", wideWorkspace && "px-3 pb-2 pt-3 md:px-4")}>
+      <div className={cn("min-h-screen min-w-0 overflow-x-hidden transition-all duration-300", layoutOffsetClass)}>
+        <header className={cn("sticky top-0 z-30 min-w-0 px-4 pb-3 pt-5 md:px-6", wideWorkspace && "px-3 pb-2 pt-3 md:px-4")}>
           <div
             className={cn(
-              "erp-panel mx-auto flex w-full items-center gap-3 rounded-[1.6rem] px-4 py-3 md:px-5",
+              "erp-panel mx-auto flex w-full min-w-0 max-w-full items-center gap-2 overflow-hidden rounded-[1.6rem] px-3 py-3 md:gap-3 md:px-5",
               wideWorkspace && "rounded-[1.35rem] px-3 py-2.5 md:px-4",
               shellMaxWidthClass,
             )}
@@ -583,7 +583,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   onChange={(event) => setSearchQuery(event.target.value)}
                   placeholder="Jump to workspace"
                   aria-label="Jump to workspace"
-                  className="h-10 rounded-full border-white/80 bg-white/90 pl-11 pr-4 shadow-sm"
+                  className="h-10 w-full min-w-0 max-w-full rounded-full border-white/80 bg-white/90 pl-11 pr-4 shadow-sm"
                 />
               </form>
 
@@ -655,8 +655,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
         </header>
 
-        <main className={cn("px-4 pb-8 md:px-6", wideWorkspace && "px-3 pb-4 md:px-4")}>
-          <div className={cn("mx-auto w-full", shellMaxWidthClass)}>
+        <main className={cn("min-w-0 px-4 pb-8 md:px-6", wideWorkspace && "px-3 pb-4 md:px-4")}>
+          <div className={cn("mx-auto w-full min-w-0 max-w-full", shellMaxWidthClass)}>
             {children}
           </div>
         </main>

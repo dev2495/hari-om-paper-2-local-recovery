@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 import hashlib
 import json
@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
-from ..models import AuditEvent, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
+from ..models import AuditEvent, Dispatch, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
 from ..quality_eval import evaluate_job_stage, evaluate_stage_quality, submission_error
 from ..quality_metrics import quality_pass_rate
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
@@ -25,6 +25,16 @@ settings = get_settings()
 STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"}
 CARD_QC_STAGES = ("WINDER", "OVEN", "PROCESS")
 ISSUE_VERDICTS = {"FAIL", "INCOMPLETE", "INVALID"}
+LATE_EXCEPTION_LABEL = "Late quality exception"
+STAGE_RANK = {
+    "SLITTING": 0,
+    "WINDER": 1,
+    "OVEN": 2,
+    "PROCESS": 3,
+    "PACKING": 4,
+    "QC": 5,
+    "DISPATCH": 6,
+}
 FINAL_SPEC_QC_FIELDS = [
     ("ID", "id", "id_min_mm", "id_max_mm"),
     ("OD", "od", "od_min_mm", "od_max_mm"),
@@ -32,6 +42,150 @@ FINAL_SPEC_QC_FIELDS = [
     ("Weight", "weight", "weight_min_g", "weight_max_g"),
     ("CS", "cs", "cs_min_n", "cs_max_n"),
 ]
+
+
+def _as_naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def coerce_quality_clock(value: Any, *, field: str, fallback: Optional[datetime] = None) -> datetime:
+    if value in (None, ""):
+        if fallback is None:
+            raise HTTPException(status_code=400, detail=f"{field} is required")
+        return _as_naive_utc(fallback)
+    if isinstance(value, datetime):
+        return _as_naive_utc(value)
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{field} must be an ISO timestamp") from exc
+    return _as_naive_utc(parsed)
+
+
+def late_exception_evaluation(
+    *,
+    measured_at: datetime,
+    recorded_at: datetime,
+    verdict: str,
+    subsequent_stages: list[dict[str, Any]],
+    surviving_stock: list[dict[str, Any]],
+    earlier_shipments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    fail = str(verdict or "").upper() in {"FAIL", "INVALID"}
+    downstream = bool(subsequent_stages or earlier_shipments)
+    late = fail and downstream
+    return {
+        "measured_at": measured_at.isoformat(),
+        "recorded_at": recorded_at.isoformat(),
+        "clocks_distinct": measured_at != recorded_at,
+        "late_quality_exception": late,
+        "late_exception_label": LATE_EXCEPTION_LABEL if late else None,
+        "subsequent_stages": subsequent_stages,
+        "surviving_stock": surviving_stock,
+        "earlier_shipments": earlier_shipments,
+        "retroactive_prevention_claimed": False,
+        "movement_already_occurred": downstream,
+        "exposure_after_dispatch": bool(earlier_shipments),
+        "late_exception_note": (
+            "Earlier shipment remains as it occurred; ERP does not claim it was prevented."
+            if earlier_shipments
+            else None
+        ),
+    }
+
+
+def _collect_downstream_exposure(
+    db: Session,
+    job_card: JobCard,
+    inspected_stage: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
+    inspected_rank = STAGE_RANK.get(str(inspected_stage or "").upper(), -1)
+    subsequent_stages: list[dict[str, Any]] = []
+    surviving_stock: list[dict[str, Any]] = []
+    stages = db.query(JobCardStage).filter(JobCardStage.job_card_id == job_card.id).all()
+    for stage in stages:
+        qty = float(stage.output_qty or 0)
+        status = str(stage.status or "").upper()
+        snapshot = dict(stage.actuals_snapshot or {})
+        progressed = status == "COMPLETED" or qty > 0 or bool(stage.actual_end)
+        kind = "FG" if str(stage.stage_type or "").upper() == "PACKING" else "WIP"
+        if STAGE_RANK.get(str(stage.stage_type or "").upper(), -1) > inspected_rank and progressed:
+            subsequent_stages.append(
+                {
+                    "kind": kind,
+                    "stage_type": stage.stage_type,
+                    "qty": qty,
+                    "status": status,
+                    "stock_status": snapshot.get("stock_status"),
+                    "completed_at": stage.actual_end.isoformat() if stage.actual_end else None,
+                }
+            )
+        if qty > 0:
+            surviving_stock.append(
+                {
+                    "kind": kind,
+                    "stage_type": stage.stage_type,
+                    "qty": qty,
+                    "stock_status": snapshot.get("stock_status") or "UNRESTRICTED",
+                    "source": "job_card_stage",
+                }
+            )
+    packing_rows = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).all()
+    packed_total = 0.0
+    for row in packing_rows:
+        packed = float(row.total_packed_qty or 0)
+        packed_total += packed
+        if packed <= 0:
+            continue
+        surviving_stock.append(
+            {
+                "kind": "FG",
+                "stage_type": "PACKING",
+                "qty": packed,
+                "stock_status": row.stock_status,
+                "packing_id": str(row.id),
+                "source": "packing_record",
+            }
+        )
+    earlier_shipments: list[dict[str, Any]] = []
+    for disp in db.query(Dispatch).filter(Dispatch.job_card_id == job_card.id).all():
+        if str(disp.status or "").upper() != "SEALED":
+            continue
+        snap = dict(disp.dispatch_snapshot or {})
+        qty = float(snap.get("qty") or snap.get("quantity") or snap.get("dispatched_qty") or 0)
+        earlier_shipments.append(
+            {
+                "dispatch_id": str(disp.id),
+                "status": disp.status,
+                "created_at": disp.created_at.isoformat() if disp.created_at else None,
+                "qty": qty,
+                "shipment": True,
+            }
+        )
+    shipped_qty = sum(float(row.get("qty") or 0) for row in earlier_shipments)
+    remaining_fg = max(packed_total - shipped_qty, 0.0)
+    if packed_total > 0:
+        surviving_stock = [
+            row
+            for row in surviving_stock
+            if not (row.get("source") == "packing_record" or (row.get("kind") == "FG" and row.get("stage_type") == "PACKING"))
+        ]
+        if remaining_fg > 0:
+            surviving_stock.append(
+                {
+                    "kind": "FG",
+                    "stage_type": "PACKING",
+                    "qty": remaining_fg,
+                    "stock_status": packing_rows[0].stock_status if packing_rows else "UNRESTRICTED",
+                    "source": "surviving_fg_after_shipment",
+                }
+            )
+    return subsequent_stages, surviving_stock, earlier_shipments
 
 
 def _oven_checkpoint(readings: Optional[dict[str, Any]]) -> str:
@@ -797,6 +951,7 @@ def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> 
         entry_mode=_normalize_entry_mode(payload.get("entry_mode"), default_mode),
         correction_reason=payload.get("correction_reason"),
         expected_revision=expected_revision,
+        measured_at=payload.get("measured_at") or payload.get("measured_time"),
     )
 
 
@@ -847,6 +1002,13 @@ def _to_inspection_response(
         prior_values=dict(evaluation_blob.get("prior_values") or {}),
         original_status=evaluation_blob.get("original_status"),
         review_required=bool(evaluation_blob.get("review_required")),
+        measured_at=evaluation_blob.get("measured_at"),
+        recorded_at=evaluation_blob.get("recorded_at"),
+        late_quality_exception=bool(evaluation_blob.get("late_quality_exception")),
+        late_exception_label=evaluation_blob.get("late_exception_label"),
+        surviving_stock=list(evaluation_blob.get("surviving_stock") or []),
+        earlier_shipments=list(evaluation_blob.get("earlier_shipments") or []),
+        retroactive_prevention_claimed=bool(evaluation_blob.get("retroactive_prevention_claimed")),
     )
 
 
@@ -865,6 +1027,7 @@ def record_stage_inspection(
     entry_mode: Optional[str] = None,
     correction_reason: Optional[str] = None,
     expected_revision: Optional[int] = None,
+    measured_at: Optional[datetime] = None,
     commit: bool = True,
 ) -> InspectionResponse:
     plant_uuid = _to_uuid(plant_id, field="plant_id")
@@ -980,11 +1143,26 @@ def record_stage_inspection(
             )
 
     job_status = str(job_card.status or "").upper()
-    exposure_after_dispatch = job_status in {"COMPLETED", "DISPATCHED"} or str(job_card.current_stage or "").upper() in {
+    recorded_at = datetime.utcnow()
+    measured_clock = coerce_quality_clock(measured_at, field="measured_at", fallback=recorded_at)
+    if measured_clock > recorded_at:
+        raise HTTPException(status_code=400, detail="measured_at cannot be after recorded_at")
+    subsequent_stages, surviving_stock, earlier_shipments = _collect_downstream_exposure(db, job_card, stage_type)
+    late_payload = late_exception_evaluation(
+        measured_at=measured_clock,
+        recorded_at=recorded_at,
+        verdict=evaluation.verdict,
+        subsequent_stages=subsequent_stages,
+        surviving_stock=surviving_stock,
+        earlier_shipments=earlier_shipments,
+    )
+    if job_status in {"COMPLETED", "DISPATCHED"} or str(job_card.current_stage or "").upper() in {
         "DISPATCH",
         "DONE",
-    }
+    }:
+        late_payload["exposure_after_dispatch"] = True
     evaluation_payload = evaluation.as_dict()
+    evaluation_payload.update({key: value for key, value in late_payload.items() if value is not None})
     if reason_pending:
         evaluation_payload["workflow_status"] = "REASON_PENDING"
         evaluation_payload["reason_pending"] = True
@@ -998,8 +1176,6 @@ def record_stage_inspection(
     if grouped_case_id:
         evaluation_payload["grouped_case_id"] = grouped_case_id
         evaluation_payload["grouped_parameters"] = grouped_parameters
-    if exposure_after_dispatch:
-        evaluation_payload["exposure_after_dispatch"] = True
     if parent_id:
         evaluation_payload["parent_inspection_id"] = str(parent_id)
     evaluation_payload["measurement_revision"] = correction_revision or 1
@@ -1053,11 +1229,17 @@ def record_stage_inspection(
         and str(prior_same.status or "").upper() in {"FAIL", "INVALID"}
     )
     if evaluation.status in {"FAIL", "INVALID"} and not correcting_existing_fail:
+        hold_reason = evaluation.issue_summary() or f"{stage_type} inspection {evaluation.verdict}"
+        if evaluation_payload.get("late_quality_exception"):
+            hold_reason = (
+                f"{LATE_EXCEPTION_LABEL} on {stage_type}; remaining stock traced. "
+                "Earlier shipment was not retroactively prevented."
+            )
         hold = QualityHold(
             plant_id=plant_uuid,
             job_card_id=job_card.id,
             stage_type=stage_type,
-            reason=evaluation.issue_summary() or f"{stage_type} inspection {evaluation.verdict}",
+            reason=hold_reason,
             status="HOLD",
             source_inspection_id=inspection.id,
             created_by=current_user.get("sub"),
@@ -1163,6 +1345,7 @@ class InspectionCreate(BaseModel):
     entry_mode: Optional[str] = None
     correction_reason: Optional[str] = None
     expected_revision: Optional[int] = None
+    measured_at: Optional[datetime] = None
 
     @field_validator("stage_type")
     @classmethod
@@ -1273,6 +1456,13 @@ class InspectionResponse(BaseModel):
     prior_values: dict[str, Any] = Field(default_factory=dict)
     original_status: Optional[str] = None
     review_required: bool = False
+    measured_at: Optional[str] = None
+    recorded_at: Optional[str] = None
+    late_quality_exception: bool = False
+    late_exception_label: Optional[str] = None
+    surviving_stock: list[dict[str, Any]] = Field(default_factory=list)
+    earlier_shipments: list[dict[str, Any]] = Field(default_factory=list)
+    retroactive_prevention_claimed: bool = False
 
 
 class HoldCreate(BaseModel):
@@ -1401,6 +1591,7 @@ def create_inspection(
         entry_mode=_normalize_entry_mode(payload.entry_mode, "DEDICATED_QC"),
         correction_reason=payload.correction_reason,
         expected_revision=payload.expected_revision,
+        measured_at=payload.measured_at,
         commit=True,
     )
 
@@ -1430,6 +1621,7 @@ def create_supervisor_inspection(
         entry_mode="SUPERVISOR",
         correction_reason=body.correction_reason,
         expected_revision=body.expected_revision,
+        measured_at=body.measured_at,
         commit=True,
     )
 
@@ -1456,6 +1648,7 @@ def create_eod_inspection(
         entry_mode="EOD",
         correction_reason=body.correction_reason,
         expected_revision=body.expected_revision,
+        measured_at=body.measured_at,
         commit=True,
     )
 
@@ -1491,6 +1684,7 @@ def import_inspections(
                 entry_mode="IMPORT",
                 correction_reason=body.correction_reason,
                 expected_revision=body.expected_revision,
+                measured_at=body.measured_at,
                 commit=False,
             )
         )
@@ -1520,6 +1714,7 @@ def create_legacy_inspection(
         entry_mode="LEGACY",
         correction_reason=body.correction_reason,
         expected_revision=body.expected_revision,
+        measured_at=body.measured_at,
         commit=True,
     )
 

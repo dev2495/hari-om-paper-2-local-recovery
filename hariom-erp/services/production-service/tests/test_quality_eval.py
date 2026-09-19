@@ -466,3 +466,42 @@ def test_restricted_stock_actuals_rejects_client_unrestricted_label():
     assert out["disposition"] == "HOLD"
 
 
+def test_late_exception_distinct_clocks_trace_without_retroactive_claim():
+    from datetime import datetime
+
+    from src.routers.quality import LATE_EXCEPTION_LABEL, late_exception_evaluation
+
+    measured = datetime(2026, 9, 19, 6, 0, 0)
+    recorded = datetime(2026, 9, 19, 10, 0, 0)
+    out = late_exception_evaluation(
+        measured_at=measured,
+        recorded_at=recorded,
+        verdict="FAIL",
+        subsequent_stages=[{"kind": "WIP", "stage_type": "OVEN", "qty": 10}],
+        surviving_stock=[{"kind": "FG", "qty": 4, "stock_status": "UNRESTRICTED"}],
+        earlier_shipments=[{"dispatch_id": "ship-1", "status": "SEALED", "qty": 6}],
+    )
+    assert out["clocks_distinct"] is True
+    assert out["measured_at"] != out["recorded_at"]
+    assert out["late_quality_exception"] is True
+    assert out["late_exception_label"] == LATE_EXCEPTION_LABEL
+    assert out["surviving_stock"][0]["qty"] == 4
+    assert out["earlier_shipments"][0]["qty"] == 6
+    assert out["retroactive_prevention_claimed"] is False
+    assert out["movement_already_occurred"] is True
+    assert "not claim it was prevented" in str(out["late_exception_note"]).lower()
+
+    passing = late_exception_evaluation(
+        measured_at=measured,
+        recorded_at=recorded,
+        verdict="PASS",
+        subsequent_stages=[{"stage_type": "OVEN", "qty": 10}],
+        surviving_stock=[],
+        earlier_shipments=[{"status": "SEALED", "qty": 6}],
+    )
+    assert passing["late_quality_exception"] is False
+    assert passing["clocks_distinct"] is True
+    assert passing["retroactive_prevention_claimed"] is False
+
+
+
