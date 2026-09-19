@@ -411,36 +411,44 @@ def _next_month(month_start: date) -> date:
 
 
 def _fetch_paper_catalog(token: str, plant_id: str) -> dict[str, dict[str, Any]]:
-    with httpx.Client(timeout=15.0) as client:
-        response = client.get(
-            f"{settings.MASTERDATA_SERVICE_URL}/master/papers/",
-            headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
-        )
-    if response.status_code != 200:
+    """Paper master lookup for books-state. Unreachable master must not 500 the shell."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{settings.MASTERDATA_SERVICE_URL}/master/papers/",
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+        if response.status_code != 200:
+            return {}
+        rows = response.json() or []
+        catalog: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            catalog[str(row.get("id") or "")] = row
+        return catalog
+    except httpx.HTTPError:
         return {}
-    rows = response.json() or []
-    catalog: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        catalog[str(row.get("id") or "")] = row
-    return catalog
 
 
 def _fetch_inventory_item_catalog(token: str, plant_id: str) -> dict[str, dict[str, Any]]:
-    with httpx.Client(timeout=15.0) as client:
-        response = client.get(
-            f"{settings.INVENTORY_SERVICE_URL}/items/",
-            headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
-        )
-    if response.status_code != 200:
+    """Inventory item lookup for books-state. Unreachable inventory must not 500 the shell."""
+    try:
+        with httpx.Client(timeout=15.0) as client:
+            response = client.get(
+                f"{settings.INVENTORY_SERVICE_URL}/items/",
+                headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
+            )
+        if response.status_code != 200:
+            return {}
+        rows = response.json() or []
+        catalog: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            code = str(row.get("item_code") or "").strip().upper()
+            if not code:
+                continue
+            catalog[code] = row
+        return catalog
+    except httpx.HTTPError:
         return {}
-    rows = response.json() or []
-    catalog: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        code = str(row.get("item_code") or "").strip().upper()
-        if not code:
-            continue
-        catalog[code] = row
-    return catalog
 
 
 # ──────────────────────────────────────────────────────────────────────────

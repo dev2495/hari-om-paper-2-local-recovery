@@ -2,9 +2,13 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
+import httpx
+
 from src.routers.reconciliation import (
     _calculate_reconciliation,
     _classify_loss_buckets,
+    _fetch_inventory_item_catalog,
+    _fetch_paper_catalog,
     _fetch_stock_certification_for_period,
 )
 
@@ -98,6 +102,15 @@ class ReconciliationTests(unittest.TestCase):
 
         self.assertIsNotNone(cert)
         self.assertEqual(cert["id"], "current")
+
+    def test_catalog_lookups_return_empty_when_peer_hostname_unresolved(self):
+        class _FailingClient(_FakeClient):
+            def get(self, *args, **kwargs):
+                raise httpx.ConnectError("[Errno 8] nodename nor servname provided, or not known")
+
+        with patch("src.routers.reconciliation.httpx.Client", _FailingClient):
+            self.assertEqual(_fetch_paper_catalog("token", "00000000-0000-0000-0000-0000000000a1"), {})
+            self.assertEqual(_fetch_inventory_item_catalog("token", "00000000-0000-0000-0000-0000000000a1"), {})
 
 
 if __name__ == "__main__":
