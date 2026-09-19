@@ -426,3 +426,27 @@ def test_common_cause_links_three_failures_without_losing_parameters():
         assert grouped[code]["assignee"] == "qc.supervisor"
     assert grouped["__common__"]["common_cause_id"] == "CASE-1"
 
+
+def test_changed_measured_values_detects_failing_number_correction():
+    from src.routers.quality import _changed_measured_values, _observation_checkpoint
+
+    changed = _changed_measured_values(
+        {"id": 77, "od": 91, "height": 90, "weight": 250, "cs": 100},
+        {"id": 77, "od": 91, "height": 120, "weight": 250, "cs": 100},
+    )
+    assert changed == {"height": {"prior": 90, "replacement": 120}}
+
+    oven_pair = _changed_measured_values(
+        {"pre_weight": 1.5, "pre_moisture": 5, "oven_checkpoint": "PRE", "pre_specimen_id": "PAIR-A"},
+        {"post_weight": 1.4, "post_moisture": 4, "oven_checkpoint": "POST", "post_specimen_id": "PAIR-A"},
+    )
+    assert oven_pair == {}
+    assert _observation_checkpoint("OVEN", {"oven_checkpoint": "PRE"}) == "PRE"
+    assert _observation_checkpoint("OVEN", {"oven_checkpoint": "POST"}) == "POST"
+
+    completing_post = _changed_measured_values(
+        {"oven_checkpoint": "POST", "post_specimen_id": "PAIR-A"},
+        {"post_weight": 1.4, "post_moisture": 4, "oven_checkpoint": "POST", "post_specimen_id": "PAIR-A"},
+    )
+    assert completing_post == {}
+

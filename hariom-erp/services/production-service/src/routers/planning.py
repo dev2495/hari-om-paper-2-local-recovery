@@ -3532,6 +3532,8 @@ def _sync_quality_artifacts(
             reasons=item["reasons"],
             sample_id=item.get("sample_id"),
             entry_mode=entry_mode,
+            correction_reason=quality_payload.get("correction_reason") or item.get("correction_reason"),
+            expected_revision=quality_payload.get("expected_revision"),
             commit=False,
         )
         if recorded.hold_id:

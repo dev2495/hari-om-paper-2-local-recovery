@@ -102,6 +102,17 @@ export function StageQcFields({
             </div>
           )}
         </label>
+      ) : editable && !printLayout ? (
+        <label className="block space-y-1">
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Sample ID</span>
+          <input
+            value={sampleId || ""}
+            onChange={(event) => onSampleIdChange?.(event.target.value)}
+            data-testid="stage-qc-sample-id"
+            className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 text-sm"
+            placeholder="Identified sample for this observation"
+          />
+        </label>
       ) : null}
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {rules.map((rule) => {

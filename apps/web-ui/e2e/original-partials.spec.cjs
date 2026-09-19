@@ -1135,4 +1135,77 @@ test("QCT-055 three related failures share one common cause without losing param
   await assertCritical()
 })
 
+test("QCT-056 changing a failing number keeps original FAIL, requires correction audit, and does not clear the hold", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [{ kind: "response", status: 400, urlIncludes: "/quality/inspections" }],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct051_live.py::test_qct056_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct056-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await page.getByTestId("stage-qc-sample-id").fill("CORR-1")
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("90")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+  await page.getByTestId("stage-qc-reason-height").fill("measured short on winding")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveText("FAIL")
+  await expect(page.getByTestId("quality-stage-original-status")).toHaveText("FAIL")
+  await expect(page.getByTestId("quality-stage-original-height")).toHaveText("90")
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const rejected = await page.request.post("/api/production/quality/inspections", {
+    headers: plantHeaders,
+    data: {
+      job_card_id: jobId,
+      stage_type: "WINDER",
+      readings: { id: 77, od: 91, height: 120, weight: 250, cs: 100 },
+      sample_id: "CORR-1",
+    },
+  })
+  expect(rejected.status()).toBe(400)
+  expect(await rejected.text()).toMatch(/original value is retained/i)
+  await page.getByTestId("stage-qc-sample-id").fill("CORR-1")
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("120")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await page.getByTestId("quality-stage-correction-reason").fill("height was a transcription error from the vernier card")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveText("PASS")
+  await expect(page.getByTestId("quality-stage-original-status")).toHaveText("FAIL")
+  await expect(page.getByTestId("quality-stage-correction-revision")).toHaveText("2")
+  const listed = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(listed.ok(), await listed.text()).toBeTruthy()
+  const rows = await listed.json()
+  expect(rows).toHaveLength(2)
+  const original = rows.find((row) => row.status === "FAIL")
+  const correction = rows.find((row) => row.status === "PASS")
+  expect(original.readings.height).toBe(90)
+  expect(original.evaluation.workflow_status).toBe("SUPERSEDED")
+  expect(correction.readings.height).toBe(120)
+  expect(correction.parent_inspection_id).toBe(original.id)
+  expect(correction.correction_revision).toBe(2)
+  expect(correction.correction_reason).toMatch(/transcription error/i)
+  expect(correction.correction_actor).toBeTruthy()
+  expect(correction.correction_at).toBeTruthy()
+  expect(correction.original_status).toBe("FAIL")
+  expect(correction.review_required).toBeTruthy()
+  const holds = await page.request.get(`/api/production/quality/holds?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect((await holds.json())[0].status).toBe("HOLD")
+  await assertCritical()
+})
+
 

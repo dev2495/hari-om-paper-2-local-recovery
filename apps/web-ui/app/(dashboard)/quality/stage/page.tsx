@@ -159,6 +159,17 @@ export default function StageQualityPage() {
   const [lastVerdict, setLastVerdict] = useState("")
   const [investigationStatus, setInvestigationStatus] = useState("")
   const [groupedCaseId, setGroupedCaseId] = useState("")
+  const [originalInspection, setOriginalInspection] = useState<{
+    id: string
+    status: string
+    readings: Record<string, any>
+    holdId?: string
+    revision: number
+    sampleId?: string
+  } | null>(null)
+  const [correctionReason, setCorrectionReason] = useState("")
+  const [lastOriginalStatus, setLastOriginalStatus] = useState("")
+  const [lastCorrectionRevision, setLastCorrectionRevision] = useState("")
   const [cardIssues, setCardIssues] = useState<any[]>([])
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
@@ -213,12 +224,35 @@ export default function StageQualityPage() {
           reasons: packedReasons(draft, failCodes),
           sample_id: draft.sampleId || undefined,
           create_hold_on_fail: true,
+          ...(originalInspection
+            ? {
+                parent_inspection_id: originalInspection.id,
+                correction_reason: correctionReason.trim() || undefined,
+                expected_revision: originalInspection.revision,
+              }
+            : {}),
         },
       })
-      const status = String(response?.data?.status || "")
+      const body = response?.data || {}
+      const status = String(body.status || "")
       setLastVerdict(status)
-      setInvestigationStatus(String(response?.data?.investigation_status || ""))
-      setGroupedCaseId(String(response?.data?.grouped_case_id || ""))
+      setInvestigationStatus(String(body.investigation_status || ""))
+      setGroupedCaseId(String(body.grouped_case_id || ""))
+      if (body.correction_revision || body.original_status) {
+        setLastOriginalStatus(String(body.original_status || originalInspection?.status || ""))
+        setLastCorrectionRevision(String(body.correction_revision || ""))
+      } else if (status === "FAIL") {
+        setOriginalInspection({
+          id: String(body.id),
+          status,
+          readings: body.readings || {},
+          holdId: body.hold_id,
+          revision: Number(body.evaluation?.measurement_revision || 1),
+          sampleId: body.sample_id,
+        })
+        setLastOriginalStatus(status)
+        setLastCorrectionRevision("")
+      }
       showToast(`Server verdict: ${status}`, status === "FAIL" || status === "INCOMPLETE" || status === "INVALID" ? "error" : "success")
       updateDraft(stageType, (current) => {
         if (stageType !== "OVEN") return { ...emptyDraft(), sampleId: current.sampleId }
@@ -321,6 +355,10 @@ export default function StageQualityPage() {
                     setDrafts({ WINDER: emptyDraft(), OVEN: emptyDraft(), PROCESS: emptyDraft() })
                     setLastVerdict("")
                     setCardIssues([])
+                    setOriginalInspection(null)
+                    setCorrectionReason("")
+                    setLastOriginalStatus("")
+                    setLastCorrectionRevision("")
                   }}
                   data-testid="quality-stage-job"
                   className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
@@ -455,9 +493,43 @@ export default function StageQualityPage() {
                 </label>
               </div>
             ) : null}
+            {originalInspection && String(originalInspection.status).toUpperCase() === "FAIL" ? (
+              <div className="space-y-2 rounded-2xl border border-slate-900 bg-white p-4" data-testid="quality-stage-correction">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Correction of a recorded FAIL</div>
+                <p className="text-xs text-slate-600">
+                  Original value stays on the FAIL record. Changing a failing number to a passing one needs a reason, actor, time, and revision. The hold is not cleared.
+                </p>
+                <div className="text-sm text-slate-800" data-testid="quality-stage-original-status">
+                  {originalInspection.status}
+                </div>
+                <div className="text-sm text-slate-800" data-testid="quality-stage-original-height">
+                  {String(originalInspection.readings?.height ?? "")}
+                </div>
+                <label className="block space-y-1">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Correction reason</span>
+                  <input
+                    data-testid="quality-stage-correction-reason"
+                    value={correctionReason}
+                    onChange={(event) => setCorrectionReason(event.target.value)}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    placeholder="Why the previously recorded number is being corrected"
+                  />
+                </label>
+              </div>
+            ) : null}
             {lastVerdict ? (
               <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
                 {lastVerdict}
+              </div>
+            ) : null}
+            {lastOriginalStatus ? (
+              <div className="text-sm text-slate-800" data-testid="quality-stage-retained-status">
+                {lastOriginalStatus}
+              </div>
+            ) : null}
+            {lastCorrectionRevision ? (
+              <div className="text-sm text-slate-800" data-testid="quality-stage-correction-revision">
+                {lastCorrectionRevision}
               </div>
             ) : null}
             {investigationStatus ? (

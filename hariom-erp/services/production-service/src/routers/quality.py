@@ -607,6 +607,121 @@ def _sanitize_observation_map(values: Optional[dict[str, Any]]) -> dict[str, Any
     return cleaned
 
 
+CHECKPOINT_META_KEYS = {
+    "oven_checkpoint",
+    "checkpoint",
+    "pre_specimen_id",
+    "post_specimen_id",
+    "pre_pair_id",
+    "post_pair_id",
+    "pair_id",
+}
+CORRECTION_INCOMPLETE_DETAIL = (
+    "Correction of a recorded measurement requires a reason, actor, time, and revision; original value is retained."
+)
+
+
+def _normalized_sample_key(sample_id: Optional[str], readings: Optional[dict[str, Any]]) -> str:
+    payload = readings or {}
+    return str(sample_id or payload.get("sample_id") or "").strip()
+
+
+def _observation_checkpoint(stage_type: str, readings: Optional[dict[str, Any]]) -> str:
+    if str(stage_type or "").upper() != "OVEN":
+        return ""
+    checkpoint = _oven_checkpoint(readings)
+    if checkpoint in {"PRE", "POST"}:
+        return checkpoint
+    if checkpoint == "POST_ONLY":
+        return "POST"
+    if _has_oven_post(readings) and not _has_oven_pre(readings):
+        return "POST"
+    if _has_oven_pre(readings) and not _has_oven_post(readings):
+        return "PRE"
+    return checkpoint or "BOTH"
+
+
+def _measured_values(readings: Optional[dict[str, Any]]) -> dict[str, Any]:
+    measured: dict[str, Any] = {}
+    for key, value in _sanitize_observation_map(readings).items():
+        code = str(key or "").strip()
+        if not code:
+            continue
+        normalized = code.lower().replace("-", "_")
+        if normalized in CHECKPOINT_META_KEYS:
+            continue
+        if value in (None, ""):
+            continue
+        measured[code] = value
+    return measured
+
+
+def _changed_measured_values(
+    prior_readings: Optional[dict[str, Any]],
+    current_readings: Optional[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    prior = _measured_values(prior_readings)
+    current = _measured_values(current_readings)
+    changed: dict[str, dict[str, Any]] = {}
+    for code, old in prior.items():
+        if code in current and current[code] != old:
+            changed[code] = {"prior": old, "replacement": current[code]}
+    return changed
+
+
+def _correction_reason_text(reasons: Optional[dict[str, Any]], explicit: Optional[str]) -> str:
+    text = str(explicit or "").strip()
+    if text:
+        return text
+    blob = (reasons or {}).get("__correction__") if isinstance(reasons, dict) else None
+    if isinstance(blob, dict):
+        return str(blob.get("reason") or blob.get("explanation") or blob.get("note") or "").strip()
+    if isinstance(blob, str):
+        return blob.strip()
+    return ""
+
+
+def _measurement_revision(inspection: Optional[QualityInspection]) -> int:
+    if inspection is None:
+        return 1
+    blob = inspection.evaluation or {}
+    raw = blob.get("measurement_revision") or blob.get("correction_revision") or 1
+    try:
+        return max(1, int(raw))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _latest_same_observation_inspection(
+    db: Session,
+    *,
+    job_card_id: uuid.UUID,
+    plant_id: uuid.UUID,
+    stage_type: str,
+    sample_id: Optional[str],
+    readings: Optional[dict[str, Any]],
+) -> Optional[QualityInspection]:
+    sample_key = _normalized_sample_key(sample_id, readings)
+    checkpoint = _observation_checkpoint(stage_type, readings)
+    rows = (
+        db.query(QualityInspection)
+        .filter(
+            QualityInspection.job_card_id == job_card_id,
+            QualityInspection.plant_id == plant_id,
+            QualityInspection.stage_type == stage_type,
+        )
+        .order_by(QualityInspection.created_at.desc())
+        .all()
+    )
+    for row in rows:
+        if _normalized_sample_key(row.sample_id, row.readings) != sample_key:
+            continue
+        if _observation_checkpoint(stage_type, row.readings) != checkpoint:
+            continue
+        return row
+    return None
+
+
 def _normalize_entry_mode(value: Optional[str], default: str) -> str:
     mode = str(value or "").strip().upper() or default
     return mode if mode in ENTRY_MODES else default
@@ -663,6 +778,13 @@ def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> 
         reasons = dict(readings.get("reasons") or {})
     sample_id = payload.get("sample_id") or payload.get("sample") or readings.get("sample_id")
     parent_raw = payload.get("parent_inspection_id")
+    expected_raw = payload.get("expected_revision")
+    expected_revision = None
+    if expected_raw not in (None, ""):
+        try:
+            expected_revision = int(expected_raw)
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="expected_revision must be an integer") from exc
     return InspectionCreate(
         job_card_id=_adapter_job_card_id(payload),
         stage_type=_adapter_stage_type(payload),
@@ -673,6 +795,8 @@ def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> 
         parent_inspection_id=_to_uuid(str(parent_raw), field="parent_inspection_id") if parent_raw else None,
         final_submission=bool(payload.get("final_submission") or False),
         entry_mode=_normalize_entry_mode(payload.get("entry_mode"), default_mode),
+        correction_reason=payload.get("correction_reason"),
+        expected_revision=expected_revision,
     )
 
 
@@ -716,6 +840,13 @@ def _to_inspection_response(
         investigation_status=evaluation_blob.get("investigation_status"),
         grouped_case_id=evaluation_blob.get("grouped_case_id"),
         grouped_parameters=list(evaluation_blob.get("grouped_parameters") or []),
+        correction_revision=evaluation_blob.get("correction_revision"),
+        correction_reason=evaluation_blob.get("correction_reason"),
+        correction_actor=evaluation_blob.get("correction_actor"),
+        correction_at=evaluation_blob.get("correction_at"),
+        prior_values=dict(evaluation_blob.get("prior_values") or {}),
+        original_status=evaluation_blob.get("original_status"),
+        review_required=bool(evaluation_blob.get("review_required")),
     )
 
 
@@ -732,6 +863,8 @@ def record_stage_inspection(
     parent_inspection_id: Optional[uuid.UUID] = None,
     final_submission: bool = False,
     entry_mode: Optional[str] = None,
+    correction_reason: Optional[str] = None,
+    expected_revision: Optional[int] = None,
     commit: bool = True,
 ) -> InspectionResponse:
     plant_uuid = _to_uuid(plant_id, field="plant_id")
@@ -784,6 +917,33 @@ def record_stage_inspection(
         if commit:
             db.commit()
         return _to_inspection_response(existing, hold=_active_hold_for_inspection(db, existing), reused=True)
+
+    prior_same = _latest_same_observation_inspection(
+        db,
+        job_card_id=job_card.id,
+        plant_id=plant_uuid,
+        stage_type=stage_type,
+        sample_id=eval_sample_id,
+        readings=sanitized_readings,
+    )
+    changed_values = _changed_measured_values(prior_same.readings if prior_same else {}, sanitized_readings)
+    correction_text = _correction_reason_text(stored_reasons, correction_reason)
+    correction_revision: Optional[int] = None
+    original_status: Optional[str] = None
+    if changed_values:
+        if not correction_text:
+            raise HTTPException(status_code=400, detail=CORRECTION_INCOMPLETE_DETAIL)
+        if prior_same is None:
+            raise HTTPException(status_code=400, detail=CORRECTION_INCOMPLETE_DETAIL)
+        current_revision = _measurement_revision(prior_same)
+        if expected_revision is not None and int(expected_revision) != current_revision:
+            raise HTTPException(
+                status_code=409,
+                detail=f"STALE_REVISION current_revision {current_revision}",
+            )
+        parent_id = prior_same.id
+        correction_revision = current_revision + 1
+        original_status = str(prior_same.status or "")
 
     evaluation = evaluate_job_stage(
         stage=stage_type,
@@ -842,6 +1002,22 @@ def record_stage_inspection(
         evaluation_payload["exposure_after_dispatch"] = True
     if parent_id:
         evaluation_payload["parent_inspection_id"] = str(parent_id)
+    evaluation_payload["measurement_revision"] = correction_revision or 1
+    if correction_revision:
+        actor = str(current_user.get("sub") or current_user.get("actor_identity") or "").strip()
+        if not actor:
+            raise HTTPException(status_code=400, detail=CORRECTION_INCOMPLETE_DETAIL)
+        recorded_at = datetime.utcnow().isoformat()
+        evaluation_payload["correction"] = True
+        evaluation_payload["correction_reason"] = correction_text
+        evaluation_payload["correction_actor"] = actor
+        evaluation_payload["correction_at"] = recorded_at
+        evaluation_payload["correction_revision"] = correction_revision
+        evaluation_payload["prior_values"] = changed_values
+        evaluation_payload["original_status"] = original_status
+        evaluation_payload["original_inspection_id"] = str(parent_id) if parent_id else None
+        evaluation_payload["review_required"] = True
+        evaluation_payload["workflow_status"] = "REVIEW_REQUIRED"
 
     failures = list(evaluation.failures)
     inspection = QualityInspection(
@@ -862,9 +1038,21 @@ def record_stage_inspection(
     db.add(inspection)
     db.flush()
 
+    if prior_same is not None and correction_revision:
+        prior_eval = dict(prior_same.evaluation or {})
+        prior_eval["workflow_status"] = "SUPERSEDED"
+        prior_eval["superseded_by"] = str(inspection.id)
+        prior_eval.setdefault("measurement_revision", _measurement_revision(prior_same))
+        prior_same.evaluation = prior_eval
+
     # Containment is a server policy. The client create_hold_on_fail flag is ignored.
     hold: Optional[QualityHold] = None
-    if evaluation.status in {"FAIL", "INVALID"}:
+    correcting_existing_fail = bool(
+        correction_revision
+        and prior_same is not None
+        and str(prior_same.status or "").upper() in {"FAIL", "INVALID"}
+    )
+    if evaluation.status in {"FAIL", "INVALID"} and not correcting_existing_fail:
         hold = QualityHold(
             plant_id=plant_uuid,
             job_card_id=job_card.id,
@@ -973,6 +1161,8 @@ class InspectionCreate(BaseModel):
     parent_inspection_id: Optional[uuid.UUID] = None
     final_submission: bool = False
     entry_mode: Optional[str] = None
+    correction_reason: Optional[str] = None
+    expected_revision: Optional[int] = None
 
     @field_validator("stage_type")
     @classmethod
@@ -1076,6 +1266,13 @@ class InspectionResponse(BaseModel):
     investigation_status: Optional[str] = None
     grouped_case_id: Optional[str] = None
     grouped_parameters: list[str] = Field(default_factory=list)
+    correction_revision: Optional[int] = None
+    correction_reason: Optional[str] = None
+    correction_actor: Optional[str] = None
+    correction_at: Optional[str] = None
+    prior_values: dict[str, Any] = Field(default_factory=dict)
+    original_status: Optional[str] = None
+    review_required: bool = False
 
 
 class HoldCreate(BaseModel):
@@ -1202,6 +1399,8 @@ def create_inspection(
         parent_inspection_id=payload.parent_inspection_id,
         final_submission=payload.final_submission,
         entry_mode=_normalize_entry_mode(payload.entry_mode, "DEDICATED_QC"),
+        correction_reason=payload.correction_reason,
+        expected_revision=payload.expected_revision,
         commit=True,
     )
 
@@ -1229,6 +1428,8 @@ def create_supervisor_inspection(
         parent_inspection_id=body.parent_inspection_id,
         final_submission=body.final_submission,
         entry_mode="SUPERVISOR",
+        correction_reason=body.correction_reason,
+        expected_revision=body.expected_revision,
         commit=True,
     )
 
@@ -1253,6 +1454,8 @@ def create_eod_inspection(
         parent_inspection_id=body.parent_inspection_id,
         final_submission=body.final_submission,
         entry_mode="EOD",
+        correction_reason=body.correction_reason,
+        expected_revision=body.expected_revision,
         commit=True,
     )
 
@@ -1286,6 +1489,8 @@ def import_inspections(
                 parent_inspection_id=body.parent_inspection_id,
                 final_submission=body.final_submission,
                 entry_mode="IMPORT",
+                correction_reason=body.correction_reason,
+                expected_revision=body.expected_revision,
                 commit=False,
             )
         )
@@ -1313,6 +1518,8 @@ def create_legacy_inspection(
         parent_inspection_id=body.parent_inspection_id,
         final_submission=body.final_submission,
         entry_mode="LEGACY",
+        correction_reason=body.correction_reason,
+        expected_revision=body.expected_revision,
         commit=True,
     )
 

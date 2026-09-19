@@ -461,3 +461,134 @@ def test_qct055_ui_job_seed():
     finally:
         db.close()
 
+
+PASS_AFTER_FAIL = {**FAIL_READINGS, "height": 120}
+
+
+def test_qct056_correction_keeps_original_fail_and_hold():
+    headers = _admin_headers()
+    marker = f"QCT056-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "CORR", status="IN_PROGRESS")
+        db.commit()
+        original = create_inspection(
+            InspectionCreate(
+                job_card_id=job.id,
+                stage_type="WINDER",
+                readings=dict(FAIL_READINGS),
+                reasons={"height": "measured short on winding"},
+                sample_id="CORR-1",
+                final_submission=True,
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert original.status == "FAIL"
+        assert original.readings.get("height") == 90
+        assert original.hold_id is not None
+        original_hold_id = original.hold_id
+        with pytest.raises(HTTPException) as blocked:
+            create_inspection(
+                InspectionCreate(
+                    job_card_id=job.id,
+                    stage_type="WINDER",
+                    readings=dict(PASS_AFTER_FAIL),
+                    sample_id="CORR-1",
+                    final_submission=True,
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=QC,
+            )
+        assert blocked.value.status_code == 400
+        assert "original value is retained" in str(blocked.value.detail).lower()
+        stored_original = db.query(QualityInspection).filter(QualityInspection.id == original.id).one()
+        assert stored_original.status == "FAIL"
+        assert stored_original.readings.get("height") == 90
+        hold = db.query(QualityHold).filter(QualityHold.id == original_hold_id).one()
+        assert hold.status == "HOLD"
+
+        with pytest.raises(HTTPException) as stale:
+            create_inspection(
+                InspectionCreate(
+                    job_card_id=job.id,
+                    stage_type="WINDER",
+                    readings=dict(PASS_AFTER_FAIL),
+                    sample_id="CORR-1",
+                    correction_reason="height was a transcription error from the vernier card",
+                    expected_revision=99,
+                    final_submission=True,
+                ),
+                db=db,
+                plant_id=PLANT,
+                current_user=QC,
+            )
+        assert stale.value.status_code == 409
+
+        corrected = create_inspection(
+            InspectionCreate(
+                job_card_id=job.id,
+                stage_type="WINDER",
+                readings=dict(PASS_AFTER_FAIL),
+                sample_id="CORR-1",
+                correction_reason="height was a transcription error from the vernier card",
+                expected_revision=1,
+                final_submission=True,
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert corrected.status == "PASS"
+        assert str(corrected.parent_inspection_id) == str(original.id)
+        assert corrected.correction_revision == 2
+        assert corrected.correction_reason == "height was a transcription error from the vernier card"
+        assert corrected.correction_actor == QC["sub"]
+        assert corrected.correction_at
+        assert corrected.prior_values["height"]["prior"] == 90
+        assert corrected.prior_values["height"]["replacement"] == 120
+        assert corrected.original_status == "FAIL"
+        assert corrected.review_required is True
+        assert corrected.readings.get("height") == 120
+
+        db.refresh(stored_original)
+        assert stored_original.status == "FAIL"
+        assert stored_original.readings.get("height") == 90
+        assert stored_original.evaluation.get("workflow_status") == "SUPERSEDED"
+        assert str(stored_original.evaluation.get("superseded_by")) == str(corrected.id)
+        db.refresh(hold)
+        assert hold.status == "HOLD"
+        assert db.query(QualityHold).filter(QualityHold.job_card_id == job.id, QualityHold.status == "HOLD").count() == 1
+        rows = db.query(QualityInspection).filter(QualityInspection.job_card_id == job.id).all()
+        assert len(rows) == 2
+        _reports().joinpath("qct056-job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": str(job.id),
+                    "original_id": str(original.id),
+                    "correction_id": str(corrected.id),
+                    "hold_id": str(original_hold_id),
+                }
+            )
+        )
+    finally:
+        db.close()
+
+
+def test_qct056_ui_job_seed():
+    headers = _admin_headers()
+    marker = f"QCT056UI-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "CORR-UI", status="IN_PROGRESS")
+        db.commit()
+        _reports().joinpath("qct056-ui-job.json").write_text(json.dumps({"job_id": str(job.id)}))
+    finally:
+        db.close()
+
