@@ -20,6 +20,8 @@ from ..quality_eval import (
     apply_qc_setup_marker,
     evaluate_job_stage,
     evaluate_stage_quality,
+    instrument_not_ready_detail,
+    instrument_readiness_for_snapshot,
     missing_qc_setup_blocks_checkpoint,
     missing_qc_setup_detail,
     qc_profile_setup_status,
@@ -790,6 +792,15 @@ CHECKPOINT_META_KEYS = {
     "pre_pair_id",
     "post_pair_id",
     "pair_id",
+    "instrument",
+    "instrument_id",
+    "instrument_status",
+    "calibration_status",
+    "calibration_due",
+    "calibration_certificate",
+    "calibration_evidence",
+    "evidence_ref",
+    "instrument_evidence",
 }
 CORRECTION_INCOMPLETE_DETAIL = (
     "Correction of a recorded measurement requires a reason, actor, time, and revision; original value is retained."
@@ -1127,6 +1138,16 @@ def record_stage_inspection(
         raise HTTPException(
             status_code=409,
             detail=missing_qc_setup_detail(job_card.spec_snapshot or {}, observations),
+        )
+    instrument_state = instrument_readiness_for_snapshot(
+        job_card.spec_snapshot or {},
+        stage_type,
+        sanitized_readings,
+    )
+    if instrument_state.get("required") and not instrument_state.get("ready"):
+        raise HTTPException(
+            status_code=409,
+            detail=instrument_not_ready_detail(instrument_state, observations),
         )
     drafted_ctx = {
         "quality_context_version": (
@@ -1937,6 +1958,12 @@ def get_frozen_qc_template(
         "notching_applicable": bool(snapshot.get("notch_capability_required")),
         "missing_qc_setup": bool(snapshot.get("missing_qc_setup") or snapshot.get("missing_profile_marker")),
         "qc_setup_status": snapshot.get("qc_setup_status") or qc_profile_setup_status(profile),
+        "requires_instrument": any(
+            bool(row.get("requires_instrument"))
+            for stage in stages.values()
+            for row in (stage.get("parameters") or [])
+            if isinstance(row, dict)
+        ),
         "stages": stages,
     }
 

@@ -25,6 +25,33 @@ def test_normalize_keeps_submitted_bounds_and_does_not_invent():
     assert profile_status(profile) == "draft"
 
 
+def test_normalize_keeps_requires_instrument_and_does_not_invent_calibration():
+    profile = normalize_qc_profile(
+        {
+            "stages": {
+                "WINDER": {
+                    "parameters": [
+                        {
+                            "code": "height",
+                            "min": 118,
+                            "max": 122,
+                            "unit": "mm",
+                            "requires_instrument": True,
+                            "required_instrument_id": "CAL-HEIGHT-01",
+                        },
+                    ]
+                }
+            }
+        }
+    )
+    height = next(row for row in profile["stages"]["WINDER"]["parameters"] if row["code"] == "height")
+    assert height["requires_instrument"] is True
+    assert height["required_instrument_id"] == "CAL-HEIGHT-01"
+    assert height.get("calibration_due") in (None, "", False)
+    id_row = next(row for row in profile["stages"]["WINDER"]["parameters"] if row["code"] == "id")
+    assert id_row["requires_instrument"] is False
+
+
 def test_canonical_client_labels_replace_generic_substitutes():
     from src.qc_profile import EXACT_STAGE_LABELS, GENERIC_FORBIDDEN_LABELS, normalize_qc_profile
 

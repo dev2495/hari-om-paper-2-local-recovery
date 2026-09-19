@@ -208,6 +208,23 @@ def _normalize_parameter(
         "checkpoint": _clean_text(raw.get("checkpoint")) or (
             "PRE" if fallback["code"].startswith("pre_") else "POST" if fallback["code"].startswith("post_") else None
         ),
+        "requires_instrument": bool(
+            raw.get("requires_instrument") is True
+            or raw.get("instrument_required") is True
+            or str(raw.get("requires_instrument") or "").strip().lower() in {"1", "true", "yes", "required", "calibrated"}
+            or str(raw.get("instrument_required") or "").strip().lower() in {"1", "true", "yes", "required", "calibrated"}
+        ),
+        "required_instrument_id": _clean_text(raw.get("required_instrument_id"))
+        or (
+            _clean_text(raw.get("instrument_id"))
+            if bool(
+                raw.get("requires_instrument") is True
+                or raw.get("instrument_required") is True
+                or str(raw.get("requires_instrument") or "").strip().lower() in {"1", "true", "yes", "required", "calibrated"}
+                or str(raw.get("instrument_required") or "").strip().lower() in {"1", "true", "yes", "required", "calibrated"}
+            )
+            else None
+        ),
     }
 
 

@@ -41,6 +41,8 @@ from ..quality_eval import (
     apply_qc_setup_marker,
     evaluate_job_stage,
     evaluate_stage_quality,
+    instrument_not_ready_detail,
+    instrument_readiness_for_snapshot,
     missing_qc_setup_blocks_checkpoint,
     missing_qc_setup_detail,
     submission_error,
@@ -6733,6 +6735,40 @@ def capture_stage_output(
 
     selected_stage = payload.stage or job_card.current_stage
     selected_stage = _normalize_stage(selected_stage)
+    instrument_readings = dict(quality_checks_payload)
+    has_qc_measurements = any(
+        str(key).strip().lower()
+        not in {
+            "reasons",
+            "sample_id",
+            "samples",
+            "entry_mode",
+            "checkpoint",
+            "oven_checkpoint",
+            "instrument",
+            "instrument_id",
+            "instrument_status",
+            "calibration_status",
+            "calibration_due",
+            "calibration_certificate",
+            "calibration_evidence",
+            "evidence_ref",
+            "instrument_evidence",
+        }
+        and value not in (None, "", [], {})
+        for key, value in instrument_readings.items()
+    )
+    if has_qc_measurements:
+        instrument_state = instrument_readiness_for_snapshot(
+            job_card.spec_snapshot or {},
+            selected_stage,
+            instrument_readings,
+        )
+        if instrument_state.get("required") and not instrument_state.get("ready"):
+            raise HTTPException(
+                status_code=409,
+                detail=instrument_not_ready_detail(instrument_state),
+            )
     if active_holds and not override_reason:
         hold_stages = {str(hold.stage_type or "").upper() for hold in active_holds}
         current = str(job_card.current_stage or "").upper()

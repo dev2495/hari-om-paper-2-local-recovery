@@ -2,6 +2,7 @@ from src.quality_eval import (
     apply_qc_setup_marker,
     evaluate_incoming,
     evaluate_job_stage,
+    instrument_readiness_for_snapshot,
     missing_qc_setup_blocks_checkpoint,
     qc_profile_setup_status,
     submission_error,
@@ -274,7 +275,7 @@ def test_rr04_client_hold_flag_is_ignored_in_router():
 
     text = Path(__file__).resolve().parents[1].joinpath("src/routers/quality.py").read_text()
     assert "The client create_hold_on_fail flag is ignored" in text
-    assert "if evaluation.status in {\"FAIL\", \"INVALID\"}:" in text
+    assert "if evaluation.status in {\"FAIL\", \"INVALID\"} and not correcting_existing_fail:" in text
     assert '@router.post("/supervisor/inspections"' in text
     assert '@router.post("/eod/inspections"' in text
     assert '@router.post("/inspections/import"' in text
@@ -596,6 +597,94 @@ def test_attached_marker_resolves_checkpoint():
     snapshot = apply_qc_setup_marker({"qc_profile": {}, "qc_setup_status": "attached"})
     assert snapshot["missing_qc_setup"] is False
     assert missing_qc_setup_blocks_checkpoint(snapshot) is False
+
+
+def _instrument_snapshot():
+    snapshot = _winder_snapshot()
+    snapshot["qc_profile"]["status"] = "approved"
+    snapshot["qc_profile"]["approved_by"] = "qc-1"
+    height = next(
+        row
+        for row in snapshot["qc_profile"]["stages"]["WINDER"]["parameters"]
+        if row["code"] == "height"
+    )
+    height["requires_instrument"] = True
+    height["required_instrument_id"] = "CAL-HEIGHT-01"
+    return snapshot
+
+
+def test_required_instrument_missing_never_passes():
+    snapshot = _instrument_snapshot()
+    in_range = {"id": 77, "od": 91, "height": 120, "weight": 250, "cs": 320}
+    evaluation = evaluate_job_stage(stage="WINDER", spec_snapshot=snapshot, readings=in_range)
+    assert evaluation.verdict != "PASS"
+    assert evaluation.verdict == "INVALID"
+    readiness = instrument_readiness_for_snapshot(snapshot, "WINDER", in_range)
+    assert readiness["required"] is True
+    assert readiness["ready"] is False
+    assert readiness["instrument_status"] == "missing"
+    assert readiness["invented_calibration"] is False
+
+
+def test_required_instrument_expired_never_passes():
+    snapshot = _instrument_snapshot()
+    readings = {
+        "id": 77,
+        "od": 91,
+        "height": 120,
+        "weight": 250,
+        "cs": 320,
+        "instrument": {
+            "instrument_id": "CAL-HEIGHT-01",
+            "calibration_status": "expired",
+            "calibration_due": "2020-01-01",
+            "evidence_ref": "CERT-OLD",
+        },
+    }
+    evaluation = evaluate_job_stage(stage="WINDER", spec_snapshot=snapshot, readings=readings)
+    assert evaluation.verdict != "PASS"
+    readiness = instrument_readiness_for_snapshot(snapshot, "WINDER", readings)
+    assert readiness["instrument_status"] == "expired"
+    assert readiness["invented_calibration"] is False
+
+
+def test_status_only_valid_without_evidence_is_not_invented_calibration():
+    snapshot = _instrument_snapshot()
+    readings = {
+        "id": 77,
+        "od": 91,
+        "height": 120,
+        "weight": 250,
+        "cs": 320,
+        "instrument": {"instrument_id": "CAL-HEIGHT-01", "calibration_status": "valid"},
+    }
+    evaluation = evaluate_job_stage(stage="WINDER", spec_snapshot=snapshot, readings=readings)
+    assert evaluation.verdict != "PASS"
+    readiness = instrument_readiness_for_snapshot(snapshot, "WINDER", readings)
+    assert readiness["ready"] is False
+    assert readiness["invented_calibration"] is False
+
+
+def test_documented_in_cal_instrument_allows_measured_pass():
+    snapshot = _instrument_snapshot()
+    readings = {
+        "id": 77,
+        "od": 91,
+        "height": 120,
+        "weight": 250,
+        "cs": 320,
+        "instrument": {
+            "instrument_id": "CAL-HEIGHT-01",
+            "calibration_status": "valid",
+            "calibration_due": "2099-12-31",
+            "evidence_ref": "CERT-QCT062",
+        },
+    }
+    evaluation = evaluate_job_stage(stage="WINDER", spec_snapshot=snapshot, readings=readings)
+    assert evaluation.verdict == "PASS"
+    readiness = instrument_readiness_for_snapshot(snapshot, "WINDER", readings)
+    assert readiness["ready"] is True
+    assert readiness["instrument_status"] == "valid"
 
 
 

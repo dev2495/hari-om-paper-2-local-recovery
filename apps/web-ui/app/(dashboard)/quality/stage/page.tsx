@@ -31,6 +31,10 @@ type StageDraft = {
   sampleId: string
   measuredAt: string
   ovenCheckpoint: "PRE" | "POST"
+  instrumentId: string
+  calibrationDue: string
+  calibrationStatus: string
+  instrumentEvidence: string
 }
 
 function emptyDraft(): StageDraft {
@@ -46,6 +50,10 @@ function emptyDraft(): StageDraft {
     sampleId: "",
     measuredAt: "",
     ovenCheckpoint: "PRE",
+    instrumentId: "",
+    calibrationDue: "",
+    calibrationStatus: "",
+    instrumentEvidence: "",
   }
 }
 
@@ -129,12 +137,12 @@ function reconnectConflict(error: any) {
   const data = error?.response?.data
   const detail = data?.detail ?? data
   const code = String(detail?.code || "")
-  if (code === "STALE_CONTEXT" || code === "OFFLINE_RELEASE_FORBIDDEN" || code === "MISSING_QC_SETUP") return detail
+  if (code === "STALE_CONTEXT" || code === "OFFLINE_RELEASE_FORBIDDEN" || code === "MISSING_QC_SETUP" || code === "INVALID_INSTRUMENT") return detail
   return null
 }
 
 function numericReadings(stageType: QcStageKey, draft: StageDraft) {
-  const numeric: Record<string, string | number> = Object.fromEntries(
+  const numeric: Record<string, any> = Object.fromEntries(
     Object.entries(draft.readings)
       .filter(([key, value]) => {
         if (String(value).trim() === "") return false
@@ -156,6 +164,18 @@ function numericReadings(stageType: QcStageKey, draft: StageDraft) {
         numeric.post_specimen_id = draft.sampleId
         numeric.pre_specimen_id = draft.sampleId
       }
+    }
+  }
+  const instrumentId = String(draft.instrumentId || "").trim()
+  const calibrationDue = String(draft.calibrationDue || "").trim()
+  const calibrationStatus = String(draft.calibrationStatus || "").trim()
+  const evidenceRef = String(draft.instrumentEvidence || "").trim()
+  if (instrumentId || calibrationDue || calibrationStatus || evidenceRef) {
+    numeric.instrument = {
+      instrument_id: instrumentId || undefined,
+      calibration_due: calibrationDue || undefined,
+      calibration_status: calibrationStatus || undefined,
+      evidence_ref: evidenceRef || undefined,
     }
   }
   return numeric
@@ -211,6 +231,8 @@ export default function StageQualityPage() {
   const profileRevision = inspectionProfileRevision(null, snapshotProfile || templateQuery.data)
   const draft = drafts[stageType]
   const failCodes = qcExceptionIssues(rules, draft.readings).map((row) => row.code)
+  const requiresInstrument = rules.some((row: any) => Boolean(row?.requires_instrument || row?.instrument_required))
+    || Boolean(templateQuery.data?.requires_instrument)
   const checkpoint = stageType === "OVEN"
     ? (draft.ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
     : STAGES.find((stage) => stage.value === stageType)?.label
@@ -596,9 +618,60 @@ export default function StageQualityPage() {
                 Missing QC setup. Queue admission succeeded with a missing-setup flag. This checkpoint requires an approved resolution. Empty setup is not measured PASS.
               </div>
             ) : null}
+            {requiresInstrument ? (
+              <div className="space-y-3 rounded-2xl border border-slate-900 bg-white p-4" data-testid="quality-stage-instrument-required">
+                <div className="text-sm text-slate-900">
+                  Required instrument evidence controls readiness. Missing or expired instrument is not measured PASS, and calibration is not invented.
+                </div>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Instrument ID</span>
+                  <input
+                    data-testid="quality-stage-instrument-id"
+                    value={draft.instrumentId}
+                    onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Calibration due</span>
+                  <input
+                    type="date"
+                    data-testid="quality-stage-calibration-due"
+                    value={draft.calibrationDue}
+                    onChange={(event) => updateDraft(stageType, { calibrationDue: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Instrument status</span>
+                  <input
+                    data-testid="quality-stage-calibration-status"
+                    value={draft.calibrationStatus}
+                    onChange={(event) => updateDraft(stageType, { calibrationStatus: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    placeholder="valid / expired / missing"
+                  />
+                </label>
+                <label className="block text-sm">
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Calibration evidence</span>
+                  <input
+                    data-testid="quality-stage-instrument-evidence"
+                    value={draft.instrumentEvidence}
+                    onChange={(event) => updateDraft(stageType, { instrumentEvidence: event.target.value })}
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    placeholder="Certificate or documented evidence ref"
+                  />
+                </label>
+              </div>
+            ) : null}
             {staleConflict?.code === "MISSING_QC_SETUP" ? (
               <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-missing-setup-conflict">
                 {staleConflict.message}
+              </div>
+            ) : null}
+            {staleConflict?.code === "INVALID_INSTRUMENT" ? (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-instrument-conflict">
+                {staleConflict.message} Status: {String(staleConflict.instrument_status || "")}. Invented calibration: no.
               </div>
             ) : null}
             {offlineDraftKept ? (
@@ -606,7 +679,7 @@ export default function StageQualityPage() {
                 Paper/offline draft kept locally. This is not a quality release.
               </div>
             ) : null}
-            {staleConflict && staleConflict.code !== "MISSING_QC_SETUP" ? (
+            {staleConflict && staleConflict.code !== "MISSING_QC_SETUP" && staleConflict.code !== "INVALID_INSTRUMENT" ? (
               <div className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-stale-conflict">
                 <div className="font-semibold">{staleConflict.message}</div>
                 <div data-testid="quality-stage-retained-height">

@@ -26,6 +26,8 @@ export type QcParameterRule = {
   pair_group?: string | null
   conditional?: string | null
   applicability_label?: string | null
+  requires_instrument?: boolean
+  required_instrument_id?: string | null
 }
 
 export const QC_STAGE_PARAMETERS: Record<QcStageKey, QcParameterDef[]> = {

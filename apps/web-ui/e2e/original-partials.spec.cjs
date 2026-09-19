@@ -1411,3 +1411,53 @@ test("QCT-060 queued missing-QC job flags setup and blocks checkpoint until appr
   await assertCritical()
 })
 
+test("QCT-062 missing and expired instrument cannot PASS until documented calibration evidence", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [
+      { kind: "response", status: 409 },
+      { kind: "console", textIncludes: "409" },
+    ],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct062_live.py::test_qct062_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct062-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await expect(page.getByTestId("quality-stage-instrument-required")).toBeVisible({ timeout: 20_000 })
+  await page.getByTestId("stage-qc-sample-id").fill("QCT062-UI")
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("120")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-instrument-conflict")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId("quality-stage-instrument-conflict")).toContainText(/missing/i)
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveCount(0)
+  await page.getByTestId("quality-stage-instrument-id").fill("CAL-HEIGHT-01")
+  await page.getByTestId("quality-stage-calibration-due").fill("2020-01-01")
+  await page.getByTestId("quality-stage-calibration-status").fill("expired")
+  await page.getByTestId("quality-stage-instrument-evidence").fill("CERT-OLD")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-instrument-conflict")).toContainText(/expired/i)
+  await page.getByTestId("quality-stage-calibration-due").fill("2099-12-31")
+  await page.getByTestId("quality-stage-calibration-status").fill("valid")
+  await page.getByTestId("quality-stage-instrument-evidence").fill("CERT-QCT062")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toContainText(/PASS/i, { timeout: 20_000 })
+  const plantHeadersOk = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const listedOk = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeadersOk,
+  })
+  expect(listedOk.ok(), await listedOk.text()).toBeTruthy()
+  const inspections = await listedOk.json()
+  expect(inspections).toHaveLength(1)
+  expect(String(inspections[0].status || "")).toBe("PASS")
+  expect(inspections[0].readings?.instrument?.evidence_ref || inspections[0].readings?.evidence_ref).toBe("CERT-QCT062")
+  await assertCritical()
+})
+
