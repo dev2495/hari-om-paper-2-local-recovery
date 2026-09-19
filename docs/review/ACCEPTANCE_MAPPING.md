@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** `72262de44e001eec64263791ba8e6c01a8efd579` QCT-050 whole-card hidden-stage errors (served BUILD_ID `RuDVwRuPutn9QGHEBn6so`; parent `8db296c` QCT-048/049).  
-**Chromium candidate:** BUILD_ID `RuDVwRuPutn9QGHEBn6so` on `:23000` — Chromium project **38/38 PASS** (`--workers=1`, 1.8m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). Prior `REOh-2shYV9Ko_Fl2eA6l` 37/37 does not bind this bundle.  
+**Local product HEAD this cycle:** `5306970` QCT-051/053 adapters on parent `72262de` QCT-050 (served BUILD_ID `RuDVwRuPutn9QGHEBn6so`; overlay parent `f78e288`).  
+**Chromium candidate:** BUILD_ID `RuDVwRuPutn9QGHEBn6so` on `:23000` — Chromium project **38/38 PASS** still only through QCT-050. Focused QCT-051/053 Chromium **did not PASS** (job-cards 504 then CSRF 403 / 180s hang kill).  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -22,9 +22,9 @@ Source: `docs/review/baseline-v2/` (immutable). Overlay: `docs/review/ACCEPTANCE
 | --- | --- |
 | Original tests | 192, all historically `NOT_RUN` |
 | Overlay `PASS` | **84** |
-| Overlay `PARTIAL` | **21** (executed, full original procedure not closed) |
+| Overlay `PARTIAL` | **23** (executed, full original procedure not closed) |
 | Overlay `LIMITATION` | **3** (`DEM-02`, `DEM-06`, `QCT-107`) |
-| Overlay `NOT_RUN` | **84** |
+| Overlay `NOT_RUN` | **82** |
 | Overlay `FAIL` / `BLOCKED` | **0** original IDs (WebKit/Safari BLOCKED are BJ, not overlay IDs) |
 | Requirements overlay `PASS` | `R12`, `R13`, `R14`, `R15`, `R19`, `QCR-03`, `QCR-04`, `QCR-06`, `QCR-07`, `QCR-08`, `QCR-09`, `QCR-10`, `QCR-12` |
 | Requirements overlay `PARTIAL` | `R08`, `R10`, `R16`, `R18`, `R20`, `QCR-02`, `QCR-05`, `QCR-11`, `QCR-13`, `QCR-14`, `QCR-15`, `QCR-16`, `QCR-17`, `QCR-20`, `QCR-26`, `QCR-31`, `QCR-32`, `QCR-34` |
@@ -39,15 +39,15 @@ Chromium project 38/38 on BUILD_ID `RuDVwRuPutn9QGHEBn6so` includes BJ01–BJ12 
 
 ### Overlay PARTIAL (not PASS)
 
-`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `NAV-01`, `INC-02`, `REG-03`, `REG-04`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-123`
+`COMM-01`, `COMM-02`, `COMM-03`, `COMM-04`, `COMM-05`, `COMM-06`, `COMM-07`, `COMM-09`, `COMM-10`, `COMM-12`, `REL-01`, `REL-02`, `REL-03`, `NAV-01`, `INC-02`, `REG-03`, `REG-04`, `QCT-005`, `QCT-006`, `QCT-008`, `QCT-051`, `QCT-053`, `QCT-123`
 
 ### Overlay LIMITATION
 
 `DEM-02`, `DEM-06` (`GROSS_ESTIMATE`); `QCT-107` (`PARTIAL_REJECTION_UNSUPPORTED`)
 
-### Overlay NOT_RUN (84)
+### Overlay NOT_RUN (82)
 
-`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-051`, `QCT-053`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
+`DEM-01`, `DEM-03`–`DEM-05`, `DEM-07`–`DEM-08`, `NAV-02`, `INC-01`, `REG-02`, `QCT-004`, `QCT-012`, `QCT-054`–`QCT-106`, `QCT-108`–`QCT-122`, `QCT-124`–`QCT-126`
 
 `INC-01` stays NOT_RUN: missing original ID-creation screenshot SHA, browser console/stack, and corresponding request. `REG-02` stays NOT_RUN: isolated nverify dump is not migrated production data. QCT-120 / QCT-125 remain NOT_RUN (human UAT / owner gate).
 

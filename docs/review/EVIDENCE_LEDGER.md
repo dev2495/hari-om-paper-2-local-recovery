@@ -13,25 +13,40 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | `72262de` QCT-050 whole-card hidden-stage errors; parent `8db296c` QCT-048/049 |
+| Served product | `5306970` QCT-051/053 adapters on `72262de` QCT-050; parent `8db296c` QCT-048/049 |
 | Served BUILD_ID | `RuDVwRuPutn9QGHEBn6so` at `http://127.0.0.1:23000` |
-| BJ re-run | Chromium project **38/38 PASS** on this BUILD_ID (`--workers=1`, 1.8m, `PLAYWRIGHT_CHROME_CHANNEL=chrome`). |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ this overlay |
+| BJ re-run | Chromium project **38/38 PASS** on this BUILD_ID through QCT-050 only. Focused QCT-051/053 Chromium did **not** PASS. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
-| Original 56/192 overlay | PASS 84 / PARTIAL 21 / LIMITATION 3 / NOT_RUN 84 |
+| Original 56/192 overlay | PASS 84 / PARTIAL 23 / LIMITATION 3 / NOT_RUN 82 |
 | Release recommendation | **Do not go live.** Not 100% production-ready. |
 
 ## Runtime identity
 
 - Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `RuDVwRuPutn9QGHEBn6so` pid **61187** (launcher 61154)
-- BFF `http://127.0.0.1:24000` pid **61005**, inventory **2331** :28005, production **60993** :28004, sales **2337** :28008
+- BFF `http://127.0.0.1:24000` pid **73242**, inventory **2331** :28005, production **70492** :28004, sales **2337** :28008
 - Auth **90290** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
 ## This cycle — executable original cases
+
+Wave after overlay `f78e288` / product `72262de` (QCT-051/053, not overlay PASS):
+
+| Suite | Result | Notes |
+| --- | --- | --- |
+| QCT-051/053 live adapters + fingerprint unit | 6 passed | same FAIL fingerprint across dedicated/inline/supervisor/EOD/import/legacy; shortcut PASS stripped; self-release 403 |
+| Chromium QCT-051 first trace | FAIL | job `700baff9-…` missing; BFF `GET /job-cards?limit=80` 504; page Loading job cards |
+| Chromium focused QCT-051/053 | FAIL / HANG | UUID found; submit toast Cross-site request rejected; verdict absent; 180s kill |
+
+Fixes patched with those tests (Chromium not re-run after CSRF patch):
+
+1. All QC entry adapters normalize readings, ignore client PASS/disposition, and reuse one observation fingerprint.
+2. Stage QC job search uses exact UUID match instead of `cast(id) ILIKE`.
+3. BFF CSRF allows an allowed UI Origin even when Next rewrite sends `sec-fetch-site: cross-site`.
+4. Playwright seed uses a 90s pytest timeout and same-origin `/api/*` mutations.
 
 Wave after overlay `dfbc8a1` / product `8db296c`:
 
