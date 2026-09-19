@@ -3,7 +3,7 @@
 - Branch: `cursor/ui-polish-nav-c5f9`
 - Audited PR10 remote before correction publish: `30263a4ef6592c7bf6e672ca3c2a9b411f39f63f`
 - Published correction (still the remote PR10 HEAD): `74f5b45300ce1f121b5efd89f319b0d4e1027b33`
-- Local product HEAD: `a43e2d1` QCT-054/055. Overlay `dd6973a` PASS 88. Parent product `5306970` QCT-051/053. Uncommitted: Tab-order fix on Stage QC reason field plus in-progress QCT-056 correction-audit source. No force-push, no discarded work.
+- Local product HEAD: `e060c56` tab-order + correction-audit source. Overlay `fc80550` / PASS 88. Parent `a43e2d1` QCT-054/055 / `5306970` QCT-051/053. No force-push, no discarded work.
 - Served Next on 23000: BUILD_ID `peLxekyXOJkjRqV0nc9oN` (unknown-cause + common-cause; Tab from FAIL reading lands on reason). Prior `RuDVwRuPutn9QGHEBn6so` 40/40 and `AOG_OtZsA38lwPCoQOXkx` do **not** bind this bundle.
 - Focused Chromium QCT-045+051/053/054/055 **5/5 PASS** (12.5s). Full Chromium **34/42** after isolated auth `:28001` died (login 8 fails). After auth restore, those 8 BJ tests **8/8 PASS**. Combined bind 42/42 on this BUILD_ID across two process groups, not one uninterrupted 42/42.
 - Group E (Docker audit_outbox + plant-prefixed masters): `faee2ab11cbeb181e663a3a54b0d5b2c6078a8f4`
