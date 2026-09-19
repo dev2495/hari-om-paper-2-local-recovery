@@ -5,18 +5,16 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 ## Chromium (Google Chrome channel)
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
-- Served origin: `http://127.0.0.1:23000` BUILD_ID `6zk33xI-C0oXl9okpNOFU` (QCT-058 late exception + PLAN-09 overflow repair). Prior `zBHhpAo5567LO6B9wJwqR` QCT-057 restricted physical output. Prior `Jsi64h520Xs_8mFfUP9Qr` QCT-056 correction audit.
-- Focused PLAN-09+QCT-058: **2 passed / 0 failed** in 5.5s — `output/playwright/6zk33xI-C0oXl9okpNOFU-plan09-qct058/`
-- Full Chromium on 6zk33xI: **37 passed / 8 failed** in 6.8m — `output/playwright/6zk33xI-C0oXl9okpNOFU-full/` after isolated auth `:28001` died
-- Those BJ logins plus premium planner re-ran **9 passed / 0 failed** in 13.4s after auth restore — `output/playwright/6zk33xI-C0oXl9okpNOFU-bj-tail/`
-- Combined bind on 6zk33xI is 45/45 across two process groups, not one uninterrupted 45/45. Full Chromium on `zBHhpAo5567LO6B9wJwqR`: **43 passed / 1 failed** in 4.0m (PLAN-09 390px overflow, repaired on this BUILD_ID).
+- Served origin: `http://127.0.0.1:23000` BUILD_ID `hSNF8iFPDPUtJa-w74ao_` (QCT-059 offline/paper draft stale reconnect). Prior `6zk33xI-C0oXl9okpNOFU` QCT-058 late exception + PLAN-09 overflow repair.
+- Focused QCT-059: **1 passed / 0 failed** in 5.3s — `output/playwright/hSNF8iFPDPUtJa-w74ao_-qct059-retest/`
+- Uncontended full Chromium on this BUILD_ID: **44 passed / 2 failed** in 6.2m — `output/playwright/hSNF8iFPDPUtJa-w74ao_-full/`. Auth `:28001` pid **9821** stayed up. Failures: release-gate sales/Plant II `sales-orders:release-winder` not visible. QCT-037, QCT-057, QCT-058, QCT-059, PLAN-09 passed in that run.
 - Focused QCT-056: **1 passed / 0 failed** in 5.2s — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct056-after-books/`
 - Focused QCT-051+053 after that bind: **2 passed / 0 failed** in 6.1s — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct051-053-after-056/`
 - Focused QCT-045+051/053/054/055 on peLxeky: **5 passed / 0 failed** in 12.5s — `output/playwright/peLxekyXOJkjRqV0nc9oN-qct045-055/`
 - Full Chromium on peLxeky: **34 passed / 8 failed** in 6.9m after isolated auth `:28001` died — `output/playwright/peLxekyXOJkjRqV0nc9oN-full/`
 - Those 8 BJ logins re-ran **8 passed / 0 failed** in 13.2s after auth restore — `output/playwright/peLxekyXOJkjRqV0nc9oN-bj-tail/`
 - Combined bind on peLxeky is 42/42 across two process groups, not one uninterrupted 42/42. Full Chromium on `Jsi64h520Xs_8mFfUP9Qr`: **42 passed / 1 failed** in 4.2m — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-full-after-056/` (QCT-037 GET status empty).
-- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–058)
+- Includes BJ01–BJ12 surfaces plus `e2e/original-partials.spec.cjs` (QC-01, COMM-08, INC-02, QCT-029–059)
 - First failures on earlier served UIs (diagnosed, then patched):
   1. QC-01 — `getByText('Quality Control')` strict-mode 4 matches; scoped to `page-header` exact text
   2. COMM-08 — `localStorage` before a document (SecurityError); cookie login after `/login`

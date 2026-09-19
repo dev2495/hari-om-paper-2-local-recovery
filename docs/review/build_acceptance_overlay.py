@@ -120,6 +120,16 @@ SPECIAL: dict[str, dict] = {
         ],
         "notes": "WINDER FAIL recorded with earlier measured_at after OVEN/PACKING and a SEALED dispatch of 6. Clocks distinct; labeled Late quality exception; surviving FG 4 traced; sealed shipment remains SEALED; retroactive_prevention_claimed is false. Chromium BUILD_ID 6zk33xI-C0oXl9okpNOFU: Stage QC measured-at submit FAIL, late-exception banner, surviving stock and earlier SEALED shipment visible.",
     },
+    "QCT-059": {
+        "overlay_status": "PASS",
+        "coverage": "EXACT_EXECUTED",
+        "mapped_tests": [
+            "production-service/tests/test_original_qct059_live.py::test_qct059_offline_draft_stale_reconnect_keeps_observations_and_signed_context",
+            "production-service/tests/test_quality_eval.py::test_offline_draft_and_stale_reconnect_retain_observations_and_signed_context",
+            "apps/web-ui/e2e/original-partials.spec.cjs",
+        ],
+        "notes": "Offline/paper draft is not an authoritative release. After the server quality_context_version changes, reconnect submit is 409 STALE_CONTEXT: observations (height 90) and signed profile fingerprint are retained, no inspection/hold is written, offline_release is false. Chromium BUILD_ID hSNF8iFPDPUtJa-w74ao_: Keep paper/offline draft, OFFLINE_DRAFT 409, bump version, reconnect shows stale-conflict banner with retained height and signed profile; inspections stay empty.",
+    },
     "QCT-071": {
         "overlay_status": "NOT_RUN",
         "coverage": "PARTIAL",
