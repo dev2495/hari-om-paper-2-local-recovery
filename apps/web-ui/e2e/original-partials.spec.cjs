@@ -18,9 +18,8 @@ async function setActivePlant(page, plantId) {
 }
 
 async function cookieLogin(page, email, password, plantId = PLANT_A) {
-  const runtime = getRuntimeManifest()
   await page.goto("/login", { waitUntil: "domcontentloaded" })
-  const response = await page.request.post(`${runtime.urls.bff}/api/auth/login`, {
+  const response = await page.request.post("/api/auth/login", {
     data: { email, password },
   })
   expect(response.ok(), await response.text()).toBeTruthy()
@@ -725,11 +724,13 @@ test("QCT-045 keyboard outside value shows readable FAIL, difference, focusable 
 function spawnProductionPytest(testPath) {
   const { spawnSync } = require("child_process")
   const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
-  return spawnSync(
+  const result = spawnSync(
     py,
     ["-m", "pytest", testPath, "-q", "--tb=short"],
     {
       encoding: "utf8",
+      timeout: 120_000,
+      killSignal: "SIGKILL",
       cwd: path.join(workspaceRoot, "hariom-erp", "services", "production-service"),
       env: {
         ...process.env,
@@ -739,6 +740,20 @@ function spawnProductionPytest(testPath) {
       },
     },
   )
+  if (result.error && result.error.code === "ETIMEDOUT") {
+    result.status = 124
+    result.stderr = `${result.stderr || ""}\npytest timed out after 120s: ${testPath}`
+  }
+  return result
+}
+
+async function selectSeededQualityJob(page, jobId) {
+  await page.goto("/quality/stage", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("quality-stage-page")).toBeVisible()
+  await page.getByTestId("quality-stage-job-search").fill(jobId)
+  await expect(page.getByText("Loading job cards for stage QC…")).toHaveCount(0, { timeout: 45_000 })
+  await expect(page.getByTestId("quality-stage-job").locator(`option[value="${jobId}"]`)).toHaveCount(1, { timeout: 30_000 })
+  await page.getByTestId("quality-stage-job").selectOption(jobId)
 }
 
 test("QCT-046 blank multi-page print keeps samples, paired oven, writable spaces, and no default PASS", async ({ page }) => {
@@ -901,6 +916,127 @@ test("QCT-050 complete job card returns hidden-stage issues and keeps form data"
   await expect(page.getByTestId("stage-qc-reading-height")).toHaveValue("120")
   await page.getByTestId("quality-stage-tab-PROCESS").click()
   await expect(page.getByTestId("stage-qc-reading-height")).toHaveValue("90")
+  await assertCritical()
+})
+
+test("QCT-051 same observations through adapters share one FAIL and ignore shortcut PASS", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct051_live.py::test_qct051_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct051-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("90")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+  await page.getByTestId("stage-qc-reason-height").fill("measured short on winding")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveText("FAIL")
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const observation = {
+    job_card_id: jobId,
+    stage_type: "WINDER",
+    readings: {
+      id: 77,
+      od: 91,
+      height: 90,
+      weight: 250,
+      cs: 100,
+      overall: "PASS",
+      status: "PASS",
+      disposition: "RELEASED",
+    },
+    reasons: { height: "measured short on winding" },
+    overall: "PASS",
+    status: "PASS",
+  }
+  const supervisor = await page.request.post("/api/production/quality/supervisor/inspections", {
+    headers: plantHeaders,
+    data: observation,
+  })
+  expect(supervisor.ok(), await supervisor.text()).toBeTruthy()
+  const supervisorBody = await supervisor.json()
+  expect(supervisorBody.status).toBe("FAIL")
+  expect(supervisorBody.reused).toBeTruthy()
+  const eod = await page.request.post("/api/production/quality/eod/inspections", {
+    headers: plantHeaders,
+    data: { job_id: jobId, stage: "WINDER", checks: observation.readings, reasons: observation.reasons, result: "PASS" },
+  })
+  expect(eod.ok(), await eod.text()).toBeTruthy()
+  expect((await eod.json()).status).toBe("FAIL")
+  const imported = await page.request.post("/api/production/quality/inspections/import", {
+    headers: plantHeaders,
+    data: { rows: [observation] },
+  })
+  expect(imported.ok(), await imported.text()).toBeTruthy()
+  const importedBody = await imported.json()
+  expect(importedBody[0].status).toBe("FAIL")
+  const legacy = await page.request.post("/api/production/quality/legacy/inspections", {
+    headers: plantHeaders,
+    data: { job_id: jobId, stage: "WINDER", checks: { id: 77, od: 91, height: 90, weight: 250, cs: 100 }, reasons: observation.reasons, status: "PASS", overall: "PASS" },
+  })
+  expect(legacy.ok(), await legacy.text()).toBeTruthy()
+  expect((await legacy.json()).status).toBe("FAIL")
+  const listed = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(listed.ok(), await listed.text()).toBeTruthy()
+  const rows = await listed.json()
+  expect(rows).toHaveLength(1)
+  expect(rows[0].status).toBe("FAIL")
+  expect(rows[0].readings.overall).toBeUndefined()
+  expect(rows[0].readings.height).toBe(90)
+  await assertCritical()
+})
+
+test("QCT-053 detailed reason keeps FAIL and still requires disposition authority", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [{ kind: "response", status: 403, urlIncludes: "/quality/holds/" }],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct051_live.py::test_qct053_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct053-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("90")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+  await page.getByTestId("stage-qc-reason-height").fill("detailed valid reason: core crushed during winding")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveText("FAIL")
+  await expect(page.getByTestId("quality-stage-verdict")).not.toHaveText("PASS")
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const holds = await page.request.get(`/api/production/quality/holds?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(holds.ok(), await holds.text()).toBeTruthy()
+  const holdRows = await holds.json()
+  expect(holdRows.length).toBeGreaterThan(0)
+  const holdId = holdRows[0].id
+  const released = await page.request.post(`/api/production/quality/holds/${holdId}/release`, {
+    headers: plantHeaders,
+    data: {},
+  })
+  expect(released.status()).toBe(403)
+  const again = await page.request.get(`/api/production/quality/holds?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  const after = await again.json()
+  expect(after[0].status).toBe("HOLD")
   await assertCritical()
 })
 

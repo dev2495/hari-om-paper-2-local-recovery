@@ -272,6 +272,36 @@ def test_rr04_client_hold_flag_is_ignored_in_router():
     text = Path(__file__).resolve().parents[1].joinpath("src/routers/quality.py").read_text()
     assert "The client create_hold_on_fail flag is ignored" in text
     assert "if evaluation.status in {\"FAIL\", \"INVALID\"}:" in text
+    assert '@router.post("/supervisor/inspections"' in text
+    assert '@router.post("/eod/inspections"' in text
+    assert '@router.post("/inspections/import"' in text
+    assert '@router.post("/legacy/inspections"' in text
+
+
+def test_observation_fingerprint_ignores_client_shortcut_pass():
+    import uuid
+
+    from src.routers.quality import observation_fingerprint
+
+    job_id = uuid.uuid4()
+    measured = {"id": 77, "od": 91, "height": 90, "weight": 250, "cs": 100}
+    reasons = {"height": "measured short"}
+    base = observation_fingerprint(
+        job_card_id=job_id,
+        stage_type="WINDER",
+        sample_id="ADAPTER-1",
+        readings=measured,
+        reasons=reasons,
+    )
+    shortcut = observation_fingerprint(
+        job_card_id=job_id,
+        stage_type="WINDER",
+        sample_id="ADAPTER-1",
+        readings={**measured, "overall": "PASS", "status": "PASS", "disposition": "RELEASED", "stock_status": "UNRESTRICTED"},
+        reasons=reasons,
+    )
+    assert base == shortcut
+    assert len(base) == 64
 
 
 def test_incoming_uses_item_profile_and_ignores_reason_pass():

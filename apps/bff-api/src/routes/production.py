@@ -95,6 +95,26 @@ async def complete_job_card_qc(job_card_id: str, request: Request, token: str = 
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/complete", request, token)
 
 
+@router.post("/quality/supervisor/inspections")
+async def create_supervisor_quality_inspection(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/supervisor/inspections", request, token)
+
+
+@router.post("/quality/eod/inspections")
+async def create_eod_quality_inspection(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/eod/inspections", request, token)
+
+
+@router.post("/quality/inspections/import")
+async def import_quality_inspections(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/inspections/import", request, token)
+
+
+@router.post("/quality/legacy/inspections")
+async def create_legacy_quality_inspection(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/legacy/inspections", request, token)
+
+
 @router.get("/quality/holds")
 async def list_quality_holds(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/holds", request, token)

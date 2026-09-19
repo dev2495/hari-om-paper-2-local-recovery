@@ -105,6 +105,9 @@ def _ensure_schema_compatibility():
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS evaluation JSONB DEFAULT '{}'::jsonb",
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS sample_id VARCHAR(80)",
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS parent_inspection_id UUID",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS observation_fingerprint VARCHAR(64)",
+        "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS entry_mode VARCHAR(40)",
+        "CREATE INDEX IF NOT EXISTS ix_quality_inspections_observation_fingerprint ON quality_inspections (observation_fingerprint)",
     ]
     for _statement in _short_close_downtime_migrations:
         try:
@@ -154,6 +157,10 @@ def health_check():
             "/reconciliation/winder-shift",
             "/reconciliation/{job_card_id}/loss-breakup",
             "/quality/inspections",
+            "/quality/supervisor/inspections",
+            "/quality/eod/inspections",
+            "/quality/inspections/import",
+            "/quality/legacy/inspections",
             "/quality/holds",
         ],
     }

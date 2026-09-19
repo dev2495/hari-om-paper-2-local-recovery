@@ -402,6 +402,14 @@ export const productionApi = {
   getQualitySummary: () => api.get("/api/production/quality/summary"),
   createQualityInspection: (data: any, plantId?: string) =>
     api.post("/api/production/quality/inspections", data, withPlantHeader(plantId)),
+  createSupervisorQualityInspection: (data: any, plantId?: string) =>
+    api.post("/api/production/quality/supervisor/inspections", data, withPlantHeader(plantId)),
+  createEodQualityInspection: (data: any, plantId?: string) =>
+    api.post("/api/production/quality/eod/inspections", data, withPlantHeader(plantId)),
+  importQualityInspections: (data: any, plantId?: string) =>
+    api.post("/api/production/quality/inspections/import", data, withPlantHeader(plantId)),
+  createLegacyQualityInspection: (data: any, plantId?: string) =>
+    api.post("/api/production/quality/legacy/inspections", data, withPlantHeader(plantId)),
   getQualityHolds: (params?: any) => api.get("/api/production/quality/holds", { params }),
   createQualityHold: (data: any, plantId?: string) =>
     api.post("/api/production/quality/holds", data, withPlantHeader(plantId)),

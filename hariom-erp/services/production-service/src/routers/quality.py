@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Optional
+import hashlib
+import json
 import uuid
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -336,11 +338,337 @@ def _require_concession_authority(current_user: dict, *, inspector_id: Optional[
 def _json_hash(value: Any) -> Optional[str]:
     if value is None:
         return None
-    import hashlib
-    import json
-
     blob = json.dumps(value, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+SHORTCUT_OBSERVATION_KEYS = {
+    "status",
+    "overall",
+    "verdict",
+    "result",
+    "pass",
+    "passed",
+    "pass_fail",
+    "failures",
+    "disposition",
+    "stock_status",
+    "quality_waiver",
+    "waiver",
+    "quality_status",
+    "qc_status",
+    "hold_status",
+}
+OBSERVATION_META_KEYS = SHORTCUT_OBSERVATION_KEYS | {
+    "reasons",
+    "samples",
+    "sample_id",
+    "entry_mode",
+    "unit_conflicts",
+}
+ENTRY_MODES = {"DEDICATED_QC", "INLINE", "SUPERVISOR", "EOD", "IMPORT", "LEGACY"}
+
+
+def _canonical_observation_value(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        return {str(key): _canonical_observation_value(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+    if isinstance(value, list):
+        return [_canonical_observation_value(item) for item in value]
+    return str(value)
+
+
+def _sanitize_observation_map(values: Optional[dict[str, Any]]) -> dict[str, Any]:
+    cleaned: dict[str, Any] = {}
+    for key, value in (values or {}).items():
+        token = str(key or "").strip()
+        if not token:
+            continue
+        normalized = token.lower().replace("-", "_")
+        if normalized in OBSERVATION_META_KEYS:
+            continue
+        cleaned[token] = value
+    return cleaned
+
+
+def _normalize_entry_mode(value: Optional[str], default: str) -> str:
+    mode = str(value or "").strip().upper() or default
+    return mode if mode in ENTRY_MODES else default
+
+
+def observation_fingerprint(
+    *,
+    job_card_id: uuid.UUID,
+    stage_type: str,
+    sample_id: Optional[str],
+    readings: dict[str, Any],
+    reasons: dict[str, Any],
+) -> str:
+    blob = {
+        "job_card_id": str(job_card_id),
+        "stage_type": str(stage_type or "").strip().upper(),
+        "sample_id": str(sample_id or "").strip(),
+        "readings": _canonical_observation_value(_sanitize_observation_map(readings)),
+        "reasons": _canonical_observation_value(reasons or {}),
+    }
+    digest = _json_hash(blob)
+    if not digest:
+        raise HTTPException(status_code=500, detail="Unable to fingerprint quality observation")
+    return digest
+
+
+def _adapter_job_card_id(body: dict[str, Any]) -> uuid.UUID:
+    raw = body.get("job_card_id") or body.get("job_id") or body.get("jobCardId")
+    if not raw:
+        raise HTTPException(status_code=400, detail="job_card_id is required")
+    return _to_uuid(str(raw), field="job_card_id")
+
+
+def _adapter_stage_type(body: dict[str, Any]) -> str:
+    raw = body.get("stage_type") or body.get("stage") or body.get("stageType")
+    if not raw:
+        raise HTTPException(status_code=400, detail="stage_type is required")
+    return _normalize_stage(str(raw))
+
+
+def _adapter_readings(body: dict[str, Any]) -> dict[str, Any]:
+    for key in ("readings", "checks", "quality_checks"):
+        value = body.get(key)
+        if isinstance(value, dict):
+            return dict(value)
+    return {}
+
+
+def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> InspectionCreate:
+    payload = dict(body or {})
+    readings = _adapter_readings(payload)
+    reasons = payload.get("reasons") if isinstance(payload.get("reasons"), dict) else {}
+    if not reasons and isinstance(readings.get("reasons"), dict):
+        reasons = dict(readings.get("reasons") or {})
+    sample_id = payload.get("sample_id") or payload.get("sample") or readings.get("sample_id")
+    parent_raw = payload.get("parent_inspection_id")
+    return InspectionCreate(
+        job_card_id=_adapter_job_card_id(payload),
+        stage_type=_adapter_stage_type(payload),
+        readings=_sanitize_observation_map(readings),
+        reasons=dict(reasons or {}),
+        sample_id=str(sample_id).strip() if sample_id not in (None, "") else None,
+        create_hold_on_fail=True,
+        parent_inspection_id=_to_uuid(str(parent_raw), field="parent_inspection_id") if parent_raw else None,
+        final_submission=bool(payload.get("final_submission") or False),
+        entry_mode=_normalize_entry_mode(payload.get("entry_mode"), default_mode),
+    )
+
+
+def _active_hold_for_inspection(db: Session, inspection: QualityInspection) -> Optional[QualityHold]:
+    return (
+        db.query(QualityHold)
+        .filter(QualityHold.source_inspection_id == inspection.id)
+        .order_by(QualityHold.created_at.desc())
+        .first()
+    )
+
+
+def _to_inspection_response(
+    inspection: QualityInspection,
+    *,
+    hold: Optional[QualityHold] = None,
+    reused: bool = False,
+) -> InspectionResponse:
+    evaluation_blob = inspection.evaluation or {}
+    return InspectionResponse(
+        id=inspection.id,
+        job_card_id=inspection.job_card_id,
+        stage_type=inspection.stage_type,
+        status=inspection.status,
+        readings=inspection.readings or {},
+        failures=inspection.failures or [],
+        reasons=inspection.reasons or {},
+        evaluation=evaluation_blob,
+        frozen_rules=(evaluation_blob.get("frozen_rules") or []),
+        sample_id=inspection.sample_id,
+        created_at=inspection.created_at,
+        hold_id=hold.id if hold else None,
+        reason_pending=bool(evaluation_blob.get("reason_pending")),
+        workflow_status=evaluation_blob.get("workflow_status"),
+        parent_inspection_id=inspection.parent_inspection_id,
+        exposure_after_dispatch=bool(evaluation_blob.get("exposure_after_dispatch")),
+        entry_mode=getattr(inspection, "entry_mode", None),
+        observation_fingerprint=getattr(inspection, "observation_fingerprint", None),
+        reused=reused,
+    )
+
+
+def record_stage_inspection(
+    *,
+    db: Session,
+    plant_id: str,
+    current_user: dict,
+    job_card_id: uuid.UUID,
+    stage_type: str,
+    readings: Optional[dict[str, Any]] = None,
+    reasons: Optional[dict[str, Any]] = None,
+    sample_id: Optional[str] = None,
+    parent_inspection_id: Optional[uuid.UUID] = None,
+    final_submission: bool = False,
+    entry_mode: Optional[str] = None,
+    commit: bool = True,
+) -> InspectionResponse:
+    plant_uuid = _to_uuid(plant_id, field="plant_id")
+    job_card = (
+        db.query(JobCard)
+        .filter(JobCard.id == job_card_id, JobCard.plant_id == plant_uuid)
+        .first()
+    )
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    sanitized_readings = _sanitize_observation_map(readings)
+    stored_reasons = dict(reasons or {})
+    eval_readings = dict(sanitized_readings)
+    eval_sample_id = sample_id
+    parent_id = parent_inspection_id
+    if stage_type == "OVEN" and _oven_checkpoint(eval_readings) in {"POST", "POST_ONLY"}:
+        pair_id = _oven_pair_id(eval_sample_id, eval_readings)
+        prior = _latest_oven_pre_inspection(
+            db,
+            job_card_id=job_card.id,
+            plant_id=plant_uuid,
+            pair_id=pair_id,
+        )
+        if prior is not None:
+            eval_readings = _merge_oven_pre_context(eval_readings, prior)
+            if parent_id is None:
+                parent_id = prior.id
+            if not eval_sample_id:
+                eval_sample_id = _oven_pair_id(getattr(prior, "sample_id", None), prior.readings or {})
+        elif pair_id:
+            eval_readings.setdefault("post_specimen_id", pair_id)
+
+    fingerprint = observation_fingerprint(
+        job_card_id=job_card.id,
+        stage_type=stage_type,
+        sample_id=eval_sample_id,
+        readings=sanitized_readings,
+        reasons=stored_reasons,
+    )
+    existing = (
+        db.query(QualityInspection)
+        .filter(
+            QualityInspection.job_card_id == job_card.id,
+            QualityInspection.observation_fingerprint == fingerprint,
+        )
+        .order_by(QualityInspection.created_at.asc())
+        .first()
+    )
+    if existing is not None:
+        if commit:
+            db.commit()
+        return _to_inspection_response(existing, hold=_active_hold_for_inspection(db, existing), reused=True)
+
+    evaluation = evaluate_job_stage(
+        stage=stage_type,
+        spec_snapshot=job_card.spec_snapshot or {},
+        readings=eval_readings,
+        reasons=stored_reasons,
+        sample_id=eval_sample_id,
+        require_reasons_on_fail=True,
+    )
+    reason_pending = bool(evaluation.missing_reasons)
+    if final_submission:
+        error = submission_error(evaluation)
+        if error:
+            raise HTTPException(status_code=400, detail=error)
+    if stage_type == "QC" and evaluation.verdict == "INCOMPLETE":
+        missing = [
+            row.label
+            for row in evaluation.parameter_results
+            if row.verdict == "INCOMPLETE"
+        ]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Final QC requires full spec readings: {', '.join(missing)}",
+            )
+
+    job_status = str(job_card.status or "").upper()
+    exposure_after_dispatch = job_status in {"COMPLETED", "DISPATCHED"} or str(job_card.current_stage or "").upper() in {
+        "DISPATCH",
+        "DONE",
+    }
+    evaluation_payload = evaluation.as_dict()
+    if reason_pending:
+        evaluation_payload["workflow_status"] = "REASON_PENDING"
+        evaluation_payload["reason_pending"] = True
+    if exposure_after_dispatch:
+        evaluation_payload["exposure_after_dispatch"] = True
+    if parent_id:
+        evaluation_payload["parent_inspection_id"] = str(parent_id)
+
+    failures = list(evaluation.failures)
+    inspection = QualityInspection(
+        plant_id=plant_uuid,
+        job_card_id=job_card.id,
+        stage_type=stage_type,
+        status=evaluation.verdict,
+        readings=sanitized_readings,
+        failures=failures,
+        reasons=stored_reasons,
+        evaluation=evaluation_payload,
+        sample_id=eval_sample_id,
+        parent_inspection_id=parent_id,
+        observation_fingerprint=fingerprint,
+        entry_mode=_normalize_entry_mode(entry_mode, "DEDICATED_QC"),
+        created_by=current_user.get("sub"),
+    )
+    db.add(inspection)
+    db.flush()
+
+    # Containment is a server policy. The client create_hold_on_fail flag is ignored.
+    hold: Optional[QualityHold] = None
+    if evaluation.status in {"FAIL", "INVALID"}:
+        hold = QualityHold(
+            plant_id=plant_uuid,
+            job_card_id=job_card.id,
+            stage_type=stage_type,
+            reason=evaluation.issue_summary() or f"{stage_type} inspection {evaluation.verdict}",
+            status="HOLD",
+            source_inspection_id=inspection.id,
+            created_by=current_user.get("sub"),
+        )
+        db.add(hold)
+        db.flush()
+
+    _record_audit_event(
+        db=db,
+        plant_id=plant_uuid,
+        entity_type="quality_inspection",
+        entity_id=inspection.id,
+        action="created",
+        current_user=current_user,
+        job_card_id=job_card.id,
+        payload={
+            "stage_type": stage_type,
+            "status": inspection.status,
+            "hold_id": str(hold.id) if hold else None,
+            "entry_mode": inspection.entry_mode,
+            "observation_fingerprint": fingerprint,
+        },
+        after_payload={
+            "status": inspection.status,
+            "readings": sanitized_readings,
+            "failures": failures,
+            "evaluation": evaluation.as_dict(),
+        },
+    )
+    if commit:
+        db.commit()
+        db.refresh(inspection)
+        if hold is not None:
+            db.refresh(hold)
+    return _to_inspection_response(inspection, hold=hold, reused=False)
 
 
 def _record_audit_event(
@@ -406,6 +734,7 @@ class InspectionCreate(BaseModel):
     create_hold_on_fail: bool = True
     parent_inspection_id: Optional[uuid.UUID] = None
     final_submission: bool = False
+    entry_mode: Optional[str] = None
 
     @field_validator("stage_type")
     @classmethod
@@ -416,6 +745,12 @@ class InspectionCreate(BaseModel):
     @classmethod
     def validate_sample_id(cls, value: Optional[str]) -> Optional[str]:
         text = str(value or "").strip()
+        return text or None
+
+    @field_validator("entry_mode")
+    @classmethod
+    def validate_entry_mode(cls, value: Optional[str]) -> Optional[str]:
+        text = str(value or "").strip().upper()
         return text or None
 
 
@@ -496,6 +831,9 @@ class InspectionResponse(BaseModel):
     workflow_status: Optional[str] = None
     parent_inspection_id: Optional[uuid.UUID] = None
     exposure_after_dispatch: bool = False
+    entry_mode: Optional[str] = None
+    observation_fingerprint: Optional[str] = None
+    reused: bool = False
 
 
 class HoldCreate(BaseModel):
@@ -610,146 +948,130 @@ def create_inspection(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"])),
 ):
-    plant_uuid = _to_uuid(plant_id, field="plant_id")
-    job_card = (
-        db.query(JobCard)
-        .filter(JobCard.id == payload.job_card_id, JobCard.plant_id == plant_uuid)
-        .first()
-    )
-    if not job_card:
-        raise HTTPException(status_code=404, detail="Job card not found")
-    readings = dict(payload.readings or {})
-    sample_id = payload.sample_id
-    parent_id = payload.parent_inspection_id
-    if payload.stage_type == "OVEN" and _oven_checkpoint(readings) in {"POST", "POST_ONLY"}:
-        pair_id = _oven_pair_id(sample_id, readings)
-        prior = _latest_oven_pre_inspection(
-            db,
-            job_card_id=job_card.id,
-            plant_id=plant_uuid,
-            pair_id=pair_id,
-        )
-        if prior is not None:
-            readings = _merge_oven_pre_context(readings, prior)
-            if parent_id is None:
-                parent_id = prior.id
-            if not sample_id:
-                sample_id = _oven_pair_id(getattr(prior, "sample_id", None), prior.readings or {})
-        elif pair_id:
-            readings.setdefault("post_specimen_id", pair_id)
-    evaluation = evaluate_job_stage(
-        stage=payload.stage_type,
-        spec_snapshot=job_card.spec_snapshot or {},
-        readings=readings,
-        reasons=payload.reasons or {},
-        sample_id=sample_id,
-        require_reasons_on_fail=True,
-    )
-    reason_pending = bool(evaluation.missing_reasons)
-    if payload.final_submission:
-        error = submission_error(evaluation)
-        if error:
-            raise HTTPException(status_code=400, detail=error)
-    if payload.stage_type == "QC" and evaluation.verdict == "INCOMPLETE":
-        missing = [
-            row.label
-            for row in evaluation.parameter_results
-            if row.verdict == "INCOMPLETE"
-        ]
-        if missing:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Final QC requires full spec readings: {', '.join(missing)}",
-            )
-
-    job_status = str(job_card.status or "").upper()
-    exposure_after_dispatch = job_status in {"COMPLETED", "DISPATCHED"} or str(job_card.current_stage or "").upper() in {
-        "DISPATCH",
-        "DONE",
-    }
-    evaluation_payload = evaluation.as_dict()
-    if reason_pending:
-        evaluation_payload["workflow_status"] = "REASON_PENDING"
-        evaluation_payload["reason_pending"] = True
-    if exposure_after_dispatch:
-        evaluation_payload["exposure_after_dispatch"] = True
-    if payload.parent_inspection_id:
-        evaluation_payload["parent_inspection_id"] = str(payload.parent_inspection_id)
-    elif parent_id:
-        evaluation_payload["parent_inspection_id"] = str(parent_id)
-
-    failures = list(evaluation.failures)
-    inspection = QualityInspection(
-        plant_id=plant_uuid,
-        job_card_id=job_card.id,
-        stage_type=payload.stage_type,
-        status=evaluation.verdict,
-        readings=payload.readings or {},
-        failures=failures,
-        reasons=payload.reasons or {},
-        evaluation=evaluation_payload,
-        sample_id=sample_id,
-        parent_inspection_id=parent_id or payload.parent_inspection_id,
-        created_by=current_user.get("sub"),
-    )
-    db.add(inspection)
-    db.flush()
-
-    # Containment is a server policy. The client create_hold_on_fail flag is ignored.
-    hold: Optional[QualityHold] = None
-    if evaluation.status in {"FAIL", "INVALID"}:
-        hold = QualityHold(
-            plant_id=plant_uuid,
-            job_card_id=job_card.id,
-            stage_type=payload.stage_type,
-            reason=evaluation.issue_summary() or f"{payload.stage_type} inspection {evaluation.verdict}",
-            status="HOLD",
-            source_inspection_id=inspection.id,
-            created_by=current_user.get("sub"),
-        )
-        db.add(hold)
-        db.flush()
-
-    _record_audit_event(
+    return record_stage_inspection(
         db=db,
-        plant_id=plant_uuid,
-        entity_type="quality_inspection",
-        entity_id=inspection.id,
-        action="created",
+        plant_id=plant_id,
         current_user=current_user,
-        job_card_id=job_card.id,
-        payload={
-            "stage_type": payload.stage_type,
-            "status": inspection.status,
-            "hold_id": str(hold.id) if hold else None,
-        },
-        after_payload={
-            "status": inspection.status,
-            "readings": payload.readings or {},
-            "failures": failures,
-            "evaluation": evaluation.as_dict(),
-        },
+        job_card_id=payload.job_card_id,
+        stage_type=payload.stage_type,
+        readings=payload.readings or {},
+        reasons=payload.reasons or {},
+        sample_id=payload.sample_id,
+        parent_inspection_id=payload.parent_inspection_id,
+        final_submission=payload.final_submission,
+        entry_mode=_normalize_entry_mode(payload.entry_mode, "DEDICATED_QC"),
+        commit=True,
     )
+
+
+ADAPTER_ROLES = ["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"]
+
+
+@router.post("/supervisor/inspections", response_model=InspectionResponse)
+def create_supervisor_inspection(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ADAPTER_ROLES)),
+):
+    body = inspection_from_adapter_body(payload, default_mode="SUPERVISOR")
+    return record_stage_inspection(
+        db=db,
+        plant_id=plant_id,
+        current_user=current_user,
+        job_card_id=body.job_card_id,
+        stage_type=body.stage_type,
+        readings=body.readings,
+        reasons=body.reasons,
+        sample_id=body.sample_id,
+        parent_inspection_id=body.parent_inspection_id,
+        final_submission=body.final_submission,
+        entry_mode="SUPERVISOR",
+        commit=True,
+    )
+
+
+@router.post("/eod/inspections", response_model=InspectionResponse)
+def create_eod_inspection(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ADAPTER_ROLES)),
+):
+    body = inspection_from_adapter_body(payload, default_mode="EOD")
+    return record_stage_inspection(
+        db=db,
+        plant_id=plant_id,
+        current_user=current_user,
+        job_card_id=body.job_card_id,
+        stage_type=body.stage_type,
+        readings=body.readings,
+        reasons=body.reasons,
+        sample_id=body.sample_id,
+        parent_inspection_id=body.parent_inspection_id,
+        final_submission=body.final_submission,
+        entry_mode="EOD",
+        commit=True,
+    )
+
+
+class InspectionImportRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
+@router.post("/inspections/import", response_model=list[InspectionResponse])
+def import_inspections(
+    payload: InspectionImportRequest,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ADAPTER_ROLES)),
+):
+    responses: list[InspectionResponse] = []
+    for row in payload.rows:
+        body = inspection_from_adapter_body(row if isinstance(row, dict) else {}, default_mode="IMPORT")
+        responses.append(
+            record_stage_inspection(
+                db=db,
+                plant_id=plant_id,
+                current_user=current_user,
+                job_card_id=body.job_card_id,
+                stage_type=body.stage_type,
+                readings=body.readings,
+                reasons=body.reasons,
+                sample_id=body.sample_id,
+                parent_inspection_id=body.parent_inspection_id,
+                final_submission=body.final_submission,
+                entry_mode="IMPORT",
+                commit=False,
+            )
+        )
     db.commit()
-    db.refresh(inspection)
-    evaluation_blob = inspection.evaluation or evaluation.as_dict()
-    return InspectionResponse(
-        id=inspection.id,
-        job_card_id=inspection.job_card_id,
-        stage_type=inspection.stage_type,
-        status=inspection.status,
-        readings=inspection.readings or {},
-        failures=inspection.failures or [],
-        reasons=inspection.reasons or {},
-        evaluation=evaluation_blob,
-        frozen_rules=evaluation.frozen_rules,
-        sample_id=inspection.sample_id,
-        created_at=inspection.created_at,
-        hold_id=hold.id if hold else None,
-        reason_pending=bool(evaluation_blob.get("reason_pending")),
-        workflow_status=evaluation_blob.get("workflow_status"),
-        parent_inspection_id=inspection.parent_inspection_id,
-        exposure_after_dispatch=bool(evaluation_blob.get("exposure_after_dispatch")),
+    return responses
+
+
+@router.post("/legacy/inspections", response_model=InspectionResponse)
+def create_legacy_inspection(
+    payload: dict[str, Any] = Body(...),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ADAPTER_ROLES)),
+):
+    body = inspection_from_adapter_body(payload, default_mode="LEGACY")
+    return record_stage_inspection(
+        db=db,
+        plant_id=plant_id,
+        current_user=current_user,
+        job_card_id=body.job_card_id,
+        stage_type=body.stage_type,
+        readings=body.readings,
+        reasons=body.reasons,
+        sample_id=body.sample_id,
+        parent_inspection_id=body.parent_inspection_id,
+        final_submission=body.final_submission,
+        entry_mode="LEGACY",
+        commit=True,
     )
 
 
@@ -780,27 +1102,7 @@ def list_inspections(
     if status:
         query = query.filter(QualityInspection.status == status.strip().upper())
     rows = query.order_by(QualityInspection.created_at.desc()).offset(offset).limit(limit).all()
-    return [
-        InspectionResponse(
-            id=row.id,
-            job_card_id=row.job_card_id,
-            stage_type=row.stage_type,
-            status=row.status,
-            readings=row.readings or {},
-            failures=row.failures or [],
-            reasons=getattr(row, "reasons", None) or {},
-            evaluation=getattr(row, "evaluation", None) or {},
-            frozen_rules=((getattr(row, "evaluation", None) or {}).get("frozen_rules") or []),
-            sample_id=getattr(row, "sample_id", None),
-            created_at=row.created_at,
-            hold_id=None,
-            reason_pending=bool((getattr(row, "evaluation", None) or {}).get("reason_pending")),
-            workflow_status=(getattr(row, "evaluation", None) or {}).get("workflow_status"),
-            parent_inspection_id=getattr(row, "parent_inspection_id", None),
-            exposure_after_dispatch=bool((getattr(row, "evaluation", None) or {}).get("exposure_after_dispatch")),
-        )
-        for row in rows
-    ]
+    return [_to_inspection_response(row, hold=None, reused=False) for row in rows]
 
 
 @router.get("/job-cards/{job_card_id}/template")

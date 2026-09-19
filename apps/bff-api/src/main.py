@@ -32,6 +32,7 @@ def _allowed_browser_origins() -> set[str]:
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:23000",
+        "http://127.0.0.1:23000",
         "http://127.0.0.1:13000",
         f"http://127.0.0.1:{web_port}",
         f"http://localhost:{web_port}",
@@ -126,11 +127,20 @@ async def live_session_guard(request: Request, call_next):
 
 @app.middleware("http")
 async def cookie_csrf_guard(request: Request, call_next):
-    """Reject cross-site cookie-authenticated mutations before they reach a service."""
+    """Reject cookie-authenticated mutations that are not from this app origin.
+
+    Next rewrites /api/* to this BFF, so the inbound hop can be tagged
+    cross-site even when Origin is the isolated UI (127.0.0.1:23000). An
+    allowed Origin is sufficient; missing Origin still requires a non-cross-site fetch.
+    """
     if request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
         fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
         origin = (request.headers.get("origin") or "").strip().rstrip("/")
-        if fetch_site == "cross-site" or (origin and origin not in _allowed_browser_origins()):
+        allowed = _allowed_browser_origins()
+        if origin:
+            if origin not in allowed:
+                return JSONResponse(status_code=403, content={"detail": "Cross-site request rejected"})
+        elif fetch_site == "cross-site":
             return JSONResponse(status_code=403, content={"detail": "Cross-site request rejected"})
     return await call_next(request)
 

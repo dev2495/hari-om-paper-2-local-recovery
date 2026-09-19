@@ -711,6 +711,7 @@ class StageOutputPayload(BaseModel):
     reel_issue_ids: list[UUID] = Field(default_factory=list)
     actuals: dict[str, Any] = Field(default_factory=dict)
     quality_checks: dict[str, Any] = Field(default_factory=dict)
+    entry_mode: Optional[str] = None
     material_allocations: list[dict[str, Any]] = Field(default_factory=list)
     location_id: Optional[UUID] = None
     entry_snapshot: dict[str, Any] = Field(default_factory=dict)

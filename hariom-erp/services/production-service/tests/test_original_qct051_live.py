@@ -1,0 +1,301 @@
+"""QCT-051: same observations via all entry adapters share evidence and cannot shortcut PASS."""
+from __future__ import annotations
+
+import json
+import os
+import uuid
+from pathlib import Path
+
+import pytest
+from fastapi import HTTPException
+
+URL = os.environ.get("HARI_OM_PRODUCTION_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
+if os.environ.get("HARI_OM_LIVE_PG") != "1" or "hariom_nverify" not in URL:
+    pytest.skip("Requires isolated hariom_nverify production Postgres", allow_module_level=True)
+
+os.environ["DATABASE_URL"] = URL
+
+from src.database import Base, engine
+from src.models import JobCardStage, QualityHold, QualityInspection
+from src.routers.planning import _build_spec_snapshot, _sync_quality_artifacts
+from src.routers.quality import (
+    InspectionCreate,
+    InspectionImportRequest,
+    create_eod_inspection,
+    create_inspection,
+    create_legacy_inspection,
+    create_supervisor_inspection,
+    import_inspections,
+    release_hold,
+)
+from tests.test_original_qct043_live import (
+    PLANT,
+    QC,
+    Session,
+    _admin_headers,
+    _complete_profile,
+    _create_approved_spec,
+    _issue_job,
+)
+
+
+def setup_module() -> None:
+    Base.metadata.create_all(engine)
+
+
+def _reports() -> Path:
+    path = Path(__file__).resolve().parents[4] / "reports"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+FAIL_READINGS = {"id": 77, "od": 91, "height": 90, "weight": 250, "cs": 100}
+FAIL_REASONS = {"height": "measured short on winding"}
+SAMPLE = "ADAPTER-1"
+SHORTCUT = {
+    "overall": "PASS",
+    "status": "PASS",
+    "verdict": "PASS",
+    "disposition": "RELEASED",
+    "stock_status": "UNRESTRICTED",
+    "quality_waiver": True,
+}
+
+
+def test_qct051_all_entry_adapters_same_evidence_no_shortcut_pass():
+    headers = _admin_headers()
+    marker = f"QCT051-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "ADAPTER", status="IN_PROGRESS")
+        db.commit()
+        dedicated = create_inspection(
+            InspectionCreate(
+                job_card_id=job.id,
+                stage_type="WINDER",
+                readings=dict(FAIL_READINGS),
+                reasons=dict(FAIL_REASONS),
+                sample_id=SAMPLE,
+                entry_mode="DEDICATED_QC",
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert dedicated.status == "FAIL"
+        assert dedicated.reused is False
+        assert dedicated.observation_fingerprint
+        assert "overall" not in (dedicated.readings or {})
+        assert dedicated.hold_id is not None
+
+        stage = JobCardStage(
+            job_card_id=job.id,
+            stage_type="WINDER",
+            status="RUNNING",
+            quality_checks={
+                **FAIL_READINGS,
+                **SHORTCUT,
+                "reasons": dict(FAIL_REASONS),
+                "sample_id": SAMPLE,
+                "entry_mode": "INLINE",
+            },
+        )
+        db.add(stage)
+        db.flush()
+        job = db.query(job.__class__).filter_by(id=job.id).one()
+        holds = _sync_quality_artifacts(
+            db=db,
+            plant_id=job.plant_id,
+            job_card=job,
+            stage=stage,
+            selected_stage="WINDER",
+            current_user=QC,
+        )
+        db.commit()
+        assert holds
+        assert str(holds[0].id) == str(dedicated.hold_id)
+
+        supervisor = create_supervisor_inspection(
+            {
+                "job_card_id": str(job.id),
+                "stage_type": "WINDER",
+                "readings": {**FAIL_READINGS, **SHORTCUT},
+                "reasons": dict(FAIL_REASONS),
+                "sample_id": SAMPLE,
+                "overall": "PASS",
+                "status": "PASS",
+            },
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        eod = create_eod_inspection(
+            {
+                "job_id": str(job.id),
+                "stage": "WINDER",
+                "checks": {**FAIL_READINGS, **SHORTCUT},
+                "reasons": dict(FAIL_REASONS),
+                "sample": SAMPLE,
+                "result": "PASS",
+            },
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        imported = import_inspections(
+            InspectionImportRequest(
+                rows=[
+                    {
+                        "job_card_id": str(job.id),
+                        "stage_type": "WINDER",
+                        "readings": {**FAIL_READINGS, "overall": "PASS"},
+                        "reasons": dict(FAIL_REASONS),
+                        "sample_id": SAMPLE,
+                    }
+                ]
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        legacy = create_legacy_inspection(
+            {
+                "job_id": str(job.id),
+                "stage": "WINDER",
+                "checks": dict(FAIL_READINGS),
+                "reasons": dict(FAIL_REASONS),
+                "sample": SAMPLE,
+                "status": "PASS",
+                "overall": "PASS",
+                "failures": [],
+                "disposition": "RELEASED",
+            },
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+
+        for row in (supervisor, eod, imported[0], legacy):
+            assert row.status == "FAIL"
+            assert row.reused is True
+            assert str(row.id) == str(dedicated.id)
+            assert row.observation_fingerprint == dedicated.observation_fingerprint
+            assert row.evaluation.get("verdict") == "FAIL"
+            assert "overall" not in (row.readings or {})
+
+        rows = db.query(QualityInspection).filter(QualityInspection.job_card_id == job.id).all()
+        assert len(rows) == 1
+        stored = rows[0]
+        assert stored.status == "FAIL"
+        assert stored.readings.get("height") == 90
+        assert "overall" not in (stored.readings or {})
+        assert "status" not in (stored.readings or {})
+        holds_open = db.query(QualityHold).filter(QualityHold.job_card_id == job.id, QualityHold.status == "HOLD").all()
+        assert len(holds_open) == 1
+        assert str(holds_open[0].id) == str(dedicated.hold_id)
+
+        shortcut_job = _issue_job(db, spec, snapshot, "SHORTCUT", status="IN_PROGRESS")
+        db.commit()
+        shortcut_row = create_inspection(
+            InspectionCreate(
+                job_card_id=shortcut_job.id,
+                stage_type="WINDER",
+                readings={**FAIL_READINGS, **SHORTCUT},
+                reasons=dict(FAIL_REASONS),
+                sample_id="SHORTCUT-1",
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert shortcut_row.status == "FAIL"
+        assert shortcut_row.reused is False
+        assert "overall" not in (shortcut_row.readings or {})
+
+        _reports().joinpath("qct051-job.json").write_text(
+            json.dumps(
+                {
+                    "job_id": str(job.id),
+                    "inspection_id": str(dedicated.id),
+                    "hold_id": str(dedicated.hold_id),
+                    "fingerprint": dedicated.observation_fingerprint,
+                    "shortcut_job_id": str(shortcut_job.id),
+                }
+            )
+        )
+    finally:
+        db.close()
+
+
+def test_qct051_ui_job_seed():
+    headers = _admin_headers()
+    marker = f"QCT051UI-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "ADAPTER-UI", status="IN_PROGRESS")
+        db.commit()
+        _reports().joinpath("qct051-ui-job.json").write_text(json.dumps({"job_id": str(job.id)}))
+    finally:
+        db.close()
+
+
+def test_qct053_reason_keeps_fail_and_blocks_self_release():
+    headers = _admin_headers()
+    marker = f"QCT053-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "REASON", status="IN_PROGRESS")
+        db.commit()
+        recorded = create_inspection(
+            InspectionCreate(
+                job_card_id=job.id,
+                stage_type="WINDER",
+                readings=dict(FAIL_READINGS),
+                reasons={"height": "detailed valid reason: core crushed during winding, 12 mm short of Allowed 118-122"},
+                sample_id="REASON-1",
+                final_submission=True,
+            ),
+            db=db,
+            plant_id=PLANT,
+            current_user=QC,
+        )
+        assert recorded.status == "FAIL"
+        assert recorded.reason_pending is False
+        assert recorded.hold_id is not None
+        with pytest.raises(HTTPException) as blocked:
+            release_hold(
+                recorded.hold_id,
+                db=db,
+                plant_id=PLANT,
+                current_user=QC,
+            )
+        assert blocked.value.status_code == 403
+        hold = db.query(QualityHold).filter(QualityHold.id == recorded.hold_id).one()
+        assert hold.status == "HOLD"
+        stored = db.query(QualityInspection).filter(QualityInspection.id == recorded.id).one()
+        assert stored.status == "FAIL"
+        _reports().joinpath("qct053-job.json").write_text(
+            json.dumps({"job_id": str(job.id), "inspection_id": str(recorded.id), "hold_id": str(recorded.hold_id)})
+        )
+    finally:
+        db.close()
+
+
+def test_qct053_ui_job_seed():
+    headers = _admin_headers()
+    marker = f"QCT053UI-{uuid.uuid4()}"
+    spec = _create_approved_spec(headers, marker, _complete_profile())
+    snapshot = _build_spec_snapshot(spec, "NORMAL")
+    db = Session()
+    try:
+        job = _issue_job(db, spec, snapshot, "REASON-UI", status="IN_PROGRESS")
+        db.commit()
+        _reports().joinpath("qct053-ui-job.json").write_text(json.dumps({"job_id": str(job.id)}))
+    finally:
+        db.close()

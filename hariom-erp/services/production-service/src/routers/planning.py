@@ -3485,13 +3485,15 @@ def _sync_quality_artifacts(
     selected_stage: str,
     current_user: dict,
 ) -> list[QualityHold]:
+    from .quality import record_stage_inspection
+
     quality_payload = dict(stage.quality_checks or {})
     if not quality_payload:
         return []
     readings = {
         key: value
         for key, value in quality_payload.items()
-        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint"}
+        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode"}
     }
     samples = quality_payload.get("samples") if isinstance(quality_payload.get("samples"), list) else None
     created_holds: list[QualityHold] = []
@@ -3518,46 +3520,24 @@ def _sync_quality_artifacts(
                 "sample_id": quality_payload.get("sample_id"),
             }
         )
+    entry_mode = str(quality_payload.get("entry_mode") or "INLINE").strip().upper() or "INLINE"
     for item in payloads:
-        sample_eval = evaluate_job_stage(
-            stage=selected_stage,
-            spec_snapshot=job_card.spec_snapshot or {},
+        recorded = record_stage_inspection(
+            db=db,
+            plant_id=str(plant_id),
+            current_user=current_user,
+            job_card_id=job_card.id,
+            stage_type=selected_stage,
             readings=item["readings"],
             reasons=item["reasons"],
             sample_id=item.get("sample_id"),
-            require_reasons_on_fail=True,
+            entry_mode=entry_mode,
+            commit=False,
         )
-        sample_payload = sample_eval.as_dict()
-        if sample_eval.missing_reasons:
-            sample_payload["workflow_status"] = "REASON_PENDING"
-            sample_payload["reason_pending"] = True
-        inspection = QualityInspection(
-            plant_id=plant_id,
-            job_card_id=job_card.id,
-            stage_type=selected_stage,
-            status=sample_eval.verdict,
-            readings=item["readings"],
-            failures=list(sample_eval.failures),
-            reasons=item["reasons"],
-            evaluation=sample_payload,
-            sample_id=str(item.get("sample_id") or "").strip() or None,
-            created_by=current_user.get("sub"),
-        )
-        db.add(inspection)
-        db.flush()
-        if sample_eval.verdict in {"FAIL", "INVALID"}:
-            hold = QualityHold(
-                plant_id=plant_id,
-                job_card_id=job_card.id,
-                stage_type=selected_stage,
-                reason=sample_eval.issue_summary() or f"{selected_stage} inspection {sample_eval.verdict}",
-                status="HOLD",
-                source_inspection_id=inspection.id,
-                created_by=current_user.get("sub"),
-            )
-            db.add(hold)
-            db.flush()
-            created_holds.append(hold)
+        if recorded.hold_id:
+            hold = db.query(QualityHold).filter(QualityHold.id == recorded.hold_id).first()
+            if hold is not None:
+                created_holds.append(hold)
     return created_holds
 
 
@@ -5213,24 +5193,35 @@ def list_planning_job_cards(
         query = query.filter(JobCard.release_lot_id == release_lot_id)
 
     if search and search.strip():
-        terms = _reference_search_terms(search)
-        if terms:
-            ref_conditions = []
-            for term in terms:
-                needle = f"%{term}%"
-                ref_conditions.extend(
-                    [
-                        cast(JobCard.id, String).ilike(needle),
-                        cast(JobCard.release_lot_id, String).ilike(needle),
-                        cast(JobCard.sales_order_id, String).ilike(needle),
-                        JobCard.product_code.ilike(needle),
-                        JobCard.spec_snapshot["customer_name_snapshot"].astext.ilike(needle),
-                        JobCard.spec_snapshot["customer_name"].astext.ilike(needle),
-                    ]
+        raw_search = search.strip()
+        matched_uuid = None
+        try:
+            matched_uuid = uuid.UUID(raw_search)
+        except ValueError:
+            matched_uuid = None
+        if matched_uuid is not None:
+            # Exact id lookup: cast(id) ILIKE cannot use the UUID primary key and
+            # timed out Stage QC when the operator pasted a job UUID (QCT-051/053).
+            query = query.filter(JobCard.id == matched_uuid)
+        else:
+            terms = _reference_search_terms(raw_search)
+            if terms:
+                ref_conditions = []
+                for term in terms:
+                    needle = f"%{term}%"
+                    ref_conditions.extend(
+                        [
+                            cast(JobCard.id, String).ilike(needle),
+                            cast(JobCard.release_lot_id, String).ilike(needle),
+                            cast(JobCard.sales_order_id, String).ilike(needle),
+                            JobCard.product_code.ilike(needle),
+                            JobCard.spec_snapshot["customer_name_snapshot"].astext.ilike(needle),
+                            JobCard.spec_snapshot["customer_name"].astext.ilike(needle),
+                        ]
+                    )
+                query = query.filter(
+                    or_(*ref_conditions)
                 )
-            query = query.filter(
-                or_(*ref_conditions)
-            )
 
     ordered = query.order_by(JobCard.created_at.desc())
     today = plant_today()
@@ -6743,7 +6734,10 @@ def capture_stage_output(
     if payload.end_time is not None:
         stage.entry_snapshot["end_time"] = payload.end_time.isoformat()
     stage.actuals_snapshot = payload.actuals or {}
-    stage.quality_checks = payload.quality_checks or {}
+    quality_checks = dict(payload.quality_checks or {})
+    if getattr(payload, "entry_mode", None):
+        quality_checks.setdefault("entry_mode", payload.entry_mode)
+    stage.quality_checks = quality_checks
     stage.material_allocations = list(payload.material_allocations or [])
     if payload.location_id is not None:
         stage.location_id = payload.location_id
