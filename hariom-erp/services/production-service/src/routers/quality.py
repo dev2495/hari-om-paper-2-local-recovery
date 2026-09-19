@@ -520,7 +520,19 @@ OBSERVATION_META_KEYS = SHORTCUT_OBSERVATION_KEYS | {
     "entry_mode",
     "unit_conflicts",
 }
-ENTRY_MODES = {"DEDICATED_QC", "INLINE", "SUPERVISOR", "EOD", "IMPORT", "LEGACY"}
+ENTRY_MODES = {
+    "DEDICATED_QC",
+    "INLINE",
+    "SUPERVISOR",
+    "EOD",
+    "IMPORT",
+    "LEGACY",
+    "PAPER_CARD",
+    "OFFLINE",
+    "OFFLINE_DRAFT",
+}
+OFFLINE_RELEASE_MODES = {"OFFLINE", "OFFLINE_DRAFT"}
+STALE_CONTEXT_MESSAGE = "No offline release; stale conflict retains observations and signed profile context."
 CAUSE_UNDER_INVESTIGATION = "CAUSE_UNDER_INVESTIGATION"
 _CAUSE_UNDER_INVESTIGATION_TOKENS = {
     "CAUSEUNDERINVESTIGATION",
@@ -881,6 +893,57 @@ def _normalize_entry_mode(value: Optional[str], default: str) -> str:
     return mode if mode in ENTRY_MODES else default
 
 
+def _optional_int(value: Any, *, field: str) -> Optional[int]:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=f"{field} must be an integer") from exc
+
+
+def signed_profile_context(spec_snapshot: Optional[dict[str, Any]]) -> dict[str, Any]:
+    snapshot = spec_snapshot if isinstance(spec_snapshot, dict) else {}
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    try:
+        profile_revision = int(profile.get("revision") or 0)
+    except (TypeError, ValueError):
+        profile_revision = 0
+    try:
+        context_version = int(snapshot.get("quality_context_version") or profile_revision or 1)
+    except (TypeError, ValueError):
+        context_version = profile_revision or 1
+    fingerprint = _json_hash(
+        {
+            "quality_context_version": context_version,
+            "profile_revision": profile_revision,
+            "qc_profile": _canonical_observation_value(profile) if profile else {},
+        }
+    )
+    return {
+        "quality_context_version": context_version,
+        "profile_revision": profile_revision,
+        "fingerprint": fingerprint,
+    }
+
+
+def quality_reconnect_conflict(
+    *,
+    code: str,
+    observations: dict[str, Any],
+    signed_profile_context: dict[str, Any],
+    current_profile_context: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": STALE_CONTEXT_MESSAGE,
+        "offline_release": False,
+        "observations": observations,
+        "signed_profile_context": signed_profile_context,
+        "current_profile_context": current_profile_context,
+    }
+
+
 def observation_fingerprint(
     *,
     job_card_id: uuid.UUID,
@@ -932,13 +995,11 @@ def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> 
         reasons = dict(readings.get("reasons") or {})
     sample_id = payload.get("sample_id") or payload.get("sample") or readings.get("sample_id")
     parent_raw = payload.get("parent_inspection_id")
-    expected_raw = payload.get("expected_revision")
-    expected_revision = None
-    if expected_raw not in (None, ""):
-        try:
-            expected_revision = int(expected_raw)
-        except (TypeError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail="expected_revision must be an integer") from exc
+    expected_revision = _optional_int(payload.get("expected_revision"), field="expected_revision")
+    expected_context_version = _optional_int(
+        payload.get("expected_context_version"), field="expected_context_version"
+    )
+    fingerprint = payload.get("signed_profile_fingerprint") or payload.get("profile_fingerprint")
     return InspectionCreate(
         job_card_id=_adapter_job_card_id(payload),
         stage_type=_adapter_stage_type(payload),
@@ -951,6 +1012,8 @@ def inspection_from_adapter_body(body: dict[str, Any], *, default_mode: str) -> 
         entry_mode=_normalize_entry_mode(payload.get("entry_mode"), default_mode),
         correction_reason=payload.get("correction_reason"),
         expected_revision=expected_revision,
+        expected_context_version=expected_context_version,
+        signed_profile_fingerprint=str(fingerprint).strip() if fingerprint not in (None, "") else None,
         measured_at=payload.get("measured_at") or payload.get("measured_time"),
     )
 
@@ -1027,6 +1090,8 @@ def record_stage_inspection(
     entry_mode: Optional[str] = None,
     correction_reason: Optional[str] = None,
     expected_revision: Optional[int] = None,
+    expected_context_version: Optional[int] = None,
+    signed_profile_fingerprint: Optional[str] = None,
     measured_at: Optional[datetime] = None,
     commit: bool = True,
 ) -> InspectionResponse:
@@ -1040,6 +1105,51 @@ def record_stage_inspection(
         raise HTTPException(status_code=404, detail="Job card not found")
     sanitized_readings = _sanitize_observation_map(readings)
     stored_reasons = _normalize_reasons_map(reasons)
+    mode = _normalize_entry_mode(entry_mode, "DEDICATED_QC")
+    current_ctx = signed_profile_context(job_card.spec_snapshot or {})
+    observations = {
+        "stage_type": stage_type,
+        "sample_id": sample_id,
+        "readings": sanitized_readings,
+        "reasons": stored_reasons,
+        "entry_mode": mode,
+    }
+    drafted_ctx = {
+        "quality_context_version": (
+            int(expected_context_version)
+            if expected_context_version is not None
+            else current_ctx["quality_context_version"]
+        ),
+        "profile_revision": current_ctx["profile_revision"],
+        "fingerprint": signed_profile_fingerprint or current_ctx["fingerprint"],
+    }
+    if mode in OFFLINE_RELEASE_MODES:
+        raise HTTPException(
+            status_code=409,
+            detail=quality_reconnect_conflict(
+                code="OFFLINE_RELEASE_FORBIDDEN",
+                observations=observations,
+                signed_profile_context=drafted_ctx,
+                current_profile_context=current_ctx,
+            ),
+        )
+    stale_version = (
+        expected_context_version is not None
+        and int(expected_context_version) != int(current_ctx["quality_context_version"])
+    )
+    stale_fingerprint = bool(
+        signed_profile_fingerprint and signed_profile_fingerprint != current_ctx["fingerprint"]
+    )
+    if stale_version or stale_fingerprint:
+        raise HTTPException(
+            status_code=409,
+            detail=quality_reconnect_conflict(
+                code="STALE_CONTEXT",
+                observations=observations,
+                signed_profile_context=drafted_ctx,
+                current_profile_context=current_ctx,
+            ),
+        )
     eval_readings = dict(sanitized_readings)
     eval_sample_id = sample_id
     parent_id = parent_inspection_id
@@ -1194,6 +1304,8 @@ def record_stage_inspection(
         evaluation_payload["original_inspection_id"] = str(parent_id) if parent_id else None
         evaluation_payload["review_required"] = True
         evaluation_payload["workflow_status"] = "REVIEW_REQUIRED"
+    evaluation_payload["signed_profile_context"] = current_ctx
+    evaluation_payload["quality_context_version"] = current_ctx["quality_context_version"]
 
     failures = list(evaluation.failures)
     inspection = QualityInspection(
@@ -1208,7 +1320,7 @@ def record_stage_inspection(
         sample_id=eval_sample_id,
         parent_inspection_id=parent_id,
         observation_fingerprint=fingerprint,
-        entry_mode=_normalize_entry_mode(entry_mode, "DEDICATED_QC"),
+        entry_mode=mode,
         created_by=current_user.get("sub"),
     )
     db.add(inspection)
@@ -1345,6 +1457,8 @@ class InspectionCreate(BaseModel):
     entry_mode: Optional[str] = None
     correction_reason: Optional[str] = None
     expected_revision: Optional[int] = None
+    expected_context_version: Optional[int] = None
+    signed_profile_fingerprint: Optional[str] = None
     measured_at: Optional[datetime] = None
 
     @field_validator("stage_type")
@@ -1591,6 +1705,8 @@ def create_inspection(
         entry_mode=_normalize_entry_mode(payload.entry_mode, "DEDICATED_QC"),
         correction_reason=payload.correction_reason,
         expected_revision=payload.expected_revision,
+        expected_context_version=payload.expected_context_version,
+        signed_profile_fingerprint=payload.signed_profile_fingerprint,
         measured_at=payload.measured_at,
         commit=True,
     )
@@ -1621,6 +1737,8 @@ def create_supervisor_inspection(
         entry_mode="SUPERVISOR",
         correction_reason=body.correction_reason,
         expected_revision=body.expected_revision,
+        expected_context_version=body.expected_context_version,
+        signed_profile_fingerprint=body.signed_profile_fingerprint,
         measured_at=body.measured_at,
         commit=True,
     )
@@ -1648,6 +1766,8 @@ def create_eod_inspection(
         entry_mode="EOD",
         correction_reason=body.correction_reason,
         expected_revision=body.expected_revision,
+        expected_context_version=body.expected_context_version,
+        signed_profile_fingerprint=body.signed_profile_fingerprint,
         measured_at=body.measured_at,
         commit=True,
     )
@@ -1684,6 +1804,8 @@ def import_inspections(
                 entry_mode="IMPORT",
                 correction_reason=body.correction_reason,
                 expected_revision=body.expected_revision,
+                expected_context_version=body.expected_context_version,
+                signed_profile_fingerprint=body.signed_profile_fingerprint,
                 measured_at=body.measured_at,
                 commit=False,
             )
@@ -1714,6 +1836,8 @@ def create_legacy_inspection(
         entry_mode="LEGACY",
         correction_reason=body.correction_reason,
         expected_revision=body.expected_revision,
+        expected_context_version=body.expected_context_version,
+        signed_profile_fingerprint=body.signed_profile_fingerprint,
         measured_at=body.measured_at,
         commit=True,
     )
@@ -1774,6 +1898,7 @@ def get_frozen_qc_template(
         raise HTTPException(status_code=404, detail="Job card not found")
     snapshot = job_card.spec_snapshot or {}
     profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    context = signed_profile_context(snapshot)
     requested = _normalize_stage(stage_type) if stage_type else None
     stages: dict[str, Any] = {}
     for stage in ("WINDER", "OVEN", "PROCESS", "QC"):
@@ -1793,6 +1918,8 @@ def get_frozen_qc_template(
         "job_card_id": str(job_card.id),
         "qc_profile": profile,
         "profile_revision": profile.get("revision"),
+        "quality_context_version": context.get("quality_context_version"),
+        "signed_profile_context": context,
         "notching_applicable": bool(snapshot.get("notch_capability_required")),
         "stages": stages,
     }

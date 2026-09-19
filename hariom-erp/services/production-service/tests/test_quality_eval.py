@@ -504,4 +504,49 @@ def test_late_exception_distinct_clocks_trace_without_retroactive_claim():
     assert passing["retroactive_prevention_claimed"] is False
 
 
+def test_offline_draft_and_stale_reconnect_retain_observations_and_signed_context():
+    from src.routers.quality import STALE_CONTEXT_MESSAGE, quality_reconnect_conflict, signed_profile_context
+
+    first = signed_profile_context(
+        {"qc_profile": {"revision": 1, "status": "approved", "stages": {"WINDER": {}}}, "quality_context_version": 1}
+    )
+    second = signed_profile_context(
+        {"qc_profile": {"revision": 1, "status": "approved", "stages": {"WINDER": {}}}, "quality_context_version": 2}
+    )
+    assert first["quality_context_version"] == 1
+    assert second["quality_context_version"] == 2
+    assert first["profile_revision"] == 1
+    assert first["fingerprint"]
+    assert first["fingerprint"] != second["fingerprint"]
+    observations = {
+        "stage_type": "WINDER",
+        "sample_id": "QCT059-1",
+        "readings": {"height": 90},
+        "reasons": {"height": "paper card height short"},
+        "entry_mode": "OFFLINE_DRAFT",
+    }
+    offline = quality_reconnect_conflict(
+        code="OFFLINE_RELEASE_FORBIDDEN",
+        observations=observations,
+        signed_profile_context=first,
+        current_profile_context=first,
+    )
+    assert offline["offline_release"] is False
+    assert offline["code"] == "OFFLINE_RELEASE_FORBIDDEN"
+    assert offline["observations"]["readings"]["height"] == 90
+    assert offline["signed_profile_context"]["fingerprint"] == first["fingerprint"]
+    assert STALE_CONTEXT_MESSAGE in offline["message"]
+    stale = quality_reconnect_conflict(
+        code="STALE_CONTEXT",
+        observations={**observations, "entry_mode": "PAPER_CARD"},
+        signed_profile_context=first,
+        current_profile_context=second,
+    )
+    assert stale["offline_release"] is False
+    assert stale["observations"]["reasons"]["height"] == "paper card height short"
+    assert stale["signed_profile_context"]["quality_context_version"] == 1
+    assert stale["current_profile_context"]["quality_context_version"] == 2
+
+
+
 

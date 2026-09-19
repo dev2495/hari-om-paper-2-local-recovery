@@ -1306,5 +1306,72 @@ test("QCT-058 retrospective measured time after later stage and dispatch is a la
   await assertCritical()
 })
 
+test("QCT-059 offline paper draft reconnects as stale conflict and does not release", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [
+      { kind: "response", status: 409 },
+      { kind: "console", textIncludes: "409" },
+    ],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct059_live.py::test_qct059_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct059-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await expect(page.getByTestId("quality-stage-draft-context-version")).toHaveText(String(artifact.draft_context_version), { timeout: 20_000 })
+  await page.getByTestId("stage-qc-sample-id").fill("QCT059-UI")
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("90")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await expect(page.getByTestId("stage-qc-reason-height")).toBeVisible()
+  await page.getByTestId("stage-qc-reason-height").fill("paper card height measured short while disconnected")
+  await page.getByTestId("quality-stage-keep-offline-draft").click()
+  await expect(page.getByTestId("quality-stage-offline-draft")).toBeVisible()
+  await expect(page.getByTestId("quality-stage-offline-draft")).toContainText(/not a quality release/i)
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const offline = await page.request.post("/api/production/quality/inspections", {
+    headers: plantHeaders,
+    data: {
+      job_card_id: jobId,
+      stage_type: "WINDER",
+      readings: { id: 77, od: 91, height: 90, weight: 250, cs: 100 },
+      reasons: { height: "paper card height measured short while disconnected" },
+      sample_id: "QCT059-UI",
+      entry_mode: "OFFLINE_DRAFT",
+      expected_context_version: artifact.draft_context_version,
+      signed_profile_fingerprint: artifact.draft_fingerprint,
+      final_submission: true,
+    },
+  })
+  expect(offline.status(), await offline.text()).toBe(409)
+  const offlineBody = await offline.json()
+  const offlineDetail = offlineBody.detail || offlineBody
+  expect(offlineDetail.code).toBe("OFFLINE_RELEASE_FORBIDDEN")
+  expect(offlineDetail.offline_release).toBeFalsy()
+  expect(offlineDetail.observations.readings.height).toBe(90)
+  expect(JSON.stringify(offlineDetail.signed_profile_context || {})).toMatch(/fingerprint|quality_context_version/)
 
+  const bumped = spawnProductionPytest("tests/test_original_qct059_live.py::test_qct059_bump_server_version")
+  expect(bumped.status, bumped.stderr || bumped.stdout).toBe(0)
+  await expect(page.getByTestId("quality-stage-draft-context-version")).toHaveText(String(artifact.draft_context_version))
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-stale-conflict")).toBeVisible()
+  await expect(page.getByTestId("quality-stage-stale-conflict")).toContainText(/No offline release/i)
+  await expect(page.getByTestId("quality-stage-retained-height")).toContainText("90")
+  await expect(page.getByTestId("quality-stage-signed-profile")).toBeVisible()
+  await expect(page.getByTestId("stage-qc-reading-height")).toHaveValue("90")
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveCount(0)
+  const listed = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(listed.ok(), await listed.text()).toBeTruthy()
+  expect(await listed.json()).toEqual([])
+  await assertCritical()
+})
 

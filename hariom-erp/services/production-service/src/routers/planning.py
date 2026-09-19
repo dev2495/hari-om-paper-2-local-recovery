@@ -3539,7 +3539,7 @@ def _sync_quality_artifacts(
     readings = {
         key: value
         for key, value in quality_payload.items()
-        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode", "measured_at", "measured_time", "correction_reason", "expected_revision"}
+        if key not in {"reasons", "sample_id", "samples", "unit_conflicts", "checkpoint", "entry_mode", "measured_at", "measured_time", "correction_reason", "expected_revision", "expected_context_version", "signed_profile_fingerprint"}
     }
     samples = quality_payload.get("samples") if isinstance(quality_payload.get("samples"), list) else None
     created_holds: list[QualityHold] = []
@@ -3580,6 +3580,8 @@ def _sync_quality_artifacts(
             entry_mode=entry_mode,
             correction_reason=quality_payload.get("correction_reason") or item.get("correction_reason"),
             expected_revision=quality_payload.get("expected_revision"),
+            expected_context_version=quality_payload.get("expected_context_version"),
+            signed_profile_fingerprint=quality_payload.get("signed_profile_fingerprint"),
             measured_at=quality_payload.get("measured_at"),
             commit=False,
         )

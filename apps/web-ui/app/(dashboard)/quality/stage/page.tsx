@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useMemo, useState } from "react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, Panel } from "@/components/erp/shell"
 import { QualityDeskNav } from "@/components/qc/QualityDeskNav"
@@ -119,6 +119,14 @@ function plantForJob(job: any) {
   return value && value.toUpperCase() !== "ALL" ? value : undefined
 }
 
+function reconnectConflict(error: any) {
+  const data = error?.response?.data
+  const detail = data?.detail ?? data
+  const code = String(detail?.code || "")
+  if (code === "STALE_CONTEXT" || code === "OFFLINE_RELEASE_FORBIDDEN") return detail
+  return null
+}
+
 function numericReadings(stageType: QcStageKey, draft: StageDraft) {
   const numeric: Record<string, string | number> = Object.fromEntries(
     Object.entries(draft.readings)
@@ -174,6 +182,9 @@ export default function StageQualityPage() {
   const [lastCorrectionRevision, setLastCorrectionRevision] = useState("")
   const [cardIssues, setCardIssues] = useState<any[]>([])
   const [lastLateException, setLastLateException] = useState<any>(null)
+  const [draftContext, setDraftContext] = useState<any>(null)
+  const [offlineDraftKept, setOfflineDraftKept] = useState(false)
+  const [staleConflict, setStaleConflict] = useState<any>(null)
   const jobCardsQuery = usePlanningJobCards({ limit: 80, search: search.trim() || undefined })
   const createInspection = useCreateQualityInspection()
   const completeCard = useCompleteJobCardQc()
@@ -192,6 +203,17 @@ export default function StageQualityPage() {
   const checkpoint = stageType === "OVEN"
     ? (draft.ovenCheckpoint === "POST" ? "Oven post" : "Oven pre")
     : STAGES.find((stage) => stage.value === stageType)?.label
+
+  useEffect(() => {
+    setDraftContext(null)
+    setOfflineDraftKept(false)
+    setStaleConflict(null)
+  }, [selectedJobId])
+
+  useEffect(() => {
+    const ctx = templateQuery.data?.signed_profile_context
+    if (ctx && !draftContext) setDraftContext(ctx)
+  }, [templateQuery.data, draftContext])
 
   const filteredJobs = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -230,6 +252,12 @@ export default function StageQualityPage() {
           ...(draft.measuredAt
             ? { measured_at: new Date(draft.measuredAt).toISOString() }
             : {}),
+          ...(draftContext
+            ? {
+                expected_context_version: draftContext.quality_context_version,
+                signed_profile_fingerprint: draftContext.fingerprint,
+              }
+            : {}),
           ...(originalInspection
             ? {
                 parent_inspection_id: originalInspection.id,
@@ -241,6 +269,7 @@ export default function StageQualityPage() {
       })
       const body = response?.data || {}
       const status = String(body.status || "")
+      setStaleConflict(null)
       setLastVerdict(status)
       setInvestigationStatus(String(body.investigation_status || ""))
       setGroupedCaseId(String(body.grouped_case_id || ""))
@@ -272,6 +301,13 @@ export default function StageQualityPage() {
         return { ...current, readings: nextReadings, reasons: {}, reasonCodes: {}, containments: {}, assignees: {} }
       })
     } catch (error: any) {
+      const conflict = reconnectConflict(error)
+      if (conflict) {
+        setStaleConflict(conflict)
+        setLastVerdict("")
+        showToast(conflict.message || "Stale quality draft was not released.", "error")
+        return
+      }
       const detail = error?.response?.data?.detail || error?.message || "Inspection save failed."
       showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
     }
@@ -539,6 +575,28 @@ export default function StageQualityPage() {
                 </label>
               </div>
             ) : null}
+            {draftContext ? (
+              <div className="text-xs text-slate-600" data-testid="quality-stage-draft-context-version">
+                {String(draftContext.quality_context_version)}
+              </div>
+            ) : null}
+            {offlineDraftKept ? (
+              <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-900" data-testid="quality-stage-offline-draft">
+                Paper/offline draft kept locally. This is not a quality release.
+              </div>
+            ) : null}
+            {staleConflict ? (
+              <div className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-stale-conflict">
+                <div className="font-semibold">{staleConflict.message}</div>
+                <div data-testid="quality-stage-retained-height">
+                  Height {String(staleConflict.observations?.readings?.height ?? draft.readings.height ?? "")}
+                </div>
+                <div data-testid="quality-stage-signed-profile">
+                  Signed profile v{String(staleConflict.signed_profile_context?.quality_context_version ?? "")} {String(staleConflict.signed_profile_context?.fingerprint || "").slice(0, 12)}
+                </div>
+                <div>Offline release: {staleConflict.offline_release ? "yes" : "no"}</div>
+              </div>
+            ) : null}
             {lastVerdict ? (
               <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
                 {lastVerdict}
@@ -599,6 +657,19 @@ export default function StageQualityPage() {
               </ul>
             ) : null}
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                data-testid="quality-stage-keep-offline-draft"
+                disabled={!selectedJobId}
+                onClick={() => {
+                  setOfflineDraftKept(true)
+                  setStaleConflict(null)
+                  showToast("Paper/offline draft kept. Not a quality release.", "success")
+                }}
+                className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
+              >
+                Keep paper/offline draft
+              </button>
               <button
                 type="submit"
                 data-testid="quality-stage-submit"
