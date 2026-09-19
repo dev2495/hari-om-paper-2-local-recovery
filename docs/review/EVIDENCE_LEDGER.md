@@ -15,8 +15,8 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
 | Served product | `5306970` QCT-051/053 adapters on `72262de` QCT-050; parent `8db296c` QCT-048/049 |
 | Served BUILD_ID | `RuDVwRuPutn9QGHEBn6so` at `http://127.0.0.1:23000` |
-| BJ re-run | Focused QCT-051/053 Chromium **2/2 PASS** (5.9s). BJ sales-queue / Plant-II / seeded-roles **3/3 PASS**. Prior 38/38 still only through QCT-050. Full 40 not closed. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ this overlay |
+| BJ re-run | Focused QCT-051/053 Chromium **2/2 PASS** then full Chromium **40/40 PASS** (2.0m, `--workers=1`) on BUILD_ID `RuDVwRuPutn9QGHEBn6so`. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
@@ -26,8 +26,8 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 ## Runtime identity
 
 - Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `RuDVwRuPutn9QGHEBn6so` pid **61187** (launcher 61154)
-- BFF `http://127.0.0.1:24000` pid **73242**, inventory **2331** :28005, production **70492** :28004, sales **2337** :28008
-- Auth **90290** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow loaded from current source), inventory **2331** :28005, production **70492** :28004, sales **2337** :28008
+- Auth **75328** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 - JWT sha256 prefix `c0f8ce9c6baa035a` from prior auth identity
 
@@ -37,11 +37,11 @@ Wave after overlay `f65f476` / product `5306970` (QCT-051/053 Chromium PASS):
 
 | Suite | Result | Notes |
 | --- | --- | --- |
-| QCT-051/053 live adapters + fingerprint unit | 5–6 passed | same FAIL fingerprint across dedicated/inline/supervisor/EOD/import/legacy; shortcut PASS stripped; self-release 403 |
+| QCT-051/053 live adapters + fingerprint unit | 6 passed | same FAIL fingerprint across dedicated/inline/supervisor/EOD/import/legacy; shortcut PASS stripped; self-release 403 |
 | Chromium QCT-051 first trace | FAIL | job `700baff9-…` missing; BFF `GET /job-cards?limit=80` 504; page Loading job cards |
 | Chromium focused QCT-051/053 (CSRF 403) | FAIL / HANG | UUID found; submit toast Cross-site request rejected; verdict absent; 180s kill |
-| Chromium focused QCT-051/053 after CSRF origin | **2 passed** in 5.9s | `output/playwright/RuDVwRuPutn9QGHEBn6so-qct051-053-csrf/` BUILD_ID `RuDVwRuPutn9QGHEBn6so` |
-| BJ sales-queue / Plant-II / seeded-roles | **3 passed** in 58.5s | `output/playwright/RuDVwRuPutn9QGHEBn6so-bj-tail/` after BFF CSRF origin |
+| Chromium focused QCT-051/053 after CSRF origin | **2 passed** in 5.6s | `output/playwright/RuDVwRuPutn9QGHEBn6so-qct051-053-csrf/` BUILD_ID `RuDVwRuPutn9QGHEBn6so` |
+| Chromium full project | **40 passed** in 2.0m | `output/playwright/RuDVwRuPutn9QGHEBn6so-full-after-051-053/` `--workers=1` PLAYWRIGHT_EXIT 0 |
 
 Fixes patched with those tests:
 

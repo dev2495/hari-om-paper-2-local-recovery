@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
-**Local product HEAD this cycle:** `5306970` QCT-051/053 adapters on parent `72262de` QCT-050 (served BUILD_ID `RuDVwRuPutn9QGHEBn6so`; overlay parent `f65f476` then this PASS-86 overlay).  
-**Chromium candidate:** BUILD_ID `RuDVwRuPutn9QGHEBn6so` on `:23000` — focused QCT-051+053 **2/2 PASS** (5.9s). BJ sales-queue / Plant-II / seeded-roles **3/3 PASS** after BFF CSRF origin. Prior 38/38 does **not** include those new journeys; a later full-40 was not closed after BFF pid churn.  
+**Local product HEAD this cycle:** `5306970` QCT-051/053 adapters on parent `72262de` QCT-050 (served BUILD_ID `RuDVwRuPutn9QGHEBn6so`; overlay `ff96f7e` PASS 86, then this full-40 evidence).  
+**Chromium candidate:** BUILD_ID `RuDVwRuPutn9QGHEBn6so` on `:23000` — focused QCT-051+053 **2/2 PASS** then full Chromium project **40/40 PASS** (`--workers=1`, 2.0m) after BFF CSRF origin.  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 
@@ -73,7 +73,7 @@ Chromium original-partials on BUILD_ID `RuDVwRuPutn9QGHEBn6so` now includes QCT-
 
 ## Browser journeys
 
-See `docs/review/BROWSER_JOURNEYS.md`. Original-partials through QCT-051/053 PASS on BUILD_ID `RuDVwRuPutn9QGHEBn6so`. BJ sales-queue / Plant-II / seeded-roles **3/3 PASS** after BFF CSRF origin. Full 40 Chromium project was not closed this wave. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
+See `docs/review/BROWSER_JOURNEYS.md`. Full Chromium project **40/40 PASS** on BUILD_ID `RuDVwRuPutn9QGHEBn6so` (`--workers=1`, 2.0m), including original-partials through QCT-051/053. WebKit BLOCKED. Safari.app BLOCKED. BJ13 human UAT **NOT_RUN**.
 
 ## Human UAT
 
