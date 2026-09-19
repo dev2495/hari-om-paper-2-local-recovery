@@ -1135,6 +1135,89 @@ test("QCT-055 three related failures share one common cause without losing param
   await assertCritical()
 })
 
+test("QCT-063 signed multi-field FAIL retry keeps one case/hold and does not duplicate quantity", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page)
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct063_live.py::test_qct063_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct063-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  const plannedQty = Number(artifact.planned_qty)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await page.getByTestId("stage-qc-sample-id").fill("QCT063-1")
+  await page.getByTestId("stage-qc-reading-id").fill("70")
+  await page.getByTestId("stage-qc-reading-od").fill("80")
+  await page.getByTestId("stage-qc-reading-height").fill("90")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await expect(page.getByTestId("quality-stage-common-cause")).toBeVisible()
+  await page.getByTestId("stage-qc-common-explanation").fill("crushed core during winding affected ID, OD and height")
+  await page.getByTestId("stage-qc-common-containment").fill("hold the entire winder cage")
+  await page.getByTestId("stage-qc-common-assignee").fill("qc.supervisor")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveText("FAIL")
+  await expect(page.getByTestId("quality-stage-grouped-case")).toHaveText("COMMON")
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const listed = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(listed.ok(), await listed.text()).toBeTruthy()
+  const rows = await listed.json()
+  expect(rows).toHaveLength(1)
+  expect(rows[0].status).toBe("FAIL")
+  expect(rows[0].sample_id).toBe("QCT063-1")
+  expect(rows[0].grouped_case_id).toBe("COMMON")
+  expect([...rows[0].grouped_parameters].sort()).toEqual(["height", "id", "od"])
+  const failCodes = (rows[0].failures || []).map((row) => String(row.code || ""))
+  expect(failCodes).toContain("id")
+  expect(failCodes).toContain("od")
+  expect(failCodes).toContain("height")
+  expect(Number(rows[0].evaluation?.affected_quantity)).toBe(plannedQty)
+  const signed = rows[0].evaluation?.signed_profile_context || {}
+  const retry = await page.request.post("/api/production/quality/inspections", {
+    headers: plantHeaders,
+    data: {
+      job_card_id: jobId,
+      stage_type: "WINDER",
+      readings: rows[0].readings,
+      reasons: rows[0].reasons,
+      sample_id: rows[0].sample_id,
+      final_submission: true,
+      signed_profile_fingerprint: signed.fingerprint,
+      expected_context_version: signed.quality_context_version,
+    },
+  })
+  expect(retry.ok(), await retry.text()).toBeTruthy()
+  const replayed = await retry.json()
+  expect(replayed.reused).toBe(true)
+  expect(replayed.id).toBe(rows[0].id)
+  expect(replayed.status).toBe("FAIL")
+  expect(replayed.grouped_case_id).toBe("COMMON")
+  expect(Number(replayed.evaluation?.affected_quantity)).toBe(plannedQty)
+  const listedAgain = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  const again = await listedAgain.json()
+  expect(again).toHaveLength(1)
+  expect(again[0].id).toBe(rows[0].id)
+  const holds = await page.request.get(`/api/production/quality/holds?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  const holdRows = await holds.json()
+  expect(holdRows).toHaveLength(1)
+  expect(holdRows[0].status).toBe("HOLD")
+  expect(holdRows[0].source_inspection_id).toBe(rows[0].id)
+  expect(replayed.hold_id).toBe(holdRows[0].id)
+  if (rows[0].hold_id) {
+    expect(replayed.hold_id).toBe(rows[0].hold_id)
+    expect(again[0].hold_id).toBe(holdRows[0].id)
+  }
+  await assertCritical()
+})
+
 test("QCT-056 changing a failing number keeps original FAIL, requires correction audit, and does not clear the hold", async ({ page }) => {
   test.setTimeout(180_000)
   const assertCritical = beginCriticalMonitoring(page, {

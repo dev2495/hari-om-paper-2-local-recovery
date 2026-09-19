@@ -9,7 +9,8 @@ import uuid
 import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import func
+from sqlalchemy import func, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
 
@@ -1047,6 +1048,101 @@ def _active_hold_for_inspection(db: Session, inspection: QualityInspection) -> O
     )
 
 
+def _scope_affected_quantity(job_card: JobCard) -> float:
+    for attr in ("planned_qty", "released_qty"):
+        raw = getattr(job_card, attr, None)
+        if raw is None:
+            continue
+        try:
+            qty = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if qty > 0:
+            return qty
+    return 0.0
+
+
+def _lock_observation_fingerprint(db: Session, fingerprint: str) -> None:
+    key = str(fingerprint or "").strip()
+    if not key:
+        return
+    bind = db.get_bind()
+    dialect = str(getattr(getattr(bind, "dialect", None), "name", "") or "")
+    if dialect != "postgresql":
+        return
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"quality_observation:{key}"},
+    )
+
+
+def _existing_inspection_for_fingerprint(
+    db: Session,
+    *,
+    job_card_id: uuid.UUID,
+    fingerprint: str,
+) -> Optional[QualityInspection]:
+    return (
+        db.query(QualityInspection)
+        .filter(
+            QualityInspection.job_card_id == job_card_id,
+            QualityInspection.observation_fingerprint == fingerprint,
+        )
+        .order_by(QualityInspection.created_at.asc())
+        .first()
+    )
+
+
+def _reuse_recorded_inspection(
+    db: Session,
+    existing: QualityInspection,
+    *,
+    commit: bool,
+) -> InspectionResponse:
+    if commit:
+        db.commit()
+    return _to_inspection_response(
+        existing,
+        hold=_active_hold_for_inspection(db, existing),
+        reused=True,
+    )
+
+
+def _active_hold_for_sample_scope(
+    db: Session,
+    *,
+    job_card_id: uuid.UUID,
+    stage_type: str,
+    sample_id: Optional[str],
+) -> Optional[QualityHold]:
+    holds = (
+        db.query(QualityHold)
+        .filter(
+            QualityHold.job_card_id == job_card_id,
+            QualityHold.stage_type == stage_type,
+            QualityHold.status == "HOLD",
+        )
+        .order_by(QualityHold.created_at.asc())
+        .all()
+    )
+    wanted = str(sample_id or "").strip()
+    for hold in holds:
+        if hold.source_inspection_id is None:
+            if not wanted:
+                return hold
+            continue
+        source = (
+            db.query(QualityInspection)
+            .filter(QualityInspection.id == hold.source_inspection_id)
+            .first()
+        )
+        if source is None:
+            continue
+        if str(source.sample_id or "").strip() == wanted:
+            return hold
+    return None
+
+
 def _to_inspection_response(
     inspection: QualityInspection,
     *,
@@ -1212,19 +1308,14 @@ def record_stage_inspection(
         readings=sanitized_readings,
         reasons=stored_reasons,
     )
-    existing = (
-        db.query(QualityInspection)
-        .filter(
-            QualityInspection.job_card_id == job_card.id,
-            QualityInspection.observation_fingerprint == fingerprint,
-        )
-        .order_by(QualityInspection.created_at.asc())
-        .first()
+    _lock_observation_fingerprint(db, fingerprint)
+    existing = _existing_inspection_for_fingerprint(
+        db,
+        job_card_id=job_card.id,
+        fingerprint=fingerprint,
     )
     if existing is not None:
-        if commit:
-            db.commit()
-        return _to_inspection_response(existing, hold=_active_hold_for_inspection(db, existing), reused=True)
+        return _reuse_recorded_inspection(db, existing, commit=commit)
 
     prior_same = _latest_same_observation_inspection(
         db,
@@ -1341,6 +1432,16 @@ def record_stage_inspection(
         evaluation_payload["workflow_status"] = "REVIEW_REQUIRED"
     evaluation_payload["signed_profile_context"] = current_ctx
     evaluation_payload["quality_context_version"] = current_ctx["quality_context_version"]
+    inspection_round = correction_revision or 1
+    affected_quantity = _scope_affected_quantity(job_card)
+    evaluation_payload["affected_quantity"] = affected_quantity
+    evaluation_payload["inspection_round"] = inspection_round
+    evaluation_payload["case_scope"] = {
+        "job_card_id": str(job_card.id),
+        "stage_type": stage_type,
+        "sample_id": eval_sample_id,
+        "round": inspection_round,
+    }
 
     failures = list(evaluation.failures)
     inspection = QualityInspection(
@@ -1358,8 +1459,19 @@ def record_stage_inspection(
         entry_mode=mode,
         created_by=current_user.get("sub"),
     )
-    db.add(inspection)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(inspection)
+            db.flush()
+    except IntegrityError:
+        existing = _existing_inspection_for_fingerprint(
+            db,
+            job_card_id=job_card.id,
+            fingerprint=fingerprint,
+        )
+        if existing is None:
+            raise
+        return _reuse_recorded_inspection(db, existing, commit=commit)
 
     if prior_same is not None and correction_revision:
         prior_eval = dict(prior_same.evaluation or {})
@@ -1376,23 +1488,30 @@ def record_stage_inspection(
         and str(prior_same.status or "").upper() in {"FAIL", "INVALID"}
     )
     if evaluation.status in {"FAIL", "INVALID"} and not correcting_existing_fail:
-        hold_reason = evaluation.issue_summary() or f"{stage_type} inspection {evaluation.verdict}"
-        if evaluation_payload.get("late_quality_exception"):
-            hold_reason = (
-                f"{LATE_EXCEPTION_LABEL} on {stage_type}; remaining stock traced. "
-                "Earlier shipment was not retroactively prevented."
-            )
-        hold = QualityHold(
-            plant_id=plant_uuid,
+        hold = _active_hold_for_inspection(db, inspection) or _active_hold_for_sample_scope(
+            db,
             job_card_id=job_card.id,
             stage_type=stage_type,
-            reason=hold_reason,
-            status="HOLD",
-            source_inspection_id=inspection.id,
-            created_by=current_user.get("sub"),
+            sample_id=eval_sample_id,
         )
-        db.add(hold)
-        db.flush()
+        if hold is None:
+            hold_reason = evaluation.issue_summary() or f"{stage_type} inspection {evaluation.verdict}"
+            if evaluation_payload.get("late_quality_exception"):
+                hold_reason = (
+                    f"{LATE_EXCEPTION_LABEL} on {stage_type}; remaining stock traced. "
+                    "Earlier shipment was not retroactively prevented."
+                )
+            hold = QualityHold(
+                plant_id=plant_uuid,
+                job_card_id=job_card.id,
+                stage_type=stage_type,
+                reason=hold_reason,
+                status="HOLD",
+                source_inspection_id=inspection.id,
+                created_by=current_user.get("sub"),
+            )
+            db.add(hold)
+            db.flush()
 
     _record_audit_event(
         db=db,
@@ -1905,7 +2024,10 @@ def list_inspections(
     if status:
         query = query.filter(QualityInspection.status == status.strip().upper())
     rows = query.order_by(QualityInspection.created_at.desc()).offset(offset).limit(limit).all()
-    return [_to_inspection_response(row, hold=None, reused=False) for row in rows]
+    return [
+        _to_inspection_response(row, hold=_active_hold_for_inspection(db, row), reused=False)
+        for row in rows
+    ]
 
 
 @router.get("/job-cards/{job_card_id}/template")

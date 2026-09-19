@@ -282,6 +282,19 @@ def test_rr04_client_hold_flag_is_ignored_in_router():
     assert '@router.post("/legacy/inspections"' in text
 
 
+def test_qct063_replay_lock_unique_fingerprint_and_quantity_scope():
+    from pathlib import Path
+
+    router = Path(__file__).resolve().parents[1].joinpath("src/routers/quality.py").read_text()
+    main = Path(__file__).resolve().parents[1].joinpath("src/main.py").read_text()
+    assert "pg_advisory_xact_lock(hashtextextended(:key, 0))" in router
+    assert "_reuse_recorded_inspection" in router
+    assert 'evaluation_payload["affected_quantity"]' in router
+    assert "_active_hold_for_sample_scope" in router
+    assert "uq_quality_inspections_observation_fingerprint" in main
+    assert "_to_inspection_response(row, hold=_active_hold_for_inspection(db, row), reused=False)" in router
+
+
 def test_observation_fingerprint_ignores_client_shortcut_pass():
     import uuid
 

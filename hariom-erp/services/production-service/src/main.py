@@ -108,6 +108,8 @@ def _ensure_schema_compatibility():
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS observation_fingerprint VARCHAR(64)",
         "ALTER TABLE quality_inspections ADD COLUMN IF NOT EXISTS entry_mode VARCHAR(40)",
         "CREATE INDEX IF NOT EXISTS ix_quality_inspections_observation_fingerprint ON quality_inspections (observation_fingerprint)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_quality_inspections_observation_fingerprint "
+        "ON quality_inspections (observation_fingerprint) WHERE observation_fingerprint IS NOT NULL",
     ]
     for _statement in _short_close_downtime_migrations:
         try:
