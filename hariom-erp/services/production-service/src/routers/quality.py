@@ -10,12 +10,21 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func
+from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
 from ..models import AuditEvent, Dispatch, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
-from ..quality_eval import evaluate_job_stage, evaluate_stage_quality, submission_error
+from ..quality_eval import (
+    apply_qc_setup_marker,
+    evaluate_job_stage,
+    evaluate_stage_quality,
+    missing_qc_setup_blocks_checkpoint,
+    missing_qc_setup_detail,
+    qc_profile_setup_status,
+    submission_error,
+)
 from ..quality_metrics import quality_pass_rate
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
@@ -1114,6 +1123,11 @@ def record_stage_inspection(
         "reasons": stored_reasons,
         "entry_mode": mode,
     }
+    if missing_qc_setup_blocks_checkpoint(job_card.spec_snapshot or {}):
+        raise HTTPException(
+            status_code=409,
+            detail=missing_qc_setup_detail(job_card.spec_snapshot or {}, observations),
+        )
     drafted_ctx = {
         "quality_context_version": (
             int(expected_context_version)
@@ -1921,8 +1935,207 @@ def get_frozen_qc_template(
         "quality_context_version": context.get("quality_context_version"),
         "signed_profile_context": context,
         "notching_applicable": bool(snapshot.get("notch_capability_required")),
+        "missing_qc_setup": bool(snapshot.get("missing_qc_setup") or snapshot.get("missing_profile_marker")),
+        "qc_setup_status": snapshot.get("qc_setup_status") or qc_profile_setup_status(profile),
         "stages": stages,
     }
+
+
+class AttachQcProfilePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: Optional[int] = None
+
+
+class AttachQcProfileResponse(BaseModel):
+    job_card_id: uuid.UUID
+    attached: bool
+    idempotent: bool
+    qc_setup_status: str
+    missing_qc_setup: bool
+    profile_revision: Optional[int] = None
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+
+
+def _job_is_unstarted(db: Session, job_card: JobCard) -> bool:
+    if str(job_card.status or "").upper() not in {"CREATED", "PLANNED"}:
+        return False
+    if db.query(QualityInspection).filter(QualityInspection.job_card_id == job_card.id).count():
+        return False
+    stages = (
+        db.query(JobCardStage)
+        .filter(JobCardStage.job_card_id == job_card.id)
+        .all()
+    )
+    for stage in stages:
+        if stage.actual_start or stage.actual_end:
+            return False
+        if stage.output_qty not in (None, 0, 0.0):
+            return False
+        if str(stage.status or "").upper() in {"RUNNING", "COMPLETED"}:
+            return False
+    return True
+
+
+@router.post("/job-cards/{job_card_id}/attach-qc-profile", response_model=AttachQcProfileResponse)
+def attach_approved_qc_profile(
+    job_card_id: uuid.UUID,
+    payload: AttachQcProfilePayload = AttachQcProfilePayload(),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "QC"])),
+):
+    plant_uuid = _to_uuid(plant_id, field="plant_id")
+    job_card = (
+        db.query(JobCard)
+        .filter(JobCard.id == job_card_id, JobCard.plant_id == plant_uuid)
+        .first()
+    )
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    snapshot = dict(job_card.spec_snapshot or {})
+    before = {
+        "qc_setup_status": snapshot.get("qc_setup_status"),
+        "missing_qc_setup": bool(snapshot.get("missing_qc_setup") or snapshot.get("missing_profile_marker")),
+        "profile_revision": (snapshot.get("qc_profile") or {}).get("revision")
+        if isinstance(snapshot.get("qc_profile"), dict)
+        else None,
+        "status": job_card.status,
+        "current_stage": job_card.current_stage,
+        "planned_qty": float(job_card.planned_qty or 0.0),
+    }
+    existing_profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    existing_revision = existing_profile.get("revision")
+    if str(snapshot.get("qc_setup_status") or "").strip().lower() == "attached":
+        if payload.expected_revision is not None and int(existing_revision or 0) != int(payload.expected_revision):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "ATTACH_REVISION_CONFLICT",
+                    "message": "Job already has an attached QC profile at a different revision.",
+                    "existing_revision": existing_revision,
+                    "requested_revision": payload.expected_revision,
+                },
+            )
+        return AttachQcProfileResponse(
+            job_card_id=job_card.id,
+            attached=True,
+            idempotent=True,
+            qc_setup_status="attached",
+            missing_qc_setup=False,
+            profile_revision=int(existing_revision) if existing_revision is not None else None,
+            before=before,
+            after=before,
+        )
+    if not (snapshot.get("missing_qc_setup") or snapshot.get("missing_profile_marker")):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "QC_SETUP_ALREADY_PRESENT",
+                "message": "This job already froze QC setup at release; attach is only for missing-setup jobs.",
+            },
+        )
+    if not _job_is_unstarted(db, job_card):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "JOB_ALREADY_STARTED",
+                "message": "Approved QC profile can only be attached to an unstarted missing-setup job.",
+            },
+        )
+    from .planning import _fetch_spec
+
+    spec = _fetch_spec(job_card.spec_id, current_user.get("token", ""), plant_id, require_approved_active=False)
+    spec_profile = spec.get("qc_profile") if isinstance(spec.get("qc_profile"), dict) else {}
+    if qc_profile_setup_status(spec_profile) != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PROFILE_NOT_APPROVED",
+                "message": "Attach requires an approved QC profile. Complete-unapproved setup is not a resolution.",
+                "qc_setup_status": qc_profile_setup_status(spec_profile),
+            },
+        )
+    revision = spec_profile.get("revision")
+    if payload.expected_revision is not None and int(revision or 0) != int(payload.expected_revision):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "ATTACH_REVISION_CONFLICT",
+                "message": "Approved profile revision changed before attach.",
+                "existing_revision": revision,
+                "requested_revision": payload.expected_revision,
+            },
+        )
+    attached_profile = dict(spec_profile)
+    snapshot["qc_profile"] = attached_profile
+    snapshot["qc_setup_status"] = "attached"
+    snapshot["missing_qc_setup"] = False
+    snapshot["missing_profile_marker"] = False
+    try:
+        context_version = int(snapshot.get("quality_context_version") or 1)
+    except (TypeError, ValueError):
+        context_version = 1
+    snapshot["quality_context_version"] = context_version + 1
+    snapshot["qc_profile_attach"] = {
+        "attached_by": current_user.get("sub"),
+        "attached_role": (current_user.get("roles") or ["QC"])[0]
+        if isinstance(current_user.get("roles"), list)
+        else current_user.get("role"),
+        "attached_at": datetime.utcnow().isoformat(),
+        "spec_id": str(job_card.spec_id),
+        "profile_revision": revision,
+        "before_status": before.get("qc_setup_status"),
+    }
+    apply_qc_setup_marker(snapshot)
+    snapshot["qc_setup_status"] = "attached"
+    snapshot["missing_qc_setup"] = False
+    snapshot["missing_profile_marker"] = False
+    job_card.spec_snapshot = snapshot
+    flag_modified(job_card, "spec_snapshot")
+    after = {
+        "qc_setup_status": "attached",
+        "missing_qc_setup": False,
+        "profile_revision": revision,
+        "status": job_card.status,
+        "current_stage": job_card.current_stage,
+        "planned_qty": float(job_card.planned_qty or 0.0),
+        "quality_context_version": snapshot.get("quality_context_version"),
+    }
+    db.add(
+        AuditEvent(
+            plant_id=plant_uuid,
+            entity_type="job_card",
+            entity_id=job_card.id,
+            action="attach_qc_profile",
+            actor_id=current_user.get("sub"),
+            actor_role=(current_user.get("roles") or ["QC"])[0]
+            if isinstance(current_user.get("roles"), list)
+            else current_user.get("role"),
+            job_card_id=job_card.id,
+            before_hash=_json_hash(before),
+            after_hash=_json_hash(after),
+            payload={
+                "explicit": True,
+                "idempotent": False,
+                "before": before,
+                "after": after,
+            },
+        )
+    )
+    db.commit()
+    db.refresh(job_card)
+    return AttachQcProfileResponse(
+        job_card_id=job_card.id,
+        attached=True,
+        idempotent=False,
+        qc_setup_status="attached",
+        missing_qc_setup=False,
+        profile_revision=int(revision) if revision is not None else None,
+        before=before,
+        after=after,
+    )
 
 
 @router.post("/job-cards/{job_card_id}/complete", response_model=CompleteCardResponse)
@@ -1941,6 +2154,11 @@ def complete_job_card_qc(
     )
     if not job_card:
         raise HTTPException(status_code=404, detail="Job card not found")
+    if missing_qc_setup_blocks_checkpoint(job_card.spec_snapshot or {}):
+        raise HTTPException(
+            status_code=409,
+            detail=missing_qc_setup_detail(job_card.spec_snapshot or {}),
+        )
     inspection_count = (
         db.query(QualityInspection)
         .filter(QualityInspection.job_card_id == job_card.id)

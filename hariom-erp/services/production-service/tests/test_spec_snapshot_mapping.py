@@ -117,6 +117,9 @@ class SpecSnapshotMappingTests(unittest.TestCase):
         self.assertEqual(snapshot["plastic_required"], "Yes")
         self.assertEqual(snapshot["fadda_sku"], "FAD-01")
         self.assertEqual(snapshot["special_instructions"], "Floor check")
+        self.assertTrue(snapshot["missing_qc_setup"])
+        self.assertEqual(snapshot["qc_setup_status"], "missing")
+        self.assertTrue(snapshot["missing_profile_marker"])
 
     def test_document_snapshot_carries_setup_tooling_fields(self):
         job_card = SimpleNamespace(

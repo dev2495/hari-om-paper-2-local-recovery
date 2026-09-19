@@ -594,6 +594,8 @@ class ReleaseSyncLineResult(BaseModel):
     job_card_id: UUID
     first_stage: str
     queue_created: bool
+    missing_qc_setup: bool = False
+    qc_setup_status: Optional[str] = None
 
 
 class ReleasePreflightRowPayload(BaseModel):
@@ -622,6 +624,8 @@ class ReleasePreflightLineResult(BaseModel):
     selected_winder_compatible: bool
     compatibility_warning: Optional[str] = None
     blocker: Optional[str] = None
+    missing_qc_setup: bool = False
+    qc_setup_status: Optional[str] = None
 
 
 class ReleasePreflightResponse(BaseModel):

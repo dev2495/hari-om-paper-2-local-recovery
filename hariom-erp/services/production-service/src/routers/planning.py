@@ -37,7 +37,14 @@ from ..models import (
     ShiftMaterialLedger,
     StageQueueOrder,
 )
-from ..quality_eval import evaluate_job_stage, evaluate_stage_quality, submission_error
+from ..quality_eval import (
+    apply_qc_setup_marker,
+    evaluate_job_stage,
+    evaluate_stage_quality,
+    missing_qc_setup_blocks_checkpoint,
+    missing_qc_setup_detail,
+    submission_error,
+)
 from ..pending_by_order import summarize_job_cards_by_sales_order
 from ..due_risk import (
     DUE_RISK_OVERDUE,
@@ -2010,7 +2017,11 @@ def _merge_spec_snapshot(base_snapshot: dict[str, Any], spec_payload: dict[str, 
     # Started/issued jobs keep the frozen QC revision. Live spec rev B must not leak in.
     if "qc_profile" not in merged and isinstance(base_snapshot.get("qc_profile"), dict):
         merged["qc_profile"] = dict(base_snapshot.get("qc_profile") or {})
-
+    for key in ("qc_setup_status", "missing_qc_setup", "missing_profile_marker", "qc_profile_attach"):
+        if key not in merged and key in (base_snapshot or {}):
+            merged[key] = base_snapshot.get(key)
+    if str(merged.get("qc_setup_status") or "").strip().lower() != "attached":
+        apply_qc_setup_marker(merged)
     return merged
 
 
@@ -2446,7 +2457,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         if any(token in text for token in ["reel", "slit reel", "ready reel"]):
             operational_requires_slitting = False
             break
-    return {
+    snapshot = {
         "spec_id": spec.get("id"),
         "spec_reference": spec.get("spec_reference"),
         "customer_id": spec.get("customer_id"),
@@ -2531,6 +2542,7 @@ def _build_spec_snapshot(spec: dict[str, Any], priority: str) -> dict[str, Any]:
         "recipe_sheet_json": dynamic_map.get("recipe_sheet_json"),
         "qc_profile": spec.get("qc_profile") if isinstance(spec.get("qc_profile"), dict) else {},
     }
+    return apply_qc_setup_marker(snapshot)
 
 
 def _apply_commercial_parchment(spec_snapshot: dict[str, Any], line: dict[str, Any]) -> dict[str, Any]:
@@ -3337,6 +3349,8 @@ def _create_or_sync_job_card_for_line(
             "first_stage": first_stage,
             "queue_created": queue_created,
             "requires_slitting": requires_slitting,
+            "missing_qc_setup": bool((job_card.spec_snapshot or {}).get("missing_qc_setup")),
+            "qc_setup_status": (job_card.spec_snapshot or {}).get("qc_setup_status"),
         },
         after_payload={
             "planned_qty": float(job_card.planned_qty or 0.0),
@@ -4870,6 +4884,8 @@ def preflight_sales_order_release(
                 selected_winder_compatible=selected_is_compatible,
                 compatibility_warning=compatibility_warning,
                 blocker=blocker,
+                missing_qc_setup=bool(spec_snapshot.get("missing_qc_setup")),
+                qc_setup_status=str(spec_snapshot.get("qc_setup_status") or "missing"),
             )
         )
 
@@ -4930,6 +4946,8 @@ def sync_released_sales_order(
                     job_card_id=job_card.id,
                     first_stage=str((job_card.routing_snapshot or {}).get("first_stage") or job_card.current_stage),
                     queue_created=queue_created,
+                    missing_qc_setup=bool((job_card.spec_snapshot or {}).get("missing_qc_setup")),
+                    qc_setup_status=str((job_card.spec_snapshot or {}).get("qc_setup_status") or "missing"),
                 )
             )
         # The production transaction is durable before any cross-service link is written.
@@ -6681,6 +6699,18 @@ def capture_stage_output(
         raise HTTPException(status_code=404, detail="Job card not found")
     if job_card.status in ["COMPLETED", "CANCELLED"] or job_card.current_stage == "DONE":
         raise HTTPException(status_code=400, detail="Job card is not in executable state")
+    quality_checks_payload = dict(payload.quality_checks or {})
+    if missing_qc_setup_blocks_checkpoint(job_card.spec_snapshot or {}) and (
+        save_mode == "complete" or any(
+            key not in {"reasons", "sample_id", "samples", "entry_mode", "checkpoint"}
+            and value not in (None, "", [], {})
+            for key, value in quality_checks_payload.items()
+        )
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=missing_qc_setup_detail(job_card.spec_snapshot or {}),
+        )
 
     # P1.2 / QCT-057 — Active QC hold gates stage advancement, not physical
     # output recording. Record actuals as restricted QC_HOLD; do not 409 the form

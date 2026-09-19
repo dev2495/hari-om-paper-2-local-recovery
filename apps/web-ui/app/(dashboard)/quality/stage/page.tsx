@@ -100,7 +100,13 @@ function asArray(value: any) {
 }
 
 function jobLabel(job: any) {
-  return [job.job_card_no || job.job_no || String(job.id || "").slice(0, 8), job.product_code || job.spec_no, job.current_stage]
+  const missing = job?.spec_snapshot?.missing_qc_setup || job?.spec_snapshot?.missing_profile_marker
+  return [
+    job.job_card_no || job.job_no || String(job.id || "").slice(0, 8),
+    job.product_code || job.spec_no,
+    job.current_stage,
+    missing ? "MISSING QC" : "",
+  ]
     .filter(Boolean)
     .join(" | ")
 }
@@ -123,7 +129,7 @@ function reconnectConflict(error: any) {
   const data = error?.response?.data
   const detail = data?.detail ?? data
   const code = String(detail?.code || "")
-  if (code === "STALE_CONTEXT" || code === "OFFLINE_RELEASE_FORBIDDEN") return detail
+  if (code === "STALE_CONTEXT" || code === "OFFLINE_RELEASE_FORBIDDEN" || code === "MISSING_QC_SETUP") return detail
   return null
 }
 
@@ -193,6 +199,11 @@ export default function StageQualityPage() {
   const plantId = plantForJob(selectedJob) || (activePlant && activePlant.toUpperCase() !== "ALL" ? activePlant : undefined)
   const templateQuery = useJobQcTemplate(selectedJobId || undefined, stageType, plantId)
   const snapshotProfile = selectedJob?.spec_snapshot?.qc_profile || templateQuery.data?.qc_profile
+  const missingSetup = Boolean(
+    selectedJob?.spec_snapshot?.missing_qc_setup
+    || selectedJob?.spec_snapshot?.missing_profile_marker
+    || templateQuery.data?.missing_qc_setup,
+  )
   const stageBlock = templateQuery.data?.stages?.[stageType]
   const rules = asArray(stageBlock?.parameters).length
     ? stageBlock.parameters
@@ -305,7 +316,7 @@ export default function StageQualityPage() {
       if (conflict) {
         setStaleConflict(conflict)
         setLastVerdict("")
-        showToast(conflict.message || "Stale quality draft was not released.", "error")
+        showToast(conflict.message || "Quality checkpoint was not released.", "error")
         return
       }
       const detail = error?.response?.data?.detail || error?.message || "Inspection save failed."
@@ -580,12 +591,22 @@ export default function StageQualityPage() {
                 {String(draftContext.quality_context_version)}
               </div>
             ) : null}
+            {missingSetup ? (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-missing-setup">
+                Missing QC setup. Queue admission succeeded with a missing-setup flag. This checkpoint requires an approved resolution. Empty setup is not measured PASS.
+              </div>
+            ) : null}
+            {staleConflict?.code === "MISSING_QC_SETUP" ? (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-missing-setup-conflict">
+                {staleConflict.message}
+              </div>
+            ) : null}
             {offlineDraftKept ? (
               <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-900" data-testid="quality-stage-offline-draft">
                 Paper/offline draft kept locally. This is not a quality release.
               </div>
             ) : null}
-            {staleConflict ? (
+            {staleConflict && staleConflict.code !== "MISSING_QC_SETUP" ? (
               <div className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-stale-conflict">
                 <div className="font-semibold">{staleConflict.message}</div>
                 <div data-testid="quality-stage-retained-height">

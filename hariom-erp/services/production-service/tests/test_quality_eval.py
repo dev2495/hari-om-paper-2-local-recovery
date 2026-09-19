@@ -1,6 +1,9 @@
 from src.quality_eval import (
+    apply_qc_setup_marker,
     evaluate_incoming,
     evaluate_job_stage,
+    missing_qc_setup_blocks_checkpoint,
+    qc_profile_setup_status,
     submission_error,
 )
 
@@ -546,6 +549,53 @@ def test_offline_draft_and_stale_reconnect_retain_observations_and_signed_contex
     assert stale["observations"]["reasons"]["height"] == "paper card height short"
     assert stale["signed_profile_context"]["quality_context_version"] == 1
     assert stale["current_profile_context"]["quality_context_version"] == 2
+
+
+def test_empty_qc_profile_is_missing_setup_and_never_pass():
+    marked = apply_qc_setup_marker({"qc_profile": {}})
+    assert marked["qc_setup_status"] == "missing"
+    assert marked["missing_qc_setup"] is True
+    assert marked["missing_profile_marker"] is True
+    assert qc_profile_setup_status({}) == "missing"
+    evaluation = evaluate_job_stage(stage="WINDER", spec_snapshot=marked, readings={"id": 77})
+    assert evaluation.verdict != "PASS"
+    assert missing_qc_setup_blocks_checkpoint(marked) is True
+
+
+def test_approved_profile_is_not_missing_setup():
+    snapshot = apply_qc_setup_marker(
+        {
+            "qc_profile": {
+                "status": "approved",
+                "approved_by": "qc-1",
+                "revision": 2,
+                "stages": {
+                    "WINDER": {"parameters": [{"code": "id", "min": 76, "max": 78}]},
+                },
+            }
+        }
+    )
+    assert snapshot["qc_setup_status"] == "approved"
+    assert snapshot["missing_qc_setup"] is False
+    assert missing_qc_setup_blocks_checkpoint(snapshot) is False
+
+
+def test_legacy_approved_job_without_marker_still_executable():
+    snapshot = {
+        "qc_profile": {
+            "status": "approved",
+            "approved_by": "qc-1",
+            "revision": 1,
+            "stages": {"WINDER": {"parameters": [{"code": "id", "min": 1, "max": 2}]}},
+        }
+    }
+    assert missing_qc_setup_blocks_checkpoint(snapshot) is False
+
+
+def test_attached_marker_resolves_checkpoint():
+    snapshot = apply_qc_setup_marker({"qc_profile": {}, "qc_setup_status": "attached"})
+    assert snapshot["missing_qc_setup"] is False
+    assert missing_qc_setup_blocks_checkpoint(snapshot) is False
 
 
 

@@ -1375,3 +1375,39 @@ test("QCT-059 offline paper draft reconnects as stale conflict and does not rele
   await assertCritical()
 })
 
+test("QCT-060 queued missing-QC job flags setup and blocks checkpoint until approved resolution", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [
+      { kind: "response", status: 409 },
+      { kind: "console", textIncludes: "409" },
+    ],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnProductionPytest("tests/test_original_qct060_live.py::test_qct060_ui_job_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct060-ui-job.json"), "utf8"))
+  const jobId = String(artifact.job_id)
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await selectSeededQualityJob(page, jobId)
+  await page.getByTestId("quality-stage-tab-WINDER").click()
+  await expect(page.getByTestId("quality-stage-missing-setup")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId("quality-stage-missing-setup")).toContainText(/approved resolution/i)
+  await page.getByTestId("stage-qc-sample-id").fill("QCT060-UI")
+  await page.getByTestId("stage-qc-reading-id").fill("77")
+  await page.getByTestId("stage-qc-reading-od").fill("91")
+  await page.getByTestId("stage-qc-reading-height").fill("120")
+  await page.getByTestId("stage-qc-reading-weight").fill("250")
+  await page.getByTestId("stage-qc-reading-cs").fill("100")
+  await page.getByTestId("quality-stage-submit").click()
+  await expect(page.getByTestId("quality-stage-missing-setup-conflict")).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId("quality-stage-verdict")).toHaveCount(0)
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const listed = await page.request.get(`/api/production/quality/inspections?job_card_id=${jobId}`, {
+    headers: plantHeaders,
+  })
+  expect(listed.ok(), await listed.text()).toBeTruthy()
+  expect(await listed.json()).toEqual([])
+  await assertCritical()
+})
+

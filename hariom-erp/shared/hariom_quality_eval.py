@@ -438,6 +438,111 @@ def rules_from_qc_profile(profile: Any, stage: str, *, notching_applicable: Opti
     return ordered
 
 
+QC_SETUP_MISSING_STATUSES = {"missing", "draft", "incomplete", "pending_review"}
+QC_SETUP_RESOLVED_STATUSES = {"approved", "attached"}
+MISSING_QC_SETUP_CODE = "MISSING_QC_SETUP"
+MISSING_QC_SETUP_MESSAGE = (
+    "Missing QC setup. Queue admission succeeded; this execution checkpoint "
+    "requires an approved resolution. Empty setup is not measured PASS."
+)
+
+
+def qc_profile_setup_status(profile: Any) -> str:
+    """Classify a frozen QC profile. Empty setup is missing, never PASS."""
+    if not isinstance(profile, dict) or not profile:
+        return "missing"
+    explicit = str(profile.get("status") or profile.get("setup_status") or "").strip().lower()
+    if explicit == "attached":
+        return "attached"
+    if explicit == "approved" or profile.get("approved_by"):
+        return "approved"
+    if explicit in {"pending_review", "draft", "incomplete", "missing"}:
+        return "missing" if explicit == "missing" else explicit
+    stages = profile.get("stages") if isinstance(profile.get("stages"), dict) else {}
+    if not stages:
+        return "missing"
+    any_bounds = False
+    for stage_block in stages.values():
+        params = stage_block.get("parameters") if isinstance(stage_block, dict) else []
+        if not isinstance(params, list):
+            continue
+        if any(
+            isinstance(row, dict) and (row.get("min") is not None or row.get("max") is not None)
+            for row in params
+        ):
+            any_bounds = True
+            break
+    if not any_bounds:
+        return "draft" if explicit == "draft" else "missing"
+    if explicit == "draft":
+        return "draft"
+    if explicit == "complete":
+        return "complete"
+    return "complete"
+
+
+def apply_qc_setup_marker(snapshot: dict[str, Any]) -> dict[str, Any]:
+    """Stamp an explicit missing-profile marker. Queue admission is not vetoed."""
+    if not isinstance(snapshot, dict):
+        return {
+            "qc_setup_status": "missing",
+            "missing_qc_setup": True,
+            "missing_profile_marker": True,
+        }
+    if str(snapshot.get("qc_setup_status") or "").strip().lower() == "attached":
+        snapshot["missing_qc_setup"] = False
+        snapshot["missing_profile_marker"] = False
+        snapshot["qc_setup_status"] = "attached"
+        return snapshot
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    status = qc_profile_setup_status(profile)
+    snapshot["qc_setup_status"] = status
+    queue_missing = status in QC_SETUP_MISSING_STATUSES
+    snapshot["missing_qc_setup"] = queue_missing
+    snapshot["missing_profile_marker"] = queue_missing
+    return snapshot
+
+
+def missing_qc_setup_blocks_checkpoint(snapshot: Any) -> bool:
+    """True when a QC/execution checkpoint still needs approved resolution.
+
+    Legacy jobs without the marker that already freeze an approved profile stay
+    executable. Newly queued missing-setup jobs never become measured PASS.
+    """
+    if not isinstance(snapshot, dict):
+        return False
+    if snapshot.get("missing_qc_setup") is True or snapshot.get("missing_profile_marker") is True:
+        return True
+    status = str(snapshot.get("qc_setup_status") or "").strip().lower()
+    if status in QC_SETUP_RESOLVED_STATUSES:
+        return False
+    if status in QC_SETUP_MISSING_STATUSES or status == "complete":
+        return True
+    profile = snapshot.get("qc_profile") if isinstance(snapshot.get("qc_profile"), dict) else {}
+    computed = qc_profile_setup_status(profile)
+    if computed in QC_SETUP_RESOLVED_STATUSES:
+        return False
+    if not profile and not status:
+        return False
+    return computed not in QC_SETUP_RESOLVED_STATUSES
+
+
+def missing_qc_setup_detail(
+    snapshot: Any = None,
+    observations: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    snap = snapshot if isinstance(snapshot, dict) else {}
+    return {
+        "code": MISSING_QC_SETUP_CODE,
+        "message": MISSING_QC_SETUP_MESSAGE,
+        "missing_qc_setup": True,
+        "qc_setup_status": str(snap.get("qc_setup_status") or "missing"),
+        "requires_approved_resolution": True,
+        "approved_resolution": False,
+        "observations": observations or {},
+    }
+
+
 def _parse_as_of_date(value: Any) -> Optional[date]:
     if value is None:
         return None
