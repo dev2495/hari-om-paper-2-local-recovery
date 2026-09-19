@@ -1,7 +1,7 @@
 # Acceptance mapping — recovered V2 pack overlay
 
 **Local product HEAD this cycle:** `e060c56` QCT-056 correction audit on parent `a43e2d1` / `5306970`. Overlay parent `b1958f5`. Served BUILD_ID `Jsi64h520Xs_8mFfUP9Qr`.  
-**Chromium candidate:** BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` on `:23000` — QCT-056 original-procedure asserts passed; Playwright listed FAIL on unrelated books-state 500 (MASTERDATA_SERVICE_URL missing after restart; now 200, not looped). peLxeky combined 42/42 was two process groups.  
+**Chromium candidate:** BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` on `:23000` — QCT-056 **1 passed / 0 failed** in 5.2s; QCT-051+053 **2/2**. Full 43 in flight. peLxeky combined 42/42 was two process groups.  
 **Remote PR10 HEAD:** `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (not pushed since)  
 **Rule:** overlay statuses are `NOT_RUN`, `BLOCKED`, `FAIL`, `PASS`, `PARTIAL`, `LIMITATION` only. `CODE` is an implementation label, not a release gate. Original files stay historically `NOT_RUN` / `NOT_STARTED`.
 

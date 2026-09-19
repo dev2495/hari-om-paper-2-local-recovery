@@ -13,10 +13,10 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 | --- | --- |
 | Local branch | `cursor/ui-polish-nav-c5f9` |
 | Remote PR10 | `74f5b45300ce1f121b5efd89f319b0d4e1027b33` (**not pushed** since) |
-| Served product | QCT-056 correction audit `e060c56`; served BUILD_ID `Jsi64h520Xs_8mFfUP9Qr`; overlay parent `b1958f5` |
+| Served product | QCT-056 correction audit `e060c56` + books-state catalog resilience `4cb6d72`; served BUILD_ID `Jsi64h520Xs_8mFfUP9Qr`; overlay `f422f9a` PASS 89 |
 | Served BUILD_ID | `Jsi64h520Xs_8mFfUP9Qr` at `http://127.0.0.1:23000` |
-| BJ re-run | QCT-056 Chromium original asserts passed on `Jsi64h520Xs_8mFfUP9Qr`; Playwright listed FAIL on books-state 500 (MASTERDATA_SERVICE_URL restored, books-state 200, not looped). peLxeky focused 5/5; combined 42/42 was two process groups. |
-| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ this overlay |
+| BJ re-run | QCT-056 Chromium **1/1 PASS** (5.2s) and QCT-051+053 **2/2 PASS** (6.1s) on `Jsi64h520Xs_8mFfUP9Qr` after books-state 200. Full 43 in flight. peLxeky focused 5/5; combined 42/42 was two process groups. |
+| Ancestry | `30263a4` ⊂ `74f5b45` ⊂ `faee2ab` ⊂ `d071d12` ⊂ `5dd8b9b` ⊂ `5187a64` ⊂ `1e39788` ⊂ `5a67e67` ⊂ `b69edb6` ⊂ `9976b73` ⊂ `34e116d` ⊂ `151889b` ⊂ `7fba655` ⊂ `06612db` ⊂ `338ebed` ⊂ `f406968` ⊂ `e4a689d` ⊂ `94e4af6` ⊂ `bb0af79` ⊂ `26e1001` ⊂ `cb30e30` ⊂ `9eaae5f` ⊂ `096ca77` ⊂ `df3cc14` ⊂ `76ca2ba` ⊂ `a24b843` ⊂ `25e870e` ⊂ `df3a0ca` ⊂ `b7c11ec` ⊂ `8db296c` ⊂ `dfbc8a1` ⊂ `72262de` ⊂ `f78e288` ⊂ `5306970` ⊂ `f65f476` ⊂ `ff96f7e` ⊂ `bf2207d` ⊂ `a43e2d1` ⊂ `dd6973a` ⊂ `e060c56` ⊂ `fc80550` ⊂ `b1958f5` ⊂ `f422f9a` ⊂ `4cb6d72` ⊂ this overlay |
 | Images | `hariom-nverify-inventory:faee2ab` / `hariom-nverify-production:faee2ab` — **STALE, not rebuilt** |
 | Schema | create_all, no `alembic_version`. No new tables this wave. Prior additive: `specification_sheet.write_revision`; `spec_save_operations`; `qty_rejected`; `audit_outbox` `INCOMING_QC_TASK_DELIVERY`. |
 | Provider push-safety | `railway.toml` + `hariom-erp/render.yaml` still present. Auto-deploy **not proven disconnected**. |
@@ -26,7 +26,7 @@ Product at wave start: `bb0af792f05be0331c07938518dabd0820fe79e5`
 ## Runtime identity
 
 - Isolated UI `http://127.0.0.1:23000` Next 15.5.25 release, BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` pid **90619**
-- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **93154** :28004 (JWT + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002`), sales **2337** :28008
+- BFF `http://127.0.0.1:24000` pid **75339** (CSRF Origin allow for `http://127.0.0.1:23000`), inventory **2331** :28005, production **94008** :28004 (JWT + MASTERDATA_SERVICE_URL `http://127.0.0.1:28002`), sales **2337** :28008
 - Auth **89325** :28001, master **90295** :28002, spec **31405** :28003, analytics **13483** :28007
 - Foreign `127.0.0.1:13000` pid 69663 left running
 
@@ -39,7 +39,9 @@ Wave after overlay `b1958f5` / product `e060c56` (QCT-056):
 | QCT-056 unit + live + QCT-048/QC-08 regression | 4 passed | missing correction reason 400; stale revision 409; original height 90 FAIL retained; correction PASS revision 2; hold HOLD |
 | Chromium focused QCT-056 first | FAIL | seeded job missing from Stage QC (production restart lacked JWT_SECRET) |
 | Chromium focused QCT-056 retest | original asserts passed; process FAIL | FAIL 90 retained, 400 without reason, PASS correction revision 2, hold HOLD; assertCritical tripped on `/api/production/books-state` 500 |
-| books-state after MASTERDATA_SERVICE_URL restore | 200 | not Chromium-looped |
+| books-state catalog resilience + MASTERDATA_SERVICE_URL | 200 | `_fetch_paper_catalog` / `_fetch_inventory_item_catalog` return `{}` on `httpx.ConnectError`; start.sh exports `MASTERDATA_SERVICE_URL` |
+| Chromium focused QCT-056 after books-state 200 | **1 passed** in 5.2s | `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct056-after-books/` |
+| Chromium focused QCT-051+053 after that bind | **2 passed** in 6.1s | `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct051-053-after-056/` |
 
 Fixes patched with those tests:
 

@@ -6,7 +6,8 @@ Additive BJ01–BJ13. These are **not** the original 192 V2 cases.
 
 - Binding: `PLAYWRIGHT_BASE_URL=http://127.0.0.1:23000`, `PLAYWRIGHT_CHROME_CHANNEL=chrome`
 - Served origin: `http://127.0.0.1:23000` BUILD_ID `Jsi64h520Xs_8mFfUP9Qr` (QCT-056 correction audit). Prior `peLxekyXOJkjRqV0nc9oN` unknown-cause + common-cause + Tab-from-FAIL-reading.
-- Focused QCT-056: original-procedure asserts passed; Playwright listed FAIL on books-state 500 — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct056-retest/`
+- Focused QCT-056: **1 passed / 0 failed** in 5.2s — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct056-after-books/`
+- Focused QCT-051+053 after that bind: **2 passed / 0 failed** in 6.1s — `output/playwright/Jsi64h520Xs_8mFfUP9Qr-qct051-053-after-056/`
 - Focused QCT-045+051/053/054/055 on peLxeky: **5 passed / 0 failed** in 12.5s — `output/playwright/peLxekyXOJkjRqV0nc9oN-qct045-055/`
 - Full Chromium on peLxeky: **34 passed / 8 failed** in 6.9m after isolated auth `:28001` died — `output/playwright/peLxekyXOJkjRqV0nc9oN-full/`
 - Those 8 BJ logins re-ran **8 passed / 0 failed** in 13.2s after auth restore — `output/playwright/peLxekyXOJkjRqV0nc9oN-bj-tail/`

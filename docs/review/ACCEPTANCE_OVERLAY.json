@@ -2721,7 +2721,7 @@
       ],
       "bj": [],
       "limitation": null,
-      "notes": "Changing recorded height 90 FAIL to 120 PASS keeps the original FAIL row, requires correction reason/actor/time/revision 2, and leaves the hold HOLD. Missing reason is 400; stale expected_revision is 409. Chromium BUILD_ID Jsi64h520Xs_8mFfUP9Qr executed that original UI procedure (FAIL retained, 400 without reason, PASS correction revision 2, hold HOLD). Playwright process then listed FAIL on unrelated /api/production/books-state 500 from a production restart missing MASTERDATA_SERVICE_URL; that URL is restored and books-state is 200. Not looped."
+      "notes": "Changing recorded height 90 FAIL to 120 PASS keeps the original FAIL row, requires correction reason/actor/time/revision 2, and leaves the hold HOLD. Missing reason is 400; stale expected_revision is 409. Chromium BUILD_ID Jsi64h520Xs_8mFfUP9Qr: 1 passed / 0 failed in 5.2s after books-state 200 (catalog fetch no longer 500s when master hostname is unresolved). Original FAIL 90 retained, 400 without reason, PASS correction revision 2, hold HOLD."
     },
     {
       "id": "QCT-057",
