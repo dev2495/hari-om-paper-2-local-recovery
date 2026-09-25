@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { ChevronLeft, ChevronRight, ClipboardList, Factory, FileText, Gauge, Layers, LineChart, LogOut, Menu, Package, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot } from "lucide-react"
+import { AlertTriangle, CheckCircle2, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -15,6 +15,7 @@ import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import { MODULE_NAVIGATION } from "@/lib/module-navigation"
 import { searchWorkspaceJumps } from "@/lib/workspace-jump"
+import { RouteProgress } from "@/components/workspace/route-progress"
 
 type NavLink = {
   name: string
@@ -308,57 +309,63 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <Link href={item.href} className="tube-nav-link" aria-label={item.name} title={`${item.name} · ${item.description}`} aria-current={current?.href === item.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}>
           <item.icon aria-hidden="true" /><span>{item.name}</span>
         </Link>
-        {(sidebarPinned || mobile) && current?.href === item.href && MODULE_NAVIGATION[item.href] ? <div className="ml-5 border-l border-border pl-3">
-          {MODULE_NAVIGATION[item.href].map(child => <Link key={child.href} href={child.href} className="tube-nav-link !min-h-8 !py-2 !text-xs" aria-current={pathname === child.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}>{child.name}</Link>)}
+        {(sidebarPinned || mobile) && current?.href === item.href && MODULE_NAVIGATION[item.href] ? <div className="tube-subnav">
+          {MODULE_NAVIGATION[item.href].map(child => <Link key={child.href} href={child.href} className="tube-nav-link" aria-current={pathname === child.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><span>{child.name}</span></Link>)}
         </div> : null}
       </div>)}
     </details>)}
   </nav>
-  if (isLoading) return <div className="min-h-screen bg-background p-8" role="status" aria-label="Loading workspace"><div className="h-16 animate-pulse rounded-xl bg-muted" /><div className="mt-6 grid gap-4 md:grid-cols-3">{[0,1,2].map(n => <div key={n} className="h-40 animate-pulse rounded-xl bg-muted" />)}</div></div>
+  if (isLoading) return <div className="tube-shell" role="status" aria-label="Loading workspace">
+    <aside className="tube-rail"><div className="tube-brand"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></div><div className="space-y-2 p-3">{Array.from({ length: 9 }, (_, n) => <div key={n} className="skeleton h-7" style={{ width: `${60 + ((n * 17) % 35)}%` }} />)}</div></aside>
+    <div className="tube-workspace"><div className="tube-topbar"><div className="skeleton h-4 w-40" /></div><div className="tube-content space-y-5"><div className="skeleton h-8 w-72" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map(n => <div key={n} className="skeleton h-28 rounded-xl" />)}</div><div className="skeleton h-80 rounded-xl" /></div></div>
+  </div>
   if (!user) return null
   return <div className="tube-shell" data-rail={sidebarPinned ? "expanded" : "compact"}>
     <a href="#workspace-content" className="tube-skip">Skip to workspace</a>
     <aside className="tube-rail" aria-label="Workspace navigation">
-      <Link href="/dashboard" className="tube-brand" aria-label="Hari Om TubeOS home"><span className="tube-mark"><CircleDot size={22} strokeWidth={1.5} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></Link>
+      <Link href="/dashboard" className="tube-brand" aria-label="Hari Om TubeOS home"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></Link>
       {navigation()}
-      <div className="tube-user"><span className="tube-avatar">{initials}</span><div className="tube-user-detail min-w-0 flex-1"><p className="truncate text-xs font-semibold">{user.name}</p><p className="mt-1 truncate text-[11px] text-muted-foreground">{activeRole || user.role || user.roles?.[0]}</p></div><button className="tube-user-detail" aria-label="Logout" title="Logout" onClick={signOut}><LogOut size={16} /></button></div>
+      <div className="tube-user"><span className="tube-avatar">{initials}</span><div className="tube-user-detail min-w-0 flex-1"><p className="truncate text-xs font-semibold">{user.name}</p><p className="mt-1 truncate text-[11px] text-muted-foreground">{activeRole || user.role || user.roles?.[0]}</p></div><button className="tube-user-detail" aria-label="Logout" title="Logout" onClick={signOut}><LogOut size={15} /></button></div>
     </aside>
     <div className="tube-workspace">
       <header className="tube-topbar">
-        <button type="button" className="tube-icon-button tube-desktop-toggle" aria-label={sidebarPinned ? "Collapse navigation" : "Expand navigation"} aria-expanded={sidebarPinned} onClick={toggleSidebar}>{sidebarPinned ? <ChevronLeft size={17} /> : <ChevronRight size={17} />}</button>
+        <button type="button" className="tube-icon-button tube-desktop-toggle" aria-label={sidebarPinned ? "Collapse navigation" : "Expand navigation"} title={sidebarPinned ? "Collapse navigation" : "Expand navigation"} aria-expanded={sidebarPinned} onClick={toggleSidebar}>{sidebarPinned ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}</button>
         <Dialog open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
           <DialogTrigger asChild><button className="tube-icon-button tube-mobile-trigger" aria-label="Open workspace navigation"><Menu size={18} /></button></DialogTrigger>
-          <DialogContent className="!left-0 !top-0 !h-dvh !max-h-dvh !w-[min(88vw,320px)] !translate-x-0 !translate-y-0 !rounded-none !p-0 flex flex-col gap-0">
-            <div className="border-b border-border p-5"><DialogTitle>Hari Om TubeOS</DialogTitle><DialogDescription className="mt-1">Choose a workspace</DialogDescription></div>
+          <DialogContent className="tube-sheet !left-0 !top-0 !h-dvh !max-h-dvh !w-[min(86vw,320px)] !translate-x-0 !translate-y-0 !rounded-none !rounded-r-2xl !border-y-0 !border-l-0 !bg-[hsl(var(--surface-2))] !p-0 flex flex-col gap-0">
+            <div className="flex items-center gap-3 border-b border-border px-4 py-3"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><div><DialogTitle className="!text-[15px]">Hari Om TubeOS</DialogTitle><DialogDescription className="!text-xs">Choose a workspace</DialogDescription></div></div>
             {navigation(true)}
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4"><RoleSwitcher mobile /><button className="erp-btn-secondary" onClick={signOut}><LogOut size={16} />Logout</button></div>
           </DialogContent>
         </Dialog>
-        <div className="tube-context"><span>{groupName || "Workspace"}</span><ChevronRight size={12} /><strong>{Object.values(MODULE_NAVIGATION).flat().find(item => item.href === pathname)?.name || current?.name || "Detail"}</strong></div>
+        <div className="tube-context"><span>{groupName || "Workspace"}</span><ChevronRight size={13} /><strong>{Object.values(MODULE_NAVIGATION).flat().find(item => item.href === pathname)?.name || current?.name || "Detail"}</strong></div>
         <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
           <DialogTrigger asChild><button className="tube-command sm:ml-auto" aria-label="Jump to workspace"><Search size={16} /><span>Jump to workspace</span><kbd>⌘ K</kbd></button></DialogTrigger>
-          <DialogContent className="sm:max-w-xl">
-            <DialogTitle>Jump to workspace</DialogTitle><DialogDescription>Find an order register, inspection, calendar or guide.</DialogDescription>
-            <Input autoFocus aria-label="Find workspace" placeholder="Search workspaces…" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} onKeyDown={event => {
+          <DialogContent className="!top-[14vh] !translate-y-0 gap-0 overflow-hidden !p-0 sm:max-w-xl">
+            <div className="flex items-center gap-2 border-b border-border px-4"><Search size={16} className="shrink-0 text-muted-foreground" /><DialogTitle className="sr-only">Jump to workspace</DialogTitle><DialogDescription className="sr-only">Find an order register, inspection, calendar or guide.</DialogDescription>
+            <Input autoFocus aria-label="Find workspace" placeholder="Jump to a workspace, register or guide…" className="h-12 border-0 bg-transparent px-0 text-[14px] shadow-none focus-visible:ring-0" value={searchQuery} onChange={event => setSearchQuery(event.target.value)} onKeyDown={event => {
               if (event.key === "Enter" && matches[0]) {event.preventDefault();navigate(matches[0].href)}
               if (event.key === "ArrowDown") {event.preventDefault();document.getElementById("workspace-result-0")?.focus()}
-            }} />
-            <div className="max-h-[55dvh] overflow-y-auto" aria-label="Workspace results">
-              {(searchQuery ? matches : flatLinks.slice(0,10)).map((item,index) => <button key={item.href} id={`workspace-result-${index}`} className="flex w-full flex-col gap-1 rounded-lg p-3 text-left hover:bg-accent" onClick={() => navigate(item.href)} onKeyDown={event => {
+            }} /><kbd className="hidden rounded border border-border bg-muted px-1.5 py-0.5 text-[10.5px] text-muted-foreground sm:inline">esc</kbd></div>
+            <div className="max-h-[55dvh] overflow-y-auto p-1.5" aria-label="Workspace results">
+              <p className="px-2.5 pb-1 pt-2 text-[11px] font-medium text-muted-foreground">{searchQuery ? `${matches.length} result${matches.length === 1 ? "" : "s"}` : "Quick jump"}</p>
+              {(searchQuery ? matches : flatLinks.slice(0,10)).map((item,index) => <button key={item.href} id={`workspace-result-${index}`} className="group flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left outline-none transition-colors hover:bg-foreground/[.05] focus-visible:bg-accent focus-visible:outline-none" onClick={() => navigate(item.href)} onKeyDown={event => {
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {event.preventDefault();document.getElementById(`workspace-result-${index+(event.key === "ArrowDown"?1:-1)}`)?.focus()}
-              }}><span className="text-sm font-semibold">{item.name}</span><span className="text-xs text-muted-foreground">{item.description}</span></button>)}
-              {searchQuery && !matches.length ? <p className="p-5 text-sm text-muted-foreground">No matching workspace in your role. Try “inward”, “quality” or “calendar”.</p> : null}
+              }}><span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg border border-border bg-card text-muted-foreground group-hover:text-primary group-focus-visible:text-primary">{"icon" in item && item.icon ? <item.icon size={15} /> : <CornerDownLeft size={14} />}</span><span className="min-w-0 flex-1"><span className="block truncate text-[13px] font-medium">{item.name}</span><span className="block truncate text-xs text-muted-foreground">{item.description}</span></span><CornerDownLeft size={13} className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" /></button>)}
+              {searchQuery && !matches.length ? <p className="p-5 text-center text-sm text-muted-foreground">No matching workspace in your role. Try “inward”, “quality” or “calendar”.</p> : null}
             </div>
+            <div className="flex items-center gap-3 border-t border-border bg-[hsl(var(--surface-2))] px-4 py-2 text-[11px] text-muted-foreground"><span><kbd className="rounded border border-border bg-card px-1">↑</kbd> <kbd className="rounded border border-border bg-card px-1">↓</kbd> navigate</span><span><kbd className="rounded border border-border bg-card px-1">↵</kbd> open</span><span className="ml-auto">⌘K anywhere</span></div>
           </DialogContent>
         </Dialog>
-        <div className="ml-auto flex max-w-full flex-wrap items-center gap-2 sm:ml-0">
+        <div className="ml-auto flex min-w-0 items-center gap-1 sm:ml-0">
           <AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
           {userRoles.has("Owner") || userRoles.has("Admin") ? <PlantSwitcher compact /> : null}
           <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
         </div>
       </header>
-      <main id="workspace-content" tabIndex={-1} className="tube-content focus:outline-none">{children}</main>
+      <main id="workspace-content" tabIndex={-1} className="tube-content focus:outline-none"><div key={pathname} className="tube-page">{children}</div></main>
     </div>
-    {toast ? <div className="fixed bottom-5 right-5 z-[70] w-[min(380px,calc(100vw-40px))] rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl" role={toast.type === "error" ? "alert" : "status"}><div className="flex items-start gap-3"><p className="flex-1 text-sm leading-6">{toast.message}</p><button aria-label="Dismiss notification" onClick={clearToast}><X size={16} /></button></div></div> : null}
+    <RouteProgress />
+    {toast ? <div key={toast.message} className="tube-toast fixed bottom-4 right-4 z-[70] w-[min(400px,calc(100vw-32px))] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-pop" role={toast.type === "error" ? "alert" : "status"}><div className="flex items-start gap-3 p-3.5"><span className={`mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full ${toast.type === "error" ? "bg-signal-rose-soft text-signal-rose-ink" : toast.type === "success" ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-signal-blue-soft text-signal-blue-ink"}`}>{toast.type === "error" ? <AlertTriangle size={13} /> : toast.type === "success" ? <CheckCircle2 size={13} /> : <Info size={13} />}</span><p className="flex-1 text-[13px] leading-5">{toast.message}</p><button className="grid h-6 w-6 place-items-center rounded-md text-muted-foreground hover:bg-foreground/[.06] hover:text-foreground" aria-label="Dismiss notification" onClick={clearToast}><X size={14} /></button></div><div className={`h-0.5 ${toast.type === "error" ? "bg-signal-rose-ink/60" : toast.type === "success" ? "bg-signal-emerald-ink/60" : "bg-primary/60"}`} /></div> : null}
   </div>
 }

@@ -16,10 +16,10 @@ export type PageHeaderProps = {
 }
 
 export function PageHeader({ title, description, actions, aside, badge, testId }: PageHeaderProps) {
-  return <section data-testid={testId || "page-header"}>
+  return <section data-testid={testId || "page-header"} className="animate-enter-up">
     <header className="tube-page-header">
       <div className="min-w-0 flex-1 basis-80">
-        {badge ? <span className="mb-2 inline-flex rounded-md border border-border bg-card px-2 py-1 text-xs text-muted-foreground">{badge}</span> : null}
+        {badge ? <span className="tube-page-eyebrow">{badge}</span> : null}
         <h1>{title}</h1>
         {description ? <p>{description}</p> : null}
       </div>

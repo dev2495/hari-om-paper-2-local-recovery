@@ -18,16 +18,19 @@ export function LoadingState({
       role="status"
       aria-live="polite"
       data-testid="query-loading"
-      className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-[1.3rem] border border-border bg-card/80 px-4 py-12 text-center",
-        className,
-      )}
+      className={cn("overflow-hidden rounded-xl border border-border bg-card", className)}
     >
-      <LoaderCircle className="h-6 w-6 animate-spin text-signal-cyan-ink" aria-hidden="true" />
-      <p className="text-sm font-semibold text-muted-foreground">{label}</p>
-      <div className="mt-2 grid w-full max-w-xl gap-2">
-        <div className="h-3 animate-pulse rounded-full bg-muted" />
-        <div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" />
+      <div className="flex items-center gap-2 border-b border-border bg-[hsl(var(--surface-2))] px-4 py-2.5">
+        <LoaderCircle className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+        <p className="text-[12.5px] font-medium text-muted-foreground">{label}</p>
+      </div>
+      <div className="space-y-3 p-4" aria-hidden="true">
+        {[92, 78, 86, 64, 72].map((width, index) => (
+          <div key={index} className="flex items-center gap-4">
+            <div className="skeleton h-3 w-24 shrink-0" />
+            <div className="skeleton h-3" style={{ width: `${width}%`, animationDelay: `${index * 80}ms` }} />
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -48,7 +51,7 @@ export function ErrorState({
     <div
       role="alert"
       data-testid="query-error"
-      className={cn("rounded-[1.3rem] border border-signal-rose-line bg-signal-rose-soft px-4 py-6 text-signal-rose-ink", className)}
+      className={cn("animate-fade-in rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-4 text-signal-rose-ink", className)}
     >
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
@@ -56,7 +59,7 @@ export function ErrorState({
           <p className="text-sm font-semibold">{title}</p>
           <p className="text-sm leading-6 text-signal-rose-ink">{message}</p>
           {onRetry ? (
-            <Button type="button" variant="outline" className="h-9 rounded-xl border-signal-rose-line bg-card" onClick={onRetry}>
+            <Button type="button" variant="outline" className="h-8 border-signal-rose-line bg-card" onClick={onRetry}>
               <RotateCcw className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
               Retry
             </Button>
@@ -83,11 +86,11 @@ export function EmptyQueryState({
       role="status"
       data-testid="query-empty"
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-[1.3rem] border border-dashed border-border bg-muted/80 px-4 py-10 text-center",
+        "flex animate-fade-in flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-[hsl(var(--surface-2))] px-4 py-10 text-center",
         className,
       )}
     >
-      <Inbox className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+      <span className="grid h-10 w-10 place-items-center rounded-full bg-muted ring-1 ring-border"><Inbox className="h-5 w-5 text-muted-foreground" aria-hidden="true" /></span>
       <p className="text-sm font-semibold text-foreground">{title}</p>
       {message ? <p className="max-w-xl text-sm leading-6 text-muted-foreground">{message}</p> : null}
       {action}
@@ -114,10 +117,10 @@ export function PaginationBar({
     <nav className="mt-4 flex items-center justify-between gap-3 text-sm text-muted-foreground" aria-label="Pagination">
       <span>{label || `Page ${page}`}</span>
       <div className="flex gap-2">
-        <Button type="button" variant="outline" className="h-9 rounded-xl" disabled={!hasPrevious} onClick={onPrevious}>
+        <Button type="button" variant="outline" className="h-8" disabled={!hasPrevious} onClick={onPrevious}>
           Previous
         </Button>
-        <Button type="button" variant="outline" className="h-9 rounded-xl" disabled={!hasNext} onClick={onNext}>
+        <Button type="button" variant="outline" className="h-8" disabled={!hasNext} onClick={onNext}>
           Next
         </Button>
       </div>
