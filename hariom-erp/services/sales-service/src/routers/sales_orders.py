@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from math import isfinite
 from typing import List, Optional
 import logging
@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from ..database import get_db
 from ..open_demand import collect_open_demand
+from ..delivery_calendar import build_delivery_calendar
+from ..due_risk import plant_today
 from ..models import (
     SalesOrder,
     SalesOrderLine,
@@ -1029,6 +1031,31 @@ def _group_rows_by_line(rows: List[DeliveryScheduleRowInput]) -> dict[str, list[
             }
         )
     return grouped
+
+
+@router.get("/delivery-calendar")
+def get_delivery_calendar(
+    start: Optional[date] = Query(None),
+    end: Optional[date] = Query(None),
+    customer_id: Optional[uuid.UUID] = Query(None),
+    search: Optional[str] = Query(None, max_length=120),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Read-only portfolio calendar of customer call-offs and unscheduled demand."""
+    del current_user
+    today = plant_today()
+    window_start = start or today.replace(day=1)
+    window_end = end or (window_start.replace(day=28) + timedelta(days=10)).replace(day=1) - timedelta(days=1)
+    return build_delivery_calendar(
+        load_open_orders(db, plant_scope),
+        start=window_start,
+        end=window_end,
+        today=today,
+        customer_id=str(customer_id) if customer_id else None,
+        search=search,
+    )
 
 
 @router.get("/{order_id}/delivery-schedules")

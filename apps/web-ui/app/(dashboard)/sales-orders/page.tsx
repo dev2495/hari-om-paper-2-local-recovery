@@ -4,21 +4,30 @@ import dayjs from "dayjs"
 import Link from "next/link"
 import {
   ArrowRightLeft,
+  CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   Factory,
+  History,
+  ListChecks,
+  LoaderCircle,
   Plus,
+  Rows3,
   Search,
+  Send,
 } from "lucide-react"
+import { useSearchParams } from "next/navigation"
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react"
 
 import {
-  ExecutiveHero,
   MetricCard,
   MetricRail,
-  Panel,
   StatusBadge,
 } from "@/components/erp/shell"
+import { DeliveryCalendarBoard } from "@/components/sales/delivery-calendar-board"
+import { PageHeader } from "@/components/workspace/page-header"
 import { QuerySwitch } from "@/components/workspace/query-state"
 import {
   Dialog,
@@ -42,7 +51,6 @@ import {
   useSalesOrderAggregates,
   useSalesOrders,
 } from "@/hooks/use-sales"
-import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { type ReleaseMachine } from "@/lib/sales-release"
 import {
   isInternalOrigin,
@@ -168,8 +176,19 @@ export default function SalesOrdersPage() {
     jobCardIds: string[]
     syncPending: boolean
   } | null>(null)
-  const [statusFilter, setStatusFilter] = useState("open")
-  const [pageSize, setPageSize] = useState(10)
+  const searchParams = useSearchParams()
+  const [statusFilter, setStatusFilter] = useState(() => searchParams?.get("status") || "open")
+  const [view, setViewState] = useState<"orders" | "calendar">(() => (searchParams?.get("view") === "calendar" ? "calendar" : "orders"))
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const setView = (next: "orders" | "calendar") => {
+    setViewState(next)
+    const params = new URLSearchParams(window.location.search)
+    if (next === "calendar") params.set("view", "calendar")
+    else params.delete("view")
+    const query = params.toString()
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
+  }
+  const [pageSize, setPageSize] = useState(25)
   const [pageIndex, setPageIndex] = useState(0)
   const deferredSearch = useDeferredValue(search.trim())
   const offset = pageIndex * pageSize
@@ -460,365 +479,401 @@ export default function SalesOrdersPage() {
     }
   }
 
+  const releasableStatuses = ["approved", "released", "partially_released", "partially_dispatched"]
+  const releasableLineIds = (order: any) =>
+    (order.lines || [])
+      .filter((line: any) => Number(line.release_remaining_qty ?? line.remaining_qty ?? 0) > 0)
+      .map((line: any) => String(line.id))
+  const toggleAllLines = (order: any, checked: boolean) => {
+    const ids = releasableLineIds(order)
+    setSelectedLines((current) => ({ ...current, [String(order.id)]: checked ? ids : [] }))
+    if (checked) setExpanded((current) => new Set(current).add(String(order.id)))
+  }
+  const toggleExpanded = (orderId: string) =>
+    setExpanded((current) => {
+      const next = new Set(current)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+  const customerName = (id?: string | null) => {
+    const label = customerMap.get(String(id || "")) || ""
+    return label.includes(" · ") ? label.split(" · ").slice(1).join(" · ") : label || "Customer"
+  }
+
   return (
     <>
-      <div className="space-y-6" data-testid="sales-orders:page">
-        <ExecutiveHero
-          appearance={MODULE_APPEARANCES.sales}
-          badge="Sales Queue"
-          title="Long-horizon POs, partial releases, and planner handoff"
-          description="Customer POs can span weeks. Each line keeps its own product code, parchment condition, and repeated release flow into planning whenever production asks for more."
-          aside={
-            <div className="space-y-3">
-              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Release Discipline</p>
-                <p className="mt-2 text-3xl font-semibold">{metrics.readyOrders}</p>
-                <p className="mt-1 text-xs text-emerald-100/80">Orders ready for line-level release planning</p>
-              </div>
-              <Link
-                href="/sales-orders/new"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-semibold text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-lg"
-              >
+      <div className="space-y-5" data-testid="sales-orders:page">
+        <PageHeader
+          badge="Sales"
+          title="Sales orders"
+          description="Long-running customer POs, line-level releases to planning, and every delivery commitment on one calendar."
+          actions={
+            <>
+              <Link href="/sales-orders/pending" className="erp-btn-secondary">
+                <ListChecks className="h-4 w-4" />
+                Pending register
+              </Link>
+              <Link href="/sales-orders/new" className="erp-btn-primary">
                 <Plus className="h-4 w-4" />
                 New sales order
               </Link>
-              <Link
-                href="/sales-orders/pending"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border/30 px-4 py-3 text-sm font-semibold text-white"
-              >
-                All pending orders
-              </Link>
-            </div>
+            </>
           }
         />
 
         <MetricRail>
-          <MetricCard
-            label="Draft Queue"
-            value={metrics.draftOrders}
-            detail="Draft orders awaiting commercial approval"
-            icon={CheckCircle2}
-            tone="amber"
-          />
-          <MetricCard
-            label="Release Ready"
-            value={metrics.readyOrders}
-            detail="Approved rows waiting for winder selection"
-            icon={ArrowRightLeft}
-            tone="cyan"
-          />
-          <MetricCard
-            label="Planner Synced"
-            value={metrics.syncedOrders}
-            detail="Orders already mapped to job cards"
-            icon={ClipboardCheck}
-            tone="emerald"
-          />
-          <MetricCard
-            label="Open Qty"
-            value={metrics.openQty.toFixed(0)}
-            detail="Pieces still open across all in-scope orders"
-            icon={Factory}
-            tone="violet"
-          />
+          <button type="button" className="text-left" onClick={() => { setView("orders"); setStatusFilter("draft") }}>
+            <MetricCard label="Awaiting approval" value={metrics.draftOrders.toLocaleString("en-IN")} detail="Draft orders waiting for commercial approval" icon={CheckCircle2} tone="amber" />
+          </button>
+          <button type="button" className="text-left" onClick={() => { setView("orders"); setStatusFilter("open") }}>
+            <MetricCard label="Ready to release" value={metrics.readyOrders.toLocaleString("en-IN")} detail="Approved orders with lines still to release" icon={ArrowRightLeft} tone="cyan" />
+          </button>
+          <MetricCard label="Linked to planning" value={metrics.syncedOrders.toLocaleString("en-IN")} detail="Orders already mapped to job cards" icon={ClipboardCheck} tone="emerald" />
+          <MetricCard label="Open quantity" value={`${metrics.openQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`} detail="Pieces still open across all in-scope orders" icon={Factory} tone="violet" />
         </MetricRail>
 
-        <Panel
-          title="Commercial Release Studio"
-          subtitle="Scan each PO as a long-running commercial contract, select the exact live line buckets, then release only what production needs."
-          actions={
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex w-full min-w-[18rem] items-center gap-2 rounded-2xl border border-border bg-muted/90 px-4 py-3 shadow-sm sm:w-[26rem]">
-                <Search className="h-4 w-4 text-muted-foreground" />
-                <input
-                  value={search}
-                  onChange={(event) => {
-                    const nextValue = event.target.value
-                    startTransition(() => setSearch(nextValue))
-                  }}
-                  placeholder="Search PO, product code, parchment..."
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                />
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="h-12 rounded-2xl border border-border bg-card px-3 text-sm font-semibold text-muted-foreground outline-none transition focus:border-signal-cyan-line focus:ring-4 focus:ring-cyan-100"
-              >
-                <option value="open">Open queue</option>
-                <option value="all">All statuses</option>
-                <option value="draft">Draft</option>
-                <option value="submitted">Submitted</option>
-                <option value="approved">Approved</option>
-                <option value="released">Released</option>
-                <option value="partially_released">Partially released</option>
-                <option value="partially_dispatched">Partially dispatched</option>
-                <option value="closed">Closed</option>
-              </select>
-              <select
-                value={pageSize}
-                onChange={(event) => setPageSize(Number(event.target.value))}
-                className="h-12 rounded-2xl border border-border bg-card px-3 text-sm font-semibold text-muted-foreground outline-none transition focus:border-signal-cyan-line focus:ring-4 focus:ring-cyan-100"
-              >
-                <option value={10}>10 / page</option>
-                <option value={25}>25 / page</option>
-                <option value={50}>50 / page</option>
-              </select>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="tube-segment" role="tablist" aria-label="Sales view">
+            <button type="button" role="tab" aria-selected={view === "orders"} data-state={view === "orders" ? "active" : undefined} onClick={() => setView("orders")}>
+              <Rows3 size={14} />
+              Orders
+            </button>
+            <button type="button" role="tab" aria-selected={view === "calendar"} data-state={view === "calendar" ? "active" : undefined} onClick={() => setView("calendar")}>
+              <CalendarDays size={14} />
+              Delivery calendar
+            </button>
+          </div>
+        </div>
+
+        {view === "calendar" ? (
+          <DeliveryCalendarBoard customerName={customerName} />
+        ) : (
+        <section className="erp-panel min-w-0 overflow-hidden rounded-xl" aria-label="Sales order register">
+          <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
+            <label className="flex h-9 min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 sm:max-w-[360px] focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/15">
+              <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">Search sales orders</span>
+              <input
+                value={search}
+                onChange={(event) => {
+                  const nextValue = event.target.value
+                  startTransition(() => setSearch(nextValue))
+                }}
+                placeholder="Search PO, product code, parchment…"
+                className="h-full min-w-0 flex-1 border-0 bg-transparent text-[13px] shadow-none outline-none focus:shadow-none"
+              />
+            </label>
+            <div className="tube-segment max-w-full overflow-x-auto" role="group" aria-label="Quick status filter">
+              {[
+                ["open", "Open"],
+                ["draft", "Draft"],
+                ["approved", "Approved"],
+                ["partially_released", "Partial"],
+                ["all", "All"],
+              ].map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={statusFilter === value} onClick={() => setStatusFilter(value)}>
+                  {label}
+                </button>
+              ))}
             </div>
-          }
-        >
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-border bg-muted/80 px-4 py-3 text-sm text-muted-foreground">
-            <span>
-              Window {offset + 1}-{offset + orders.length} · Page {pageIndex + 1} · {statusFilter === "open" ? "open orders" : statusFilter.replaceAll("_", " ")}
-            </span>
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              {ordersQuery.isFetching ? "Refreshing..." : hasNextPage ? "More rows available" : "End of current window"}
+            <select
+              aria-label="Status filter"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value)}
+              className="h-9 rounded-lg border border-border bg-card px-2.5 text-[13px] text-foreground"
+            >
+              <option value="open">Open queue</option>
+              <option value="all">All statuses</option>
+              <option value="draft">Draft</option>
+              <option value="submitted">Submitted</option>
+              <option value="approved">Approved</option>
+              <option value="released">Released</option>
+              <option value="partially_released">Partially released</option>
+              <option value="partially_dispatched">Partially dispatched</option>
+              <option value="closed">Closed</option>
+            </select>
+            <span className="ml-auto text-xs tabular-nums text-muted-foreground" aria-live="polite">
+              {ordersQuery.isFetching ? "Refreshing…" : orders.length ? `${offset + 1}–${offset + orders.length}${hasNextPage ? "+" : ""}` : ""}
             </span>
           </div>
+
           {ordersQuery.isLoading || ordersQuery.isError || orders.length === 0 ? (
-            <QuerySwitch
-              isLoading={ordersQuery.isLoading}
-              isError={ordersQuery.isError}
-              isEmpty={orders.length === 0}
-              loadingLabel="Loading live sales orders..."
-              emptyTitle="No sales orders matched this queue yet."
-              emptyMessage="Adjust the status filter or create a new sales order."
-              errorMessage="Sales orders could not be loaded. This is not an empty queue — refresh to retry."
-              onRetry={() => {
-                void ordersQuery.refetch()
-              }}
-            >
-              {null}
-            </QuerySwitch>
+            <div className="p-3">
+              <QuerySwitch
+                isLoading={ordersQuery.isLoading}
+                isError={ordersQuery.isError}
+                isEmpty={orders.length === 0}
+                loadingLabel="Loading live sales orders..."
+                emptyTitle="No sales orders matched this queue yet."
+                emptyMessage="Adjust the status filter or create a new sales order."
+                errorMessage="Sales orders could not be loaded. This is not an empty queue — refresh to retry."
+                onRetry={() => {
+                  void ordersQuery.refetch()
+                }}
+              >
+                {null}
+              </QuerySwitch>
+            </div>
           ) : (
-            <div className="space-y-5">
-              {orders.map((order: any) => {
-                const selectedLineIds = selectedLines[String(order.id)] || []
-                const linkedJobs = jobsByOrderId.get(String(order.id)) || []
-                const locallySynced = syncResults[String(order.id)] || []
-                const hasSyncedJobs = linkedJobs.length > 0 || locallySynced.length > 0
-
-                return (
-                  <section
-                    key={order.id}
-                    data-order-id={order.id}
-                    className="overflow-hidden rounded-[1.9rem] border border-border bg-card shadow-[0_18px_50px_rgba(15,23,42,0.08)]"
-                  >
-                    <div className="grid gap-0 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
-                      <div className="border-b border-border bg-card p-6 xl:border-b-0 xl:border-r">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{salesOrderOriginLabel(order.origin)}</p>
-                        <Link
-                          href={`/sales-orders/${order.id}`}
-                          data-testid="sales-orders:detail-link"
-                          className="mt-3 block text-[1.8rem] font-semibold leading-tight tracking-tight text-foreground transition-colors duration-200 hover:text-signal-cyan-ink"
-                        >
-                          {salesOrderReferenceLabel(order)}
-                        </Link>
-                        <p className="mt-3 text-sm font-semibold text-foreground">{resolveCustomerLabel(order, customerMap)}</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                          Internal {order.order_no || String(order.id).slice(0, 8)}
-                        </p>
-
-                        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                          <div className="rounded-2xl border border-border/80 bg-card/80 px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Commercial Volume</p>
-                            <p className="mt-1 text-xl font-semibold text-foreground">{Number(order.total_qty || 0).toFixed(0)} pcs</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/80 bg-card/80 px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Selected For Release</p>
-                            <p className="mt-1 text-xl font-semibold text-foreground">{selectedLineIds.length} line(s)</p>
-                          </div>
-                        </div>
-
-                        <div className="mt-5 text-sm text-muted-foreground">
-                          <p>
-                            {isInternalOrigin(order.origin)
-                              ? `Internal order date ${formatDate(order.internal_order_date)}`
-                              : `Customer PO Date ${formatDate(order.po_date)}`}
-                          </p>
-                          <p className="mt-1">
-                            Earliest delivery{" "}
-                            {formatDate(
-                              [...(order.lines || [])]
-                                .map((line: any) => line.earliest_delivery_date ?? line.due_date)
-                                .filter(Boolean)
-                                .sort()[0],
-                            )}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="p-6">
-                        <div className="mb-4 flex items-center justify-between gap-3">
-                          <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Release Buckets</p>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              Pick the exact line items production needs right now. One PO can release many times over its life.
-                            </p>
-                          </div>
-                          <div className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
-                            {order.lines?.length || 0} line(s)
-                          </div>
-                        </div>
-
-                        <div className="grid gap-3 lg:grid-cols-2">
-                          {(order.lines || []).map((line: any) => {
-                            const checked = selectedLineIds.includes(String(line.id))
-                            const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? 0)
-                            const releaseable = releaseRemainingQty > 0
-                            return (
-                              <label
-                                key={line.id}
-                                className={`group relative flex cursor-pointer gap-3 rounded-[1.35rem] border px-4 py-4 transition-all duration-200 ${
-                                  checked
-                                    ? "border-signal-cyan-line bg-signal-cyan-soft/80 shadow-[0_14px_30px_rgba(14,165,233,0.10)]"
-                                    : "border-border bg-muted/80 hover:-translate-y-0.5 hover:border-border hover:bg-card"
-                                } ${!releaseable ? "cursor-not-allowed opacity-60" : ""}`}
-                              >
-                                <input
-                                  type="checkbox"
-                                  checked={checked}
-                                  disabled={!releaseable}
-                                  onChange={(event) =>
-                                    updateSelectedLines(String(order.id), String(line.id), event.target.checked)
-                                  }
-                                  className="mt-1 h-4 w-4 rounded border-border"
-                                />
-                                <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-semibold text-foreground">
-                                    Line {line.line_no || "-"} · {line.product_code || "No product code"}
-                                  </span>
-                                  <span className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                                    <span>Ordered {Number(line.qty || 0).toFixed(0)} pcs</span>
-                                    <span>Remaining {releaseRemainingQty.toFixed(0)} pcs</span>
-                                    <span>Delivery {formatDate(line.due_date)}</span>
-                                    <span>{parchmentLineLabel(line)}</span>
-                                  </span>
-                                </span>
-                              </label>
-                            )
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="border-t border-border bg-card p-6 xl:border-l xl:border-t-0">
-                        <div className="space-y-3">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Release Posture</p>
-                              <div className="mt-2">
-                                <StatusBadge value={order.status} />
-                              </div>
-                            </div>
-                            <div className="rounded-2xl border border-border bg-card px-4 py-3 text-right">
-                              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Released / Fulfilled</p>
-                              <p className="mt-1 text-lg font-semibold text-foreground">
-                                {Number(order.released_qty || 0).toFixed(0)} / {Number(order.fulfilled_qty || 0).toFixed(0)}
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="grid gap-2 sm:grid-cols-2">
-                            <Link
-                              href={`/sales-orders/${order.id}`}
-                              data-testid="sales-orders:view-link"
-                              className="rounded-xl border border-border px-3 py-3 text-center text-sm font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-sm"
-                            >
-                              View order
-                            </Link>
-                            <Link
-                              href={`/sales-orders/${order.id}/audit`}
-                              className="rounded-xl border border-border px-3 py-3 text-center text-sm font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-sm"
-                            >
-                              Audit trail
-                            </Link>
-                          </div>
-
-                          {order.status === "draft" || order.status === "submitted" ? (
+            <div className="max-h-[calc(100dvh-240px)] min-h-[320px] overflow-auto">
+              <table className="tube-grid">
+                <thead>
+                  <tr>
+                    <th className="w-[72px] !pr-0"><span className="sr-only">Select and expand</span></th>
+                    <th>Order</th>
+                    <th className="hidden lg:table-cell">Customer</th>
+                    <th>Next delivery</th>
+                    <th className="num hidden sm:table-cell">Ordered</th>
+                    <th className="hidden md:table-cell min-w-[170px]">Released · Fulfilled</th>
+                    <th>Status</th>
+                    <th className="hidden xl:table-cell">Job cards</th>
+                    <th className="text-right">Actions</th>
+                  </tr>
+                </thead>
+                {orders.map((order: any) => {
+                  const orderId = String(order.id)
+                  const selectedLineIds = selectedLines[orderId] || []
+                  const linkedJobs = jobsByOrderId.get(orderId) || []
+                  const locallySynced = syncResults[orderId] || []
+                  const jobIds = [...linkedJobs.map((job: any) => String(job.id)), ...locallySynced].filter((value, index, rows) => rows.indexOf(value) === index)
+                  const releasable = releasableLineIds(order)
+                  const allSelected = releasable.length > 0 && releasable.every((id: string) => selectedLineIds.includes(id))
+                  const someSelected = selectedLineIds.length > 0 && !allSelected
+                  const isOpen = expanded.has(orderId)
+                  const ordered = Number(order.total_qty || 0)
+                  const released = Number(order.released_qty || 0)
+                  const fulfilled = Number(order.fulfilled_qty || 0)
+                  const nextDue = [...(order.lines || [])]
+                    .map((line: any) => line.earliest_delivery_date ?? line.due_date)
+                    .filter(Boolean)
+                    .sort()[0]
+                  const dueDays = nextDue ? dayjs(nextDue).startOf("day").diff(dayjs().startOf("day"), "day") : null
+                  const outstanding = ordered - fulfilled > 0.5
+                  const canApprove = order.status === "draft" || order.status === "submitted"
+                  const canRelease = releasableStatuses.includes(order.status)
+                  const releaseBusy = releaseMachinesLoadingOrderId === orderId
+                  return (
+                    <tbody key={order.id} data-order-id={order.id} className="group/order">
+                      <tr data-state={selectedLineIds.length ? "selected" : undefined} data-expanded={isOpen || undefined}>
+                        <td className="!pr-0">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select releasable lines of ${salesOrderReferenceLabel(order)}`}
+                              checked={allSelected}
+                              ref={(element) => { if (element) element.indeterminate = someSelected }}
+                              disabled={!releasable.length}
+                              onChange={(event) => toggleAllLines(order, event.target.checked)}
+                              className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
+                            />
                             <button
                               type="button"
-                              onClick={() => handleApprove(order)}
-                              disabled={approveOrder.isPending}
-                              className="w-full rounded-xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm font-semibold text-signal-emerald-ink transition-all duration-200 hover:-translate-y-0.5 hover:bg-signal-emerald-soft hover:shadow-sm disabled:opacity-60"
+                              onClick={() => toggleExpanded(orderId)}
+                              aria-expanded={isOpen}
+                              aria-label={`${isOpen ? "Hide" : "Show"} ${order.lines?.length || 0} lines`}
+                              className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground"
                             >
-                              Approve commercial PO
+                              <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
                             </button>
+                          </div>
+                        </td>
+                        <td className="max-w-[260px]">
+                          <Link href={`/sales-orders/${order.id}`} data-testid="sales-orders:detail-link" className="block truncate font-semibold text-foreground transition-colors hover:text-primary">
+                            {salesOrderReferenceLabel(order)}
+                          </Link>
+                          <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
+                            {salesOrderOriginLabel(order.origin)} · {order.order_no || orderId.slice(0, 8)} · {order.lines?.length || 0} line{order.lines?.length === 1 ? "" : "s"}
+                            <span className="lg:hidden"> · {resolveCustomerLabel(order, customerMap)}</span>
+                          </span>
+                        </td>
+                        <td className="hidden max-w-[240px] lg:table-cell">
+                          <span className="block truncate text-foreground/90">{resolveCustomerLabel(order, customerMap)}</span>
+                          <span className="block text-[11.5px] text-muted-foreground">
+                            {isInternalOrigin(order.origin) ? `Internal ${formatDate(order.internal_order_date)}` : `PO ${formatDate(order.po_date)}`}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap">
+                          <span className="block tabular-nums text-foreground/90">{formatDate(nextDue)}</span>
+                          {dueDays !== null && outstanding ? (
+                            <span className={`text-[11.5px] font-medium ${dueDays < 0 ? "text-signal-rose-ink" : dueDays <= 3 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>
+                              {dueDays < 0 ? `${Math.abs(dueDays)}d late` : dueDays === 0 ? "Due today" : `in ${dueDays}d`}
+                            </span>
                           ) : null}
-
-                          <button
-                            type="button"
-                            onClick={() => openReleaseDialog(order)}
-                            disabled={
-                              releaseSync.isPending ||
-                              releasePreflight.isPending ||
-                              releaseMachinesLoadingOrderId === String(order.id) ||
-                              selectedLineIds.length === 0 ||
-                              !["approved", "released", "partially_released", "partially_dispatched"].includes(order.status)
-                            }
-                            className="w-full rounded-[1.1rem] bg-slate-900 px-4 py-3.5 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {releaseMachinesLoadingOrderId === String(order.id)
-                              ? "Checking machine compatibility..."
-                              : "Release selected lines to planner"}
-                          </button>
-
-                          {hasSyncedJobs ? (
-                            <div className="rounded-[1.35rem] border border-signal-emerald-line bg-signal-emerald-soft/90 p-4 text-sm text-signal-emerald-ink">
-                              <div className="font-semibold">Planner-linked job cards</div>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {[...linkedJobs.map((job: any) => String(job.id)), ...locallySynced]
-                                  .filter((value, index, rows) => rows.indexOf(value) === index)
-                                  .slice(0, 6)
-                                  .map((jobCardId) => (
-                                    <Link
-                                      key={jobCardId}
-                                      href={`/production/job-cards/${jobCardId}`}
-                                      className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink transition hover:-translate-y-0.5 hover:shadow-sm"
-                                    >
-                                      {jobCardId.slice(0, 8)}
-                                    </Link>
-                                  ))}
-                              </div>
+                        </td>
+                        <td className="num hidden sm:table-cell">{ordered.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                        <td className="hidden md:table-cell">
+                          <div className="relative h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                            <div className="absolute inset-y-0 left-0 rounded-full bg-signal-blue-ink/35 transition-[width] duration-700" style={{ width: `${ordered ? Math.min(100, (released / ordered) * 100) : 0}%` }} />
+                            <div className="absolute inset-y-0 left-0 rounded-full bg-signal-emerald-ink/80 transition-[width] duration-700" style={{ width: `${ordered ? Math.min(100, (fulfilled / ordered) * 100) : 0}%` }} />
+                          </div>
+                          <span className="mt-1 block text-[11.5px] tabular-nums text-muted-foreground">
+                            {released.toLocaleString("en-IN", { maximumFractionDigits: 0 })} · {fulfilled.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
+                          </span>
+                        </td>
+                        <td><StatusBadge value={order.status} /></td>
+                        <td className="hidden xl:table-cell">
+                          {jobIds.length ? (
+                            <div className="flex max-w-[180px] flex-wrap gap-1">
+                              {jobIds.slice(0, 2).map((jobCardId) => (
+                                <Link key={jobCardId} href={`/production/job-cards/${jobCardId}`} className="rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-1.5 py-0.5 font-mono text-[11px] text-signal-emerald-ink hover:underline">
+                                  {jobCardId.slice(0, 8)}
+                                </Link>
+                              ))}
+                              {jobIds.length > 2 ? <span className="px-1 text-[11px] text-muted-foreground">+{jobIds.length - 2}</span> : null}
                             </div>
                           ) : (
-                            <div className="rounded-[1.2rem] border border-dashed border-border bg-muted px-4 py-4 text-sm text-muted-foreground">
-                              No planner job cards yet. The release action above will create the production cut for the selected lines.
-                            </div>
+                            <span className="text-[12px] text-muted-foreground">—</span>
                           )}
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                )
-              })}
+                        </td>
+                        <td>
+                          <div className="flex items-center justify-end gap-1.5">
+                            {canApprove ? (
+                              <button
+                                type="button"
+                                onClick={() => handleApprove(order)}
+                                disabled={approveOrder.isPending}
+                                aria-label="Approve commercial PO"
+                                className="inline-flex h-8 items-center gap-1 rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-2.5 text-[12.5px] font-semibold text-signal-emerald-ink transition hover:brightness-[.97] disabled:opacity-60"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Approve
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => openReleaseDialog(order)}
+                              aria-label="Release selected lines to planner"
+                              title={!canRelease ? "Approve the order before releasing" : !selectedLineIds.length ? "Select lines to release" : undefined}
+                              disabled={releaseSync.isPending || releasePreflight.isPending || releaseBusy || selectedLineIds.length === 0 || !canRelease}
+                              className="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-[12.5px] font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              {releaseBusy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                              <span className="hidden sm:inline">Release</span>
+                              {selectedLineIds.length ? <span className="rounded bg-primary-foreground/20 px-1 text-[11px] tabular-nums">{selectedLineIds.length}</span> : null}
+                            </button>
+                            <Link href={`/sales-orders/${order.id}`} data-testid="sales-orders:view-link" className="hidden h-8 items-center rounded-md px-2 text-[12.5px] font-medium text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground md:inline-flex">
+                              View
+                            </Link>
+                            <Link href={`/sales-orders/${order.id}/audit`} aria-label="Audit trail" title="Audit trail" className="hidden h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground md:grid">
+                              <History className="h-3.5 w-3.5" />
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                      {isOpen ? (
+                        <tr className="sub-row">
+                          <td colSpan={9}>
+                            <div className="animate-slide-down px-3 py-2.5 sm:pl-[72px]">
+                              <table className="w-full text-[12.5px]">
+                                <thead>
+                                  <tr className="text-left text-[11px] text-muted-foreground">
+                                    <th className="w-8 py-1 font-medium"><span className="sr-only">Select line</span></th>
+                                    <th className="py-1 font-medium">Line · Product</th>
+                                    <th className="py-1 text-right font-medium">Ordered</th>
+                                    <th className="py-1 text-right font-medium">To release</th>
+                                    <th className="hidden py-1 pl-4 font-medium sm:table-cell">Delivery</th>
+                                    <th className="hidden py-1 pl-4 font-medium md:table-cell">Parchment</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {(order.lines || []).map((line: any) => {
+                                    const checked = selectedLineIds.includes(String(line.id))
+                                    const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? 0)
+                                    const lineReleasable = releaseRemainingQty > 0
+                                    return (
+                                      <tr key={line.id} className={`border-t border-border/70 ${checked ? "bg-primary/[.05]" : ""} ${!lineReleasable ? "opacity-60" : ""}`}>
+                                        <td className="py-1.5">
+                                          <input
+                                            type="checkbox"
+                                            aria-label={`Select line ${line.line_no || "-"} ${line.product_code || ""}`}
+                                            checked={checked}
+                                            disabled={!lineReleasable}
+                                            onChange={(event) => updateSelectedLines(orderId, String(line.id), event.target.checked)}
+                                            className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
+                                          />
+                                        </td>
+                                        <td className="py-1.5">
+                                          <span className="font-medium text-foreground">L{line.line_no || "-"}</span>
+                                          <span className="text-muted-foreground"> · {line.product_code || "No product code"}</span>
+                                        </td>
+                                        <td className="py-1.5 text-right tabular-nums">{Number(line.qty || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                                        <td className={`py-1.5 text-right font-semibold tabular-nums ${lineReleasable ? "text-foreground" : "text-muted-foreground"}`}>{releaseRemainingQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
+                                        <td className="hidden py-1.5 pl-4 tabular-nums text-muted-foreground sm:table-cell">{formatDate(line.due_date)}</td>
+                                        <td className="hidden py-1.5 pl-4 text-muted-foreground md:table-cell">{parchmentLineLabel(line)}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/70 pt-2 text-[12px] text-muted-foreground">
+                                {canRelease ? (
+                                  <span>{selectedLineIds.length ? `${selectedLineIds.length} line${selectedLineIds.length === 1 ? "" : "s"} selected — use Release to open the winder planner.` : "Tick the lines production needs now. A PO can release many times over its life."}</span>
+                                ) : (
+                                  <span>Approve this order to release its lines to planning.</span>
+                                )}
+                                {jobIds.length ? (
+                                  <span className="ml-auto flex flex-wrap items-center gap-1">
+                                    Job cards:
+                                    {jobIds.slice(0, 6).map((jobCardId) => (
+                                      <Link key={jobCardId} href={`/production/job-cards/${jobCardId}`} className="rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-1.5 py-0.5 font-mono text-[11px] text-signal-emerald-ink hover:underline">
+                                        {jobCardId.slice(0, 8)}
+                                      </Link>
+                                    ))}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  )
+                })}
+              </table>
             </div>
           )}
           {orders.length > 0 ? (
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-border bg-card px-4 py-3">
-              <p className="text-sm text-muted-foreground">
-                Large queue mode keeps only {pageSize} order cards mounted at once.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border px-3 py-2">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                Rows
+                <select
+                  aria-label="Rows per page"
+                  value={pageSize}
+                  onChange={(event) => setPageSize(Number(event.target.value))}
+                  className="h-8 rounded-md border border-border bg-card px-2 text-xs text-foreground"
+                >
+                  <option value={10}>10</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </label>
               <div className="flex items-center gap-2">
+                <span className="text-xs tabular-nums text-muted-foreground">Page {pageIndex + 1}</span>
                 <button
                   type="button"
                   onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
                   disabled={pageIndex === 0 || ordersQuery.isFetching}
-                  className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Previous page"
+                  className="grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Previous
+                  <ChevronLeft className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
                   onClick={() => setPageIndex((current) => current + 1)}
                   disabled={!hasNextPage || ordersQuery.isFetching}
-                  className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label="Next page"
+                  className="grid h-8 w-8 place-items-center rounded-md border border-border bg-card text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Next
+                  <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
           ) : null}
-        </Panel>
+        </section>
+        )}
       </div>
 
       <Dialog open={Boolean(releaseDialogOrder)} onOpenChange={(open) => (!open ? closeReleaseDialog() : null)}>

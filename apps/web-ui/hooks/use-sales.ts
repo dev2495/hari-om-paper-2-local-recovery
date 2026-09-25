@@ -98,6 +98,7 @@ function invalidateSalesQueries(queryClient: ReturnType<typeof useQueryClient>, 
   queryClient.invalidateQueries({ queryKey: ["sales", "order-aggregates"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
+  queryClient.invalidateQueries({ queryKey: ["sales", "delivery-calendar"] })
   if (orderId) {
     queryClient.invalidateQueries({ queryKey: ["sales", "order", orderId] })
     queryClient.invalidateQueries({ queryKey: ["sales", "timeline", orderId] })
@@ -166,6 +167,18 @@ export function usePendingSalesOrders(params?: any) {
       const { data } = await salesApi.getPendingOrders(params)
       return data
     },
+  })
+}
+
+export function useDeliveryCalendar(params: { start: string; end: string; customer_id?: string; search?: string }, enabled = true) {
+  return useQuery({
+    queryKey: ["sales", "delivery-calendar", params],
+    queryFn: async () => {
+      const { data } = await salesApi.getDeliveryCalendar(params)
+      return data
+    },
+    placeholderData: (previous) => previous,
+    enabled,
   })
 }
 

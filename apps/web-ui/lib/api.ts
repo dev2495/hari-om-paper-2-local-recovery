@@ -328,6 +328,7 @@ export const salesApi = {
   getPendingOrders: (params?: any) => api.get("/api/sales/orders/pending", { params }),
   exportPendingOrders: (params?: any) => api.get("/api/sales/orders/pending/export", { params, responseType: "blob" }),
   getOrderDeliverySchedules: (id: string) => api.get(`/api/sales/orders/${id}/delivery-schedules`),
+  getDeliveryCalendar: (params: { start: string; end: string; customer_id?: string; search?: string }) => api.get("/api/sales/orders/delivery-calendar", { params }),
   previewOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/preview`, data),
   commitOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/commit`, data),
   patchOrderDeliverySchedule: (orderId: string, scheduleId: string, data: any) =>
