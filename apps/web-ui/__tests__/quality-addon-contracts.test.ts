@@ -213,9 +213,18 @@ test("print contracts use one specification page and exactly two job-card sides"
     assert.match(specPrint, new RegExp(label, "i"))
   }
   assert.doesNotMatch(specPrint, /oven/i)
-  assert.equal((jobCardPrint.match(/<section className="job-print-side job-[a-z-]+-side">/g) || []).length, 2)
+  assert.equal((jobCardPrint.match(/<section className="jc-page jc-(?:front|back)">/g) || []).length, 2)
+  assert.match(jobCardPrint, /size: A4 portrait;/)
   assert.match(jobCardPrint, /page-break-after: always !important/)
   assert.match(jobCardPrint, /page-break-after: auto !important/)
+  // Client job-card workbook sections, in order: front = Winding + Oven, back = Process Line + Dispatch + drawing space.
+  const sectionOrder = ['title="Winding"', 'title="Oven"', 'title="Process Line"', 'title="Dispatch"', "Space for the combination, tooling, drawing etc."]
+  const positions = sectionOrder.map((marker) => jobCardPrint.indexOf(marker))
+  assert.ok(positions.every((position) => position > 0), "all client job-card sections are present")
+  assert.deepEqual([...positions].sort((a, b) => a - b), positions)
+  for (const label of ["Cycle Time (B-A)", "Rejection Code", "Pasting", "Denier", "Notch Depth", "Lead Time", "Pending Quantity"]) {
+    assert.ok(jobCardPrint.includes(label), `job card print keeps client field ${label}`)
+  }
 })
 
 test("spec print allocates adhesive parts to exact whole plies", () => {

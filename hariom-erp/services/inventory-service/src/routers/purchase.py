@@ -10,7 +10,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..database import get_db
 from ..models import (
@@ -569,6 +569,12 @@ def list_purchase_receipts(
 ):
     rows = (
         db.query(PurchaseReceipt)
+        # Batch-load relations instead of one query per receipt/line.
+        .options(
+            selectinload(PurchaseReceipt.order),
+            selectinload(PurchaseReceipt.lines).selectinload(PurchaseReceiptLine.item),
+            selectinload(PurchaseReceipt.lines).selectinload(PurchaseReceiptLine.batch),
+        )
         .filter(PurchaseReceipt.plant_id == plant_id)
         .order_by(PurchaseReceipt.created_at.desc())
         .limit(limit)

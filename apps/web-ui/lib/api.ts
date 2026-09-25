@@ -351,6 +351,7 @@ export const productionApi = {
   createPlanningJobCard: (data: any) => api.post("/api/production/job-cards", data),
   getPlanningJobCards: (params?: any) => api.get("/api/production/job-cards", { params: clampPlanningListParams(params) }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
+  getStageTimeReconciliation: (params?: any) => api.get("/api/production/planning/time-reconciliation", { params }),
   getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {
     stage: string

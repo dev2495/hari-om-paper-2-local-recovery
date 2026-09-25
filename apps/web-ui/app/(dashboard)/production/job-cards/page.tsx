@@ -87,6 +87,10 @@ export default function JobCardsPage() {
               <Factory className="h-4 w-4" />
               Open planning board
             </Link>
+            <Link href="/production/job-cards/time-reconciliation" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold text-white">
+              <TimerReset className="h-4 w-4" />
+              Card time reconciliation
+            </Link>
           </div>
         }
       />

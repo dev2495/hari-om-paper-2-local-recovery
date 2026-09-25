@@ -1031,11 +1031,119 @@ def _capacity_warning_message(
 
 
 def _parse_execution_timestamp(value: Optional[datetime]) -> Optional[datetime]:
+    """Normalise a shop-floor time to naive UTC.
+
+    Times copied from the paper job card are plant wall-clock times, so a
+    value without an offset is read as plant local time (IST), not UTC.
+    """
     if value is None:
         return None
     if value.tzinfo is None:
-        return value
+        value = value.replace(tzinfo=PLANT_TIMEZONE)
     return value.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
+# Stages whose Start (A) / End (B) are written on the paper card. Completion
+# must carry those card times so actuals reflect the floor, not typing time.
+CARD_TIMED_STAGES = {"SLITTING", "WINDER", "OVEN", "PROCESS"}
+LATE_ENTRY_THRESHOLD_HOURS = 6.0
+FUTURE_TIME_TOLERANCE = timedelta(minutes=10)
+MAX_CARD_STAGE_DURATION_HOURS = 72.0
+TIME_RECONCILIATION_LOG_LIMIT = 50
+
+# The supervisor UI and the job-card document snapshot historically used
+# different keys for the same oven readings; keep both populated.
+ENTRY_SNAPSHOT_ALIASES: dict[str, list[tuple[str, str]]] = {
+    "OVEN": [
+        ("pre_weight", "pre_oven_weight_kg"),
+        ("post_weight", "post_oven_weight_kg"),
+        ("pre_moisture", "moisture_before"),
+        ("post_moisture", "moisture_after"),
+        ("rejection_code", "reject_reason_code"),
+    ],
+    "WINDER": [("rejection_code", "reject_reason_code")],
+    "PROCESS": [("rejection_code", "reject_reason")],
+}
+
+
+def _canonicalize_entry_snapshot(stage: str, snapshot: dict[str, Any]) -> dict[str, Any]:
+    result = dict(snapshot or {})
+    for canonical, alias in ENTRY_SNAPSHOT_ALIASES.get(stage, []):
+        canonical_value = result.get(canonical)
+        alias_value = result.get(alias)
+        if canonical_value in (None, "") and alias_value not in (None, ""):
+            result[canonical] = alias_value
+        elif alias_value in (None, "") and canonical_value not in (None, ""):
+            result[alias] = canonical_value
+    return result
+
+
+def _fmt_utc(value: Optional[datetime]) -> Optional[str]:
+    return value.replace(tzinfo=ZoneInfo("UTC")).isoformat() if value else None
+
+
+def _reconcile_card_times(
+    *,
+    stage: str,
+    save_mode: str,
+    card_start: Optional[datetime],
+    card_end: Optional[datetime],
+    now: datetime,
+    job_card_created_at: Optional[datetime],
+    override_reason: Optional[str],
+) -> tuple[dict[str, Any], list[str]]:
+    """Validate card Start/End times against the system entry time.
+
+    All datetimes are naive UTC. Raises HTTPException for times that cannot be
+    physically true; returns the reconciliation record plus soft warnings.
+    """
+    warnings: list[str] = []
+    if card_start and card_end and card_end < card_start:
+        raise HTTPException(status_code=400, detail=f"{stage} end time (B) cannot be before start time (A)")
+    for label, value in (("start time (A)", card_start), ("end time (B)", card_end)):
+        if value and value > now + FUTURE_TIME_TOLERANCE:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{stage} {label} is in the future; enter the time written on the job card",
+            )
+    if save_mode == "complete" and stage in CARD_TIMED_STAGES and not (card_start and card_end):
+        if not override_reason:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{stage} completion needs the Start (A) and End (B) times written on the job card. "
+                    "A supervisor may complete without them only with an override_reason."
+                ),
+            )
+        warnings.append(f"{stage} completed without card times; system entry time is used as the end time.")
+
+    if job_card_created_at and card_start and card_start < job_card_created_at - timedelta(hours=12):
+        warnings.append(f"{stage} start time is earlier than the job card was released; check the card date.")
+
+    cycle_minutes: Optional[float] = None
+    if card_start and card_end:
+        cycle_minutes = round((card_end - card_start).total_seconds() / 60.0, 1)
+        if cycle_minutes > MAX_CARD_STAGE_DURATION_HOURS * 60:
+            warnings.append(f"{stage} cycle time is {cycle_minutes / 60:.1f} h; check the card dates.")
+
+    anchor = card_end or card_start
+    lag_minutes = round(max(0.0, (now - anchor).total_seconds() / 60.0), 1) if anchor else None
+    late_entry = bool(lag_minutes is not None and lag_minutes > LATE_ENTRY_THRESHOLD_HOURS * 60)
+    if late_entry:
+        warnings.append(
+            f"{stage} entered {lag_minutes / 60:.1f} h after the card time; flagged for time reconciliation."
+        )
+    record = {
+        "card_start_time": _fmt_utc(card_start),
+        "card_end_time": _fmt_utc(card_end),
+        "cycle_time_minutes": cycle_minutes,
+        "entered_at": _fmt_utc(now),
+        "entry_lag_minutes": lag_minutes,
+        "late_entry": late_entry,
+        "time_source": "CARD" if card_end else "SYSTEM_ENTRY",
+        "save_mode": save_mode,
+    }
+    return record, warnings
 
 
 def _segment_bucket_entries(
@@ -1430,6 +1538,10 @@ def _validate_execution_capacity(
     machine: dict[str, Any],
     output_qty: float,
     entry_snapshot: dict[str, Any],
+    reference_time: Optional[datetime] = None,
+    card_cycle_hours: Optional[float] = None,
+    override_reason: Optional[str] = None,
+    warnings: Optional[list[str]] = None,
 ) -> None:
     machine_id = stage_row.machine_id
     if machine_id is None or stage == "PACKING":
@@ -1446,8 +1558,9 @@ def _validate_execution_capacity(
             machine_capacity=machine_capacity,
         )
     if capacity and capacity > 0 and capacity_unit:
-        now = datetime.utcnow()
-        start_utc, end_utc = _today_utc_window(now)
+        # Bucket against the day the work physically happened (card end time),
+        # not the day it was typed in; late entries otherwise eat today's capacity.
+        start_utc, end_utc = _today_utc_window(reference_time or datetime.utcnow())
         normalized_shift = stage_row.shift_code or "SHIFT_A"
         completed_rows = (
             db.query(JobCardStageSegment.output_qty, JobCard.spec_snapshot)
@@ -1486,17 +1599,21 @@ def _validate_execution_capacity(
             )
 
     if stage == "OVEN":
-        cycle_hours = _extract_oven_cycle_hours(stage_row, entry_snapshot or {})
+        cycle_hours = card_cycle_hours if card_cycle_hours is not None else _extract_oven_cycle_hours(stage_row, entry_snapshot or {})
         if cycle_hours is None:
             return
         if cycle_hours < OVEN_BATCH_MIN_HOURS or cycle_hours > OVEN_BATCH_MAX_HOURS:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"Oven batch cycle must be between {OVEN_BATCH_MIN_HOURS:.0f} and "
-                    f"{OVEN_BATCH_MAX_HOURS:.0f} hours. Received {cycle_hours:.2f}."
-                ),
+            message = (
+                f"Oven batch cycle must be between {OVEN_BATCH_MIN_HOURS:.0f} and "
+                f"{OVEN_BATCH_MAX_HOURS:.0f} hours. Received {cycle_hours:.2f}."
             )
+            # The card records what physically happened; a supervisor override
+            # lets it be booked (flagged) instead of forcing an edited time.
+            if override_reason:
+                if warnings is not None:
+                    warnings.append(f"{message} Accepted under override.")
+                return
+            raise HTTPException(status_code=409, detail=message)
 
 
 def _post_fg_inward_if_configured(
@@ -3222,7 +3339,7 @@ def _validate_stage_completion_payload(
     payload: StageOutputPayload,
     stage: JobCardStage,
 ) -> None:
-    entry_snapshot = dict(payload.entry_snapshot or stage.entry_snapshot or {})
+    entry_snapshot = _canonicalize_entry_snapshot(selected_stage, dict(payload.entry_snapshot or stage.entry_snapshot or {}))
     actuals_snapshot = dict(payload.actuals or stage.actuals_snapshot or {})
     missing_fields: list[str] = []
 
@@ -4878,6 +4995,131 @@ def export_planning_board(
     )
 
 
+@router.get("/planning/time-reconciliation", response_model=dict[str, Any])
+def list_stage_time_reconciliation(
+    date_from: Optional[date] = Query(None, description="Entry date (plant local) from, inclusive"),
+    date_to: Optional[date] = Query(None, description="Entry date (plant local) to, inclusive"),
+    stage: Optional[str] = Query(None),
+    late_only: bool = Query(False),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner"])),
+):
+    """Card time vs. system entry time for every entered stage.
+
+    The paper job card is filled on the floor and typed in later; this lists
+    the physical Start (A)/End (B) against when and by whom it was entered so
+    supervisors can reconcile late or suspicious entries.
+    """
+    lag_expr = JobCardStage.entered_at - func.coalesce(JobCardStage.actual_end, JobCardStage.actual_start)
+    query = (
+        db.query(JobCardStage, JobCard)
+        .join(JobCard, JobCard.id == JobCardStage.job_card_id)
+        .filter(JobCardStage.entered_at.isnot(None))
+    )
+    query = _apply_plant_scope_filter(query, JobCard.plant_id, plant_scope)
+    if stage:
+        selected_stage = stage.strip().upper()
+        if selected_stage not in STAGE_SEQUENCE:
+            raise HTTPException(status_code=400, detail="Invalid stage filter")
+        query = query.filter(JobCardStage.stage_type == selected_stage)
+    if date_from:
+        query = query.filter(JobCardStage.entered_at >= _today_utc_window(_plant_day_anchor_utc(date_from))[0])
+    if date_to:
+        query = query.filter(JobCardStage.entered_at < _today_utc_window(_plant_day_anchor_utc(date_to))[1])
+    if late_only:
+        query = query.filter(lag_expr > timedelta(hours=LATE_ENTRY_THRESHOLD_HOURS))
+
+    total = query.count()
+    rows = query.order_by(JobCardStage.entered_at.desc()).offset(offset).limit(limit).all()
+    items: list[dict[str, Any]] = []
+    for stage_row, job_card in rows:
+        record = dict((stage_row.actuals_snapshot or {}).get("time_reconciliation") or {})
+        anchor = stage_row.actual_end or stage_row.actual_start
+        lag_minutes = (
+            round(max(0.0, (stage_row.entered_at - anchor).total_seconds() / 60.0), 1)
+            if anchor and stage_row.entered_at
+            else None
+        )
+        cycle_minutes = (
+            round((stage_row.actual_end - stage_row.actual_start).total_seconds() / 60.0, 1)
+            if stage_row.actual_start and stage_row.actual_end
+            else None
+        )
+        items.append(
+            {
+                "job_card_id": str(job_card.id),
+                "job_card_ref": getattr(job_card, "job_card_no", None) or _format_ref("JC", job_card.id),
+                "customer_name": (job_card.spec_snapshot or {}).get("customer_name_snapshot")
+                or (job_card.spec_snapshot or {}).get("customer_name"),
+                "stage_type": stage_row.stage_type,
+                "status": stage_row.status,
+                "machine_id": str(stage_row.machine_id) if stage_row.machine_id else None,
+                "plan_date": stage_row.plan_date,
+                "shift_code": stage_row.shift_code,
+                "card_shift_code": (stage_row.entry_snapshot or {}).get("shift_code") or None,
+                "card_start_time": _fmt_utc(stage_row.actual_start),
+                "card_end_time": _fmt_utc(stage_row.actual_end),
+                "cycle_time_minutes": cycle_minutes,
+                "entered_at": _fmt_utc(stage_row.entered_at),
+                "entered_by": stage_row.entered_by,
+                "entry_lag_minutes": lag_minutes,
+                "late_entry": bool(lag_minutes is not None and lag_minutes > LATE_ENTRY_THRESHOLD_HOURS * 60),
+                "time_source": record.get("time_source") or "LEGACY",
+                "output_qty": stage_row.output_qty,
+            }
+        )
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "late_threshold_hours": LATE_ENTRY_THRESHOLD_HOURS,
+        "items": items,
+    }
+
+
+def _job_card_dispatch_history(db: Session, job_card: JobCard) -> list[dict[str, Any]]:
+    """Sealed shipments for the job card, oldest first, with running pending qty."""
+    rows = (
+        db.query(Dispatch)
+        .filter(Dispatch.job_card_id == job_card.id, Dispatch.status == "SEALED")
+        .order_by(Dispatch.created_at.asc())
+        .all()
+    )
+    target_qty = float(job_card.released_qty or job_card.planned_qty or 0.0)
+    shipped = 0.0
+    history: list[dict[str, Any]] = []
+    for row in rows:
+        snapshot = dict(row.dispatch_snapshot or {})
+        qty = _snapshot_float(snapshot.get("dispatch_qty")) or _snapshot_float(snapshot.get("qty")) or 0.0
+        shipped += qty
+        dispatch_date = snapshot.get("dispatch_date") or (
+            row.created_at.replace(tzinfo=ZoneInfo("UTC")).astimezone(PLANT_TIMEZONE).date().isoformat()
+            if row.created_at
+            else None
+        )
+        history.append(
+            {
+                "id": str(row.id),
+                "dispatch_date": dispatch_date,
+                "dispatch_qty": round(qty, 3),
+                "cumulative_qty": round(shipped, 3),
+                "pending_qty": round(max(0.0, target_qty - shipped), 3),
+                "vehicle_no": snapshot.get("vehicle_no"),
+                "invoice_no": snapshot.get("invoice_no"),
+            }
+        )
+    return history
+
+
+def _plant_day_anchor_utc(value: date) -> datetime:
+    """Naive-UTC instant at local noon of a plant calendar day."""
+    local_noon = datetime(value.year, value.month, value.day, 12, tzinfo=PLANT_TIMEZONE)
+    return local_noon.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+
 @router.get("/job-cards", response_model=list[JobCardPlannerSummary])
 def list_planning_job_cards(
     search: Optional[str] = Query(None),
@@ -5098,6 +5340,7 @@ def get_planning_job_card(
         stages=sorted_stages,
         snapshot_mode=snapshot_mode,
     )
+    dispatch_history = _job_card_dispatch_history(db, job_card)
     open_active_segments = _open_stage_segments(db, job_card.id, job_card.current_stage) if job_card.current_stage != "DONE" else []
     active_segment = open_active_segments[0] if open_active_segments else None
     planner_gate = _planner_gate_context(
@@ -5176,6 +5419,8 @@ def get_planning_job_card(
                 material_allocations=stage_row.material_allocations or [],
                 location_id=str(stage_row.location_id) if stage_row.location_id else None,
                 required_capacity=stage_row.required_capacity,
+                entered_by=stage_row.entered_by,
+                entered_at=stage_row.entered_at,
             )
             for stage_row in sorted_stages
         ],
@@ -5244,6 +5489,7 @@ def get_planning_job_card(
             }
             for row in quality_holds
         ],
+        dispatch_history=dispatch_history,
         audit_events=[
             {
                 "id": str(row.id),
@@ -6243,6 +6489,21 @@ def capture_stage_output(
         stage.machine_id = payload.machine_id
         segment.machine_id = payload.machine_id
 
+    # Validate card times before touching any stage state.
+    override_reason_for_times = (payload.override_reason or "").strip() or None
+    now = datetime.utcnow()
+    card_start = _parse_execution_timestamp(payload.start_time)
+    card_end = _parse_execution_timestamp(payload.end_time)
+    time_record, time_warnings = _reconcile_card_times(
+        stage=selected_stage,
+        save_mode=save_mode,
+        card_start=card_start,
+        card_end=card_end,
+        now=now,
+        job_card_created_at=job_card.created_at,
+        override_reason=override_reason_for_times,
+    )
+
     before_payload = {
         "status": stage.status,
         "segment_status": segment.status,
@@ -6253,11 +6514,16 @@ def capture_stage_output(
         "scrap_qty": stage.scrap_qty,
         "location_id": str(stage.location_id) if stage.location_id else None,
     }
-    stage.entry_snapshot = payload.entry_snapshot or {}
-    if payload.start_time is not None:
+    previous_actuals = dict(stage.actuals_snapshot or {})
+    stage.entry_snapshot = _canonicalize_entry_snapshot(selected_stage, payload.entry_snapshot or {})
+    # Keep the card's literal wall-clock text if the client sent it; the
+    # normalised UTC value lives on segment/stage actual_start/actual_end.
+    if payload.start_time is not None and not stage.entry_snapshot.get("start_time"):
         stage.entry_snapshot["start_time"] = payload.start_time.isoformat()
-    if payload.end_time is not None:
+    if payload.end_time is not None and not stage.entry_snapshot.get("end_time"):
         stage.entry_snapshot["end_time"] = payload.end_time.isoformat()
+    if payload.shift_code and not stage.entry_snapshot.get("shift_code"):
+        stage.entry_snapshot["shift_code"] = payload.shift_code
     stage.actuals_snapshot = payload.actuals or {}
     stage.quality_checks = payload.quality_checks or {}
     stage.material_allocations = list(payload.material_allocations or [])
@@ -6280,14 +6546,26 @@ def capture_stage_output(
         .all()
     )
 
-    now = datetime.utcnow()
-    actual_start_value = _parse_execution_timestamp(payload.start_time) or segment.started_at or stage.actual_start or now
-    actual_end_value = _parse_execution_timestamp(payload.end_time)
+    time_record["segment_id"] = str(segment.id)
+    time_record["entered_by"] = current_user.get("sub")
+    reconciliation_log = [
+        row
+        for row in list(previous_actuals.get("time_reconciliation_log") or [])
+        if isinstance(row, dict)
+    ][-(TIME_RECONCILIATION_LOG_LIMIT - 1):] + [time_record]
+    stage.actuals_snapshot = {
+        **(stage.actuals_snapshot or {}),
+        "time_reconciliation": time_record,
+        "time_reconciliation_log": reconciliation_log,
+    }
+    # A card time always wins over an earlier draft's system timestamp.
+    actual_start_value = card_start or segment.started_at or stage.actual_start or now
+    actual_end_value = card_end
     stage.entered_by = current_user.get("sub")
     stage.entered_at = now
 
     if save_mode == "draft":
-        if not segment.started_at:
+        if card_start or not segment.started_at:
             segment.started_at = actual_start_value
         segment.status = "RUNNING"
         stage.actual_start = stage.actual_start or segment.started_at
@@ -6307,6 +6585,7 @@ def capture_stage_output(
                 "stage": selected_stage,
                 "save_mode": save_mode,
                 "location_id": str(stage.location_id) if stage.location_id else None,
+                "time_reconciliation": time_record,
             },
             before_payload=before_payload,
             after_payload={
@@ -6332,6 +6611,7 @@ def capture_stage_output(
             stage_status=stage.status,
             remaining_open_segments=len(_open_stage_segments(db, job_card.id, selected_stage)),
             entry_saved=True,
+            warnings=time_warnings,
             reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
         )
 
@@ -6404,14 +6684,26 @@ def capture_stage_output(
             machine=machine_for_capacity,
             output_qty=float(payload.output_qty or 0.0),
             entry_snapshot=stage.entry_snapshot or {},
+            reference_time=actual_end_value or actual_start_value,
+            card_cycle_hours=(
+                time_record["cycle_time_minutes"] / 60.0
+                if time_record.get("cycle_time_minutes") is not None
+                else None
+            ),
+            override_reason=override_reason,
+            warnings=time_warnings,
         )
 
-    segment.started_at = segment.started_at or actual_start_value
+    segment.started_at = actual_start_value
     segment.completed_at = actual_end_value or now
     segment.input_qty = payload.input_qty if payload.input_qty is not None else segment.input_qty
     segment.output_qty = float(payload.output_qty or 0.0)
     segment.scrap_qty = float(payload.scrap_qty or 0.0)
     segment.status = "COMPLETED"
+    # The session does not autoflush; without this the open-segment queries
+    # below still see this segment as open, so the next-stage handover
+    # (input qty, default plan date/shift, segment creation) is skipped.
+    db.flush()
     if stage.input_qty is None and stage.actuals_snapshot.get("input_qty") is not None:
         try:
             stage.input_qty = float(stage.actuals_snapshot.get("input_qty"))
@@ -6569,6 +6861,7 @@ def capture_stage_output(
             "override_reason": override_reason,
             "prior_incomplete": prior_incomplete,
             "physical_tool_asset_ids": physical_tool_asset_ids,
+            "time_reconciliation": time_record,
         },
         before_payload=before_payload,
         after_payload={
@@ -6596,6 +6889,7 @@ def capture_stage_output(
         entry_saved=True,
         override_used=bool(override_reason),
         override_reason=override_reason,
+        warnings=time_warnings,
         reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
         quality_hold_ids=[str(hold.id) for hold in quality_holds],
     )

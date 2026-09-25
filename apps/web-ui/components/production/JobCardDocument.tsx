@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { CheckCircle2, ExternalLink, Printer, Save, Smartphone } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
-import { useEffect, useMemo, useState } from "react"
+import { Fragment, useEffect, useMemo, useState } from "react"
 
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
@@ -24,6 +24,59 @@ const STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING",
 const PLANNER_GATED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
 const STAGES_REQUIRING_SHIFT: StageName[] = ["WINDER", "PROCESS"]
 const LATE_ENTRY_THRESHOLD_HOURS = 6
+// Start (A) / End (B) are written on the paper card at these stages and typed
+// in later; completion must carry them so actuals follow the floor, not typing.
+const CARD_TIMED_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS"]
+
+function padTwo(value: number) {
+  return String(value).padStart(2, "0")
+}
+
+// "2026-09-25T08:30" (datetime-local, plant wall clock) -> ISO with this
+// browser's offset, so the backend and books-guard read the card's own time.
+function cardTimeToIso(value: any): string | undefined {
+  const text = String(value || "").trim()
+  if (!text) return undefined
+  const parsed = new Date(text)
+  if (!Number.isFinite(parsed.getTime())) return undefined
+  const offsetMinutes = -parsed.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? "+" : "-"
+  const absolute = Math.abs(offsetMinutes)
+  return (
+    `${parsed.getFullYear()}-${padTwo(parsed.getMonth() + 1)}-${padTwo(parsed.getDate())}` +
+    `T${padTwo(parsed.getHours())}:${padTwo(parsed.getMinutes())}:00` +
+    `${sign}${padTwo(Math.floor(absolute / 60))}:${padTwo(absolute % 60)}`
+  )
+}
+
+// Backend timestamps are naive UTC; card text is local. Parse either safely.
+function parseStageTime(value: any, naiveIsUtc = false): Date | null {
+  const text = String(value || "").trim()
+  if (!text) return null
+  const hasZone = /(?:Z|[+-]\d{2}:?\d{2})$/.test(text)
+  const parsed = new Date(naiveIsUtc && !hasZone && text.includes("T") ? `${text}Z` : text)
+  return Number.isFinite(parsed.getTime()) ? parsed : null
+}
+
+function formatStageTime(value: any, naiveIsUtc = false) {
+  const parsed = parseStageTime(value, naiveIsUtc)
+  if (!parsed) return ""
+  return `${padTwo(parsed.getDate())}-${padTwo(parsed.getMonth() + 1)} ${padTwo(parsed.getHours())}:${padTwo(parsed.getMinutes())}`
+}
+
+function formatMinutes(minutes: any) {
+  const value = Number(minutes)
+  if (!Number.isFinite(value) || value < 0) return ""
+  const rounded = Math.round(value)
+  return `${Math.floor(rounded / 60)}h ${padTwo(rounded % 60)}m`
+}
+
+function cycleTimeFromCard(start: any, end: any) {
+  const startDate = parseStageTime(start)
+  const endDate = parseStageTime(end)
+  if (!startDate || !endDate || endDate < startDate) return ""
+  return formatMinutes((endDate.getTime() - startDate.getTime()) / 60000)
+}
 
 function computeHoursLate(endTimeValue: any): number {
   if (!endTimeValue) return 0
@@ -660,13 +713,17 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   }
 
   function updateSnapshotField(stage: StageName, field: string, value: string) {
-    updateStageForm(stage, (current) => ({
-      ...current,
-      entry_snapshot: {
+    updateStageForm(stage, (current) => {
+      const next = {
         ...(current.entry_snapshot || {}),
         [field]: value,
-      },
-    }))
+      }
+      if (field === "start_time" || field === "end_time") {
+        // Cycle Time (B-A) is derived from the card times, never typed.
+        next.cycle_time = cycleTimeFromCard(next.start_time, next.end_time)
+      }
+      return { ...current, entry_snapshot: next }
+    })
   }
 
   function updateNestedSnapshotField(stage: StageName, field: string, nestedField: string, value: string) {
@@ -768,6 +825,10 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     if (submittedShift) {
       payload.shift_code = submittedShift
     }
+    const cardStart = cardTimeToIso(entry.start_time)
+    const cardEnd = cardTimeToIso(entry.end_time)
+    if (cardStart) payload.start_time = cardStart
+    if (cardEnd) payload.end_time = cardEnd
     if (stage === "SLITTING" && entry.slit_output_weight_kg !== "") {
       payload.input_qty = Number(entry.slit_output_weight_kg)
     }
@@ -837,6 +898,31 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     }
   }
 
+  function cardTimeProblem(stage: StageName, saveMode: "draft" | "complete"): string | null {
+    const form = stageForms[stage] || {}
+    const entry = form.entry_snapshot || {}
+    const start = parseStageTime(entry.start_time)
+    const end = parseStageTime(entry.end_time)
+    if (saveMode === "complete" && CARD_TIMED_STAGES.includes(stage) && (!start || !end) && !String(form.override_reason || "").trim()) {
+      return `Enter the Start (A) and End (B) times written on the ${stage} section of the job card.`
+    }
+    if (start && end && end < start) {
+      return `${stage} End (B) cannot be before Start (A). Check the date on the card.`
+    }
+    const futureLimit = Date.now() + 10 * 60 * 1000
+    if ((start && start.getTime() > futureLimit) || (end && end.getTime() > futureLimit)) {
+      return `${stage} card time is in the future. Enter the time written on the job card.`
+    }
+    return null
+  }
+
+  function showStageWarnings(response: any) {
+    const warnings = response?.data?.warnings ?? response?.warnings
+    if (Array.isArray(warnings) && warnings.length) {
+      showToast(warnings.join(" "), "info")
+    }
+  }
+
   async function saveStage(stage: StageName, saveMode: "draft" | "complete") {
     if (!jobCardId) return
     const assignment = stageAssignment(stage)
@@ -852,19 +938,26 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         return
       }
     }
+    const timeProblem = cardTimeProblem(stage, saveMode)
+    if (timeProblem) {
+      showToast(timeProblem, "error")
+      return
+    }
     try {
       if (saveMode === "draft") {
-        await saveDraftMutation.mutateAsync({
+        const response: any = await saveDraftMutation.mutateAsync({
           jobCardId,
           data: draftPayload(stage),
         })
         showToast(`${stage} draft saved`, "success")
+        showStageWarnings(response)
       } else {
-        await completeStageMutation.mutateAsync({
+        const response: any = await completeStageMutation.mutateAsync({
           jobCardId,
           data: completePayload(stage),
         })
         showToast(`${stage} saved as completed`, "success")
+        showStageWarnings(response)
       }
       jobCardQuery.refetch()
     } catch (error: any) {
@@ -1261,8 +1354,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
                         <div>Output: {formatNumber(row.output_qty, 0)}</div>
                         <div>Scrap: {formatNumber(row.scrap_qty, 0)}</div>
-                        <div>Start: {row.actual_start || "-"}</div>
-                        <div>End: {row.actual_end || "-"}</div>
+                        <div>Card start (A): {formatStageTime(row.actual_start, true) || "-"}</div>
+                        <div>Card end (B): {formatStageTime(row.actual_end, true) || "-"}</div>
+                        <div>Cycle: {formatMinutes(row.actuals_snapshot?.time_reconciliation?.cycle_time_minutes) || "-"}</div>
+                        <div>
+                          Entered: {formatStageTime(row.actuals_snapshot?.time_reconciliation?.entered_at || row.entered_at, true) || "-"}
+                          {row.actuals_snapshot?.time_reconciliation?.late_entry ? (
+                            <span className="ml-1 rounded-full bg-amber-100 px-2 py-0.5 font-semibold text-amber-800">late</span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   ))
@@ -1310,9 +1410,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
-          {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderCycleTime(stage)}
           {renderSimpleField(stage, "Parent Reel ID", "parent_reel_id")}
           {renderSimpleField(stage, "Child Reel IDs", "child_reel_ids_text")}
           {renderShiftPicker(stage)}
@@ -1486,13 +1586,45 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   function renderLateEntryWarning(stage: StageName) {
     const entry = stageForms[stage]?.entry_snapshot
     if (!entry) return null
-    if (!stageEditable(stage)) return null
+    if (!stageEditable(stage)) return renderTimeReconciliation(stage)
     const hoursLate = computeHoursLate(entry.end_time)
     if (hoursLate <= LATE_ENTRY_THRESHOLD_HOURS) return null
     const hoursLabel = hoursLate >= 24 ? `${Math.round(hoursLate / 24 * 10) / 10} days` : `${Math.round(hoursLate * 10) / 10} hours`
     return (
       <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 no-print">
         Recording {hoursLabel} late — confirm shift selection below.
+      </div>
+    )
+  }
+
+  function renderCycleTime(stage: StageName) {
+    const entry = stageForms[stage]?.entry_snapshot || {}
+    return <LabeledValue label="Cycle Time (B-A)" value={cycleTimeFromCard(entry.start_time, entry.end_time) || entry.cycle_time || "-"} />
+  }
+
+  // Card time vs. system entry time, kept for supervisor reconciliation.
+  function renderTimeReconciliation(stage: StageName) {
+    const row = stageRow(stage)
+    const record = row?.actuals_snapshot?.time_reconciliation
+    if (!row || (!record && !row.actual_end)) return null
+    const cardStart = formatStageTime(row.actual_start, true) || "-"
+    const cardEnd = formatStageTime(row.actual_end, true) || "-"
+    const entered = formatStageTime(record?.entered_at || row.entered_at, true) || "-"
+    const lag = record?.entry_lag_minutes
+    const late = Boolean(record?.late_entry)
+    const source = record?.time_source || "LEGACY"
+    return (
+      <div
+        className={`mt-2 grid gap-1 rounded-md border px-3 py-2 text-xs no-print md:grid-cols-4 ${
+          late || source !== "CARD" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"
+        }`}
+      >
+        <div><span className="font-semibold">Card A → B:</span> {cardStart} → {cardEnd}</div>
+        <div><span className="font-semibold">Cycle:</span> {formatMinutes(record?.cycle_time_minutes) || "-"}</div>
+        <div><span className="font-semibold">Entered:</span> {entered}{lag != null ? ` (+${formatMinutes(lag)})` : ""}</div>
+        <div className="font-semibold">
+          {source === "CARD" ? (late ? "Late entry — reconcile" : "Card time") : source === "SYSTEM_ENTRY" ? "No card time (override)" : "Legacy entry"}
+        </div>
       </div>
     )
   }
@@ -1595,9 +1727,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
-          {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderCycleTime(stage)}
           {renderToolAssignment(stage)}
           {renderShiftPicker(stage)}
         </div>
@@ -1728,9 +1860,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
-          {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderCycleTime(stage)}
           {renderShiftPicker(stage)}
         </div>
         {renderLateEntryWarning(stage)}
@@ -1798,9 +1930,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           {renderOperatorPicker(stage, "Operator Name", "operator_name")}
           {renderSimpleField(stage, "Supervisor Sign", "supervisor_sign")}
           {renderSimpleField(stage, "QC Sign", "qc_sign")}
-          {renderSimpleField(stage, "Start Time", "start_time", "datetime-local")}
-          {renderSimpleField(stage, "End Time", "end_time", "datetime-local")}
-          {renderSimpleField(stage, "Cycle Time", "cycle_time")}
+          {renderSimpleField(stage, "Start Time (A) — from card", "start_time", "datetime-local")}
+          {renderSimpleField(stage, "End Time (B) — from card", "end_time", "datetime-local")}
+          {renderCycleTime(stage)}
           {renderShiftPicker(stage)}
         </div>
         {renderLateEntryWarning(stage)}
@@ -2252,448 +2384,693 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     )
   }
 
+  // Two-sided A4 job card, laid out cell-for-cell from the client's
+  // "Job Card" workbook: header + Winding + Oven on the front, Process Line +
+  // Dispatch + tooling/drawing space on the back. Blank cells are handwriting
+  // space; values the ERP already knows (spec targets, entered actuals) print in.
   function renderReleasePrintLayout() {
-    const customerName = documentSnapshot?.header?.customer_name || card?.sales_order?.customer_name || "-"
-    const salesOrderNumber = card?.sales_order_ref || card?.sales_order?.order_no || "-"
-    const jobCardNumber = card?.job_card_ref || card?.job_card_no || String(card?.id || "").slice(0, 8)
-    const sizeLabel = documentSnapshot?.header?.product_size_label || "-"
-    const parchmentColor = documentSnapshot?.header?.color || card?.spec_snapshot?.parchment_color || "-"
-    const lotNumber = documentSnapshot?.header?.lot_number || String(card?.id || "").slice(0, 10)
-    const releaseQty = Number(documentSnapshot?.header?.release_qty_pcs || card?.released_qty || card?.planned_qty || 0)
-    const orderQty = Number(documentSnapshot?.header?.order_quantity_pcs || card?.sales_order?.order_qty || releaseQty || 0)
-    const effectiveTargetBamboo = Number(targetBambooCount || (pcsPerBamboo ? Math.ceil(releaseQty / pcsPerBamboo) : 0))
+    const header = documentSnapshot?.header || {}
     const setup = documentSnapshot?.setup_tooling || {}
-    const requiredCs = documentSnapshot?.header?.required_cs ?? clientSpec?.cs?.avg
-    const releaseWeightKg = tubeDryWeightG && releaseQty ? (tubeDryWeightG * releaseQty) / 1000 : null
-    const packingType = [
-      packingPrintEntry.packing_type || setup.bundle_type || setup.bundle_code,
-      setup.box_code || setup.box,
-      setup.qty_per_box ? `${setup.qty_per_box} / box` : null,
-    ].filter(Boolean).join(" · ") || "-"
+    const customerName = header.customer_name || card?.sales_order?.customer_name || ""
+    const salesOrderNumber = card?.sales_order_ref || header.sales_order_no || card?.sales_order?.order_no || ""
+    const jobCardNumber = card?.job_card_ref || header.job_card_number || card?.job_card_no || String(card?.id || "").slice(0, 8)
+    const lotNumber = header.lot_number || String(card?.id || "").slice(0, 10)
+    const releaseQty = Number(header.release_qty_pcs || card?.released_qty || card?.planned_qty || 0)
+    const orderQty = Number(header.order_quantity_pcs || card?.sales_order?.order_qty || releaseQty || 0)
+    const requiredCs = header.required_cs ?? clientSpec?.cs?.avg
+    const jobDate = header.date || ""
+    const plantScopeLabel = displayPlantScope(header.plant_id, "")
+    const plantLabel = plantScopeLabel && plantScopeLabel !== header.plant_id ? plantScopeLabel : ""
+
+    const blankDash = (value: any) => (value === "-" ? "" : value)
+    const num = (value: any, digits = 2) => blankDash(formatNumber(value, digits))
+    const withUnit = (value: any, unit: string, digits = 2) => {
+      const text = num(value, digits)
+      return text && Number(value) !== 0 ? `${text} ${unit}` : ""
+    }
+    const range = (spec: any, digits = 2) => {
+      const min = num(spec?.min, digits)
+      const max = num(spec?.max, digits)
+      return min && max ? `${min}–${max}` : ""
+    }
+    const dateOnly = (value: any) => {
+      const parsed = parseStageTime(value, true)
+      if (!parsed) return String(value || "").slice(0, 10)
+      return `${padTwo(parsed.getDate())}-${padTwo(parsed.getMonth() + 1)}-${parsed.getFullYear()}`
+    }
+    const cardTime = (value: any) => formatStageTime(value)
 
     function planFor(stage: StageName) {
       const row = stageRow(stage)
       const segment = stageSegment(stage)
-      const releaseWinderId = stage === "WINDER" ? documentSnapshot?.header?.assigned_winder_machine_id : ""
+      const releaseWinderId = stage === "WINDER" ? header.assigned_winder_machine_id : ""
       const machineId = row?.machine_id || segment?.machine_id || releaseWinderId || ""
-      const shiftCode = row?.shift_code || segment?.shift_code || documentSnapshot?.header?.shift || ""
-      const planDate = row?.plan_date || segment?.plan_date || documentSnapshot?.header?.date || ""
+      const shiftCode = row?.shift_code || segment?.shift_code || header.shift || ""
+      const planDate = row?.actual_start || row?.plan_date || segment?.plan_date || ""
       return {
-        machineId,
-        machineLabel: machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : "-",
-        shiftLabel: shiftCode ? String(shiftCode).replace("_", " ") : "-",
-        planDate: planDate || "-",
+        machineLabel: machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : "",
+        shiftLabel: shiftCode ? String(shiftCode).replace("SHIFT_", "").replace("_", " ") : "",
+        date: planDate ? dateOnly(planDate) : "",
       }
     }
 
     const winderPlan = planFor("WINDER")
     const ovenPlan = planFor("OVEN")
     const processPlan = planFor("PROCESS")
-    const winderMachineLabel = winderPrintEntry.winder_no || winderPlan.machineLabel
-    const ovenMachineLabel = ovenPrintEntry.oven_no || ovenPlan.machineLabel
-    const processMachineLabel = processPrintEntry.process_line_no || processPlan.machineLabel
-    const targetMeasure = {
-      length: formatNumber(clientSpec?.length?.avg ?? documentSnapshot?.header?.tube_length_mm),
-      id: formatNumber(clientSpec?.id?.avg),
-      od: formatNumber(clientSpec?.od?.avg),
-      weight: formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg),
-      cs: formatNumber(requiredCs),
-      notch_distance: setup.notch_distance || "",
-      notch_depth: setup.notch_depth || "",
-    }
-    const winderReadings = Array.isArray(winderPrintEntry.dimension_readings)
-      ? winderPrintEntry.dimension_readings.filter((row: any) => Object.values(row || {}).some(Boolean))
-      : []
-    const winderRows = Array.from({ length: 4 }, (_, index) => winderReadings[index] || (index === 0 ? targetMeasure : {}))
-    const processRows = Array.from({ length: 3 }, (_, index) => index === 0 ? {
-      ...targetMeasure,
-      ...(processPrintEntry.final_measurements || {}),
-    } : {})
-    const headerFields = [
-      ["Date", documentSnapshot?.header?.date || ""],
-      ["Customer Name", customerName],
-      ["Sales Order", salesOrderNumber],
-      ["Job Card No.", jobCardNumber],
-      ["Size", sizeLabel],
-      ["Shift", winderPlan.shiftLabel],
-      ["Weight", `${formatNumber(tubeDryWeightG || clientSpec?.tube_weight?.avg)} g`],
-      ["C.S.", formatNumber(requiredCs)],
-      ["Job Card Qty", `${formatNumber(releaseQty, 0)} pcs`],
-      ["Order Qty", `${formatNumber(orderQty, 0)} pcs`],
-      ["Packing Type", packingType],
-      ["Parchment Type", parchmentColor || "-"],
-      ["Target Bamboo", `${formatNumber(effectiveTargetBamboo, 0)} pcs`],
-      ["Pcs / Bamboo", formatNumber(pcsPerBamboo, 0)],
+    const winderReadings = (Array.isArray(winderPrintEntry.dimension_readings) ? winderPrintEntry.dimension_readings : [])
+      .filter((row: any) => Object.values(row || {}).some(Boolean))
+    const processReading = processPrintEntry.final_measurements || {}
+    const hasProcessReading = Object.values(processReading).some(Boolean)
+    const ovenReadingEntered = [
+      ovenPrintEntry.pre_oven_weight_kg,
+      ovenPrintEntry.post_oven_weight_kg,
+      ovenPrintEntry.moisture_before,
+      ovenPrintEntry.moisture_after,
+    ].some(Boolean)
+    // Sealed shipments from the dispatch module; fall back to the packing entry.
+    const dispatchHistory: any[] = Array.isArray(card?.dispatch_history) ? card.dispatch_history : []
+    const dispatchRows = dispatchHistory.length
+      ? dispatchHistory
+      : dispatchQty > 0
+        ? [{ dispatch_date: packingPrintEntry.dispatch_date || dispatchPrintEntry.dispatch_date || "", dispatch_qty: dispatchQty, pending_qty: pendingQty }]
+        : []
+    const dispatchDate = dispatchRows[0]?.dispatch_date || packingPrintEntry.dispatch_date || dispatchPrintEntry.dispatch_date || ""
+    const leadTimeDays = (() => {
+      const start = parseStageTime(jobDate)
+      const end = parseStageTime(dispatchDate)
+      if (!start || !end || end < start) return ""
+      return `${Math.round((end.getTime() - start.getTime()) / 86400000)} days`
+    })()
+    const toolingLine = [
       ["Mandrel", mandrelLabel],
-      ["Lot Number", lotNumber],
+      ["Notch", setup.notch_type],
+      ["Blade", setup.blade],
+      ["Holder", setup.notching_holder || setup.holder],
+      ["Punch", setup.punch],
+      ["V/Flat", setup.v_flat],
+      ["Direction", setup.notch_direction || setup.tube_direction],
+      ["Box", [setup.box_code || setup.box, setup.qty_per_box ? `${setup.qty_per_box}/box` : ""].filter(Boolean).join(" · ")],
+    ].filter(([, value]) => value && value !== "-")
+
+    const L = ({ en, hi }: { en: string; hi?: string }) => (
+      <>
+        <span className="jc-en">{en}</span>
+        {hi ? <span className="jc-hi">{hi}</span> : null}
+      </>
+    )
+    const Req = ({ value, hint }: { value: any; hint?: string }) => (
+      <>
+        <span className="jc-req-tag">REQ</span>
+        <span className="jc-req-value">{value || ""}</span>
+        {hint ? <span className="jc-req-hint">{hint}</span> : null}
+      </>
+    )
+    const Cols = () => (
+      <colgroup>
+        {[12, 12, 12, 12.5, 12, 12, 12, 15.5].map((width, index) => (
+          <col key={index} style={{ width: `${width}%` }} />
+        ))}
+      </colgroup>
+    )
+    const SectionBand = ({ dateLabel, dateHi, dateValue, title, titleHi, shiftLabel, shiftHi, shiftValue }: any) => (
+      <tr className="jc-row-band">
+        <td className="jc-label"><L en={dateLabel} hi={dateHi} /></td>
+        <td className="jc-value">{dateValue}</td>
+        <td className="jc-band" colSpan={4}>
+          {title} <span className="jc-band-hi">{titleHi}</span>
+        </td>
+        <td className="jc-label"><L en={shiftLabel} hi={shiftHi} /></td>
+        <td className="jc-value">{shiftValue}</td>
+      </tr>
+    )
+    const PeopleRows = ({ labels, values }: { labels: [string, string][]; values: any[] }) => (
+      <>
+        <tr className="jc-row-label">
+          {labels.map(([en, hi]) => (
+            <td key={en} className="jc-label" colSpan={2}><L en={en} hi={hi} /></td>
+          ))}
+        </tr>
+        <tr className="jc-row-sign">
+          {values.map((value, index) => (
+            <td key={index} className="jc-value" colSpan={2}>{value || ""}</td>
+          ))}
+        </tr>
+      </>
+    )
+    const qtyHeads = (first: [string, string], second: [string, string]) => (
+      <tr className="jc-row-label">
+        <td className="jc-label"><L en={first[0]} hi={first[1]} /></td>
+        <td className="jc-label"><L en={second[0]} hi={second[1]} /></td>
+        <td className="jc-label"><L en="Reject Qty" hi="रिजेक्ट क्वांटिटी" /></td>
+        <td className="jc-label"><L en="Rejection Code" hi="रिजेक्शन कोड" /></td>
+        <td className="jc-label"><L en="Start Time (A)" hi="स्टार्ट टाइम" /></td>
+        <td className="jc-label"><L en="End Time (B)" hi="एंड टाइम" /></td>
+        <td className="jc-label" colSpan={2}><L en="Cycle Time (B-A)" hi="साइकिल टाइम" /></td>
+      </tr>
+    )
+    const cycleOf = (entry: any) => cycleTimeFromCard(entry.start_time, entry.end_time) || entry.cycle_time || ""
+
+    const headerFields: [string, string, any][] = [
+      ["Date", "तारीख", jobDate ? dateOnly(jobDate) : ""],
+      ["Customer Name", "कस्टमर का नाम", customerName],
+      ["Mandrel", "मैंड्रिल", blankDash(mandrelLabel)],
+      ["Lot Number", "लॉट नंबर", lotNumber],
+      ["Weight / Pc", "वजन / पीस", withUnit(tubeDryWeightG || clientSpec?.tube_weight?.avg, "g")],
+      ["Color", "रंग", blankDash(header.color || card?.spec_snapshot?.parchment_color || "")],
+      [
+        "Order Quantity",
+        "ऑर्डर क्वांटिटी",
+        releaseQty
+          ? `${num(releaseQty, 0)} pcs${orderQty && orderQty !== releaseQty ? `  (SO ${num(orderQty, 0)})` : ""}`
+          : "",
+      ],
+      ["Size", "साइज़", blankDash(header.product_size_label || "")],
+      ["Parchment Paper", "पार्चमेंट पेपर", blankDash(header.parchment_paper || parchmentFamily || "")],
+      ["Pcs / Bamboo", "पीस / बैम्बू", num(pcsPerBamboo, 0)],
+      ["Required C.S", "आवश्यक C.S", num(requiredCs)],
+      ["Denier", "डेनियर", ""],
     ]
 
-    const PrintField = ({ label, value, className = "" }: { label: string; value: any; className?: string }) => (
-      <div className={`job-print-field ${className}`}>
-        <div className="job-print-label">{label}</div>
-        <div className="job-print-value">{value || "-"}</div>
-      </div>
-    )
-    const SignatureLine = ({ label }: { label: string }) => (
-      <div className="job-signature">
-        <div className="job-signature-line" />
-        <div className="job-print-label">{label}</div>
-      </div>
-    )
-    const measuredDimensionRows = (rows: any[]) =>
-      rows.map((row, index) => (
-        <tr key={`dimension-row-${index}`}>
-          <td>{row.length || ""}</td>
-          <td>{row.id || ""}</td>
-          <td>{row.od || ""}</td>
-          <td>{row.weight || ""}</td>
-          <td>{row.cs || ""}</td>
-          <td>{row.notch_distance || ""}</td>
-          <td>{row.notch_depth || ""}</td>
-        </tr>
-      ))
-
     return (
-      <div className="job-print-root mx-auto max-w-[210mm] print:max-w-none">
-        <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-600">Controlled two-sided job card for the scheduled release.</div>
-          <button
-            type="button"
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
-          >
+      <div className="jc-root">
+        <div className="no-print jc-toolbar">
+          <div>
+            Client job-card format · A4 front &amp; back. Print with <strong>Two-sided (flip on long edge)</strong>, scale 100%, margins default.
+          </div>
+          <button type="button" onClick={() => window.print()} className="jc-print-btn">
             <Printer className="h-4 w-4" />
             Print Job Card
           </button>
         </div>
 
-        <section className="job-print-side job-front-side">
-          <div className="job-topbar">
-            <div>
-              <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
-              <div className="job-title">Job Card</div>
-            </div>
-            <div className="job-ref-box">
-              <span>Date</span>
-              <strong>{documentSnapshot?.header?.date || "-"}</strong>
-            </div>
-            <div className="job-ref-box">
-              <span>Job Card No.</span>
-              <strong>{jobCardNumber}</strong>
-            </div>
-            <QRCodeSVG value={qrValue} size={58} />
-          </div>
+        {/* ---------------- FRONT ---------------- */}
+        <section className="jc-page jc-front">
+          <table className="jc-grid jc-title">
+            <Cols />
+            <tbody>
+              <tr className="jc-row-title">
+                <td colSpan={2} className="jc-brand">
+                  <div className="jc-company">{header.company_name || "Hari Om Paper"}</div>
+                  {plantLabel ? <div className="jc-brand-sub">{plantLabel}</div> : null}
+                </td>
+                <td colSpan={5} className="jc-heading">
+                  <div className="jc-heading-title">Job Card <span className="jc-hi">जॉब कार्ड</span></div>
+                  <div className="jc-heading-refs">
+                    <span>JC No. <strong>{jobCardNumber}</strong></span>
+                    {salesOrderNumber ? <span>SO <strong>{salesOrderNumber}</strong></span> : null}
+                  </div>
+                </td>
+                <td className="jc-qr">
+                  <QRCodeSVG value={qrValue} size={72} />
+                </td>
+              </tr>
+            </tbody>
+          </table>
 
-          <section className="job-band job-summary-band">
-            <div className="job-section-title">
-              <span>Summary Box</span>
-              <span>Release + spec truth</span>
-            </div>
-            <div className="job-hero-grid">
-              {headerFields.map(([label, value]) => (
-                <PrintField key={label} label={String(label)} value={value} />
+          <table className="jc-grid jc-gap">
+            <Cols />
+            <tbody>
+              {[0, 4, 8].map((start) => (
+                <Fragment key={start}>
+                  <tr className="jc-row-label">
+                    {headerFields.slice(start, start + 4).map(([en, hi]) => (
+                      <td key={en} className="jc-label" colSpan={2}><L en={en} hi={hi} /></td>
+                    ))}
+                  </tr>
+                  <tr className="jc-row-head-value">
+                    {headerFields.slice(start, start + 4).map(([en, , value]) => (
+                      <td key={en} className="jc-value jc-value-strong" colSpan={2}>{value || ""}</td>
+                    ))}
+                  </tr>
+                </Fragment>
               ))}
-            </div>
-          </section>
+            </tbody>
+          </table>
 
-          <section className="job-band">
-            <div className="job-section-title">
-              <span>Winding (W1-W4)</span>
-              <span>{winderPlan.machineLabel}</span>
-            </div>
-            <div className="job-mini-grid job-mini-grid-8">
-              <PrintField label="Plan Date" value={winderPlan.planDate} />
-              <PrintField label="Winder No." value={winderMachineLabel} />
-              <PrintField label="Operator" value={winderPrintEntry.operator_name} />
-              <PrintField label="Output Meters" value={displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced || winderPrintStage?.input_qty || effectiveTargetBamboo)} />
-              <PrintField label="Accept / Reject Meters" value={`${displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count || winderPrintStage?.output_qty)} / ${displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count || winderPrintStage?.scrap_qty)}`} />
-              <PrintField label="Start / End" value={`${winderPrintEntry.start_time || "-"} / ${winderPrintEntry.end_time || "-"}`} />
-              <PrintField label="QC Sign" value={winderPrintEntry.qc_sign || ""} />
-              <PrintField label="Supervisor" value={winderPrintEntry.supervisor_sign || ""} />
-            </div>
-            <table className="job-print-table job-dimension-table">
-              <thead>
-                <tr>
-                  <th>Length</th>
-                  <th>I.D</th>
-                  <th>O.D</th>
-                  <th>Weight</th>
-                  <th>C.S</th>
-                  <th>Notch Dist.</th>
-                  <th>Notch Depth</th>
-                </tr>
-              </thead>
-              <tbody>{measuredDimensionRows(winderRows)}</tbody>
-            </table>
-          </section>
+          {/* Winding */}
+          <table className="jc-grid jc-gap">
+            <Cols />
+            <tbody>
+              <SectionBand
+                dateLabel="Date" dateHi="तारीख" dateValue={winderPlan.date}
+                title="Winding" titleHi="वाइंडिंग"
+                shiftLabel="Shift" shiftHi="शिफ्ट" shiftValue={winderPlan.shiftLabel}
+              />
+              <PeopleRows
+                labels={[["Winder No", "वाइंडर नंबर"], ["Operator Name", "ऑपरेटर नेम"], ["Supervisor Sign", "सुपरवाइजर साइन"], ["QC Sign", "क्यूसी साइन"]]}
+                values={[winderPrintEntry.winder_no || winderPlan.machineLabel, winderPrintEntry.operator_name, winderPrintEntry.supervisor_sign, winderPrintEntry.qc_sign]}
+              />
+              {qtyHeads(["Output Qty (m)", "आउटपुट क्वांटिटी"], ["Accepted Qty (m)", "स्वीकृत क्वांटिटी"])}
+              <tr className="jc-row-entry">
+                <td className="jc-value" rowSpan={3}>{displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced)}</td>
+                <td className="jc-value" rowSpan={3}>{displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count)}</td>
+                <td className="jc-value">{displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count)}</td>
+                <td className="jc-value">{winderPrintEntry.reject_reason_code || winderPrintEntry.rejection_code || ""}</td>
+                <td className="jc-value" rowSpan={3}>{cardTime(winderPrintEntry.start_time)}</td>
+                <td className="jc-value" rowSpan={3}>{cardTime(winderPrintEntry.end_time)}</td>
+                <td className="jc-value" rowSpan={3} colSpan={2}>{cycleOf(winderPrintEntry)}</td>
+              </tr>
+              <tr className="jc-row-entry"><td className="jc-value" /><td className="jc-value" /></tr>
+              <tr className="jc-row-entry"><td className="jc-value" /><td className="jc-value" /></tr>
+              <tr className="jc-row-label">
+                <td className="jc-label" colSpan={2}><L en="Length" hi="लंबाई" /></td>
+                <td className="jc-label"><L en="Weight" hi="वज़न" /></td>
+                <td className="jc-label"><L en="OD" hi="ओ.डी." /></td>
+                <td className="jc-label" colSpan={2}><L en="ID" hi="आई.डी." /></td>
+                <td className="jc-label"><L en="C.S" hi="सी.एस." /></td>
+                <td className="jc-label"><L en="Pasting" hi="पेस्टिंग" /></td>
+              </tr>
+              <tr className="jc-row-req">
+                <td className="jc-value" colSpan={2}><Req value={withUnit(header.selected_bamboo_length_mm || selectedBambooLength, "mm", 0)} hint="bamboo" /></td>
+                <td className="jc-value"><Req value={withUnit(bambooWetWeightG, "g")} hint="wet" /></td>
+                <td className="jc-value"><Req value={num(clientSpec?.od?.avg)} hint={range(clientSpec?.od)} /></td>
+                <td className="jc-value" colSpan={2}><Req value={num(clientSpec?.id?.avg)} hint={range(clientSpec?.id)} /></td>
+                <td className="jc-value"><Req value={num(manufacturingSpec?.winder_pre_dry_cs)} hint="pre-dry" /></td>
+                <td className="jc-value"><Req value="" /></td>
+              </tr>
+              {Array.from({ length: 4 }, (_, index) => {
+                const reading = winderReadings[index] || {}
+                return (
+                  <tr key={`winder-sample-${index}`} className="jc-row-sample">
+                    <td className="jc-value" colSpan={2}>{reading.length || ""}</td>
+                    <td className="jc-value">{reading.weight || ""}</td>
+                    <td className="jc-value">{reading.od || ""}</td>
+                    <td className="jc-value" colSpan={2}>{reading.id || ""}</td>
+                    <td className="jc-value">{reading.cs || ""}</td>
+                    <td className="jc-value">{reading.pasting || ""}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
 
-          <section className="job-band job-oven-band">
-            <div className="job-section-title">
-              <span>Oven Curing (O1-O6)</span>
-              <span>{ovenPlan.machineLabel}</span>
-            </div>
-            <div className="job-mini-grid job-mini-grid-8">
-              <PrintField label="Plan Date" value={ovenPlan.planDate} />
-              <PrintField label="Oven No." value={ovenMachineLabel} />
-              <PrintField label="Operator" value={ovenPrintEntry.operator_name} />
-              <PrintField label="Bamboo In / Out" value={`${ovenPrintEntry.bamboo_count_in || formatNumber(ovenPrintStage?.input_qty || effectiveTargetBamboo, 0)} / ${ovenPrintEntry.bamboo_count_out || formatNumber(ovenPrintStage?.output_qty, 0)}`} />
-              <PrintField label="Wet / Dry Bamboo" value={`${formatNumber(bambooWetWeightG)} / ${formatNumber(bambooDryWeightG)} g`} />
-              <PrintField label="Pre / Post Moisture" value={`${ovenPrintEntry.moisture_before || "-"} / ${ovenPrintEntry.moisture_after || "-"}`} />
-              <PrintField label="Start / End" value={`${ovenPrintEntry.start_time || "-"} / ${ovenPrintEntry.end_time || "-"}`} />
-              <PrintField label="Reject / Reason" value={`${formatNumber(ovenPrintStage?.scrap_qty, 0)} / ${ovenPrintEntry.rejection_code || "-"}`} />
-            </div>
-          </section>
+          {/* Oven */}
+          <table className="jc-grid jc-gap">
+            <Cols />
+            <tbody>
+              <SectionBand
+                dateLabel="Date" dateHi="तारीख" dateValue={ovenPlan.date}
+                title="Oven" titleHi="ओवन"
+                shiftLabel="Shift" shiftHi="शिफ्ट" shiftValue={ovenPlan.shiftLabel}
+              />
+              <PeopleRows
+                labels={[["Oven No", "ओवन नंबर"], ["Operator Name", "ऑपरेटर नेम"], ["Supervisor Sign", "सुपरवाइजर साइन"], ["QC Sign", "क्यूसी साइन"]]}
+                values={[ovenPrintEntry.oven_no || ovenPlan.machineLabel, ovenPrintEntry.operator_name, ovenPrintEntry.supervisor_sign, ovenPrintEntry.qc_sign]}
+              />
+              {qtyHeads(["Winder Qty", "वाइंडर क्वांटिटी"], ["Oven Output Qty", "आउटपुट क्वांटिटी"])}
+              {Array.from({ length: 3 }, (_, index) => {
+                const first = index === 0 && ovenPrintStage?.status === "COMPLETED"
+                return (
+                  <tr key={`oven-row-${index}`} className="jc-row-entry">
+                    <td className="jc-value">{first ? ovenPrintEntry.bamboo_count_in || num(ovenPrintStage?.input_qty, 0) : ""}</td>
+                    <td className="jc-value">{first ? ovenPrintEntry.bamboo_count_out || num(ovenPrintStage?.output_qty, 0) : ""}</td>
+                    <td className="jc-value">{first ? num(ovenPrintStage?.scrap_qty, 0) : ""}</td>
+                    <td className="jc-value">{index === 0 ? ovenPrintEntry.rejection_code || ovenPrintEntry.reject_reason_code || "" : ""}</td>
+                    <td className="jc-value">{index === 0 ? cardTime(ovenPrintEntry.start_time) : ""}</td>
+                    <td className="jc-value">{index === 0 ? cardTime(ovenPrintEntry.end_time) : ""}</td>
+                    <td className="jc-value" colSpan={2}>{index === 0 ? cycleOf(ovenPrintEntry) : ""}</td>
+                  </tr>
+                )
+              })}
+              <tr className="jc-row-label">
+                <td className="jc-label" colSpan={2}><L en="Pre-Weight" hi="वज़न" /></td>
+                <td className="jc-label" colSpan={2}><L en="Post Weight" hi="वज़न" /></td>
+                <td className="jc-label" colSpan={2}><L en="Pre-Moisture" hi="नमी" /></td>
+                <td className="jc-label" colSpan={2}><L en="Post Moisture" hi="नमी" /></td>
+              </tr>
+              <tr className="jc-row-req">
+                <td className="jc-value" colSpan={2}><Req value={withUnit(bambooWetWeightG, "g")} hint="wet / bamboo" /></td>
+                <td className="jc-value" colSpan={2}><Req value={withUnit(bambooDryWeightG, "g")} hint="dry / bamboo" /></td>
+                <td className="jc-value" colSpan={2}><Req value="" /></td>
+                <td className="jc-value" colSpan={2}><Req value={range(clientSpec?.moisture, 1) ? `${range(clientSpec?.moisture, 1)} %` : num(clientSpec?.moisture?.avg, 1)} /></td>
+              </tr>
+              {Array.from({ length: 3 }, (_, index) => {
+                const first = index === 0 && ovenReadingEntered
+                return (
+                  <tr key={`oven-sample-${index}`} className="jc-row-sample">
+                    <td className="jc-value" colSpan={2}>{first ? ovenPrintEntry.pre_oven_weight_kg : ""}</td>
+                    <td className="jc-value" colSpan={2}>{first ? ovenPrintEntry.post_oven_weight_kg : ""}</td>
+                    <td className="jc-value" colSpan={2}>{first ? ovenPrintEntry.moisture_before : ""}</td>
+                    <td className="jc-value" colSpan={2}>{first ? ovenPrintEntry.moisture_after : ""}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </section>
 
-        <section className="job-print-side job-back-side">
-          <div className="job-topbar job-back-topbar">
-            <div>
-              <div className="job-company">{documentSnapshot?.header?.company_name || "Hari Om Paper"}</div>
-              <div className="job-title">Job Card · Process &amp; Close</div>
+        {/* ---------------- BACK ---------------- */}
+        <section className="jc-page jc-back">
+          <table className="jc-grid">
+            <Cols />
+            <tbody>
+              <tr className="jc-row-ident">
+                <td className="jc-label"><L en="JC No." /></td>
+                <td className="jc-value jc-value-strong">{jobCardNumber}</td>
+                <td className="jc-label"><L en="Lot No." hi="लॉट नंबर" /></td>
+                <td className="jc-value jc-value-strong">{lotNumber}</td>
+                <td className="jc-label"><L en="Customer" hi="कस्टमर" /></td>
+                <td className="jc-value jc-value-strong" colSpan={2}>{customerName}</td>
+                <td className="jc-value jc-value-strong">{blankDash(header.product_size_label || "")}</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Process line */}
+          <table className="jc-grid jc-gap">
+            <Cols />
+            <tbody>
+              <SectionBand
+                dateLabel="Date" dateHi="तारीख" dateValue={processPlan.date}
+                title="Process Line" titleHi="प्रोसेस लाइन"
+                shiftLabel="Shift" shiftHi="शिफ्ट" shiftValue={processPlan.shiftLabel}
+              />
+              <PeopleRows
+                labels={[["Line No", "लाइन नंबर"], ["Operator Name", "ऑपरेटर नेम"], ["Packing Sign", "पैकिंग साइन"], ["QC Sign", "क्यूसी साइन"]]}
+                values={[processPrintEntry.process_line_no || processPlan.machineLabel, processPrintEntry.operator_name, packingPrintEntry.supervisor_sign, qcPrintEntry.qc_sign || processPrintEntry.qc_sign]}
+              />
+              {qtyHeads(["Oven Qty", "ओवन क्वांटिटी"], ["Process OK Qty", "प्रोसेस क्वांटिटी"])}
+              {Array.from({ length: 2 }, (_, index) => {
+                const first = index === 0 && processPrintStage?.status === "COMPLETED"
+                return (
+                  <tr key={`process-row-${index}`} className="jc-row-entry jc-row-entry-tall">
+                    <td className="jc-value">{first ? num(ovenPrintStage?.output_qty, 0) : ""}</td>
+                    <td className="jc-value">{first ? processPrintEntry.process_qty || num(processPrintStage?.output_qty, 0) : ""}</td>
+                    <td className="jc-value">{first ? processPrintEntry.reject_qty || num(processPrintStage?.scrap_qty, 0) : ""}</td>
+                    <td className="jc-value">{index === 0 ? processPrintEntry.reject_reason || "" : ""}</td>
+                    <td className="jc-value">{index === 0 ? cardTime(processPrintEntry.start_time) : ""}</td>
+                    <td className="jc-value">{index === 0 ? cardTime(processPrintEntry.end_time) : ""}</td>
+                    <td className="jc-value" colSpan={2}>{index === 0 ? cycleOf(processPrintEntry) : ""}</td>
+                  </tr>
+                )
+              })}
+              <tr className="jc-row-label">
+                <td className="jc-label"><L en="Length" hi="लंबाई" /></td>
+                <td className="jc-label"><L en="I.D" hi="आई.डी." /></td>
+                <td className="jc-label"><L en="O.D" hi="ओ.डी." /></td>
+                <td className="jc-label"><L en="Weight" hi="वज़न" /></td>
+                <td className="jc-label"><L en="Moisture" hi="नमी" /></td>
+                <td className="jc-label"><L en="C.S" hi="सी.एस." /></td>
+                <td className="jc-label"><L en="Notch Distance" hi="नॉच डिस्टेंस" /></td>
+                <td className="jc-label"><L en="Notch Depth" hi="नॉच गहराई" /></td>
+              </tr>
+              <tr className="jc-row-req">
+                <td className="jc-value"><Req value={num(clientSpec?.length?.avg ?? header.tube_length_mm)} hint={range(clientSpec?.length)} /></td>
+                <td className="jc-value"><Req value={num(clientSpec?.id?.avg)} hint={range(clientSpec?.id)} /></td>
+                <td className="jc-value"><Req value={num(clientSpec?.od?.avg)} hint={range(clientSpec?.od)} /></td>
+                <td className="jc-value"><Req value={withUnit(tubeDryWeightG || clientSpec?.tube_weight?.avg, "g")} hint={range(clientSpec?.tube_weight)} /></td>
+                <td className="jc-value"><Req value={range(clientSpec?.moisture, 1) ? `${range(clientSpec?.moisture, 1)} %` : num(clientSpec?.moisture?.avg, 1)} /></td>
+                <td className="jc-value"><Req value={num(requiredCs)} hint={range(clientSpec?.cs)} /></td>
+                <td className="jc-value"><Req value={setup.notch_distance || ""} /></td>
+                <td className="jc-value"><Req value={setup.notch_depth || ""} /></td>
+              </tr>
+              {Array.from({ length: 3 }, (_, index) => {
+                const reading = index === 0 && hasProcessReading ? processReading : {}
+                return (
+                  <tr key={`process-sample-${index}`} className="jc-row-sample">
+                    <td className="jc-value">{reading.length || ""}</td>
+                    <td className="jc-value">{reading.id || ""}</td>
+                    <td className="jc-value">{reading.od || ""}</td>
+                    <td className="jc-value">{reading.weight || ""}</td>
+                    <td className="jc-value">{reading.moisture || ""}</td>
+                    <td className="jc-value">{reading.cs || ""}</td>
+                    <td className="jc-value">{reading.notch_distance || ""}</td>
+                    <td className="jc-value">{reading.notch_depth || ""}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Dispatch */}
+          <table className="jc-grid jc-gap">
+            <Cols />
+            <tbody>
+              <SectionBand
+                dateLabel="Dispatch Date" dateHi="डिस्पैच तारीख" dateValue={dispatchDate ? dateOnly(dispatchDate) : ""}
+                title="Dispatch" titleHi="डिस्पैच"
+                shiftLabel="Lead Time" shiftHi="लीड टाइम" shiftValue={leadTimeDays}
+              />
+              <tr className="jc-row-label">
+                <td className="jc-label" colSpan={2}><L en="Dispatch Date" hi="डिस्पैच तारीख" /></td>
+                <td className="jc-label" colSpan={2}><L en="Dispatch Quantity" hi="डिस्पैच क्वांटिटी" /></td>
+                <td className="jc-label" colSpan={2}><L en="Pending Quantity" hi="पेंडिंग क्वांटिटी" /></td>
+                <td className="jc-label" colSpan={2}><L en="Supervisor Sign" hi="सुपरवाइजर साइन" /></td>
+              </tr>
+              {Array.from({ length: Math.max(2, Math.min(dispatchRows.length, 4)) }, (_, index) => {
+                const shipment = dispatchRows[index]
+                return (
+                  <tr key={`dispatch-row-${index}`} className="jc-row-entry jc-row-entry-tall">
+                    <td className="jc-value" colSpan={2}>{shipment?.dispatch_date ? dateOnly(shipment.dispatch_date) : ""}</td>
+                    <td className="jc-value" colSpan={2}>{shipment ? num(shipment.dispatch_qty, 0) : ""}</td>
+                    <td className="jc-value" colSpan={2}>{shipment ? num(shipment.pending_qty, 0) : ""}</td>
+                    <td className="jc-value" colSpan={2}>{shipment && !dispatchHistory.length ? packingPrintEntry.supervisor_sign || "" : ""}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          {/* Combination / tooling / drawing space */}
+          <div className="jc-drawing">
+            <div className="jc-drawing-title">
+              <L en="Space for the combination, tooling, drawing etc." hi="कॉम्बिनेशन, टूलिंग, ड्रॉइंग आदि के लिए स्थान" />
             </div>
-            <div className="job-ref-box">
-              <span>Job Card No.</span>
-              <strong>{jobCardNumber}</strong>
-            </div>
-            <div className="job-ref-box">
-              <span>Release Qty</span>
-              <strong>{formatNumber(releaseQty, 0)} pcs</strong>
-            </div>
-            <QRCodeSVG value={qrValue} size={58} />
+            {toolingLine.length ? (
+              <div className="jc-drawing-tooling">
+                {toolingLine.map(([label, value]) => (
+                  <span key={String(label)}>
+                    {label}: <strong>{String(value)}</strong>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
 
-          <section className="job-band">
-            <div className="job-section-title">
-              <span>Process Line (P1-P11)</span>
-              <span>{processPlan.machineLabel}</span>
-            </div>
-            <div className="job-mini-grid job-mini-grid-8">
-              <PrintField label="Plan Date" value={processPlan.planDate} />
-              <PrintField label="Line No." value={processMachineLabel} />
-              <PrintField label="Operator" value={processPrintEntry.operator_name} />
-              <PrintField label="Oven Qty" value={formatNumber(ovenPrintStage?.output_qty || effectiveTargetBamboo, 0)} />
-              <PrintField label="Process Qty" value={processPrintEntry.process_qty || formatNumber(processPrintStage?.output_qty || releaseQty, 0)} />
-              <PrintField label="Reject / Reason" value={`${processPrintEntry.reject_qty || formatNumber(processPrintStage?.scrap_qty, 0)} / ${processPrintEntry.reject_reason || "-"}`} />
-              <PrintField label="Start / End" value={`${processPrintEntry.start_time || "-"} / ${processPrintEntry.end_time || "-"}`} />
-              <PrintField label="Cycle Time" value={processPrintEntry.cycle_time || "-"} />
-            </div>
-            <table className="job-print-table job-dimension-table">
-              <thead>
-                <tr>
-                  <th>Length</th>
-                  <th>I.D</th>
-                  <th>O.D</th>
-                  <th>Weight</th>
-                  <th>C.S</th>
-                  <th>Notch Dist.</th>
-                  <th>Notch Depth</th>
-                </tr>
-              </thead>
-              <tbody>{measuredDimensionRows(processRows)}</tbody>
-            </table>
-          </section>
-
-          <section className="job-band job-pack-band">
-            <div className="job-section-title">
-              <span>Packing + Dispatch</span>
-              <span>Release Close</span>
-            </div>
-            <div className="job-mini-grid job-mini-grid-8">
-              <PrintField label="Box Packed" value={packingPrintEntry.total_packed_qty || ""} />
-              <PrintField label="Tube / Box" value={setup.qty_per_box || ""} />
-              <PrintField label="Dispatch Date" value={packingPrintEntry.dispatch_date || dispatchPrintEntry.dispatch_date || ""} />
-              <PrintField label="Dispatch Qty" value={dispatchQty > 0 ? formatNumber(dispatchQty, 0) : ""} />
-              <PrintField label="Pending Qty" value={pendingQty > 0 ? formatNumber(pendingQty, 0) : ""} />
-              <PrintField label="QC Sign" value={qcPrintEntry.qc_sign || processPrintEntry.qc_sign || ""} />
-              <PrintField label="Supervisor" value={packingPrintEntry.supervisor_sign || ""} />
-              <PrintField label="Notes" value={processPrintStage?.remarks || packingPrintStage?.remarks || qcPrintStage?.remarks || ""} />
-            </div>
-            <div className="job-signature-row">
-              <SignatureLine label="Winder Operator" />
-              <SignatureLine label="Oven Operator" />
-              <SignatureLine label="Process Operator" />
-              <SignatureLine label="QC Inspector" />
-              <SignatureLine label="Supervisor" />
-            </div>
-          </section>
+          <div className="jc-footnote">
+            Write Start (A) / End (B) with date and clock time as they happen — the ERP keeps the card time and logs the entry time separately for reconciliation.
+            <span className="jc-hi"> स्टार्ट / एंड टाइम घड़ी के अनुसार तारीख सहित लिखें।</span>
+          </div>
         </section>
 
         <style jsx global>{`
-          .job-print-root {
-            color: #0f172a;
+          .jc-root {
+            --jc-ink: #0f172a;
+            --jc-muted: #475569;
+            --jc-shade: #eef2f6;
+            --jc-band: #1e293b;
+            color: var(--jc-ink);
             width: min(100%, 210mm);
+            margin: 0 auto;
+            font-family: Arial, "Helvetica Neue", "Nirmala UI", "Mangal", "Noto Sans Devanagari", sans-serif;
           }
-
-          .job-print-side {
+          .jc-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #475569;
+          }
+          .jc-print-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 12px;
+            background: #0f172a;
+            padding: 8px 16px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+          }
+          .jc-page {
             box-sizing: border-box;
-            border: 2px solid #0f172a;
-            background: #fff;
-            padding: 18px;
+            width: 100%;
             height: 287mm;
             overflow: hidden;
             display: flex;
             flex-direction: column;
+            background: #fff;
+            padding: 4mm;
             box-shadow: 0 26px 80px rgba(15, 23, 42, 0.14);
           }
-
-          .job-print-side + .job-print-side {
+          .jc-page + .jc-page {
             margin-top: 14px;
           }
-
-          .job-back-topbar {
-            margin-bottom: 8px;
+          .jc-grid {
+            width: 100%;
+            table-layout: fixed;
+            border-collapse: collapse;
           }
-
-          .job-topbar {
-            display: grid;
-            grid-template-columns: 1fr 92px 118px 54px;
-            align-items: center;
-            gap: 7px;
-            border-bottom: 2px solid #0f172a;
-            padding-bottom: 7px;
+          .jc-gap {
+            margin-top: 2.2mm;
           }
-
-          .job-company {
-            font-size: 21px;
-            font-weight: 950;
+          .jc-grid td {
+            border: 0.8pt solid var(--jc-ink);
+            padding: 0.6mm 1.2mm;
+            vertical-align: top;
+            overflow: hidden;
+            font-size: 8.5pt;
+            line-height: 1.15;
+          }
+          .jc-label {
+            background: var(--jc-shade);
+          }
+          .jc-en {
+            display: block;
+            font-size: 7.4pt;
+            font-weight: 700;
+            color: var(--jc-ink);
+          }
+          .jc-hi {
+            display: block;
+            font-size: 7pt;
+            font-weight: 500;
+            color: var(--jc-muted);
+          }
+          .jc-heading-title .jc-hi,
+          .jc-footnote .jc-hi {
+            display: inline;
+          }
+          .jc-value {
+            font-size: 9pt;
+            font-weight: 600;
+            vertical-align: middle !important;
+          }
+          .jc-value-strong {
+            font-size: 9.5pt;
+            font-weight: 800;
+          }
+          .jc-band {
+            background: var(--jc-band);
+            color: #fff;
+            text-align: center;
+            vertical-align: middle !important;
+            font-size: 11pt !important;
+            font-weight: 900;
+            letter-spacing: 0.22em;
+            text-transform: uppercase;
+          }
+          .jc-band-hi {
+            font-size: 9pt;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: none;
+            opacity: 0.85;
+          }
+          .jc-req-tag {
+            display: inline-block;
+            margin-right: 1.2mm;
+            border: 0.6pt solid var(--jc-muted);
+            border-radius: 1mm;
+            padding: 0 0.8mm;
+            font-size: 5.6pt;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            color: var(--jc-muted);
+            vertical-align: middle;
+          }
+          .jc-req-value {
+            font-weight: 800;
+          }
+          .jc-req-hint {
+            display: block;
+            font-size: 6.4pt;
+            font-weight: 500;
+            color: var(--jc-muted);
+          }
+          .jc-row-title td { height: 21mm; vertical-align: middle; }
+          .jc-row-label td { height: 7.2mm; }
+          .jc-row-head-value td { height: 9mm; }
+          .jc-row-band td { height: 8mm; }
+          .jc-row-sign td { height: 9mm; }
+          .jc-row-entry td { height: 8.2mm; }
+          .jc-row-entry-tall td { height: 10mm; }
+          .jc-row-req td { height: 8.4mm; }
+          .jc-row-sample td { height: 7.6mm; }
+          .jc-row-ident td { height: 8mm; vertical-align: middle; }
+          .jc-brand {
+            vertical-align: middle !important;
+          }
+          .jc-company {
+            font-size: 12.5pt;
+            font-weight: 900;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+          }
+          .jc-brand-sub {
+            margin-top: 1mm;
+            font-size: 7.5pt;
+            color: var(--jc-muted);
+          }
+          .jc-heading {
+            text-align: center;
+            vertical-align: middle !important;
+          }
+          .jc-heading-title {
+            font-size: 20pt;
+            font-weight: 900;
             letter-spacing: 0.18em;
             text-transform: uppercase;
           }
-
-          .job-title {
-            margin-top: 2px;
-            font-size: 12px;
-            font-weight: 900;
-            letter-spacing: 0.38em;
-            text-transform: uppercase;
-            color: #475569;
+          .jc-heading-title .jc-hi {
+            margin-left: 2mm;
+            font-size: 12pt;
+            letter-spacing: 0;
+            text-transform: none;
           }
-
-          .job-ref-box {
-            border: 1px solid #0f172a;
-            padding: 5px 6px;
-            min-height: 42px;
+          .jc-heading-refs {
+            display: flex;
+            justify-content: center;
+            gap: 6mm;
+            margin-top: 1.2mm;
+            font-size: 8.5pt;
+            color: var(--jc-muted);
           }
-
-          .job-ref-box span,
-          .job-print-label {
-            display: block;
-            font-size: 7px;
-            font-weight: 900;
-            letter-spacing: 0.15em;
-            text-transform: uppercase;
-            color: #64748b;
+          .jc-heading-refs strong {
+            color: var(--jc-ink);
           }
-
-          .job-ref-box strong,
-          .job-print-value {
-            display: block;
-            margin-top: 3px;
-            font-size: 9.5px;
-            font-weight: 850;
-            line-height: 1.15;
-            color: #0f172a;
+          .jc-qr {
+            text-align: center;
+            vertical-align: middle !important;
           }
-
-          .job-hero-grid {
-            display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-            border-left: 1px solid #0f172a;
+          .jc-qr svg {
+            width: 19mm;
+            height: 19mm;
           }
-
-          .job-print-field {
-            min-height: 29px;
-            border: 1px solid #0f172a;
-            border-left: 0;
-            border-top: 0;
-            background: #fff;
-            padding: 3px 5px;
-            overflow: hidden;
+          .jc-drawing {
+            flex: 1 1 auto;
+            min-height: 60mm;
+            margin-top: 2.2mm;
+            border: 0.8pt solid var(--jc-ink);
+            padding: 1.2mm 1.6mm;
+            display: flex;
+            flex-direction: column;
           }
-
-          .job-band {
-            border: 1px solid #0f172a;
-            border-top: 0;
-            background: #fff;
+          .jc-drawing-title .jc-en,
+          .jc-drawing-title .jc-hi {
+            display: inline;
+            margin-right: 2mm;
           }
-
-          .job-summary-band {
-            margin-top: 8px;
+          .jc-drawing-tooling {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1mm 4mm;
+            margin-top: 1mm;
+            padding-bottom: 1mm;
+            border-bottom: 0.6pt dashed var(--jc-muted);
+            font-size: 7.6pt;
+            color: var(--jc-muted);
           }
-
-          .job-section-title {
-            display: grid;
-            grid-template-columns: 1fr 155px;
-            border-bottom: 1px solid #0f172a;
-            background: #f1f5f9;
-            font-size: 10px;
-            font-weight: 950;
-            letter-spacing: 0.14em;
-            text-transform: uppercase;
-            color: #0f172a;
+          .jc-drawing-tooling strong {
+            color: var(--jc-ink);
           }
-
-          .job-section-title > span {
-            padding: 5px 7px;
-          }
-
-          .job-section-title > span + span {
-            border-left: 1px solid #0f172a;
-            letter-spacing: 0.04em;
-          }
-
-          .job-mini-grid {
-            display: grid;
-            border-left: 1px solid #0f172a;
-          }
-
-          .job-mini-grid-8 {
-            grid-template-columns: repeat(4, minmax(0, 1fr));
-          }
-
-          .job-mini-grid .job-print-field {
-            border-top: 0;
-          }
-
-          .job-print-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 9px;
-          }
-
-          .job-print-table th,
-          .job-print-table td {
-            height: 7mm;
-            border: 1px solid #0f172a;
-            border-left: 0;
-            padding: 2px 4px;
-            text-align: left;
-          }
-
-          .job-print-table th {
-            background: #f8fafc;
-            font-size: 7px;
-            font-weight: 950;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-            color: #334155;
-          }
-
-          .job-signature-row {
-            display: grid;
-            grid-template-columns: repeat(5, minmax(0, 1fr));
-            gap: 8px;
-            padding: 14mm 7px 5px;
-          }
-
-          .job-signature {
-            padding-top: 18px;
-          }
-
-          .job-signature-line {
-            height: 1px;
-            border-top: 1px solid #0f172a;
-            margin-bottom: 5px;
+          .jc-footnote {
+            margin-top: 1.4mm;
+            font-size: 6.8pt;
+            color: var(--jc-muted);
           }
 
           @media print {
@@ -2701,80 +3078,62 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               size: A4 portrait;
               margin: 5mm;
             }
-
-            .no-print {
-              display: none !important;
+            html,
+            body {
+              background: #fff !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
-
+            .no-print,
             header,
             aside,
             nav {
               display: none !important;
             }
-
-            body {
+            /* Strip the dashboard shell (sidebar offset, padding, mesh) so the
+               card sits flush inside the A4 print margins. */
+            .bg-dashboard-mesh {
               background: #fff !important;
             }
-
-            .job-print-root {
+            .bg-dashboard-mesh > div,
+            .bg-dashboard-mesh main {
+              padding: 0 !important;
+              margin: 0 !important;
+              max-width: none !important;
+            }
+            .jc-root {
               width: 200mm;
               max-width: none !important;
             }
-
-            .job-print-side {
+            .jc-page {
               width: 200mm;
               height: 287mm;
               min-height: 287mm;
               max-height: 287mm;
-              overflow: hidden;
-              padding: 6mm 7mm;
+              padding: 0;
               box-shadow: none !important;
               break-inside: avoid !important;
               page-break-inside: avoid !important;
             }
-
-            .job-print-side + .job-print-side {
+            .jc-page + .jc-page {
               margin-top: 0;
             }
-
-            .job-front-side {
+            /* Print drops the screen padding; give the space to handwriting rows. */
+            .jc-row-entry td { height: 8.8mm; }
+            .jc-row-sample td { height: 8.2mm; }
+            .jc-row-sign td { height: 9.6mm; }
+            .jc-front {
               break-after: page !important;
               page-break-after: always !important;
             }
-
-            .job-back-side {
+            .jc-back {
               break-after: auto !important;
               page-break-after: auto !important;
-            }
-
-            .job-summary-band {
-              margin-top: 3mm;
-            }
-
-            .job-print-field {
-              min-height: 8.8mm;
-              padding: 1.2mm 1.8mm;
-            }
-
-            .job-ref-box {
-              min-height: 13mm;
-            }
-
-            .job-print-table th,
-            .job-print-table td {
-              height: 6.8mm;
-              padding: 1mm 1.4mm;
-            }
-
-            .job-signature-row {
-              padding-top: 12mm;
-              padding-bottom: 2mm;
             }
           }
         `}</style>
       </div>
     )
-
   }
 
   if (!jobCardId) {

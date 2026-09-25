@@ -133,6 +133,16 @@ export function usePlanningJobCard(jobCardId?: string) {
   })
 }
 
+export function useStageTimeReconciliation(params: Record<string, any>) {
+  return useQuery({
+    queryKey: ["stage-time-reconciliation", params],
+    queryFn: async () => {
+      const { data } = await productionApi.getStageTimeReconciliation(params)
+      return data
+    },
+  })
+}
+
 export function useJobCardGenealogy(jobCardId?: string) {
   return useQuery({
     queryKey: ["job-card-genealogy", jobCardId],
