@@ -183,7 +183,7 @@ function DemandView() {
       {unknown.length ? (
         <section id="unmapped" className="erp-panel overflow-hidden rounded-xl">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3"><AlertTriangle className="h-4 w-4 text-signal-amber-ink" /><h3 className="text-[14px] font-semibold">Lines that need a recipe or paper mapping</h3></div>
-          <table className="tube-grid"><thead><tr><th>Order</th><th>Product</th><th className="num">Remaining pcs</th><th>What&apos;s missing</th></tr></thead><tbody>{unknown.map((row: any, index: number) => <tr key={`${row.order_no}-${index}`}><td>{row.order_no}</td><td>{row.product_code}</td><td className="num">{num(row.remaining_qty)}</td><td className="text-signal-amber-ink">{row.reason}</td></tr>)}</tbody></table>
+          <div className="overflow-x-auto"><table className="tube-grid"><thead><tr><th>Order</th><th>Product</th><th className="num">Remaining pcs</th><th>What&apos;s missing</th></tr></thead><tbody>{unknown.map((row: any, index: number) => <tr key={`${row.order_no}-${index}`}><td>{row.order_no}</td><td>{row.product_code}</td><td className="num">{num(row.remaining_qty)}</td><td className="text-signal-amber-ink">{row.reason}</td></tr>)}</tbody></table></div>
         </section>
       ) : null}
     </div>

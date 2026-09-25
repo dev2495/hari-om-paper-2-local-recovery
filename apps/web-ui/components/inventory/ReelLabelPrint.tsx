@@ -36,7 +36,7 @@ export function ReelLabelPrint({
         </button>
       </div>
 
-      <div className="mx-auto grid max-w-[420px] grid-cols-[1fr_auto] gap-4 border border-slate-900 bg-card p-4 print:max-w-none">
+      <div className="mx-auto grid max-w-[420px] grid-cols-[minmax(0,1fr)_auto] gap-4 border border-slate-900 bg-card p-4 print:max-w-none">
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Hari Om Paper</p>
           <h3 className="text-xl font-bold text-foreground">{reelCode}</h3>

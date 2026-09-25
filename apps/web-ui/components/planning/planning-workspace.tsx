@@ -1216,7 +1216,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           {plannerControls}
         </section>
 
-        <div className="grid gap-3 xl:grid-cols-[1fr_0.9fr]">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
           <section className="rounded-[1.55rem] border border-border bg-card p-4 shadow-[0_18px_60px_rgba(15,23,42,0.06)]">
             <div className="flex items-end justify-between gap-4">
               <div>

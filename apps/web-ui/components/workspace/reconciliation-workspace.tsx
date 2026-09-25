@@ -430,7 +430,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             </div>
           </Panel>
 
-          <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
             <Panel title="Stream contributions" subtitle="Theoretical vs ledger vs actual at the period level.">
               <div className="h-[260px]">
                 <ResponsiveContainer width="100%" height="100%">

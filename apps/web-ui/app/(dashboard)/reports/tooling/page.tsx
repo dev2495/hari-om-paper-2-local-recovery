@@ -62,7 +62,7 @@ export default function ToolingReportPage() {
         ]}
       />
 
-      <div className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <Panel
           eyebrow="Availability"
           title="Category Status Matrix"

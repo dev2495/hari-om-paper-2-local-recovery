@@ -203,7 +203,7 @@ export function StickyFilterBar({
         className,
       )}
     >
-      <div className="grid w-full gap-3 xl:grid-cols-[1fr_auto] xl:items-end">{children}</div>
+      <div className="grid w-full gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">{children}</div>
     </section>
   )
 }

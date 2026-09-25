@@ -136,7 +136,7 @@ function OperationsCommandPage() {
         ) : null}
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
         <Panel eyebrow="Stage queue" title="WIP by stage" description="Stages with rising queues need a planner intervention.">
           {stagePipeline.length ? (
             <MiniLadder rows={stagePipeline} formatter={(v) => `${formatNumber(v)} JCs`} />
@@ -160,7 +160,7 @@ function OperationsCommandPage() {
         description={`${formatNumber(Number(operatorSummary.completed_stages || 0))} completed stages · ${formatNumber(Number(operatorSummary.output_qty || 0))} output qty`}
       >
         {operatorRows.length ? (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Operator</th>
@@ -193,7 +193,7 @@ function OperationsCommandPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : (
           <NoteCallout tone="neutral">No operator-attributed stage entries were returned for this window.</NoteCallout>
         )}
@@ -201,7 +201,7 @@ function OperationsCommandPage() {
 
       <Panel eyebrow="Live blockers" title={`${blockedRows.length} active blockers`} description="Stages waiting on planner / QC / supervisor.">
         {blockedRows.length ? (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Job card</th>
@@ -222,7 +222,7 @@ function OperationsCommandPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : (
           <NoteCallout tone="ok">Nothing blocked right now. Watch the queue cadence.</NoteCallout>
         )}
@@ -250,7 +250,7 @@ function OperationsCommandPage() {
                   <div className="text-lg font-bold">{(lag as any).summary.late_count} / {(lag as any).summary.sample_size}</div>
                 </div>
               </div>
-              <table className="w-full text-sm">
+              <div className="overflow-x-auto"><table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                     <th className="py-2 pr-3">Job card</th>
@@ -273,7 +273,7 @@ function OperationsCommandPage() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table></div>
             </>
           ) : (
             <NoteCallout tone="neutral">No stage entries with both actual_end + entered_at yet.</NoteCallout>
@@ -289,7 +289,7 @@ function OperationsCommandPage() {
             <div>
               <p className="text-[12px] font-semibold text-muted-foreground mb-1">Short-closes ({Array.isArray(shortCloses) ? shortCloses.length : 0})</p>
               {Array.isArray(shortCloses) && shortCloses.length > 0 ? (
-                <table className="w-full text-xs">
+                <div className="overflow-x-auto"><table className="w-full text-xs">
                   <thead><tr className="text-[10px] font-bold uppercase text-muted-foreground border-b border-border">
                     <th className="text-left py-1">Job card</th><th className="text-right py-1">Gap</th><th className="text-left py-1 pl-2">Reason</th><th className="text-left py-1 pl-2">Decision</th>
                   </tr></thead>
@@ -303,7 +303,7 @@ function OperationsCommandPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               ) : (
                 <span className="text-[11px] text-muted-foreground">No short-close events.</span>
               )}
@@ -312,7 +312,7 @@ function OperationsCommandPage() {
             <div>
               <p className="text-[12px] font-semibold text-muted-foreground mb-1">Downtime ({Array.isArray(downtimeRows) ? downtimeRows.length : 0})</p>
               {Array.isArray(downtimeRows) && downtimeRows.length > 0 ? (
-                <table className="w-full text-xs">
+                <div className="overflow-x-auto"><table className="w-full text-xs">
                   <thead><tr className="text-[10px] font-bold uppercase text-muted-foreground border-b border-border">
                     <th className="text-left py-1">Machine</th><th className="text-left py-1 pl-2">Reason</th><th className="text-right py-1">Minutes</th><th className="text-left py-1 pl-2">Type</th>
                   </tr></thead>
@@ -326,7 +326,7 @@ function OperationsCommandPage() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table></div>
               ) : (
                 <span className="text-[11px] text-muted-foreground">No downtime logged.</span>
               )}

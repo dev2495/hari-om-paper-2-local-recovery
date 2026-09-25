@@ -197,7 +197,7 @@ function InventoryIntelligencePage() {
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel eyebrow="Top movers" title="Highest-velocity items (30d)" description="Burn rate × days-on-hand drives reorder pressure.">
           {topMovers.length ? (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Item</th>
@@ -224,14 +224,14 @@ function InventoryIntelligencePage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <NoteCallout tone="neutral">No items in motion yet.</NoteCallout>
           )}
         </Panel>
         <Panel eyebrow="Critical shortages" title="Items below reorder · top of the queue" description="Sorted by velocity-pressure (critical first).">
           {shortages.length ? (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Item</th>
@@ -252,7 +252,7 @@ function InventoryIntelligencePage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <NoteCallout tone="ok">No critical shortages — good signal.</NoteCallout>
           )}

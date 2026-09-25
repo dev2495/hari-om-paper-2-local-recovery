@@ -543,7 +543,7 @@ function SpecMatrixTable({
 }) {
   return (
     <div className="rounded-2xl border border-border bg-card">
-      <div className="grid gap-0 lg:grid-cols-[1fr_auto]">
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_auto]">
         <div>
           <div className="border-b border-border bg-muted px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
             {title}
@@ -2809,7 +2809,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   />
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1.25fr_1fr_0.68fr_1.05fr_0.72fr_0.68fr_0.68fr]">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,0.68fr)_minmax(0,1.05fr)_minmax(0,0.72fr)_minmax(0,0.68fr)_minmax(0,0.68fr)]">
                   <div className="space-y-1">
                     <FieldLabel>Client / Party Name</FieldLabel>
                     {isEditable ? (
@@ -3013,7 +3013,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   />
                 </div>
 
-                <div className="grid gap-3 rounded-xl border border-[#dfe7e3] bg-[#fbfcfb] p-3 lg:grid-cols-[220px_1fr] lg:items-center">
+                <div className="grid gap-3 rounded-xl border border-[#dfe7e3] bg-[#fbfcfb] p-3 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center">
                   <div>
                     <FieldLabel>Measured finished dry weight</FieldLabel>
                     <NumericInput
@@ -3096,7 +3096,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       return (
                         <div
                           key={`${component.name}-${index}`}
-                          className="grid gap-2 rounded-lg border border-[#e4ebe8] bg-[#f8faf9] p-2.5 md:grid-cols-[1.4fr_0.65fr_0.8fr_auto]"
+                          className="grid gap-2 rounded-lg border border-[#e4ebe8] bg-[#f8faf9] p-2.5 md:grid-cols-[minmax(0,1.4fr)_minmax(0,0.65fr)_minmax(0,0.8fr)_auto]"
                         >
                           <SmartSelect
                             value={component.name}
@@ -3418,7 +3418,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   <p className="text-xs text-muted-foreground">All values show wet / dry weight.</p>
                 </div>
-                <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_0.72fr_auto_1fr] lg:items-stretch">
+                <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,0.72fr)_auto_minmax(0,1fr)] lg:items-stretch">
                   <div className="rounded-xl border border-[#b9e4d1] bg-[#e4f6ed] p-3">
                     <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#166b51]">Finished goods only</p>
                     <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-[#102832]">{bambooWetWeightG.toFixed(2)} / {bambooDryWeightG.toFixed(2)} g</p>
@@ -3442,7 +3442,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </p>
               </div>
 
-              <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
+              <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
                 <div className="overflow-hidden rounded-xl border border-[#dfe7e3] bg-[#fbfcfb]">
                   <div className="border-b border-[#e4ebe8] px-4 py-3">
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">Manufacturing specification</p>
@@ -3485,7 +3485,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       </div>
 
       <NotchingCard forceOpen={isPrint}>
-        <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <div className="space-y-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
             <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling and measured geometry that carry into the job card and print sheet." />
             <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
@@ -3640,7 +3640,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           {renderScalarField("plastic_per_box", "Plastic PCS / Box", "number")}
           {renderScalarField("fadda_per_box", "Fadda PCS / Box", "number")}
         </div>
-        <div className="mt-3 grid gap-3 xl:grid-cols-[1fr_auto] xl:items-end">
+        <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-end">
           <div className="space-y-1">
             <FieldLabel>Special Instructions</FieldLabel>
             <textarea
@@ -3671,7 +3671,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           className="scroll-mt-36 rounded-2xl border border-[#b9e4d1] bg-[#f4fbf7] p-4 shadow-[0_12px_35px_rgba(25,51,57,0.06)]"
         >
           <SectionLabel title="04 · Review & Approve" subtitle="One final release gate for the selected plant." />
-          <div className="grid gap-px overflow-hidden rounded-xl border border-[#b9e4d1] bg-[#b9e4d1] lg:grid-cols-[0.85fr_1.3fr_0.95fr_0.85fr]">
+          <div className="grid gap-px overflow-hidden rounded-xl border border-[#b9e4d1] bg-[#b9e4d1] lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.3fr)_minmax(0,0.95fr)_minmax(0,0.85fr)]">
             <div className={`min-h-32 p-3.5 ${draftSaved ? "bg-card text-signal-emerald-ink" : "bg-signal-amber-soft text-signal-amber-ink"}`}>
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 1 · {draftSaved ? "Complete" : "Pending"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Draft saved</h3>
@@ -3740,7 +3740,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
       <ValidationFooter forceOpen={isPrint}>
         <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
-        <div className="grid gap-3 rounded-3xl border border-border bg-muted p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+        <div className="grid gap-3 rounded-3xl border border-border bg-muted p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
           <div className="space-y-1">
             <FieldLabel>Total additions %</FieldLabel>
             <input

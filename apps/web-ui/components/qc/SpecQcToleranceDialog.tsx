@@ -226,7 +226,7 @@ export function SpecQcToleranceDialog({
               </select>
             </label>
           ) : null}
-          <table className="w-full border-collapse text-sm">
+          <div className="overflow-x-auto"><table className="w-full border-collapse text-sm">
             <thead>
               <tr className="bg-muted text-left text-[12px] text-muted-foreground">
                 <th className="border border-border px-2 py-2">Parameter</th>
@@ -312,7 +312,7 @@ export function SpecQcToleranceDialog({
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
           {stage === "OVEN" ? (
             <p className="mt-3 text-xs text-muted-foreground">
               Oven pre/post weight and moisture are paired readings on the same identified sample. Post values are not due until that checkpoint.

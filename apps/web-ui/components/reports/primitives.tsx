@@ -480,7 +480,7 @@ export function DonutWithCenter({
         {slices.map((s) => {
           const pct = (s.value / total) * 100
           return (
-            <div key={s.label} className="grid grid-cols-[120px_1fr_48px] items-center gap-2 text-xs">
+            <div key={s.label} className="grid grid-cols-[120px_minmax(0,1fr)_48px] items-center gap-2 text-xs">
               <span className="truncate">
                 <span style={{ color: s.color }} className="font-extrabold">
                   ●
@@ -515,7 +515,7 @@ export function MiniLadder({
         const pct = (row.value / max) * 100
         const fmt = formatter ? formatter(row.value) : formatNumber(row.value)
         return (
-          <li key={row.label} className="grid grid-cols-[140px_1fr_80px] items-center gap-2 text-xs">
+          <li key={row.label} className="grid grid-cols-[140px_minmax(0,1fr)_80px] items-center gap-2 text-xs">
             <span className="truncate font-medium text-muted-foreground">{row.label}</span>
             <div className="h-2 rounded-full bg-muted overflow-hidden">
               <div
@@ -612,7 +612,7 @@ export function ReportTable<T extends Record<string, any>>({
   return (
     <div className="overflow-x-auto rounded-lg border border-border">
       {caption ? <p className="border-b border-border bg-[hsl(var(--surface-2))] px-3 py-1.5 text-[12px] font-medium text-muted-foreground">{caption}</p> : null}
-      <table className="w-full text-[13px]">
+      <div className="overflow-x-auto"><table className="w-full text-[13px]">
         <thead className="bg-[hsl(var(--surface-2))]">
           <tr className="border-b border-border text-left text-[11.5px] font-semibold text-muted-foreground">
             {columns.map((c) => (
@@ -641,7 +641,7 @@ export function ReportTable<T extends Record<string, any>>({
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </div>
   )
 }

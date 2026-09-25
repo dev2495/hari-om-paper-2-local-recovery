@@ -123,7 +123,7 @@ export function AdminLandingPage() {
         <KpiCard label="Active Accounts" value={summary.active_accounts == null ? "Unknown" : formatCompactNumber(Number(summary.active_accounts))} detail="Enabled user accounts; live sessions are not inferred" icon={Users} tone="violet" />
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <ChartCard eyebrow="Services" title="Service posture and runtime risk" description="Live summary of the core application surfaces.">
           <CompactTable
             columns={[
@@ -140,7 +140,7 @@ export function AdminLandingPage() {
         </ChartCard>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <ChartCard eyebrow="Dependency Integrity" title="Measured platform checks" description="Current health endpoints and scheduler state; no unmeasured database claims are shown.">
           <CompactTable
             columns={[

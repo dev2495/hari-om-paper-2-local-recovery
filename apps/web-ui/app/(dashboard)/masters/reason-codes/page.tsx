@@ -189,10 +189,10 @@ function ReasonCodesPage() {
           tabs={selected ? [{
             key: "overview", label: "Overview", content: (
               <div className="space-y-3 text-sm">
-                <div className="grid grid-cols-[120px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
-                <div className="grid grid-cols-[120px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Category</span><span>{selected.category}</span></div>
-                <div className="grid grid-cols-[120px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Severity</span><Pill tone={sevToTone(selected.severity)}>{selected.severity}</Pill></div>
-                <div className="grid grid-cols-[120px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Description</span><span>{selected.description || "—"}</span></div>
+                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
+                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Category</span><span>{selected.category}</span></div>
+                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Severity</span><Pill tone={sevToTone(selected.severity)}>{selected.severity}</Pill></div>
+                <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Description</span><span>{selected.description || "—"}</span></div>
               </div>
             )
           }] : []}

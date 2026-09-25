@@ -347,7 +347,7 @@ function OperationsControlPage() {
       <div className="grid gap-4 xl:grid-cols-2">
         <Panel eyebrow="Recent short-closes" title="Job cards short-closed in last 30 days" description="Each row links to the job card detail.">
           {Array.isArray(shortCloses) && shortCloses.length > 0 ? (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Job card</th>
@@ -374,7 +374,7 @@ function OperationsControlPage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <NoteCallout tone="ok">No short-closes recorded. Production is meeting planned quantities.</NoteCallout>
           )}
@@ -382,7 +382,7 @@ function OperationsControlPage() {
 
         <Panel eyebrow="Recent downtime" title="Machine downtime in last 30 days" description="Planned vs unplanned events with reason codes.">
           {Array.isArray(downtimeRows) && downtimeRows.length > 0 ? (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Machine</th>
@@ -437,7 +437,7 @@ function OperationsControlPage() {
                   )
                 })}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <NoteCallout tone="ok">No downtime logged. All machines have been running.</NoteCallout>
           )}

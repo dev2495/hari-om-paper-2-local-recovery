@@ -159,7 +159,7 @@ export default function InventoryReservationsPage() {
 
       {message ? <div className={`rounded-2xl border px-4 py-3 text-sm ${message.tone === "success" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"}`}>{message.text}</div> : null}
 
-      <section className="grid min-w-0 gap-4 lg:grid-cols-[0.9fr_1.1fr] [&>*]:min-w-0">
+      <section className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] [&>*]:min-w-0">
         <form className="space-y-4 rounded-3xl border border-border bg-card p-5" onSubmit={(event) => { event.preventDefault(); setMessage(null); createReservation.mutate() }}>
           <div>
             <h2 className="font-semibold text-foreground">Create reservation</h2>

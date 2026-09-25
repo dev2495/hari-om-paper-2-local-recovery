@@ -107,7 +107,7 @@ function Customer360Page() {
         {isLoading ? (
           <NoteCallout tone="neutral">Loading customer 360…</NoteCallout>
         ) : filtered.length ? (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Customer</th>
@@ -140,7 +140,7 @@ function Customer360Page() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         ) : (
           <NoteCallout tone="ok">No customers match the current filter.</NoteCallout>
         )}

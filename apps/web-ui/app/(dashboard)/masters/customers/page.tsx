@@ -962,7 +962,7 @@ export default function CustomersPage() {
 
 function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[120px_1fr] gap-3 text-sm">
+    <div className="grid grid-cols-[120px_minmax(0,1fr)] gap-3 text-sm">
       <span className="text-[11.5px] font-semibold text-muted-foreground">{label}</span>
       <span className="text-foreground">{value}</span>
     </div>

@@ -130,7 +130,7 @@ export function EventDetailDialog({
 
 function KV({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
-    <div className="grid grid-cols-[100px_1fr] items-baseline gap-3">
+    <div className="grid grid-cols-[100px_minmax(0,1fr)] items-baseline gap-3">
       <dt className="text-[11.5px] font-semibold text-muted-foreground">{k}</dt>
       <dd className={cn("break-words font-semibold text-foreground", mono ? "font-mono text-[12px]" : "")}>{v}</dd>
     </div>

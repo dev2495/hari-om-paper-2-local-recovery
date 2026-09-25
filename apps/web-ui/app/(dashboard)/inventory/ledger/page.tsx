@@ -165,7 +165,7 @@ export default function InventoryLedgerPage() {
         ))}
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.9fr)]">
         <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <h2 className="text-lg font-semibold text-foreground">Inventory balances</h2>
           <p className="mt-1 text-sm text-muted-foreground">Opening + receipts - issues - reservations, by item master.</p>

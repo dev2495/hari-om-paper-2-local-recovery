@@ -340,7 +340,7 @@ function TolerancesPage() {
         title="Effective tolerances after save"
         description="What reconciliation will use if you save right now. Plant override columns show 'OVERRIDE' when the field is set; otherwise they fall through to the global value."
       >
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
               <th className="py-2 pr-3">Item type</th>
@@ -385,7 +385,7 @@ function TolerancesPage() {
               </td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </Panel>
 
       <Panel

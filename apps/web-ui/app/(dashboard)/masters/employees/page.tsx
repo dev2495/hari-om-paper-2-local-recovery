@@ -307,13 +307,13 @@ function EmployeesPage() {
               label: "Overview",
               content: (
                 <div className="space-y-3 text-sm">
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.employee_code || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Role</span><span>{selected.role || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Department</span><span>{selected.department || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Phone</span><span>{selected.phone || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Email</span><span>{selected.email || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Skills</span><span>{selected.skills || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Default shift</span><span className="font-mono">{selected.default_shift || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.employee_code || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Role</span><span>{selected.role || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Department</span><span>{selected.department || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Phone</span><span>{selected.phone || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Email</span><span>{selected.email || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Skills</span><span>{selected.skills || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Default shift</span><span className="font-mono">{selected.default_shift || "—"}</span></div>
                 </div>
               ),
             },

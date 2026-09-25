@@ -83,7 +83,7 @@ export default function IncomingQualityPage() {
           description="The measured result is computed from owned item rules. A client-authored PASS, FAIL, or disposition cannot decide the verdict."
         />
         <QualityDeskNav />
-        <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <Panel title="Held inward material" subtitle="Select a lot. Parameters come from that item's quality profile.">
             {pendingQualityQuery.isLoading ? (
               <LoadingState label="Loading held material..." />

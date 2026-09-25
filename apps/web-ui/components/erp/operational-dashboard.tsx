@@ -67,7 +67,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
         <MetricCard label="Low-stock Items" value={lowStockItems} detail="Store actions required before release or issue" icon={Warehouse} tone="rose" />
       </MetricRail>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <Panel title="Action Queue" subtitle="Only the next operational actions.">
           <div className="grid gap-3 md:grid-cols-2">
             <ActionLink href="/sales-orders" title="Approve / release sales orders" detail={`${draftOrders} still waiting on sales/planner release.`} />

@@ -125,7 +125,7 @@ function SalesPulsePage() {
         ]}
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Panel eyebrow="Order funnel" title="From created to dispatched" description="Each drop arrow shows the % lost between stages.">
           {funnelStages[0].value > 0 ? <Funnel stages={funnelStages} /> : <NoteCallout tone="neutral">No order activity in this window.</NoteCallout>}
         </Panel>
@@ -154,10 +154,10 @@ function SalesPulsePage() {
         {leadStages.length ? <LeadTimeAnatomy stages={leadStages.map((s: any) => ({ label: s.label, days: Number(s.days || 0) }))} /> : <NoteCallout tone="neutral">Not enough closed orders for a lead-time breakdown yet.</NoteCallout>}
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <Panel eyebrow="Customer 360" title="Top customers — risk-sorted" description={`${customerSummary.active_customers || customerRows.length} active · ${customerSummary.at_risk_customers || 0} at risk.`}>
           {customerRows.length ? (
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto"><table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Customer</th>
@@ -186,7 +186,7 @@ function SalesPulsePage() {
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           ) : (
             <NoteCallout tone="neutral">No customer-360 data in this window.</NoteCallout>
           )}
@@ -195,7 +195,7 @@ function SalesPulsePage() {
           {topSkuRows.length ? (
             <ul className="space-y-1.5">
               {topSkuRows.map((s) => (
-                <li key={s.label} className="grid grid-cols-[1fr_60px] items-center gap-2 text-sm">
+                <li key={s.label} className="grid grid-cols-[minmax(0,1fr)_60px] items-center gap-2 text-sm">
                   <span className="truncate font-medium text-muted-foreground">{s.label}</span>
                   <span className="text-right font-bold text-foreground">{formatNumber(s.value)}</span>
                 </li>

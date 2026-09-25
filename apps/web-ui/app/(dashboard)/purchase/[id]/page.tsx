@@ -60,7 +60,7 @@ export default function PurchaseOrderDetailPage() {
 
 
 
-      <section className="grid gap-4 xl:grid-cols-[0.6fr_1.4fr]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,0.6fr)_minmax(0,1.4fr)]">
         <WorkPanel title="Approval control" description="The submitting person cannot approve the same revision.">
           <StateBadge value={order.status} />
           {order.status === "DRAFT" ? <div className="mt-4 space-y-3"><Field label="Submission note"><input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ready for commercial check" /></Field><button className={primaryButton} disabled={submit.isPending} onClick={() => submit.mutate()}><Send className="h-4 w-4" /> Submit for approval</button></div> : <p className="mt-4 text-sm leading-6 text-muted-foreground">Use the Approval Inbox for approve/reject decisions and content-hash protection.</p>}

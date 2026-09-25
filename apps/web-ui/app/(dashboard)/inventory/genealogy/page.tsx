@@ -231,7 +231,7 @@ export default function InventoryGenealogyPage() {
           </div>
         }
       >
-        <div className="grid gap-5 xl:grid-cols-[22rem_1fr]">
+        <div className="grid gap-5 xl:grid-cols-[22rem_minmax(0,1fr)]">
           <div className="max-h-[36rem] space-y-3 overflow-y-auto pr-1">
             {jobCardsQuery.isLoading ? (
               <EmptyState label="Loading job-card trace window..." />
@@ -501,7 +501,7 @@ export default function InventoryGenealogyPage() {
         )}
       </Panel>
 
-      <div className="grid gap-5 2xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-5 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Panel title="Linked reel issues" subtitle="Issue rows connect stores movement to production consumption.">
           {!selectedReel ? (
             <EmptyState label="Select a reel first." />

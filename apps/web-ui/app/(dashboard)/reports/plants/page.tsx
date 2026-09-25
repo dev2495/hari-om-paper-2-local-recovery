@@ -46,7 +46,7 @@ export default function PlantsReportsPage() {
         />
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <ChartPanel title="Inventory Value by Plant" subtitle="Top-line stock value visible to the selected reporting scope.">
           {rows.length > 0 ? (
             <ChartBox height={320}>

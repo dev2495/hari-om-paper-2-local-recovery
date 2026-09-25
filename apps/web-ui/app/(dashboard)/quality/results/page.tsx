@@ -164,7 +164,7 @@ export default function QualityResultsPage() {
             )}
           </Panel>
           <Panel title="Active holds" subtitle="Holds open from FAIL measurements or a manual QC hold.">
-            <form className="mb-4 grid gap-2 md:grid-cols-[1fr_8rem_1fr_auto]" onSubmit={handleManualHoldSubmit}>
+            <form className="mb-4 grid gap-2 md:grid-cols-[minmax(0,1fr)_8rem_minmax(0,1fr)_auto]" onSubmit={handleManualHoldSubmit}>
               <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)} className="h-11 rounded-xl border border-border px-3 text-sm">
                 <option value="">Job card</option>
                 {jobs.slice(0, 80).map((job: any) => (

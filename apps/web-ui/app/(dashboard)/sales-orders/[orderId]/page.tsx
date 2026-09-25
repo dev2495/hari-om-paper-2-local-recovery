@@ -213,7 +213,7 @@ export default function SalesOrderDetailPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <Panel title="Commercial Header" subtitle="The sales truth that planning and dispatch should read, not reinterpret.">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
@@ -328,7 +328,7 @@ export default function SalesOrderDetailPage() {
         <div className="grid gap-4">
           {(order.lines || []).map((line: any, index: number) => (
             <div key={line.id} className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
-              <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
                 <div>
                   <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
                     <input

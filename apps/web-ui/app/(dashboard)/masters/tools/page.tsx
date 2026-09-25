@@ -394,7 +394,7 @@ export default function ToolsPage() {
       <section className="overflow-hidden rounded-[1.7rem] border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
-            <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 border-b border-border bg-muted px-4 py-3 text-[12px] font-semibold text-muted-foreground">
+            <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.6fr)] gap-3 border-b border-border bg-muted px-4 py-3 text-[12px] font-semibold text-muted-foreground">
               <div>Tool</div>
               <div>Category</div>
               <div>Status</div>
@@ -410,7 +410,7 @@ export default function ToolsPage() {
                 rows.map((row) => {
                   const status = String(row.status || "ACTIVE").toUpperCase()
                   return (
-                    <div key={row.id} className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 px-4 py-4 text-sm">
+                    <div key={row.id} className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_minmax(0,1.6fr)] gap-3 px-4 py-4 text-sm">
                   <div>
                     <p className="font-semibold text-foreground">{row.name}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{toolDetailText(row)}</p>
@@ -567,7 +567,7 @@ export default function ToolsPage() {
       <Dialog open={Boolean(selectedAssetId)} onOpenChange={(open) => !open && setSelectedAssetId("")}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Physical tool trace</DialogTitle><DialogDescription>Print the permanent QR label and review every inward, movement, issue, use, return, grinding, maintenance, and scrap event.</DialogDescription></DialogHeader>
-          {selectedAssetQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading tool history...</p> : selectedAssetQuery.data?.asset ? <div className="grid gap-5 md:grid-cols-[260px_1fr]">
+          {selectedAssetQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading tool history...</p> : selectedAssetQuery.data?.asset ? <div className="grid gap-5 md:grid-cols-[260px_minmax(0,1fr)]">
             <div className="rounded-xl border border-border p-4 text-center" data-tool-label-qr><p className="text-[12px] font-semibold text-muted-foreground">Physical tool</p><p className="mt-2 text-xl font-bold text-foreground">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-muted-foreground">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={selectedAssetQuery.data.asset.qr_value} size={164} level="M" /></div><p className="break-all text-[11px] text-muted-foreground">{selectedAssetQuery.data.asset.qr_value}</p><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
             <div className="max-h-[460px] overflow-y-auto pr-1"><div className="mb-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Status</p><p className="font-semibold">{selectedAssetQuery.data.asset.status}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Location</p><p className="font-semibold">{selectedAssetQuery.data.asset.location_label || "-"}</p></div></div><div className="space-y-2">{(selectedAssetQuery.data.events || []).map((event: any) => <div key={event.id} className="rounded-lg border border-border px-3 py-2"><div className="flex justify-between gap-3"><p className="text-sm font-semibold text-foreground">{event.event_type}</p><p className="text-xs text-muted-foreground">{formatDate(event.event_at)}</p></div><p className="mt-1 text-xs text-muted-foreground">{[event.job_card_id, event.stage_type, event.grind_version !== null ? `V${event.grind_version}` : "", event.actor].filter(Boolean).join(" · ") || "System lifecycle event"}</p>{event.good_qty || event.scrap_qty ? <p className="mt-1 text-xs text-muted-foreground">Good {Number(event.good_qty || 0).toLocaleString("en-IN")} · Scrap {Number(event.scrap_qty || 0).toLocaleString("en-IN")}</p> : null}</div>)}</div></div>
           </div> : <p className="py-8 text-sm text-signal-rose-ink">Tool details could not be loaded.</p>}

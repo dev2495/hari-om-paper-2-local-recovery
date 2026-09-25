@@ -361,7 +361,7 @@ export function AuditNotifications({
         </div>
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[1fr_1.4fr]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
         <Panel title="By role" subtitle="Which role channels are loudest right now.">
           {byRole.length === 0 ? (
             <p className="text-sm text-muted-foreground">No role-tagged notifications yet.</p>

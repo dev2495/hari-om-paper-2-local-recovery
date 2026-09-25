@@ -203,7 +203,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             <KpiCard label="OTIF" value={formatPct(headline.otif_percent)} detail="On-time in-full closed orders" icon={BarChart3} />
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
             <SectionShell title="Stage throughput trend" eyebrow="Production">
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">

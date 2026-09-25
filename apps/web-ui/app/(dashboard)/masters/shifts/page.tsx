@@ -175,11 +175,11 @@ function ShiftsPage() {
           tabs={selected ? [{
             key: "overview", label: "Overview", content: (
               <div className="space-y-3 text-sm">
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Window</span><span className="font-mono">{selected.start_time} → {selected.end_time}</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Working hours</span><span>{selected.hours} h</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Break</span><span>{selected.break_minutes} min</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Night premium</span><span>{(selected.night_premium_percent || 0).toFixed(0)}%</span></div>
+                <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
+                <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Window</span><span className="font-mono">{selected.start_time} → {selected.end_time}</span></div>
+                <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Working hours</span><span>{selected.hours} h</span></div>
+                <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Break</span><span>{selected.break_minutes} min</span></div>
+                <div className="grid grid-cols-[140px_minmax(0,1fr)] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Night premium</span><span>{(selected.night_premium_percent || 0).toFixed(0)}%</span></div>
               </div>
             )
           }] : []}

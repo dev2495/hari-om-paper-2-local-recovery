@@ -109,7 +109,7 @@ export default function ManualFgInwardPage() {
         </section>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Panel title="Post manual FG" subtitle="Form requires item, qty, and reason. Reference is optional but makes the post idempotent.">
           <form onSubmit={handleSubmit} className="space-y-4">
             <Field label="FG item *">

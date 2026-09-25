@@ -411,7 +411,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center gap-3 border-t border-border bg-[hsl(var(--surface-2))] px-4 py-2 text-[11px] text-muted-foreground"><span><kbd className="rounded border border-border bg-card px-1">↑</kbd> <kbd className="rounded border border-border bg-card px-1">↓</kbd> navigate</span><span><kbd className="rounded border border-border bg-card px-1">↵</kbd> open</span><span className="ml-auto">⌘K anywhere</span></div>
           </DialogContent>
         </Dialog>
-        <div className="ml-auto flex min-w-0 items-center gap-1 sm:ml-0">
+        <div className="ml-auto flex shrink-0 items-center gap-1 sm:ml-0">
           <AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
           {userRoles.has("Owner") || userRoles.has("Admin") ? <PlantSwitcher compact /> : null}
           <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button max-[400px]:!hidden" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>

@@ -377,7 +377,7 @@ export default function InventoryStockControlPage() {
           {closeSteps.map((step, index) => (
             <li key={step.label} className={`relative rounded-lg border px-3 py-2.5 transition-colors ${step.state === "done" ? "border-signal-emerald-line bg-signal-emerald-soft/60" : step.state === "active" ? "border-primary/40 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/.08)]" : "border-border bg-[hsl(var(--surface-2))]"}`}>
               <div className="flex items-center gap-2">
-                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10.5px] font-bold ${step.state === "done" ? "bg-signal-emerald-ink text-white" : step.state === "active" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{step.state === "done" ? "✓" : index + 1}</span>
+                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10.5px] font-bold ${step.state === "done" ? "bg-signal-emerald-soft text-signal-emerald-ink ring-1 ring-inset ring-signal-emerald-line" : step.state === "active" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{step.state === "done" ? "✓" : index + 1}</span>
                 <span className="truncate text-[12.5px] font-semibold">{step.label}</span>
               </div>
               <p className="mt-1 line-clamp-2 text-[11.5px] leading-4 text-muted-foreground">{step.detail}</p>
@@ -422,7 +422,7 @@ export default function InventoryStockControlPage() {
         <span className="ml-auto text-[12px] text-muted-foreground">Last certified: <strong className="text-foreground">{latestCertification?.period_end || "never"}</strong>{latestCertification?.status ? ` · ${String(latestCertification.status).replaceAll("_", " ").toLowerCase()}` : ""}</span>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1fr_430px]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_430px]">
         <ChartCard eyebrow="Book statement" title="Opening + receipts - issues + adjustments = closing" description={`Bulk items use stock transactions. Reel-tracked paper uses reel inward weight minus closed consumed weight. Snapshot: ${formatDateTime(statementQuery.data?.stock_as_of_at || stockAsOfAt)}.`}>
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -517,7 +517,7 @@ export default function InventoryStockControlPage() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <ChartCard eyebrow="Selected certificate" title={selectedCertification ? `${selectedCertification.period_start} to ${selectedCertification.period_end}` : "Select or draft a certificate"} description="Count rows stay editable only while the certificate is draft.">
           {selectedCertification ? (
             <>

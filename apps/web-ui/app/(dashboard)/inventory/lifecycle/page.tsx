@@ -382,7 +382,7 @@ function StockLifecycleHubPage() {
       </Panel>
 
       {/* ── Blockers + variance preview side-by-side ── */}
-      <div className="grid gap-5 xl:grid-cols-[1fr_1fr]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <Panel
           title="Close blockers"
           subtitle="Everything that's preventing the monthly close from approving."
@@ -544,7 +544,7 @@ function StockLifecycleHubPage() {
       </Panel>
 
       {/* ── Weekly drift + history ── */}
-      <div className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <Panel
           title="Weekly drift"
           subtitle="Same math, scoped to the running week. Early warning — read-only."

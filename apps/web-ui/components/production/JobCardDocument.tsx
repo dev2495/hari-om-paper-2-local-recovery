@@ -2431,7 +2431,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </div>
 
           <div className="mt-4 border border-slate-900">
-            <div className="grid grid-cols-[1.2fr_180px] border-b border-slate-900">
+            <div className="grid grid-cols-[minmax(0,1.2fr)_180px] border-b border-slate-900">
               <div className="px-3 py-2 text-center text-sm font-bold uppercase tracking-wide text-foreground">Winding (W1-W4)</div>
               <div className="border-l border-slate-900 px-3 py-2 text-sm font-semibold text-muted-foreground">Shift {winderShiftLabel}</div>
             </div>
@@ -2492,7 +2492,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </div>
 
           <div className="mt-4 border border-slate-900">
-            <div className="grid grid-cols-[1.2fr_180px] border-b border-slate-900">
+            <div className="grid grid-cols-[minmax(0,1.2fr)_180px] border-b border-slate-900">
               <div className="px-3 py-2 text-center text-sm font-bold uppercase tracking-wide text-foreground">Oven Curing (O1-O6)</div>
               <div className="border-l border-slate-900 px-3 py-2 text-sm font-semibold text-muted-foreground">Shift {ovenShiftLabel}</div>
             </div>
@@ -2538,7 +2538,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </section>
 
         <section className="border-2 border-slate-900 bg-card p-5 print:p-4">
-          <div className="grid grid-cols-[1fr_160px] border-b border-slate-900 pb-3">
+          <div className="grid grid-cols-[minmax(0,1fr)_160px] border-b border-slate-900 pb-3">
             <div className="text-center">
               <p className="text-lg font-bold uppercase tracking-wide text-foreground">Process Line (P1-P11)</p>
             </div>
@@ -3497,7 +3497,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       </div>
 
       <section className="border-2 border-slate-900 bg-card p-4 print:p-3">
-        <div className="grid gap-4 border-b border-slate-400 pb-4 md:grid-cols-[1.3fr_220px]">
+        <div className="grid gap-4 border-b border-slate-400 pb-4 md:grid-cols-[minmax(0,1.3fr)_220px]">
           <div>
             <div className="text-xs font-semibold uppercase tracking-[0.25em] text-muted-foreground">
               {documentSnapshot?.header?.company_name || "Hari Om Paper"}

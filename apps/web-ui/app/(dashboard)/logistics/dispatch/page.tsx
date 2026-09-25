@@ -62,7 +62,7 @@ export default function DispatchSelectionPage() {
                 }
             />
 
-            <div className="erp-panel grid gap-4 rounded-[1.25rem] border border-border bg-card p-4 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
+            <div className="erp-panel grid gap-4 rounded-[1.25rem] border border-border bg-card p-4 shadow-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] md:items-end">
                 <div className="flex-1 space-y-1">
                     <label className="text-xs font-semibold text-muted-foreground">Customer</label>
                     <input

@@ -225,7 +225,7 @@ export default function ReelIssuePage() {
         {reelsQuery.isError || issuesQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}
 
         <WorkPanel title="Issue a reel or coil" description="Only in-stock, QC-cleared material is listed. The form on the label decides where it can go.">
-          <div className="grid gap-3 md:grid-cols-[1fr_auto]">
+          <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
             <div className="flex items-center gap-2">
               <Barcode className="h-4 w-4 shrink-0 text-muted-foreground" />
               <input

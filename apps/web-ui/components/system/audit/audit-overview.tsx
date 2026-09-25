@@ -125,7 +125,7 @@ export function AuditOverview({
       </section>
 
       {/* Heatmap + severity gauge */}
-      <div className="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <Panel
           title="Activity heatmap"
           subtitle="7-day × 24-hour heat. Darker cells = more events. Spot off-hours anomalies and peak load."

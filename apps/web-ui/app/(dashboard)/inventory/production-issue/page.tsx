@@ -299,7 +299,7 @@ export default function InventoryProductionIssuePage() {
           {isWipMode ? (
             <div className="space-y-2">
               <label className="text-sm font-medium text-muted-foreground">Batch / Lot</label>
-              <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+              <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
                   <Barcode className="h-4 w-4 text-muted-foreground" />
                   <input

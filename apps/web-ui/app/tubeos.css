@@ -407,7 +407,7 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 }
 
 /* ───────────────────────── Breadcrumb capsule ───────────────────────── */
-.tube-context { min-width: 0; }
+.tube-context { min-width: 0; flex: 0 1 auto; overflow: hidden; }
 .tube-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; height: 32px; padding: 2px 10px 2px 2px; border-radius: 999px; border: 1px solid hsl(var(--border)); background: hsl(var(--card) / .8); box-shadow: var(--shadow-xs); backdrop-filter: blur(8px); }
 .tube-crumbs-back { display: grid; place-items: center; width: 26px; height: 26px; flex-shrink: 0; border-radius: 999px; color: hsl(var(--muted-foreground)); transition: background-color 140ms ease, color 140ms ease, transform 200ms var(--ease-spring); }
 .tube-crumbs-back:hover { background: hsl(var(--foreground) / .07); color: hsl(var(--foreground)); transform: translateX(-2px); }
@@ -455,3 +455,9 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
   background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-xs, 0 1px 1px hsl(0 0% 0% / .04)); transition: background-color 160ms, border-color 160ms; }
 .tube-page-actions a[class*="border-border/"]:hover, .tube-page-actions a[class*="border-white/"]:hover, .tube-page-actions a[class*="bg-card/1"]:hover { background: hsl(var(--muted)); }
 .tube-header-aside [class*="border-white/"] { border-color: hsl(var(--border)); }
+.tube-command { overflow: hidden; flex-shrink: 1; }
+.tube-command span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+
+/* Grid items never force the page wider than the viewport (wide tables scroll inside their own wrapper).
+   :where() keeps specificity at zero so explicit min-w-* utilities still win. */
+:where(.tube-page .grid) > * { min-width: 0; }

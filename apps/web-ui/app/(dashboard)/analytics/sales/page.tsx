@@ -57,7 +57,7 @@ export default function SalesAnalyticsPage() {
         <MetricCard label="Delayed Orders" value={formatMetric(summary.delayed_orders)} detail="Still open beyond due date" icon={CalendarClock} tone="rose" />
       </MetricRail>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <ChartPanel title="Order Lifecycle Velocity" subtitle="Orders created, released, closed, and final dispatch volume by period.">
           {hasSeries(series) ? (
             <ChartBox height={340}>

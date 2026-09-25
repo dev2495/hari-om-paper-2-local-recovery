@@ -119,7 +119,7 @@ function VarianceBridgePage() {
         )}
       </Panel>
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
         <Panel eyebrow="Scrap reasons (Pareto)" title="Where the scrap cost is concentrated" description="The first few reasons typically account for 80% of cost.">
           {scrapLoading ? <NoteCallout tone="neutral">Loading scrap ladder…</NoteCallout> : paretoBars.length ? <ParetoChart bars={paretoBars} /> : <NoteCallout tone="ok">No scrap events in this window.</NoteCallout>}
         </Panel>
@@ -137,7 +137,7 @@ function VarianceBridgePage() {
 
       <Panel eyebrow="3-stream item table" title="Per-item theoretical / ledger / actual" description="Each row shows where the planning math, the ledger, and the floor truth diverge.">
         {itemRows.length ? (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Item</th>
@@ -169,7 +169,7 @@ function VarianceBridgePage() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
         ) : (
           <NoteCallout tone="neutral">Reconciliation item rows are not yet populated for this window.</NoteCallout>
         )}

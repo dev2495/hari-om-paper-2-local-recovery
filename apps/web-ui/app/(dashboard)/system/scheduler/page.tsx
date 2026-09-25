@@ -77,7 +77,7 @@ function SchedulerPage() {
         {isLoading ? (
           <NoteCallout tone="neutral">Loading scheduler status…</NoteCallout>
         ) : (
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Job</th>
@@ -103,7 +103,7 @@ function SchedulerPage() {
                 )
               })}
             </tbody>
-          </table>
+          </table></div>
         )}
       </Panel>
     </div>

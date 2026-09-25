@@ -65,7 +65,7 @@ function LoginPageContent() {
   return (
     <main className="login-shell relative min-h-dvh overflow-hidden bg-background text-foreground">
       <div className="login-glow" aria-hidden="true" />
-      <div className="relative mx-auto grid min-h-dvh max-w-6xl items-center gap-10 px-5 py-10 lg:grid-cols-[1.05fr_0.95fr] lg:px-10">
+      <div className="relative mx-auto grid min-h-dvh max-w-6xl items-center gap-10 px-5 py-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:px-10">
         <section className="order-2 hidden lg:order-none lg:block">
           <div className="flex items-center gap-2.5">
             <span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span>

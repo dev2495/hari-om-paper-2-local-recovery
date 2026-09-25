@@ -71,7 +71,7 @@ export function InventoryLabelPrint({ label, title = "Inventory Label Preview" }
         </button>
       </div>
 
-      <div className="mx-auto grid max-w-[460px] grid-cols-[1fr_auto] gap-4 border border-slate-900 bg-card p-4 print:max-w-none">
+      <div className="mx-auto grid max-w-[460px] grid-cols-[minmax(0,1fr)_auto] gap-4 border border-slate-900 bg-card p-4 print:max-w-none">
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Hari Om Paper</p>
           <h3 className="mt-1 break-words text-xl font-bold leading-tight text-foreground">{code}</h3>
