@@ -1,5 +1,6 @@
 "use client"
 
+import { NotchDiagramPanel } from "@/components/specs/NotchDiagramPanel"
 import Link from "next/link"
 import { CheckCircle2, ExternalLink, Printer, Save, Smartphone } from "lucide-react"
 import { QRCodeSVG } from "qrcode.react"
@@ -1590,6 +1591,21 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Bamboo Math</div><div className="mt-1 text-sm font-semibold text-foreground">{formatNumber(documentSnapshot?.header?.target_bamboo_count, 0)} bamboo target · {formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)} pcs/bamboo</div><div className="mt-1 text-xs text-muted-foreground">{formatNumber(selectedBambooLength, 0)} mm selected · {formatNumber(usableBambooLength, 0)} mm usable · {formatNumber(trimLossMm, 0)} mm trim</div></div>
                 <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Output Truth</div><div className="mt-1 text-sm font-semibold text-foreground">{formatNumber(wipQty, 0)} open pcs · {formatNumber(documentSnapshot?.material_truth?.produced_output_qty, 0)} produced · {formatNumber(documentSnapshot?.material_truth?.packed_qty, 0)} packed</div></div>
               </div>
+            </section>
+
+            <section data-testid="job-card-notch-diagram" className="rounded-[1.4rem] border border-border bg-card p-5 shadow-sm">
+              <NotchDiagramPanel
+                data={{
+                  title: "From the approved spec snapshot on this job card",
+                  tubeLengthMm: parseFloat(String(clientSpec?.length?.avg ?? documentSnapshot?.header?.tube_length_mm ?? "")) || 0,
+                  notchDistanceMm: parseFloat(String(documentSnapshot?.setup_tooling?.notch_distance ?? "")) || 0,
+                  notchDepthMm: parseFloat(String(documentSnapshot?.setup_tooling?.notch_depth ?? "")) || 0,
+                  notchType: documentSnapshot?.setup_tooling?.notch_type || "",
+                  tubeDirection: documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "",
+                  outerDiameterMm: parseFloat(String(clientSpec?.od?.avg ?? "")) || 0,
+                }}
+                className="!border-0 !p-0"
+              />
             </section>
 
             <section className="rounded-[1.4rem] border border-border bg-card p-5 shadow-sm">
