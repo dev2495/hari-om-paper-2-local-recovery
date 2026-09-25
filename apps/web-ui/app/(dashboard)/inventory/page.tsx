@@ -15,6 +15,8 @@ import {
   useReels,
 } from "@/hooks/use-inventory"
 import { PageHeader } from "@/components/workspace/page-header"
+import { MetricCard, MetricRail } from "@/components/erp/shell"
+import { Donut } from "@/components/erp/viz"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 
 const formatNumber = (value: unknown, digits = 0) =>
@@ -124,11 +126,12 @@ export default function InventoryOverviewPage() {
   ).sort((left: any, right: any) => right.load_kg - left.load_kg)
 
   const actionCards = [
-    { href: "/purchase/inward", title: "PO-linked inward", copy: "Receive approved paper and bulk PO lines with invoice comparison.", icon: Warehouse },
-    { href: "/purchase/inward", title: "Reel and coil inward", copy: "Record measured kg and create one AT label per physical unit.", icon: Boxes },
+    { href: "/purchase/inward", title: "Goods inward", copy: "Receive PO or manual paper with one AT label per reel/coil.", icon: Warehouse },
+    { href: "/inventory/reels/issue", title: "Issue reel by scan", copy: "Scan a reel/coil label and issue it to winder or slitting.", icon: Boxes },
+    { href: "/purchase/receipts", title: "Reprint labels", copy: "Open a GRN and reprint reel or lot QR labels.", icon: ReceiptText },
+    { href: "/inventory/stock-control", title: "Scrap / adjust stock", copy: "Approved count correction or scrap discovery with reasons.", icon: FileCheck2 },
     { href: "/inventory/production-issue", title: "Production issue", copy: "Issue RM against job card and lot/reel truth.", icon: PackageCheck },
-    { href: "/inventory/stock-control", title: "Stock close control", copy: "Opening load, closing certification, and year carry-forward.", icon: FileCheck2 },
-    { href: "/purchase", title: "Purchase and GRN", copy: "Request, PO status, GRN handoff, and incoming QC.", icon: ReceiptText },
+
     { href: "/inventory/ledger", title: "Ledger and balances", copy: "Audit physical, reserved, available, and transactions.", icon: ClipboardCheck },
     { href: "/analytics/mrp", title: "MRP coverage", copy: "Reorder policy and demand/BOM coverage are separate views.", icon: LineChart },
   ]
@@ -141,31 +144,23 @@ export default function InventoryOverviewPage() {
         badge="Inventory control"
         title="Stock overview"
         description="Review material availability, held stock and valuation. Open a receipt, issue or stock record to take action."
-        aside={
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Kpi label="Inventory value" value={formatCurrency(totalValue)} hint="RM + tracked batch valuation" tone="cyan" />
-            <Kpi label="Available load" value={formatKg(totalKg)} hint={`${inventoryRows.length} stocked item rows`} tone="emerald" />
-            <Kpi label="Blocked / hold" value={formatKg(blockedKg)} hint="QC hold, blocked, scrap pressure" tone={blockedKg ? "rose" : "slate"} />
-            <Kpi label="Locations used" value={`${occupiedLocations}/${totalLocations}`} hint="Warehouse occupancy" tone="amber" />
-          </div>
-        }
       />
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      <MetricRail className="xl:grid-cols-4">
+        <MetricCard label="Inventory value" value={formatCurrency(totalValue)} detail="RM + tracked batch valuation" icon={Warehouse} tone="violet" href="/inventory/valuation" />
+        <MetricCard label="Stock on hand" value={formatKg(totalKg)} detail={`${inventoryRows.length} stocked items`} icon={Boxes} tone="teal" href="/inventory/ledger" />
+        <MetricCard label="Held / blocked" value={formatKg(blockedKg)} detail="QC hold, blocked and scrap" icon={FileCheck2} tone={blockedKg ? "rose" : "slate"} href="/quality/results" />
+        <MetricCard label="Locations used" value={`${occupiedLocations}/${totalLocations}`} detail="Warehouse occupancy" icon={ClipboardCheck} tone="amber" progress={totalLocations ? (occupiedLocations / totalLocations) * 100 : null} href="/system/locations" />
+      </MetricRail>
+
+      <section className="stagger grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6" aria-label="Quick actions">
         {actionCards.map((card) => (
-          <Link key={card.href} href={card.href} className="group rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-foreground">{card.title}</h2>
-                <p className="mt-1 text-xs leading-5 text-muted-foreground">{card.copy}</p>
-              </div>
-              <div className="rounded-lg bg-secondary p-2.5 text-primary">
-                <card.icon className="h-4 w-4" />
-              </div>
-            </div>
-            <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-signal-cyan-ink">
-              Open <ArrowRight className="h-3.5 w-3.5" />
-            </div>
+          <Link key={card.href + card.title} href={card.href} className="group flex items-start gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-[var(--shadow-xs)] transition hover:border-primary/30 hover:shadow-[var(--shadow-premium)]">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground transition-transform group-hover:scale-105"><card.icon className="h-4 w-4" /></span>
+            <span className="min-w-0">
+              <span className="block text-[13px] font-semibold">{card.title}</span>
+              <span className="block text-[12px] leading-5 text-muted-foreground">{card.copy}</span>
+            </span>
           </Link>
         ))}
       </section>
@@ -195,32 +190,12 @@ export default function InventoryOverviewPage() {
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Status split</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Usable vs blocked stock</h2>
-          <div className="mt-4 grid gap-4 md:grid-cols-[210px_minmax(0,1fr)]">
-            <div className="h-[210px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={statusRows} dataKey={(row: any) => Number(row.weight_kg || row.batch_qty || 0)} nameKey="stock_status" innerRadius={50} outerRadius={82} paddingAngle={3}>
-                    {statusRows.map((_: any, index: number) => <Cell key={index} fill={colors[index % colors.length]} />)}
-                  </Pie>
-                  <Tooltip formatter={(value: any) => formatKg(value)} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-2">
-              {statusRows.map((row: any, index: number) => (
-                <div key={row.stock_status} className="rounded-2xl border border-border bg-muted px-3 py-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
-                      {row.stock_status}
-                    </span>
-                    <span className="text-sm font-semibold text-foreground">{formatKg(Number(row.weight_kg || row.batch_qty || 0))}</span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">{row.reel_count || 0} reels · {row.batch_count || 0} batches</p>
-                </div>
-              ))}
-              {!statusRows.length ? <p className="text-sm text-muted-foreground">No status rows yet.</p> : null}
-            </div>
+          <div className="mt-4">
+            <Donut
+              centerLabel="kg in stock"
+              format={(value) => formatKg(value)}
+              slices={statusRows.map((row: any, index: number) => ({ label: String(row.stock_status || "").replaceAll("_", " ").toLowerCase().replace(/^./, (c) => c.toUpperCase()), value: Number(row.weight_kg || row.batch_qty || 0), color: colors[index % colors.length] }))}
+            />
           </div>
         </div>
       </section>
