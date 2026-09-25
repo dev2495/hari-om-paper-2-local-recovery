@@ -156,8 +156,10 @@ input, select, textarea { max-width: 100%; }
   border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-premium);
 }
 .tube-header-aside:empty { display: none; }
-.tube-header-aside > .space-y-3 { display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px; }
-.tube-header-aside > .space-y-3 > * { margin-top: 0 !important; flex: 1 1 200px; }
+.tube-header-aside { margin: 0; }
+.tube-header-aside .space-y-3 > * + * { margin-top: .625rem; }
+.tube-header-aside a[class*="w-full"], .tube-header-aside button[class*="w-full"] { min-height: 36px; padding-top: .5rem; padding-bottom: .5rem; font-size: 13px; letter-spacing: 0; text-transform: none; border-radius: 8px; }
+.tube-header-aside a.bg-card, .tube-header-aside a[class*=" bg-card "] { background: hsl(var(--primary)); color: hsl(var(--primary-foreground)); border: 0; }
 
 /* ───────────────────────── KPI tiles ───────────────────────── */
 .tube-kpi {
@@ -297,3 +299,10 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
 @keyframes bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .tube-grid tr.sub-line > td { padding-top: 5px; padding-bottom: 5px; border-bottom-color: hsl(var(--border) / .55); }
 .tube-grid tbody[data-order-id]:hover > tr:first-child > td { background: hsl(var(--foreground) / .02); }
+
+/* Header asides used to sit on a dark slab; they are now a light card, so retune legacy white-on-dark content. */
+.tube-header-aside .text-white, .tube-header-aside [class*="text-white/"] { color: hsl(var(--foreground)); }
+.tube-header-aside [class*="text-white/"] { color: hsl(var(--muted-foreground)); }
+.tube-header-aside [class*="bg-card/1"], .tube-header-aside [class*="bg-card/2"] { background: hsl(var(--muted)); }
+.tube-header-aside [class*="border-border/"] { border-color: hsl(var(--border)); }
+.tube-header-aside .text-2xl, .tube-header-aside .text-3xl { font-size: 1.375rem; line-height: 1.2; }

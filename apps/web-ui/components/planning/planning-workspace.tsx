@@ -1057,24 +1057,24 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               >
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <p className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${day.isToday ? "text-white/60" : "text-muted-foreground"}`}>
+                    <p className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${day.isToday ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
                       {dayjs(day.date).format("MMM")}
                     </p>
                     <p className="mt-1 text-2xl font-semibold leading-none">{dayjs(day.date).format("DD")}</p>
                   </div>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${day.isToday ? "bg-card/15 text-white" : "bg-muted text-muted-foreground"}`}>
+                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${day.isToday ? "bg-primary-foreground/15 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
                     {day.jobs.length}
                   </span>
                 </div>
 
                 <div className="mt-4 space-y-2">
-                  <div className={`h-1.5 overflow-hidden rounded-full ${day.isToday ? "bg-card/15" : "bg-muted"}`}>
+                  <div className={`h-1.5 overflow-hidden rounded-full ${day.isToday ? "bg-primary-foreground/15" : "bg-muted"}`}>
                     <div
                       className={`h-full rounded-full ${day.blocked ? "bg-rose-500" : day.scheduled ? "bg-emerald-500" : stageTheme.fill}`}
                       style={{ width: `${Math.min(100, Math.max(8, day.jobs.length * 14))}%` }}
                     />
                   </div>
-                  <div className={`grid grid-cols-3 gap-1 text-[10px] ${day.isToday ? "text-white/75" : "text-muted-foreground"}`}>
+                  <div className={`grid grid-cols-3 gap-1 text-[10px] ${day.isToday ? "text-primary-foreground/75" : "text-muted-foreground"}`}>
                     <span>{day.scheduled} planned</span>
                     <span>{day.unscheduled} queue</span>
                     <span className={day.blocked ? "font-semibold text-signal-rose-ink" : ""}>{day.blocked} blocked</span>
@@ -1086,20 +1086,20 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                     <div
                       key={job.id || job.job_card_id || job.segment_id}
                       className={`truncate rounded-lg px-2 py-1.5 text-[10px] font-semibold ${
-                        day.isToday ? "bg-card/12 text-white" : "bg-muted text-muted-foreground"
+                        day.isToday ? "bg-primary-foreground/12 text-primary-foreground" : "bg-muted text-muted-foreground"
                       }`}
                     >
                       {jobCardRef(job)} · {String(job.current_stage || "-").toUpperCase()}
                     </div>
                   ))}
                   {day.jobs.length > 3 ? (
-                    <p className={`text-[10px] font-semibold ${day.isToday ? "text-white/55" : "text-muted-foreground"}`}>
+                    <p className={`text-[10px] font-semibold ${day.isToday ? "text-primary-foreground/55" : "text-muted-foreground"}`}>
                       {day.jobs.length - 3} more jobs
                     </p>
                   ) : null}
                 </div>
 
-                <div className={`mt-3 text-[10px] font-semibold uppercase tracking-[0.14em] ${day.isToday ? "text-white/50" : "text-muted-foreground"}`}>
+                <div className={`mt-3 text-[10px] font-semibold uppercase tracking-[0.14em] ${day.isToday ? "text-primary-foreground/50" : "text-muted-foreground"}`}>
                   {dominantStage || (day.isBeyondPlanningLimit ? "Beyond 3 months" : "Open day")}
                 </div>
               </Link>

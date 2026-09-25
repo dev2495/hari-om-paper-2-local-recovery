@@ -46,38 +46,33 @@ export function ReportHero({
   accent?: "slate" | "cyan" | "amber" | "rose" | "violet" | "emerald"
   children?: ReactNode
 }) {
-  const gradients: Record<string, string> = {
-    slate: "linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--foreground)) 60%, #1e3a8a 100%)",
-    cyan: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #083344 60%, hsl(var(--chart-1)) 100%)",
-    amber: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #422006 60%, #7c2d12 100%)",
-    rose: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #4c0519 60%, #9f1239 100%)",
-    violet: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #1e1b4b 60%, hsl(var(--chart-3)) 100%)",
-    emerald: "linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--chart-7)) 60%, hsl(var(--chart-7)) 100%)",
+  const glow: Record<string, string> = {
+    slate: "var(--chart-2)",
+    cyan: "var(--chart-1)",
+    amber: "var(--chart-6)",
+    rose: "var(--chart-5)",
+    violet: "var(--chart-3)",
+    emerald: "var(--chart-7)",
   }
   const toneClass = (tone?: string) => {
-    if (tone === "ok") return "border-signal-emerald-line/40 bg-emerald-400/15 text-emerald-100"
-    if (tone === "warn") return "border-signal-amber-line/40 bg-amber-400/15 text-amber-100"
-    if (tone === "critical") return "border-signal-rose-line/40 bg-rose-400/15 text-rose-100"
-    return "border-border/30 bg-card/10 text-white/90"
+    if (tone === "ok") return "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+    if (tone === "warn") return "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
+    if (tone === "critical") return "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+    return "border-border bg-muted text-muted-foreground"
   }
   return (
     <section
-      className="relative overflow-hidden rounded-[2rem] px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.18)]"
-      style={{ backgroundImage: gradients[accent] }}
+      className="report-hero relative overflow-hidden rounded-2xl border border-border bg-card px-5 py-5 shadow-[var(--shadow-premium)] animate-enter-up sm:px-6"
+      style={{ backgroundImage: `radial-gradient(120% 140% at 0% 0%, hsl(${glow[accent]} / .12) 0%, transparent 55%), radial-gradient(80% 120% at 100% 0%, hsl(${glow[accent]} / .06) 0%, transparent 60%)` }}
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">{eyebrow}</p>
-      <h1 className="mt-3 max-w-4xl text-3xl font-semibold tracking-tight md:text-[34px]">{title}</h1>
-      {description ? <p className="mt-3 max-w-3xl text-sm leading-6 text-white/75">{description}</p> : null}
+      <span className="absolute inset-y-0 left-0 w-1" style={{ background: `hsl(${glow[accent]})` }} aria-hidden="true" />
+      <p className="tube-page-eyebrow !mb-2">{eyebrow}</p>
+      <h1 className="max-w-4xl text-[22px] font-semibold tracking-tight text-foreground md:text-[26px]">{title}</h1>
+      {description ? <p className="mt-1.5 max-w-3xl text-[13.5px] leading-6 text-muted-foreground">{description}</p> : null}
       {chips?.length ? (
-        <div className="mt-5 flex flex-wrap gap-2">
+        <div className="mt-3.5 flex flex-wrap gap-1.5">
           {chips.map((c) => (
-            <span
-              key={c.label}
-              className={cn(
-                "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em]",
-                toneClass(c.tone),
-              )}
-            >
+            <span key={c.label} className={cn("inline-flex items-center rounded-full border px-2.5 py-0.5 text-[12px] font-medium", toneClass(c.tone))}>
               {c.label}
             </span>
           ))}
@@ -92,7 +87,7 @@ export function ReportHero({
 
 export function ReportFilterBar({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-border bg-card px-4 py-3 shadow-sm">
+    <div className="tube-filter">
       {children}
     </div>
   )
@@ -100,9 +95,9 @@ export function ReportFilterBar({ children }: { children: ReactNode }) {
 
 export function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+    <label className="flex items-center gap-2 text-[12.5px] font-medium text-muted-foreground">
       <span>{label}</span>
-      <span className="text-foreground font-medium tracking-normal normal-case text-sm">{children}</span>
+      <span className="text-[13px] font-medium text-foreground">{children}</span>
     </label>
   )
 }
@@ -122,12 +117,12 @@ export type KpiRailItem = {
 }
 
 const railTone: Record<KpiTone, string> = {
-  slate: "border-border bg-card",
-  cyan: "border-signal-cyan-line bg-signal-cyan-soft/85",
-  amber: "border-signal-amber-line bg-signal-amber-soft/85",
-  emerald: "border-signal-emerald-line bg-signal-emerald-soft/85",
-  rose: "border-signal-rose-line bg-signal-rose-soft/85",
-  violet: "border-signal-violet-line bg-signal-violet-soft/85",
+  slate: "before:bg-muted-foreground/30",
+  cyan: "before:bg-signal-cyan-ink/70",
+  amber: "before:bg-signal-amber-ink/70",
+  emerald: "before:bg-signal-emerald-ink/70",
+  rose: "before:bg-signal-rose-ink/70",
+  violet: "before:bg-signal-violet-ink/70",
 }
 
 export function KpiRail({ items, columns = 6 }: { items: KpiRailItem[]; columns?: 3 | 4 | 5 | 6 }) {
@@ -140,23 +135,23 @@ export function KpiRail({ items, columns = 6 }: { items: KpiRailItem[]; columns?
           ? "grid-cols-2 md:grid-cols-2 xl:grid-cols-4"
           : "grid-cols-2 md:grid-cols-3"
   return (
-    <div className={cn("grid gap-3", colsClass)}>
+    <div className={cn("stagger grid gap-3", colsClass)}>
       {items.map((item) => {
         const inner = (
           <div
             className={cn(
-              "flex h-full flex-col rounded-[1.25rem] border p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] transition",
+              "tube-kpi relative flex h-full flex-col !py-3.5 before:absolute before:left-0 before:top-3.5 before:h-6 before:w-[3px] before:rounded-r-full",
               railTone[item.tone || "slate"],
-              (item.href || item.onClick) && "hover:-translate-y-0.5 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)] cursor-pointer",
+              (item.href || item.onClick) && "cursor-pointer hover:border-primary/30",
             )}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{item.label}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{item.value}</p>
-            {item.detail ? <p className="mt-1 text-[11px] text-muted-foreground">{item.detail}</p> : null}
+            <p className="truncate text-[12px] font-medium text-muted-foreground">{item.label}</p>
+            <p className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight tabular-nums text-foreground">{item.value}</p>
+            {item.detail ? <p className="mt-1 line-clamp-2 text-[11.5px] leading-4 text-muted-foreground">{item.detail}</p> : null}
             {item.delta ? (
               <p
                 className={cn(
-                  "mt-2 text-[11px] font-semibold",
+                  "mt-auto pt-2 text-[11.5px] font-semibold tabular-nums",
                   item.delta.direction === "up" && "text-signal-emerald-ink",
                   item.delta.direction === "down" && "text-signal-rose-ink",
                   (!item.delta.direction || item.delta.direction === "flat") && "text-muted-foreground",
@@ -207,13 +202,13 @@ export function Panel({
   className?: string
 }) {
   return (
-    <section className={cn("rounded-[1.8rem] border border-border bg-card p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]", className)}>
+    <section className={cn("erp-panel min-w-0 rounded-xl p-4 sm:p-5", className)}>
       {(eyebrow || title || actions) && (
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{eyebrow}</p> : null}
-            {title ? <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h2> : null}
-            {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+          <div className="min-w-0">
+            {eyebrow ? <p className="text-[11.5px] font-medium text-muted-foreground">{eyebrow}</p> : null}
+            {title ? <h2 className="mt-0.5 text-[15px] font-semibold tracking-tight text-foreground">{title}</h2> : null}
+            {description ? <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">{description}</p> : null}
           </div>
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </div>
@@ -227,7 +222,7 @@ export function Panel({
 
 export function DrillLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-signal-cyan-ink hover:underline">
+    <Link href={href} className="group inline-flex items-center gap-1 text-[12.5px] font-medium text-primary hover:underline">
       {children} <ChevronRight className="h-3.5 w-3.5" />
     </Link>
   )
@@ -609,22 +604,22 @@ export function ReportTable<T extends Record<string, any>>({
 }) {
   if (!rows?.length) {
     return (
-      <div className="rounded-xl border border-dashed border-border bg-muted px-4 py-8 text-center text-sm text-muted-foreground">
-        {empty || "No data."}
+      <div className="rounded-xl border border-dashed border-border bg-[hsl(var(--surface-2))] px-4 py-8 text-center text-[13px] text-muted-foreground">
+        {empty || "No data for this window."}
       </div>
     )
   }
   return (
-    <div className="overflow-x-auto">
-      {caption ? <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{caption}</p> : null}
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="overflow-x-auto rounded-lg border border-border">
+      {caption ? <p className="border-b border-border bg-[hsl(var(--surface-2))] px-3 py-1.5 text-[12px] font-medium text-muted-foreground">{caption}</p> : null}
+      <table className="w-full text-[13px]">
+        <thead className="bg-[hsl(var(--surface-2))]">
+          <tr className="border-b border-border text-left text-[11.5px] font-semibold text-muted-foreground">
             {columns.map((c) => (
               <th
                 key={String(c.key)}
                 style={{ width: c.width, textAlign: c.align || (typeof rows[0]?.[c.key] === "number" ? "right" : "left") }}
-                className="py-2 pr-3"
+                className="h-9 whitespace-nowrap px-3"
               >
                 {c.label}
               </th>
@@ -633,12 +628,12 @@ export function ReportTable<T extends Record<string, any>>({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-border last:border-b-0 hover:bg-muted">
+            <tr key={i} className="border-b border-border/70 transition-colors last:border-b-0 hover:bg-foreground/[.025]">
               {columns.map((c) => (
                 <td
                   key={String(c.key)}
                   style={{ textAlign: c.align || (typeof row[c.key] === "number" ? "right" : "left") }}
-                  className="py-2 pr-3 text-muted-foreground"
+                  className="px-3 py-2 tabular-nums text-foreground/85"
                 >
                   {c.render ? c.render(row) : String(row[c.key as keyof T] ?? "")}
                 </td>
@@ -673,7 +668,7 @@ export function Pill({
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
+        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] font-medium",
         toneClass,
       )}
     >
@@ -846,7 +841,7 @@ export function ReportTileLink({
   chips?: Array<{ label: string }>
 }) {
   const accentClass: Record<string, string> = {
-    owner: "from-foreground via-foreground to-cyan-900 text-white",
+    owner: "from-card to-signal-teal-soft text-foreground",
     ops: "from-card to-signal-cyan-soft text-foreground",
     sales: "from-card to-signal-amber-soft text-foreground",
     inv: "from-card to-signal-emerald-soft text-foreground",
@@ -858,19 +853,19 @@ export function ReportTileLink({
     <Link
       href={href}
       className={cn(
-        "group block rounded-[1.6rem] border border-border bg-gradient-to-br px-5 py-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]",
+        "group block rounded-xl border border-border bg-gradient-to-br px-4 py-4 shadow-[var(--shadow-premium)] transition duration-200 hover:border-primary/30 hover:shadow-[var(--shadow-premium-hover)]",
         accentClass[accent],
       )}
     >
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
-        <ArrowRight className="h-4 w-4 opacity-70 group-hover:translate-x-1 transition" />
+        <h3 className="text-[15px] font-semibold tracking-tight">{title}</h3>
+        <ArrowRight className="h-4 w-4 opacity-60 transition group-hover:translate-x-1 group-hover:text-primary group-hover:opacity-100" />
       </div>
-      <p className="mt-2 text-sm leading-5 opacity-80">{description}</p>
+      <p className="mt-1.5 text-[12.5px] leading-5 text-muted-foreground">{description}</p>
       {chips?.length ? (
         <div className="mt-4 flex flex-wrap gap-1.5">
           {chips.map((c) => (
-            <span key={c.label} className="rounded-full border border-current/15 bg-card/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+            <span key={c.label} className="rounded-full border border-border bg-card/70 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
               {c.label}
             </span>
           ))}

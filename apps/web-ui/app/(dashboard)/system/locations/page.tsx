@@ -52,7 +52,7 @@ export default function SystemLocationsPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-foreground via-cyan-950 to-emerald-900 p-6 text-white shadow-2xl">
+      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-emerald-900 p-6 text-white shadow-2xl">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">System setup</p>

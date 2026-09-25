@@ -127,7 +127,7 @@ export default function InventoryLedgerPage() {
           )}
         </section>
       ) : null}
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-foreground via-cyan-950 to-foreground p-6 text-white shadow-2xl">
+      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-[hsl(224_24%_13%)] p-6 text-white shadow-2xl">
         <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Inventory audit</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>

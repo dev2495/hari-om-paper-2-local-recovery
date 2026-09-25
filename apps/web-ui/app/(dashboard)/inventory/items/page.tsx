@@ -97,7 +97,7 @@ export default function InventoryItemsPage() {
 
   return (
     <div className="space-y-5" data-testid="inventory-items-page">
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-foreground via-cyan-950 to-foreground p-6 text-white shadow-2xl">
+      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-[hsl(224_24%_13%)] p-6 text-white shadow-2xl">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Inventory master</p>
