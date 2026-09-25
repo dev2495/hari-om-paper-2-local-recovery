@@ -61,7 +61,7 @@ def _job_card(db):
 
 def _post(db, job, **payload):
     with patch('src.routers.planning._fetch_machine', return_value={'capacity_value': 0}), \
-         patch('src.routers.planning._validate_machine_compatibility'), \
+         patch('src.routers.planning._validate_machine_compatibility', return_value=None), \
          patch('src.routers.planning._record_physical_tool_usage', return_value=[]):
         return capture_stage_output(job.id, StageOutputPayload(**payload), db, str(PLANT_A_UUID), USER)
 
