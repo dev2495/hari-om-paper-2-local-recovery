@@ -61,17 +61,16 @@ export default function ProductionMobileEntryPage() {
   }
 
   return (
-    <div data-testid="production-mobile-entry-page" className="min-h-screen bg-card px-3 py-4 sm:px-4">
+    <div data-testid="production-mobile-entry-page" className="min-h-screen bg-background px-3 py-4 sm:px-4">
       <div className="mx-auto max-w-5xl space-y-4">
-        <section className="rounded-[1.6rem] border border-border/70 bg-card/90 px-5 py-4 shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Mobile Stage Entry</p>
-              <h1 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">Scan, enter, save, and close the current stage fast.</h1>
-            </div>
-            <div className="rounded-full border border-border bg-muted px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-              {roles.join(" / ") || "Unknown role"}
-            </div>
+        <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-[var(--shadow-premium)]">
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-muted-foreground">Stage entry · scanned card</p>
+            <h1 className="text-[20px] font-semibold tracking-tight">Enter today&apos;s run for this job card</h1>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">{roles.join(" · ") || "—"}</span>
+            <Link href="/production/supervisor-entry" className="erp-btn-secondary !h-8">Scan another</Link>
           </div>
         </section>
 

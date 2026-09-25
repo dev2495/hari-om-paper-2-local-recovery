@@ -431,3 +431,5 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 [draggable="true"] { cursor: grab; transition: transform 160ms var(--ease-spring), box-shadow 160ms ease, opacity 160ms ease; }
 [draggable="true"]:active { cursor: grabbing; }
 [draggable="true"]:hover { transform: translateY(-1px); box-shadow: var(--shadow-premium-hover); }
+.qr-scan-line { animation: qr-scan 2s ease-in-out infinite alternate; }
+@keyframes qr-scan { from { top: 8%; } to { top: 90%; } }
