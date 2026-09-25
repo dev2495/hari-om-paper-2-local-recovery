@@ -208,7 +208,7 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
     queryKey: ["report-detail", type, activePlant, startDate, endDate],
     queryFn: () => fetchReport(type, { start_date: startDate, end_date: endDate, granularity: "day", plant: activePlant }),
   })
-  const data: any = query.data || {}
+  const data: any = useMemo(() => query.data || {}, [query.data])
   const chart = useMemo(() => toChart(data), [data])
   const mix = useMemo(() => breakdown(type, data, chart), [type, data, chart])
   const summaryEntries = Object.entries(data.summary || {}).filter(([key, value]) => typeof value !== "boolean" && typeof value !== "object").slice(0, 8)
@@ -262,7 +262,7 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
         </div>
       ) : query.isError ? (
         <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-6 text-[13.5px] text-signal-rose-ink">
-          The report service didn't answer for this window. Numbers here must not be read as zero.
+          The report service did not answer for this window. Numbers here must not be read as zero.
           <button type="button" className="erp-btn-secondary ml-3 !h-8" onClick={() => void query.refetch()}>Retry</button>
         </div>
       ) : (
@@ -328,7 +328,7 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
             {ROW_SETS[type].length > 1 ? (
               <div className="tube-segment mb-3 print:hidden" role="tablist" aria-label="Row set">
                 {ROW_SETS[type].map((set) => (
-                  <button key={set.key} type="button" role="tab" aria-selected={tab === set.key} aria-pressed={tab === set.key} onClick={() => { setTab(set.key); setSearch("") }}>
+                  <button key={set.key} type="button" role="tab" aria-selected={tab === set.key} onClick={() => { setTab(set.key); setSearch("") }}>
                     {set.label} <span className="ml-1 tabular-nums text-muted-foreground">{set.pick(data).length}</span>
                   </button>
                 ))}

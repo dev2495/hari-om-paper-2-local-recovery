@@ -18,7 +18,9 @@ import {
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
-import { ChartCard, CompactTable, FilterChip, KpiCard, PageIntro, formatCompactCurrency, formatCompactNumber } from "@/components/erp/premium-dashboard"
+import { ChartCard, CompactTable, FilterChip, formatCompactCurrency, formatCompactNumber } from "@/components/erp/premium-dashboard"
+import { MetricCard, MetricRail } from "@/components/erp/shell"
+import { PageHeader } from "@/components/workspace/page-header"
 import { useAuth } from "@/context/AuthContext"
 import {
   useAdjustmentVouchers,
@@ -316,132 +318,108 @@ export default function InventoryStockControlPage() {
     setAdjustmentForm((current) => ({ ...current, item_id: "", qty_delta: "", notes: "", unit_cost: "" }))
   }
 
+  const certStatus = String(periodStateQuery.data?.stock_cert_status || latestCertification?.status || "").toUpperCase()
+  const recoStatus = String(periodStateQuery.data?.reco_status || "").toUpperCase()
+  const closeSteps: Array<{ label: string; detail: string; state: "done" | "active" | "todo" }> = (() => {
+    const hasStatement = statementRows.length > 0
+    const drafted = Boolean(draftCert) || ["CERTIFIED", "CARRIED_FORWARD"].includes(certStatus)
+    const counted = ["CERTIFIED", "CARRIED_FORWARD"].includes(certStatus) || certificationLines.some((line: any) => line.physical_qty !== null && line.physical_qty !== undefined)
+    const certified = ["CERTIFIED", "CARRIED_FORWARD"].includes(certStatus)
+    const carried = certStatus === "CARRIED_FORWARD" || carryForwards.length > 0
+    const reconciled = ["APPROVED", "LOCKED", "CLOSED"].includes(recoStatus) || Boolean(booksStateQuery.data?.locked_through)
+    const flags = [hasStatement, drafted, counted, certified, carried, reconciled]
+    const firstOpen = flags.findIndex((flag) => !flag)
+    const state = (index: number) => (flags[index] ? "done" : index === firstOpen ? "active" : "todo") as "done" | "active" | "todo"
+    return [
+      { label: "Book statement", detail: hasStatement ? `${statementRows.length} items in the statement` : "No stock lines for this window", state: state(0) },
+      { label: "Draft count", detail: drafted ? "Count sheet drafted from book stock" : "Draft a certificate below", state: state(1) },
+      { label: "Physical count", detail: counted ? "Counts entered" : "Enter counted qty per line", state: state(2) },
+      { label: "Certify", detail: certified ? "Closing stock certified" : "Certify once counts are checked", state: state(3) },
+      { label: "Carry forward", detail: carried ? `${carryForwards.length} opening proof(s)` : "Generate next-period opening", state: state(4) },
+      { label: "Monthly reco", detail: reconciled ? "Reconciliation approved" : recoStatus ? `Reco ${recoStatus.toLowerCase().replaceAll("_", " ")}` : "Open reconciliation", state: state(5) },
+    ]
+  })()
+
   return (
     <div className="space-y-5" data-testid="inventory-stock-control-page">
-      <PageIntro
-        eyebrow="Stock close control"
+      <PageHeader
+        badge="Stock close control"
         title="Stock control"
-        description="One audit cockpit for book stock, physical counts, bootstrap opening loads, certification proof, and next-year opening carry-forward without double-posting the running ledger."
+        description="Book stock, physical counts, certification and next-period carry-forward in one place. The running ledger is never double-posted."
         actions={
           <>
-            <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-              From
-              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="bg-transparent outline-none" />
-            </label>
-            <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-              To
-              <input
-                type="date"
-                value={endDate}
-                onChange={(event) => {
-                  const nextDate = event.target.value
-                  setEndDate(nextDate)
-                  setStockAsOfAt((current) => current.startsWith(endDate) ? endOfDayLocal(nextDate) : current)
-                }}
-                className="bg-transparent outline-none"
-              />
-            </label>
-            <label className="flex items-center gap-2 rounded-full border border-signal-cyan-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-cyan-ink">
-              <Clock className="h-3.5 w-3.5" />
-              Stock as of
-              <input
-                type="datetime-local"
-                value={stockAsOfAt}
-                onChange={(event) => setStockAsOfAt(event.target.value)}
-                className="w-[154px] bg-transparent outline-none"
-              />
-            </label>
-            <label className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">
-              Count taken
-              <input
-                type="datetime-local"
-                value={countTakenAt}
-                onChange={(event) => setCountTakenAt(event.target.value)}
-                className="w-[154px] bg-transparent outline-none"
-              />
-            </label>
             <FilterChip>{displayPlantScope(activePlant, "No plant selected")}</FilterChip>
-            <Link href="/inventory/ledger" className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink">
-              Ledger <ArrowRight className="h-3.5 w-3.5" />
-            </Link>
+            <Link href="/inventory/lifecycle" className="erp-btn-secondary !h-9">← Lifecycle</Link>
+            <Link href="/inventory/ledger" className="erp-btn-secondary !h-9">Ledger <ArrowRight className="h-3.5 w-3.5" /></Link>
+            <Link href="/production/reconciliation" className="erp-btn-primary !h-9">Monthly reco <ArrowRight className="h-3.5 w-3.5" /></Link>
           </>
-        }
-        aside={
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Closing value</p>
-              <p className="mt-2 text-3xl font-semibold">{formatCompactCurrency(Number(totals.closing_value || 0))}</p>
-            </div>
-            <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Certified period</p>
-              <p className="mt-2 text-lg font-semibold">{latestCertification?.period_end || "Not yet"}</p>
-              <p className="text-xs text-muted-foreground">{latestCertification?.status || "Draft a period below"}</p>
-            </div>
-          </div>
         }
       />
 
-      {writeBlocked ? (
-        <section className="rounded-[1.4rem] border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm font-semibold text-signal-amber-ink">
-          Select one concrete plant before posting opening stock, certifying closing stock, or generating carry-forward. Global scope remains read-only for audit review.
-        </section>
-      ) : null}
+      <MetricRail className="xl:grid-cols-3 2xl:grid-cols-6">
+        <MetricCard label="Book closing" value={formatCompactCurrency(Number(totals.closing_value || 0))} detail={`${formatKg(totals.kg_closing_qty)} plus ${formatNumber(totals.pcs_closing_qty)} pcs`} icon={Scale} tone="cyan" />
+        <MetricCard label="Opening value" value={formatCompactCurrency(Number(totals.opening_value || 0))} detail="Derived from transactions before the period" icon={BookMarked} tone="slate" />
+        <MetricCard label="Risk lines" value={formatCompactNumber(riskRows.length)} detail="Reorder, safety, or missing policy attention" icon={ShieldAlert} tone={riskRows.length ? "amber" : "emerald"} />
+        <MetricCard label="Certificates" value={formatCompactNumber(certifications.length)} detail={draftCert ? "Draft awaiting count review" : "No open draft"} icon={FileCheck2} tone={draftCert ? "amber" : "emerald"} />
+        <MetricCard label="Count coverage" value={`${formatCompactNumber(statementRows.length)}/${formatCompactNumber(items.length)}`} detail="Active item masters included in count sheet" icon={ClipboardCheck} tone={statementRows.length === items.length ? "emerald" : "amber"} />
+        <MetricCard label="Carry-forward proofs" value={formatCompactNumber(carryForwards.length)} detail="Formal next-period opening proof documents" icon={Landmark} tone="violet" />
+      </MetricRail>
 
-      {/* Flow context — links back to the Lifecycle hub */}
-      <section className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-signal-cyan-line bg-signal-cyan-soft/60 px-4 py-2.5 text-[12.5px] font-semibold text-signal-cyan-ink shadow-sm">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink">Step 3–4 of 6</span>
-        <span>You are in <strong>Stock certification</strong> · <strong>Carry-forward</strong></span>
-        <Link
-          href="/inventory/lifecycle"
-          className="ml-auto inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
-        >
-          ← Lifecycle hub
-        </Link>
-        <Link
-          href="/production/reconciliation"
-          className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
-        >
-          Next: Monthly reco →
-        </Link>
+      <section className="erp-panel rounded-xl p-4 sm:p-5" aria-label="Close progress">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[15px] font-semibold tracking-tight">Period close · {currentMonthIso}</h2>
+          <span className="text-[12.5px] text-muted-foreground">
+            {booksStateQuery.data?.locked_through ? `Books locked through ${String(booksStateQuery.data.locked_through)}${booksStateQuery.data.locked_by ? ` · ${booksStateQuery.data.locked_by}` : ""}` : "Books open"}
+            {periodStateQuery.data?.blockers?.length ? ` · ${periodStateQuery.data.blockers.length} blocker(s)` : ""}
+          </span>
+        </div>
+        <ol className="mt-4 grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          {closeSteps.map((step, index) => (
+            <li key={step.label} className={`relative rounded-lg border px-3 py-2.5 transition-colors ${step.state === "done" ? "border-signal-emerald-line bg-signal-emerald-soft/60" : step.state === "active" ? "border-primary/40 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/.08)]" : "border-border bg-[hsl(var(--surface-2))]"}`}>
+              <div className="flex items-center gap-2">
+                <span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[10.5px] font-bold ${step.state === "done" ? "bg-signal-emerald-ink text-white" : step.state === "active" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{step.state === "done" ? "✓" : index + 1}</span>
+                <span className="truncate text-[12.5px] font-semibold">{step.label}</span>
+              </div>
+              <p className="mt-1 line-clamp-2 text-[11.5px] leading-4 text-muted-foreground">{step.detail}</p>
+            </li>
+          ))}
+        </ol>
+        {writeBlocked ? (
+          <p className="mt-3 rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] font-medium text-signal-amber-ink">
+            Select one plant before posting opening stock, certifying closing stock or generating carry-forward. All-plant scope is read-only for audit review.
+          </p>
+        ) : null}
       </section>
 
-      {booksStateQuery.data?.locked_through ? (
-        <section className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-signal-emerald-line bg-signal-emerald-soft/80 px-4 py-3 text-sm font-semibold text-signal-emerald-ink shadow-sm">
-          <BadgeCheck className="h-4 w-4" />
-          Books locked through {String(booksStateQuery.data.locked_through)}
-          {booksStateQuery.data.locked_by ? ` · ${booksStateQuery.data.locked_by}` : null}
-          <Link href="/production/reconciliation" className="ml-auto inline-flex items-center gap-1 rounded-full border border-signal-emerald-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-emerald-ink hover:bg-signal-emerald-soft">
-            Reconciliation <ArrowRight className="h-3 w-3" />
-          </Link>
-        </section>
-      ) : null}
-
-      {periodStateQuery.data && !writeBlocked ? (
-        <section className={`flex flex-wrap items-center gap-3 rounded-[1.4rem] border px-4 py-3 text-sm font-semibold shadow-sm ${
-          periodStateQuery.data.can_approve_reco
-            ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
-            : periodStateQuery.data.stock_cert_status === "CERTIFIED" || periodStateQuery.data.stock_cert_status === "CARRIED_FORWARD"
-            ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
-            : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
-        }`}>
-          <Scale className="h-4 w-4" />
-          Period <strong>{currentMonthIso}</strong> · Stock cert: <strong>{periodStateQuery.data.stock_cert_status || "missing"}</strong> · Reco: <strong>{periodStateQuery.data.reco_status}</strong>
-          {periodStateQuery.data.blockers?.length ? (
-            <span className="ml-2">· {periodStateQuery.data.blockers.length} blocker(s)</span>
-          ) : null}
-          <Link href="/production/reconciliation" className="ml-auto inline-flex items-center gap-1 rounded-full border border-current px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] hover:bg-card/70">
-            Open reco <ArrowRight className="h-3 w-3" />
-          </Link>
-        </section>
-      ) : null}
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard label="Book Closing" value={formatCompactCurrency(Number(totals.closing_value || 0))} detail={`${formatKg(totals.kg_closing_qty)} plus ${formatNumber(totals.pcs_closing_qty)} pcs`} icon={Scale} tone="cyan" />
-        <KpiCard label="Opening Value" value={formatCompactCurrency(Number(totals.opening_value || 0))} detail="Derived from transactions before the period" icon={BookMarked} tone="slate" />
-        <KpiCard label="Risk Lines" value={formatCompactNumber(riskRows.length)} detail="Reorder, safety, or missing policy attention" icon={ShieldAlert} tone={riskRows.length ? "amber" : "emerald"} />
-        <KpiCard label="Certificates" value={formatCompactNumber(certifications.length)} detail={draftCert ? "Draft awaiting count review" : "No open draft"} icon={FileCheck2} tone={draftCert ? "amber" : "emerald"} />
-        <KpiCard label="Count Coverage" value={`${formatCompactNumber(statementRows.length)}/${formatCompactNumber(items.length)}`} detail="Active item masters included in count sheet" icon={ClipboardCheck} tone={statementRows.length === items.length ? "emerald" : "amber"} />
-        <KpiCard label="Carry Forward" value={formatCompactNumber(carryForwards.length)} detail="Formal next-period opening proof documents" icon={Landmark} tone="violet" />
+      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5" aria-label="Statement window">
+        <span className="mr-1 text-[12.5px] font-semibold">Statement window</span>
+        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-[12.5px] text-muted-foreground">
+          From
+          <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="bg-transparent text-[13px] text-foreground outline-none" />
+        </label>
+        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-[12.5px] text-muted-foreground">
+          To
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) => {
+              const nextDate = event.target.value
+              setEndDate(nextDate)
+              setStockAsOfAt((current) => current.startsWith(endDate) ? endOfDayLocal(nextDate) : current)
+            }}
+            className="bg-transparent text-[13px] text-foreground outline-none"
+          />
+        </label>
+        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-signal-cyan-line bg-signal-cyan-soft/50 px-2.5 text-[12.5px] text-signal-cyan-ink">
+          <Clock className="h-3.5 w-3.5" />
+          Stock as of
+          <input type="datetime-local" value={stockAsOfAt} onChange={(event) => setStockAsOfAt(event.target.value)} className="w-[170px] bg-transparent text-[13px] text-foreground outline-none" />
+        </label>
+        <label className="flex h-9 items-center gap-1.5 rounded-lg border border-input bg-card px-2.5 text-[12.5px] text-muted-foreground">
+          Count taken
+          <input type="datetime-local" value={countTakenAt} onChange={(event) => setCountTakenAt(event.target.value)} className="w-[170px] bg-transparent text-[13px] text-foreground outline-none" />
+        </label>
+        <span className="ml-auto text-[12px] text-muted-foreground">Last certified: <strong className="text-foreground">{latestCertification?.period_end || "never"}</strong>{latestCertification?.status ? ` · ${String(latestCertification.status).replaceAll("_", " ").toLowerCase()}` : ""}</span>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1fr_430px]">
