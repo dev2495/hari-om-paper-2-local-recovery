@@ -215,30 +215,30 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100">Theoretical</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Theoretical</p>
                 <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_theoretical_consumption_kg)}</p>
               </div>
               <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100">Ledger</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Ledger</p>
                 <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_ledger_issued_kg)}</p>
               </div>
               <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100">Actual</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Actual</p>
                 <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_actual_consumption_kg)}</p>
               </div>
               <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-cyan-100">Variance</p>
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Variance</p>
                 <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_variance_kg)}</p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-100">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                 <AlertTriangle className="h-3 w-3" /> {summary?.rows_over_tolerance ?? 0} over tolerance
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-100">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                 <Pencil className="h-3 w-3" /> {summary?.rows_needing_explanation ?? 0} need notes
               </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-100">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                 <Sigma className="h-3 w-3" /> {rows.length} items
               </span>
             </div>
@@ -252,13 +252,13 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
         <span>You are in <strong>Monthly reconciliation</strong> · <strong>Books lock</strong></span>
         <Link
           href="/inventory/lifecycle"
-          className="ml-auto inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+          className="ml-auto inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
         >
           ← Lifecycle hub
         </Link>
         <Link
           href="/inventory/stock-control"
-          className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+          className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
         >
           Stock control
         </Link>
@@ -344,7 +344,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             <div className="overflow-hidden rounded-2xl border border-border">
               <div className="max-h-[520px] overflow-auto">
                 <table className="w-full border-collapse text-sm">
-                  <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+                  <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left">Item</th>
                       <th className="px-3 py-3 text-right">Theoretical</th>
@@ -456,13 +456,13 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                       },
                     ]}
                   >
-                    <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#475569" }} />
-                    <YAxis tick={{ fontSize: 11, fill: "#475569" }} />
-                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }} />
-                    <Bar dataKey="theoretical" name="Theoretical" fill="#0e7490" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="ledger" name="Ledger" fill="#7c3aed" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="actual" name="Actual" fill="#059669" radius={[6, 6, 0, 0]} />
+                    <CartesianGrid stroke="hsl(var(--chart-grid))" vertical={false} strokeDasharray="3 3" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--chart-axis))" }} />
+                    <YAxis tick={{ fontSize: 11, fill: "hsl(var(--chart-axis))" }} />
+                    <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 12 }} />
+                    <Bar dataKey="theoretical" name="Theoretical" fill="hsl(var(--chart-1))" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="ledger" name="Ledger" fill="hsl(var(--chart-3))" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="actual" name="Actual" fill="hsl(var(--chart-7))" radius={[6, 6, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -529,7 +529,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                   "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold uppercase tracking-[0.1em] shadow-md",
                   writeBlocked || isLocked
                     ? "cursor-not-allowed bg-muted text-muted-foreground"
-                    : "bg-slate-900 text-white hover:bg-slate-800",
+                    : "bg-primary text-primary-foreground hover:bg-primary/90",
                 )}
               >
                 <FileCheck2 className="h-4 w-4" />
@@ -541,7 +541,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
           <div className="overflow-hidden rounded-2xl border border-border">
             <div className="max-h-[560px] overflow-auto">
               <table className="w-full border-collapse text-sm">
-                <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+                <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left">Item</th>
                     <th className="px-3 py-3 text-right">Theoretical</th>
@@ -610,7 +610,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                             className={cn(
                               "h-9 w-full rounded-lg border bg-card px-2 text-sm disabled:bg-muted",
                               row.needs_explanation && !draft.notes
-                                ? "border-signal-amber-line ring-1 ring-amber-200"
+                                ? "border-signal-amber-line ring-1 ring-ring/15"
                                 : "border-border",
                             )}
                           />
@@ -653,7 +653,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             <div className="mt-4 overflow-hidden rounded-2xl border border-border">
               <div className="max-h-[420px] overflow-auto">
                 <table className="w-full border-collapse text-sm">
-                  <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+                  <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left">Item</th>
                       <th className="px-3 py-3 text-right">Theoretical</th>
@@ -711,22 +711,22 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                 <AreaChart data={trendSeries}>
                   <defs>
                     <linearGradient id="grad-trend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0e7490" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="#0e7490" stopOpacity={0.05} />
+                      <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#475569" }} />
-                  <YAxis tick={{ fontSize: 11, fill: "#475569" }} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }} />
-                  <Area type="monotone" dataKey="imported" stroke="#0e7490" strokeWidth={2} fill="url(#grad-trend)" />
+                  <CartesianGrid stroke="hsl(var(--chart-grid))" vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "hsl(var(--chart-axis))" }} />
+                  <YAxis tick={{ fontSize: 11, fill: "hsl(var(--chart-axis))" }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 12 }} />
+                  <Area type="monotone" dataKey="imported" stroke="hsl(var(--chart-1))" strokeWidth={2} fill="url(#grad-trend)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
           <div className="overflow-hidden rounded-2xl border border-border">
             <table className="w-full border-collapse text-sm">
-              <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+              <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Month</th>
                   <th className="px-3 py-3 text-left">Status</th>

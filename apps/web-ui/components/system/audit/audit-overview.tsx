@@ -173,20 +173,20 @@ export function AuditOverview({
               <AreaChart data={trend}>
                 <defs>
                   <linearGradient id="grad-crit" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.5} />
-                    <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.05} />
+                    <stop offset="0%" stopColor="hsl(var(--chart-5))" stopOpacity={0.5} />
+                    <stop offset="100%" stopColor="hsl(var(--chart-5))" stopOpacity={0.05} />
                   </linearGradient>
                   <linearGradient id="grad-high" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#f97316" stopOpacity={0.45} />
-                    <stop offset="100%" stopColor="#f97316" stopOpacity={0.05} />
+                    <stop offset="0%" stopColor="hsl(var(--chart-4))" stopOpacity={0.45} />
+                    <stop offset="100%" stopColor="hsl(var(--chart-4))" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
-                <Area type="monotone" dataKey="HIGH" stroke="#f97316" strokeWidth={1.8} fill="url(#grad-high)" stackId="sev" />
-                <Area type="monotone" dataKey="CRITICAL" stroke="#f43f5e" strokeWidth={1.8} fill="url(#grad-crit)" stackId="sev" />
+                <CartesianGrid stroke="hsl(var(--chart-grid))" vertical={false} strokeDasharray="3 3" />
+                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
+                <Area type="monotone" dataKey="HIGH" stroke="hsl(var(--chart-4))" strokeWidth={1.8} fill="url(#grad-high)" stackId="sev" />
+                <Area type="monotone" dataKey="CRITICAL" stroke="hsl(var(--chart-5))" strokeWidth={1.8} fill="url(#grad-crit)" stackId="sev" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
@@ -237,12 +237,12 @@ export function AuditOverview({
             <div className="h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={actions} dataKey="count" nameKey="action" innerRadius={52} outerRadius={88} paddingAngle={3} stroke="#fff" strokeWidth={2}>
+                  <Pie data={actions} dataKey="count" nameKey="action" innerRadius={52} outerRadius={88} paddingAngle={3} stroke="hsl(var(--card))" strokeWidth={2}>
                     {actions.map((entry, i) => (
                       <Cell key={i} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -267,10 +267,10 @@ export function AuditOverview({
             <div className="h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={streams} margin={{ top: 8, right: 8, bottom: 6, left: -10 }}>
-                  <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 9.5, fill: "#475569" }} tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" height={50} />
-                  <YAxis tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
+                  <CartesianGrid stroke="hsl(var(--chart-grid))" vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 9.5, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} interval={0} angle={-15} textAnchor="end" height={50} />
+                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
                   <Bar dataKey="count" radius={[6, 6, 0, 0]}>
                     {streams.map((s, i) => (
                       <Cell key={i} fill={s.color} />
@@ -315,7 +315,7 @@ export function AuditOverview({
                     <div className="flex flex-wrap items-center gap-2">
                       <span
                         className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]"
-                        style={{ background: meta.color + "1a", borderColor: meta.color + "55", color: meta.color }}
+                        style={{ background: `color-mix(in srgb, ${meta.color} 10%, transparent)`, borderColor: `color-mix(in srgb, ${meta.color} 33%, transparent)`, color: meta.color }}
                       >
                         <Icon className="h-3 w-3" />
                         {meta.short}

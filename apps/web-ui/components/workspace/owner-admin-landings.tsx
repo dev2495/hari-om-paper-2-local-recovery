@@ -126,13 +126,13 @@ export function OwnerLandingPage() {
         }
         aside={
           <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200">Morning brief</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Morning brief</p>
             <p className="text-2xl font-semibold tracking-tight">
               {delayedOrders.length
                 ? `${delayedOrders.length} customer commitments need review.`
                 : "No delayed commitments reported in this summary."}
             </p>
-            <p className="text-sm leading-6 text-slate-300">
+            <p className="text-sm leading-6 text-muted-foreground">
               Open order book {formatCompactCurrency(orderBookValue)}. Dispatch posture {formatCompactNumber(Number(headline.dispatch_qty || 0))} kg in the selected window.
             </p>
           </div>
@@ -152,7 +152,7 @@ export function OwnerLandingPage() {
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <ChartCard eyebrow="Commercial Flow" title="Booked to dispatched value" description="Server-scoped sums across all in-scope sales lines, not the loaded order page.">
-          <AreaTrend rows={waterfall} dataKey="value" color="#0891b2" />
+          <AreaTrend rows={waterfall} dataKey="value" color="hsl(var(--chart-8))" />
         </ChartCard>
         <ChartCard eyebrow="Top Customers" title="Customer share of the current order book" description="Commercial concentration by open order value.">
           <MiniBarList rows={topCustomers} formatter={(value) => formatCompactCurrency(value)} />
@@ -172,11 +172,11 @@ export function OwnerLandingPage() {
           {recentSeries.length ? <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={recentSeries}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: number) => [formatPercent(value), "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Line type="monotone" dataKey="otif" stroke="#be123c" strokeWidth={2.5} dot={false} />
+                <Tooltip formatter={(value: number) => [formatPercent(value), "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Line type="monotone" dataKey="otif" stroke="hsl(var(--chart-5))" strokeWidth={2.5} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div> : <p className="rounded-2xl bg-muted p-5 text-sm text-muted-foreground">No production or dispatch events exist in the selected period.</p>}
@@ -285,11 +285,11 @@ export function AdminLandingPage() {
         }
         aside={
           <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200">Status banner</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Status banner</p>
             <p className="text-2xl font-semibold tracking-tight">
               System {systemStatus.toLowerCase()}, {formatCompactNumber(Number(summary.services_up || 0))} of {formatCompactNumber(Number(summary.services_total || 0))} service probes passing.
             </p>
-            <p className="text-sm leading-6 text-slate-300">
+            <p className="text-sm leading-6 text-muted-foreground">
               Last measured {systemHealth?.checked_at ? new Date(systemHealth.checked_at).toLocaleString("en-IN") : "not yet"}; maximum current probe latency {formatCompactNumber(Number(summary.max_probe_latency_ms || 0))} ms.
             </p>
           </div>

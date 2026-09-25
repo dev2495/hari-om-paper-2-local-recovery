@@ -102,8 +102,8 @@ export function SpecForm({ initialData, onSubmit, onCancel }: SpecFormProps) {
 
                 <div className="space-y-2">
                     {fields.map((field, index) => (
-                        <div key={field.id} className="flex items-center gap-4 p-4 border rounded-lg bg-gray-50">
-                            <span className="font-bold text-gray-500 w-8">#{index + 1}</span>
+                        <div key={field.id} className="flex items-center gap-4 p-4 border rounded-lg bg-muted">
+                            <span className="font-bold text-muted-foreground w-8">#{index + 1}</span>
 
                             <div className="flex-1">
                                 <label className="text-xs font-medium text-muted-foreground">Paper</label>

@@ -177,7 +177,7 @@ export default function QualityResultsPage() {
                 ))}
               </select>
               <input value={manualHoldReason} onChange={(event) => setManualHoldReason(event.target.value)} placeholder="Hold reason" className="h-11 rounded-xl border border-border px-3 text-sm" />
-              <button type="submit" className="rounded-xl bg-slate-950 px-3 text-sm font-semibold text-white">Hold</button>
+              <button type="submit" className="rounded-xl bg-primary px-3 text-sm font-semibold text-primary-foreground">Hold</button>
             </form>
             {activeHolds.length === 0 ? (
               <EmptyState label="No active holds." />

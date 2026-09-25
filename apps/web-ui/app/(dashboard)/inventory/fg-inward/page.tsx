@@ -118,7 +118,7 @@ export default function ManualFgInwardPage() {
                 value={form.item_id}
                 onChange={(e) => setForm({ ...form, item_id: e.target.value })}
                 disabled={writeBlocked}
-                className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm shadow-sm focus:border-cyan-400 focus:outline-none"
+                className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm shadow-sm focus:border-signal-cyan-line focus:outline-none"
               >
                 <option value="">Select a finished-goods item…</option>
                 {items.map((it: any) => (
@@ -258,7 +258,7 @@ export default function ManualFgInwardPage() {
       <Panel title="Recent FG inward (latest 10)" subtitle="Both job-driven and manual FG appear here. Posted manually = movement_metadata.manual=true.">
         <div className="overflow-hidden rounded-2xl border border-border">
           <table className="w-full border-collapse text-sm">
-            <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+            <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 text-left">When</th>
                 <th className="px-3 py-3 text-left">Item</th>

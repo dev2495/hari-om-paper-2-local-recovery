@@ -324,14 +324,14 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">{LANDING_LABELS[landingRole]}</p>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{LANDING_LABELS[landingRole]}</p>
                 <p className="mt-2 text-2xl font-semibold">{formatMetric(commonMetrics.activeJobCards)}</p>
-                <p className="mt-2 text-xs text-slate-200">active cards</p>
+                <p className="mt-2 text-xs text-muted-foreground">active cards</p>
               </div>
               <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-                <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">Cross-role alerts</p>
+                <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Cross-role alerts</p>
                 <p className="mt-2 text-2xl font-semibold">{notificationItems.length}</p>
-                <p className="mt-2 text-xs text-slate-200">recent notifications</p>
+                <p className="mt-2 text-xs text-muted-foreground">recent notifications</p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">

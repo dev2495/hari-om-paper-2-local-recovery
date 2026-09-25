@@ -169,7 +169,7 @@ export function SpecQcToleranceDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground p-4"
       data-testid="spec-qc-tolerance-dialog"
       role="dialog"
       aria-modal="true"
@@ -362,7 +362,7 @@ export function SpecQcToleranceDialog({
             type="button"
             disabled={saving}
             onClick={() => onSaveComplete({ ...profile, status: "complete" })}
-            className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
           >
             Save specification + QC
           </button>

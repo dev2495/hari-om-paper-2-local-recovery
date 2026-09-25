@@ -220,12 +220,12 @@ export default function InventoryProductionIssuePage() {
 
   return (
     <div className="space-y-6" data-testid="inventory-production-issue-form">
-      <section className="rounded-2xl border border-signal-amber-line/70 bg-gradient-to-r from-slate-950 via-cyan-950 to-amber-900 p-6 text-white shadow-xl">
+      <section className="rounded-2xl border border-signal-amber-line/70 bg-gradient-to-r from-foreground via-cyan-950 to-amber-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-amber-200">Store to Production</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Store to Production</p>
             <h1 className="mt-2 text-3xl font-semibold">Production Issue</h1>
-            <p className="mt-2 max-w-3xl text-sm text-cyan-50/80">
+            <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
               Issue material from a selected batch into WIP against a job card. Controlled manual issue remains available for corrections only.
             </p>
           </div>
@@ -237,7 +237,7 @@ export default function InventoryProductionIssuePage() {
 
       <form onSubmit={handleSubmit} className="glass grid gap-5 rounded-2xl border border-border/60 p-6 shadow-xl">
         <div className="flex items-center gap-3">
-          <div className="rounded-2xl bg-cyan-900 p-3 text-white">
+          <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
             <PackageCheck className="h-5 w-5" />
           </div>
           <div>
@@ -252,14 +252,14 @@ export default function InventoryProductionIssuePage() {
               <button
                 type="button"
                 onClick={() => setFormData((current) => ({ ...current, movement_mode: "WIP" }))}
-                className={`rounded-lg px-4 py-2 transition ${isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-muted"}`}
+                className={`rounded-lg px-4 py-2 transition ${isWipMode ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
               >
                 Issue to WIP
               </button>
               <button
                 type="button"
                 onClick={() => setFormData((current) => ({ ...current, movement_mode: "MANUAL" }))}
-                className={`rounded-lg px-4 py-2 transition ${!isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-muted"}`}
+                className={`rounded-lg px-4 py-2 transition ${!isWipMode ? "bg-primary text-primary-foreground shadow" : "hover:bg-muted"}`}
               >
                 Manual exception
               </button>
@@ -284,7 +284,7 @@ export default function InventoryProductionIssuePage() {
             <select
               value={formData.item_id}
               onChange={(event) => setFormData((current) => ({ ...current, item_id: event.target.value, batch_id: "" }))}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
               required
             >
               <option value="">{isLoading ? "Loading items..." : "Select inventory item"}</option>
@@ -320,7 +320,7 @@ export default function InventoryProductionIssuePage() {
               <select
                 value={formData.batch_id}
                 onChange={(event) => setFormData((current) => ({ ...current, batch_id: event.target.value }))}
-                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
                 required
               >
                 <option value="">{itemBalanceQuery.isLoading ? "Loading batches..." : "Select available batch"}</option>
@@ -342,7 +342,7 @@ export default function InventoryProductionIssuePage() {
               min="0.001"
               value={formData.qty}
               onChange={(event) => setFormData((current) => ({ ...current, qty: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
               required
             />
           </label>
@@ -365,7 +365,7 @@ export default function InventoryProductionIssuePage() {
             <select
               value={formData.production_job_id}
               onChange={(event) => setFormData((current) => ({ ...current, production_job_id: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
               required
             >
               <option value="">{jobCardsQuery.isLoading ? "Loading job cards..." : "Select live job card"}</option>
@@ -386,7 +386,7 @@ export default function InventoryProductionIssuePage() {
                 <select
                   value={formData.stage}
                   onChange={(event) => setFormData((current) => ({ ...current, stage: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
                   required
                 >
                   {STAGE_OPTIONS.map((stage) => (
@@ -400,7 +400,7 @@ export default function InventoryProductionIssuePage() {
                 <select
                   value={formData.wip_location_id}
                   onChange={(event) => setFormData((current) => ({ ...current, wip_location_id: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
                 >
                   <option value="">System WIP bucket</option>
                   {wipLocations.map((location: any) => (
@@ -417,7 +417,7 @@ export default function InventoryProductionIssuePage() {
               <select
                 value={formData.reason_code}
                 onChange={(event) => setFormData((current) => ({ ...current, reason_code: event.target.value }))}
-                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
                 required
               >
                 <option value="NON_RECIPE_CONSUMABLE">Non-recipe consumable</option>
@@ -433,7 +433,7 @@ export default function InventoryProductionIssuePage() {
               value={formData.external_ref}
               onChange={(event) => setFormData((current) => ({ ...current, external_ref: event.target.value }))}
               placeholder={selectedJob ? jobCardRef(selectedJob) : "Optional store slip / issue note"}
-              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
             />
           </label>
 
@@ -471,7 +471,7 @@ export default function InventoryProductionIssuePage() {
             value={formData.notes}
             onChange={(event) => setFormData((current) => ({ ...current, notes: event.target.value }))}
             rows={3}
-            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-cyan-700"
+            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-signal-cyan-ink/40"
           />
         </label>
 
@@ -491,7 +491,7 @@ export default function InventoryProductionIssuePage() {
           <button
             type="submit"
             disabled={actionPending}
-            className="inline-flex items-center gap-2 rounded-xl bg-cyan-900 px-5 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {actionPending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
             {isWipMode ? "Post WIP Issue" : "Post Manual Issue"}

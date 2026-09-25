@@ -434,7 +434,7 @@ export default function VendorsPage() {
               resetCreate()
               setCreateOpen(true)
             }}
-            className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900"
+            className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
           >
             + New vendor
           </button>
@@ -480,7 +480,7 @@ export default function VendorsPage() {
                 <button
                   type="button"
                   onClick={() => setSelection(new Set())}
-                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-slate-400"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-input"
                 >
                   Clear
                 </button>
@@ -590,7 +590,7 @@ export default function VendorsPage() {
               <button
                 type="button"
                 onClick={startEdit}
-                className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900"
+                className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90"
               >
                 Edit vendor
               </button>
@@ -617,7 +617,7 @@ export default function VendorsPage() {
                 setCreateOpen(false)
                 resetCreate()
               }}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
             >
               Cancel
             </button>
@@ -625,7 +625,7 @@ export default function VendorsPage() {
               type="button"
               onClick={submitCreate}
               disabled={createVendor.isPending || createContact.isPending}
-              className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-50"
+              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
             >
               {createVendor.isPending ? "Creating…" : "Create vendor"}
             </button>
@@ -645,7 +645,7 @@ export default function VendorsPage() {
             <select
               value={createForm.category}
               onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
-              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
             >
               <option value="">Choose…</option>
               {VENDOR_CATEGORIES.map((c) => (
@@ -716,7 +716,7 @@ export default function VendorsPage() {
             <button
               type="button"
               onClick={() => setEditOpen(false)}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
             >
               Cancel
             </button>
@@ -724,7 +724,7 @@ export default function VendorsPage() {
               type="button"
               onClick={submitEdit}
               disabled={updateVendor.isPending}
-              className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-50"
+              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
             >
               {updateVendor.isPending ? "Saving…" : "Save changes"}
             </button>
@@ -743,7 +743,7 @@ export default function VendorsPage() {
             <select
               value={editForm.category || ""}
               onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
             >
               <option value="">—</option>
               {VENDOR_CATEGORIES.map((c) => (

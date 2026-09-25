@@ -47,12 +47,12 @@ export function ReportHero({
   children?: ReactNode
 }) {
   const gradients: Record<string, string> = {
-    slate: "linear-gradient(135deg, #0b1220 0%, #14274b 60%, #1e3a8a 100%)",
-    cyan: "linear-gradient(135deg, #0b1220 0%, #083344 60%, #0e7490 100%)",
-    amber: "linear-gradient(135deg, #0b1220 0%, #422006 60%, #7c2d12 100%)",
-    rose: "linear-gradient(135deg, #0b1220 0%, #4c0519 60%, #9f1239 100%)",
-    violet: "linear-gradient(135deg, #0b1220 0%, #1e1b4b 60%, #6d28d9 100%)",
-    emerald: "linear-gradient(135deg, #0b1220 0%, #064e3b 60%, #047857 100%)",
+    slate: "linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--foreground)) 60%, #1e3a8a 100%)",
+    cyan: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #083344 60%, hsl(var(--chart-1)) 100%)",
+    amber: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #422006 60%, #7c2d12 100%)",
+    rose: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #4c0519 60%, #9f1239 100%)",
+    violet: "linear-gradient(135deg, hsl(var(--foreground)) 0%, #1e1b4b 60%, hsl(var(--chart-3)) 100%)",
+    emerald: "linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--chart-7)) 60%, hsl(var(--chart-7)) 100%)",
   }
   const toneClass = (tone?: string) => {
     if (tone === "ok") return "border-signal-emerald-line/40 bg-emerald-400/15 text-emerald-100"
@@ -282,7 +282,7 @@ export function Waterfall({ bars, unit = "kg" }: { bars: WaterfallBar[]; unit?: 
       <svg viewBox={`0 0 ${Math.max(640, bars.length * 110)} 320`} className="w-full" style={{ minWidth: bars.length * 80 }} preserveAspectRatio="xMidYMid meet">
         {/* grid */}
         {[0.25, 0.5, 0.75, 1].map((p) => (
-          <line key={p} x1="60" x2={Math.max(640, bars.length * 110) - 20} y1={260 - p * 220} y2={260 - p * 220} stroke="#e2e8f0" strokeDasharray="3 3" />
+          <line key={p} x1="60" x2={Math.max(640, bars.length * 110) - 20} y1={260 - p * 220} y2={260 - p * 220} stroke="hsl(var(--chart-grid))" strokeDasharray="3 3" />
         ))}
         {data.map((d, i) => {
           const x = 80 + i * 110
@@ -291,19 +291,19 @@ export function Waterfall({ bars, unit = "kg" }: { bars: WaterfallBar[]; unit?: 
           const h = Math.max(2, yBot - yTop)
           const isAnchor = d.tone === "anchor" || d.total
           const fill = isAnchor
-            ? "#0f172a"
+            ? "hsl(var(--foreground))"
             : d.tone === "positive" || (!d.tone && d.delta > 0)
-              ? "#047857"
+              ? "hsl(var(--chart-7))"
               : d.tone === "negative" || (!d.tone && d.delta < 0)
-                ? "#be123c"
-                : "#475569"
+                ? "hsl(var(--chart-5))"
+                : "hsl(var(--chart-axis))"
           return (
             <g key={`${d.label}-${i}`}>
               <rect x={x} y={yTop} width="70" height={h} rx="6" fill={fill} opacity={isAnchor ? 0.95 : 0.85} />
-              <text x={x + 35} y={yTop - 6} textAnchor="middle" fontSize="11" fontWeight="700" fill="#0f172a">
+              <text x={x + 35} y={yTop - 6} textAnchor="middle" fontSize="11" fontWeight="700" fill="hsl(var(--foreground))">
                 {formatNumber(d.delta, d.delta > 1000 ? 0 : 1)} {unit}
               </text>
-              <text x={x + 35} y={278} textAnchor="middle" fontSize="11" fontWeight="700" fill="#475569">
+              <text x={x + 35} y={278} textAnchor="middle" fontSize="11" fontWeight="700" fill="hsl(var(--chart-axis))">
                 {d.label}
               </text>
               {/* connector */}
@@ -313,7 +313,7 @@ export function Waterfall({ bars, unit = "kg" }: { bars: WaterfallBar[]; unit?: 
                   x2={x + 110}
                   y1={260 - (d.end / maxVal) * 220}
                   y2={260 - (d.end / maxVal) * 220}
-                  stroke="#cbd5e1"
+                  stroke="hsl(var(--chart-grid))"
                   strokeDasharray="3 3"
                 />
               ) : null}
@@ -352,7 +352,7 @@ export function Funnel({ stages, unit = "" }: { stages: FunnelStage[]; unit?: st
                 className="h-7 rounded-md transition-all"
                 style={{
                   width: `${Math.max(6, width)}%`,
-                  background: i === 0 ? "#0e7490" : i === stages.length - 1 ? "#047857" : "#0891b2",
+                  background: i === 0 ? "hsl(var(--chart-1))" : i === stages.length - 1 ? "hsl(var(--chart-7))" : "hsl(var(--chart-8))",
                 }}
               />
             </div>
@@ -414,7 +414,7 @@ export function CalendarHeatmap({
                     key={c}
                     title={`${rowLabels[r]} · ${colLabels[c]} · ${formatNumber(v, 1)}${unit}`}
                     className="h-6 w-7 rounded-[5px] text-center align-middle font-semibold"
-                    style={{ backgroundColor: bg, color: intensity > 0.55 ? "#fff" : "#0f172a" }}
+                    style={{ backgroundColor: bg, color: intensity > 0.55 ? "hsl(var(--card))" : "hsl(var(--foreground))" }}
                   >
                     {intensity > 0.6 ? formatNumber(v, 0) : ""}
                   </td>
@@ -450,7 +450,7 @@ export function DonutWithCenter({
   return (
     <div className="flex flex-wrap items-center gap-5">
       <svg width={size} height={size} viewBox="0 0 200 200">
-        <circle cx="100" cy="100" r={r} fill="none" stroke="#e2e8f0" strokeWidth="22" />
+        <circle cx="100" cy="100" r={r} fill="none" stroke="hsl(var(--chart-grid))" strokeWidth="22" />
         {slices.map((s) => {
           const portion = s.value / total
           const dash = portion * c
@@ -472,11 +472,11 @@ export function DonutWithCenter({
             />
           )
         })}
-        <text x="100" y="96" textAnchor="middle" fontSize="20" fontWeight="800" fill="#0f172a">
+        <text x="100" y="96" textAnchor="middle" fontSize="20" fontWeight="800" fill="hsl(var(--foreground))">
           {centerTop}
         </text>
         {centerBottom ? (
-          <text x="100" y="118" textAnchor="middle" fontSize="10" fontWeight="700" letterSpacing="2" fill="#475569">
+          <text x="100" y="118" textAnchor="middle" fontSize="10" fontWeight="700" letterSpacing="2" fill="hsl(var(--chart-axis))">
             {centerBottom}
           </text>
         ) : null}
@@ -529,12 +529,12 @@ export function MiniLadder({
                   width: `${pct}%`,
                   background:
                     row.tone === "critical"
-                      ? "#be123c"
+                      ? "hsl(var(--chart-5))"
                       : row.tone === "warn"
-                        ? "#b45309"
+                        ? "hsl(var(--chart-6))"
                         : row.tone === "ok"
-                          ? "#047857"
-                          : "#0e7490",
+                          ? "hsl(var(--chart-7))"
+                          : "hsl(var(--chart-1))",
                 }}
               />
             </div>
@@ -566,20 +566,20 @@ export function ParetoChart({
     <div className="h-[260px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} interval={0} />
           <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <YAxis yAxisId="right" orientation="right" domain={[0, 100]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <Tooltip
             formatter={(v: number, name: string) => (name === "cumPct" ? [`${formatPct(v, 1)}`, "Cumulative"] : [`${formatNumber(v)} ${unit}`, "Value"])}
-            contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }}
+            contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }}
           />
           <Bar yAxisId="left" dataKey="value" radius={[6, 6, 0, 0]}>
             {data.map((_, i) => (
-              <Cell key={i} fill={i === 0 ? "#be123c" : i < 3 ? "#dc2626" : i < 6 ? "#d97706" : "#0e7490"} />
+              <Cell key={i} fill={i === 0 ? "hsl(var(--chart-5))" : i < 3 ? "hsl(var(--chart-5))" : i < 6 ? "hsl(var(--chart-6))" : "hsl(var(--chart-1))"} />
             ))}
           </Bar>
-          <Area yAxisId="right" type="monotone" dataKey="cumPct" stroke="#0f172a" strokeWidth={2} fill="none" />
+          <Area yAxisId="right" type="monotone" dataKey="cumPct" stroke="hsl(var(--foreground))" strokeWidth={2} fill="none" />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -706,12 +706,12 @@ export function VelocityMatrix({ points, reorderDays = 10 }: { points: VelocityP
   const xScale = (d: number) => padL + Math.min(1, d / xMax) * innerW
   const yScale = (v: number) => padT + (1 - Math.min(1, v / yMax)) * innerH
   const toneColor = (t?: string) => {
-    if (t === "critical") return "#dc2626"
-    if (t === "warn") return "#f59e0b"
-    if (t === "ok-rm") return "#0e7490"
-    if (t === "ok-fg") return "#047857"
-    if (t === "dead") return "#b45309"
-    return "#475569"
+    if (t === "critical") return "hsl(var(--chart-5))"
+    if (t === "warn") return "hsl(var(--chart-6))"
+    if (t === "ok-rm") return "hsl(var(--chart-1))"
+    if (t === "ok-fg") return "hsl(var(--chart-7))"
+    if (t === "dead") return "hsl(var(--chart-6))"
+    return "hsl(var(--chart-axis))"
   }
   return (
     <div>
@@ -719,15 +719,15 @@ export function VelocityMatrix({ points, reorderDays = 10 }: { points: VelocityP
         {/* quadrant tints */}
         <rect x={padL} y={padT} width={innerW * 0.25} height={innerH * 0.5} fill="rgba(220,38,38,0.06)" />
         <rect x={padL + innerW * 0.6} y={padT + innerH * 0.5} width={innerW * 0.4} height={innerH * 0.5} fill="rgba(245,158,11,0.05)" />
-        <text x={padL + 10} y={padT + 18} fontSize="10" fontWeight="800" fill="#be123c">
+        <text x={padL + 10} y={padT + 18} fontSize="10" fontWeight="800" fill="hsl(var(--chart-5))">
           FIREFIGHT
         </text>
-        <text x={padL + innerW - 90} y={padT + innerH - 6} fontSize="10" fontWeight="800" fill="#b45309">
+        <text x={padL + innerW - 90} y={padT + innerH - 6} fontSize="10" fontWeight="800" fill="hsl(var(--chart-6))">
           DEAD STOCK
         </text>
         {/* grid */}
         {[0.25, 0.5, 0.75].map((p) => (
-          <line key={p} x1={padL} x2={W - padR} y1={padT + innerH * p} y2={padT + innerH * p} stroke="#e2e8f0" strokeDasharray="3 3" />
+          <line key={p} x1={padL} x2={W - padR} y1={padT + innerH * p} y2={padT + innerH * p} stroke="hsl(var(--chart-grid))" strokeDasharray="3 3" />
         ))}
         {/* reorder line */}
         <line
@@ -735,28 +735,28 @@ export function VelocityMatrix({ points, reorderDays = 10 }: { points: VelocityP
           x2={xScale(reorderDays)}
           y1={padT}
           y2={H - padB}
-          stroke="#dc2626"
+          stroke="hsl(var(--chart-5))"
           strokeWidth="1.5"
           strokeDasharray="4 4"
           opacity="0.7"
         />
-        <text x={xScale(reorderDays) + 6} y={padT + 12} fontSize="9" fill="#dc2626" fontWeight="800">
+        <text x={xScale(reorderDays) + 6} y={padT + 12} fontSize="9" fill="hsl(var(--chart-5))" fontWeight="800">
           REORDER
         </text>
         {/* axes */}
-        <line x1={padL} x2={W - padR} y1={H - padB} y2={H - padB} stroke="#94a3b8" />
-        <line x1={padL} x2={padL} y1={padT} y2={H - padB} stroke="#94a3b8" />
+        <line x1={padL} x2={W - padR} y1={H - padB} y2={H - padB} stroke="hsl(var(--chart-axis))" />
+        <line x1={padL} x2={padL} y1={padT} y2={H - padB} stroke="hsl(var(--chart-axis))" />
         {/* axis labels */}
-        <text x={W / 2} y={H - 10} textAnchor="middle" fontSize="10" fontWeight="800" fill="#0f172a">
+        <text x={W / 2} y={H - 10} textAnchor="middle" fontSize="10" fontWeight="800" fill="hsl(var(--foreground))">
           DAYS ON HAND →
         </text>
-        <text x={padL - 14} y={H - padB} fontSize="9" textAnchor="end" fill="#475569">
+        <text x={padL - 14} y={H - padB} fontSize="9" textAnchor="end" fill="hsl(var(--chart-axis))">
           0
         </text>
-        <text x={padL - 14} y={padT + innerH * 0.5} fontSize="9" textAnchor="end" fill="#475569">
+        <text x={padL - 14} y={padT + innerH * 0.5} fontSize="9" textAnchor="end" fill="hsl(var(--chart-axis))">
           {formatCurrency(yMax / 2)}
         </text>
-        <text x={padL - 14} y={padT + 8} fontSize="9" textAnchor="end" fill="#475569">
+        <text x={padL - 14} y={padT + 8} fontSize="9" textAnchor="end" fill="hsl(var(--chart-axis))">
           {formatCurrency(yMax)}
         </text>
         {/* points */}
@@ -767,7 +767,7 @@ export function VelocityMatrix({ points, reorderDays = 10 }: { points: VelocityP
           return (
             <g key={`${p.code}-${i}`}>
               <circle cx={x} cy={y} r={r} fill={toneColor(p.tone)} opacity={0.8} />
-              <text x={x} y={y + 3} textAnchor="middle" fontSize="8" fontWeight="800" fill="#fff">
+              <text x={x} y={y + 3} textAnchor="middle" fontSize="8" fontWeight="800" fill="hsl(var(--card))">
                 {p.code.length > 9 ? `${p.code.slice(0, 8)}…` : p.code}
               </text>
             </g>
@@ -803,7 +803,7 @@ export function LeadTimeAnatomy({ stages, totalLabel = "Total" }: { stages: Lead
         {stages.map((s, i) => {
           const w = (s.days / total) * 100
           const color =
-            s.tone === "critical" ? "#be123c" : s.tone === "warn" ? "#f59e0b" : s.tone === "ok" ? "#047857" : i % 2 === 0 ? "#0e7490" : "#0891b2"
+            s.tone === "critical" ? "hsl(var(--chart-5))" : s.tone === "warn" ? "hsl(var(--chart-6))" : s.tone === "ok" ? "hsl(var(--chart-7))" : i % 2 === 0 ? "hsl(var(--chart-1))" : "hsl(var(--chart-8))"
           return (
             <div
               key={s.label}
@@ -846,7 +846,7 @@ export function ReportTileLink({
   chips?: Array<{ label: string }>
 }) {
   const accentClass: Record<string, string> = {
-    owner: "from-slate-950 via-slate-900 to-cyan-900 text-white",
+    owner: "from-foreground via-foreground to-cyan-900 text-white",
     ops: "from-card to-signal-cyan-soft text-foreground",
     sales: "from-card to-signal-amber-soft text-foreground",
     inv: "from-card to-signal-emerald-soft text-foreground",

@@ -46,20 +46,20 @@ function InventoryIntelligencePage() {
   const breakdown = useMemo(() => {
     const raw = (valuation as any)?.breakdown || []
     const colors: Record<string, string> = {
-      RAW_MATERIAL: "#0e7490",
-      RM: "#0e7490",
-      RAW: "#0e7490",
-      WIP: "#7c3aed",
-      FG: "#047857",
-      FINISHED_GOODS: "#047857",
-      ADHESIVE: "#7c3aed",
-      PARCHMENT: "#b45309",
-      PACKAGING: "#be123c",
+      RAW_MATERIAL: "hsl(var(--chart-1))",
+      RM: "hsl(var(--chart-1))",
+      RAW: "hsl(var(--chart-1))",
+      WIP: "hsl(var(--chart-3))",
+      FG: "hsl(var(--chart-7))",
+      FINISHED_GOODS: "hsl(var(--chart-7))",
+      ADHESIVE: "hsl(var(--chart-3))",
+      PARCHMENT: "hsl(var(--chart-6))",
+      PACKAGING: "hsl(var(--chart-5))",
     }
     return raw.map((row: any, i: number) => ({
       label: String(row.type || `Cat ${i + 1}`).replaceAll("_", " "),
       value: Number(row.value || 0),
-      color: colors[String(row.type || "").toUpperCase()] || ["#0e7490", "#7c3aed", "#b45309", "#047857", "#be123c", "#0891b2"][i % 6],
+      color: colors[String(row.type || "").toUpperCase()] || ["hsl(var(--chart-1))", "hsl(var(--chart-3))", "hsl(var(--chart-6))", "hsl(var(--chart-7))", "hsl(var(--chart-5))", "hsl(var(--chart-8))"][i % 6],
     }))
   }, [valuation])
 

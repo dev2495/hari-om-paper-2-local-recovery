@@ -134,7 +134,7 @@ export default function UsersPage() {
             key={item.href}
             href={item.href}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              item.active ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
+              item.active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <item.icon className="h-4 w-4" />

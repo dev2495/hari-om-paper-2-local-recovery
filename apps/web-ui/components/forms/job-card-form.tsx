@@ -144,7 +144,7 @@ export function JobCardForm({ initialData, onSubmit, onCancel }: JobCardFormProp
             </div>
 
             {/* Calculations Panel */}
-            <div className="grid grid-cols-4 gap-4 bg-gray-100 p-4 rounded-md">
+            <div className="grid grid-cols-4 gap-4 bg-muted p-4 rounded-md">
                 <div className="text-center">
                     <div className="text-xs text-muted-foreground">Shrinkage</div>
                     <div className="text-xl font-bold">{shrinkPercent}%</div>

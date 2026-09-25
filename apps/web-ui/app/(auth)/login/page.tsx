@@ -111,7 +111,7 @@ function LoginPageContent() {
                   autoCapitalize="none"
                   autoFocus
                   spellCheck={false}
-                  className="h-12 w-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none transition focus:border-teal-600 focus:bg-card"
+                  className="h-12 w-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none transition focus:border-signal-teal-ink/40 focus:bg-card"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   type="text"
@@ -124,7 +124,7 @@ function LoginPageContent() {
                 <PasswordInput
                   data-testid="login-password"
                   autoComplete="current-password"
-                  className="h-12 w-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none transition focus:border-teal-600 focus:bg-card"
+                  className="h-12 w-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none transition focus:border-signal-teal-ink/40 focus:bg-card"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   type="password"

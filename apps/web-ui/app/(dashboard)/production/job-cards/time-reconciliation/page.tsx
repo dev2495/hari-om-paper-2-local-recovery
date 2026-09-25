@@ -82,23 +82,23 @@ export default function StageTimeReconciliationPage() {
         title="Card time reconciliation"
         subtitle={`Start (A) / End (B) written on the paper job card vs. when it was typed into the ERP. Entries more than ${thresholdHours} h after the card time are flagged late.`}
         actions={
-          <Link href="/production/job-cards" className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800">
+          <Link href="/production/job-cards" className="rounded-xl border border-input px-3 py-2 text-sm font-semibold text-foreground">
             Back to job cards
           </Link>
         }
       >
         <div className="flex flex-wrap items-end gap-3 text-sm">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Entered from</span>
-            <input type="date" value={dateFrom} onChange={(event) => resetPage(setDateFrom)(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2" />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Entered from</span>
+            <input type="date" value={dateFrom} onChange={(event) => resetPage(setDateFrom)(event.target.value)} className="rounded-lg border border-input px-3 py-2" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Entered to</span>
-            <input type="date" value={dateTo} onChange={(event) => resetPage(setDateTo)(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2" />
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Entered to</span>
+            <input type="date" value={dateTo} onChange={(event) => resetPage(setDateTo)(event.target.value)} className="rounded-lg border border-input px-3 py-2" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Stage</span>
-            <select value={stage} onChange={(event) => resetPage(setStage)(event.target.value)} className="rounded-lg border border-slate-300 px-3 py-2">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Stage</span>
+            <select value={stage} onChange={(event) => resetPage(setStage)(event.target.value)} className="rounded-lg border border-input px-3 py-2">
               {STAGES.map((value) => (
                 <option key={value || "all"} value={value}>
                   {value || "All stages"}
@@ -108,17 +108,17 @@ export default function StageTimeReconciliationPage() {
           </label>
           <label className="flex items-center gap-2 pb-2">
             <input type="checkbox" checked={lateOnly} onChange={(event) => resetPage(setLateOnly)(event.target.checked)} />
-            <span className="font-semibold text-slate-700">Late entries only</span>
+            <span className="font-semibold text-foreground">Late entries only</span>
           </label>
-          <div className="ml-auto flex gap-4 pb-2 text-slate-600">
+          <div className="ml-auto flex gap-4 pb-2 text-muted-foreground">
             <span>
-              Rows <strong className="text-slate-900">{total}</strong>
+              Rows <strong className="text-foreground">{total}</strong>
             </span>
             <span>
-              Late on page <strong className="text-amber-700">{lateCount}</strong>
+              Late on page <strong className="text-signal-amber-ink">{lateCount}</strong>
             </span>
             <span>
-              Without card time <strong className="text-rose-700">{noCardTime}</strong>
+              Without card time <strong className="text-signal-rose-ink">{noCardTime}</strong>
             </span>
           </div>
         </div>
@@ -126,15 +126,15 @@ export default function StageTimeReconciliationPage() {
 
       <Panel title="Stage entries" subtitle="Newest entry first. Card times drive cycle time, capacity buckets and reports; entry time is kept for audit.">
         {query.isLoading ? (
-          <div className="py-8 text-sm text-slate-500">Loading entries…</div>
+          <div className="py-8 text-sm text-muted-foreground">Loading entries…</div>
         ) : query.isError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">Unable to load time reconciliation.</div>
+          <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">Unable to load time reconciliation.</div>
         ) : rows.length === 0 ? (
           <EmptyState label="No stage entries were typed in for the selected window." />
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="text-[11px] uppercase tracking-wide text-slate-500">
+              <thead className="text-[11px] uppercase tracking-wide text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Job card</th>
                   <th className="px-3 py-2">Stage</th>
@@ -149,17 +149,17 @@ export default function StageTimeReconciliationPage() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={`${row.job_card_id}-${row.stage_type}`} className={`border-t border-slate-100 ${row.late_entry ? "bg-amber-50" : ""}`}>
+                  <tr key={`${row.job_card_id}-${row.stage_type}`} className={`border-t border-border ${row.late_entry ? "bg-signal-amber-soft" : ""}`}>
                     <td className="px-3 py-2">
-                      <Link href={`/production/job-cards/${row.job_card_id}`} className="font-semibold text-cyan-700 hover:underline">
+                      <Link href={`/production/job-cards/${row.job_card_id}`} className="font-semibold text-signal-cyan-ink hover:underline">
                         {row.job_card_ref}
                       </Link>
-                      <div className="text-xs text-slate-500">{row.customer_name || "-"}</div>
+                      <div className="text-xs text-muted-foreground">{row.customer_name || "-"}</div>
                     </td>
                     <td className="px-3 py-2 font-semibold">{row.stage_type}</td>
                     <td className="px-3 py-2">
                       {row.machine_id ? machineLabelMap.get(String(row.machine_id)) || String(row.machine_id).slice(0, 8) : "-"}
-                      <div className="text-xs text-slate-500">
+                      <div className="text-xs text-muted-foreground">
                         {String(row.card_shift_code || row.shift_code || "-").replace("_", " ")}
                         {row.card_shift_code && row.shift_code && row.card_shift_code !== row.shift_code ? ` (planned ${row.shift_code.replace("_", " ")})` : ""}
                       </div>
@@ -169,23 +169,23 @@ export default function StageTimeReconciliationPage() {
                     <td className="px-3 py-2">{minutesLabel(row.cycle_time_minutes)}</td>
                     <td className="px-3 py-2">
                       {localTime(row.entered_at)}
-                      <div className="text-xs text-slate-500">{row.entered_by || ""}</div>
+                      <div className="text-xs text-muted-foreground">{row.entered_by || ""}</div>
                     </td>
-                    <td className={`px-3 py-2 font-semibold ${row.late_entry ? "text-amber-800" : "text-slate-700"}`}>{minutesLabel(row.entry_lag_minutes)}</td>
-                    <td className={`px-3 py-2 ${row.time_source === "CARD" ? "text-slate-600" : "font-semibold text-rose-700"}`}>{sourceLabel(row.time_source)}</td>
+                    <td className={`px-3 py-2 font-semibold ${row.late_entry ? "text-signal-amber-ink" : "text-foreground"}`}>{minutesLabel(row.entry_lag_minutes)}</td>
+                    <td className={`px-3 py-2 ${row.time_source === "CARD" ? "text-muted-foreground" : "font-semibold text-signal-rose-ink"}`}>{sourceLabel(row.time_source)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            <div className="mt-3 flex items-center justify-between text-sm text-slate-600">
+            <div className="mt-3 flex items-center justify-between text-sm text-muted-foreground">
               <span>
                 {offset + 1}–{Math.min(offset + PAGE_SIZE, total)} of {total}
               </span>
               <div className="flex gap-2">
-                <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} className="rounded-lg border border-slate-300 px-3 py-1 disabled:opacity-40">
+                <button type="button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} className="rounded-lg border border-input px-3 py-1 disabled:opacity-40">
                   Previous
                 </button>
-                <button type="button" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)} className="rounded-lg border border-slate-300 px-3 py-1 disabled:opacity-40">
+                <button type="button" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)} className="rounded-lg border border-input px-3 py-1 disabled:opacity-40">
                   Next
                 </button>
               </div>

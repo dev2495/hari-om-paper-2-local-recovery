@@ -43,12 +43,12 @@ export default function QualityDeskHubPage() {
           description="Incoming material uses the item quality profile. Winding, oven, and process use frozen spec ranges. Holds and dispositions stay on the results desk. The server computes every verdict."
           aside={
             <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Server-side evaluator
               </div>
               <p className="text-2xl font-semibold tracking-tight">{activeHolds.length} active hold(s)</p>
-              <p className="text-sm text-slate-200/80">Pass rate {passRateDisplay} across the current quality window.</p>
+              <p className="text-sm text-muted-foreground">Pass rate {passRateDisplay} across the current quality window.</p>
             </div>
           }
         />

@@ -31,7 +31,7 @@ export function RoleSwitcher({ compact = false, mobile = false }: { compact?: bo
           setActiveRole(role)
           router.push(landingPathForRole(role))
         }}
-        className="h-10 appearance-none rounded-lg border border-border bg-card py-0 pl-4 pr-9 text-xs font-medium text-muted-foreground shadow-sm outline-none transition hover:border-signal-cyan-line focus:border-signal-cyan-line focus:ring-2 focus:ring-cyan-100"
+        className="h-10 appearance-none rounded-lg border border-border bg-card py-0 pl-4 pr-9 text-xs font-medium text-muted-foreground shadow-sm outline-none transition hover:border-signal-cyan-line focus:border-signal-cyan-line focus:ring-2 focus:ring-ring/15"
       >
         {available.map((role) => (
           <option key={role} value={role}>

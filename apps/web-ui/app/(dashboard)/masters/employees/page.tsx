@@ -277,7 +277,7 @@ function EmployeesPage() {
             </select>
           </FilterField>
           <span className="ml-auto" />
-          <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">
+          <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">
             + New employee
           </button>
         </>
@@ -325,7 +325,7 @@ function EmployeesPage() {
               ) : (
                 <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft">Deactivate</button>
               )}
-              <button onClick={startEdit} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">Edit</button>
+              <button onClick={startEdit} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">Edit</button>
             </div>
           ) : null}
         />
@@ -334,7 +334,7 @@ function EmployeesPage() {
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New employee" size="lg" footer={
         <>
           <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-          <button onClick={submitCreate} disabled={createEmployee.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">
+          <button onClick={submitCreate} disabled={createEmployee.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">
             {createEmployee.isPending ? "Creating…" : "Create"}
           </button>
         </>
@@ -373,7 +373,7 @@ function EmployeesPage() {
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title={editForm.name || "Employee"} size="lg" footer={
         <>
           <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-          <button onClick={submitEdit} disabled={updateEmployee.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">
+          <button onClick={submitEdit} disabled={updateEmployee.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">
             {updateEmployee.isPending ? "Saving…" : "Save"}
           </button>
         </>

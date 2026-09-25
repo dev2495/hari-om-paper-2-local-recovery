@@ -27,13 +27,13 @@ export default function LossAnalyticsPage() {
                     <div className="flex-1">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={topSuppliers} layout="vertical" margin={{ left: 20 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--chart-grid))" />
                                 <XAxis type="number" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                                 <YAxis dataKey="supplier_name" type="category" width={100} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{ fill: '#f1f5f9' }} />
+                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{ fill: 'hsl(var(--chart-grid))' }} />
                                 <Bar dataKey="loss_percentage" name="Loss %" radius={[0, 4, 4, 0]}>
                                     {topSuppliers.map((entry: any, index: number) => (
-                                        <Cell key={`cell-${index}`} fill={entry.loss_percentage > 5 ? '#ef4444' : '#64748b'} />
+                                        <Cell key={`cell-${index}`} fill={entry.loss_percentage > 5 ? 'hsl(var(--chart-5))' : 'hsl(var(--chart-axis))'} />
                                     ))}
                                 </Bar>
                             </BarChart>
@@ -48,13 +48,13 @@ export default function LossAnalyticsPage() {
                     <div className="flex-1">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={topGsmBf} layout="vertical" margin={{ left: 20 }}>
-                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#E2E8F0" />
+                                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--chart-grid))" />
                                 <XAxis type="number" tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
                                 <YAxis dataKey="name" type="category" width={100} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{ fill: '#f1f5f9' }} />
+                                <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{ fill: 'hsl(var(--chart-grid))' }} />
                                 <Bar dataKey="loss_percentage" name="Loss %" radius={[0, 4, 4, 0]}>
                                     {topGsmBf.map((entry: any, index: number) => (
-                                        <Cell key={`cell-${index}`} fill={entry.loss_percentage > 5 ? '#f59e0b' : '#334155'} />
+                                        <Cell key={`cell-${index}`} fill={entry.loss_percentage > 5 ? 'hsl(var(--chart-6))' : 'hsl(var(--muted-foreground))'} />
                                     ))}
                                 </Bar>
                             </BarChart>

@@ -167,7 +167,7 @@ function HolidaysPage() {
           </select>
         </FilterField>
         <span className="ml-auto" />
-        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">+ New holiday</button>
+        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">+ New holiday</button>
       </>}
     >
       <DataGrid<Holiday> columns={columns} rows={filtered} selectedId={selectedId} onSelect={(r) => setSelectedId(r.id)} emptyHint={query.isLoading ? "Loading…" : rows.length === 0 ? "No holidays for this year — add the first." : "No holidays match the filter."} />
@@ -182,7 +182,7 @@ function HolidaysPage() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New holiday" size="md" footer={<>
         <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-        <button onClick={submitCreate} disabled={createHoliday.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{createHoliday.isPending ? "Adding…" : "Add"}</button>
+        <button onClick={submitCreate} disabled={createHoliday.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">{createHoliday.isPending ? "Adding…" : "Add"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Date" required type="date" value={createForm.holiday_date} onChange={(v) => setCreateForm({ ...createForm, holiday_date: v })} />
@@ -204,7 +204,7 @@ function HolidaysPage() {
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title="Edit holiday" size="md" footer={<>
         <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-        <button onClick={submitEdit} disabled={updateHoliday.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{updateHoliday.isPending ? "Saving…" : "Save"}</button>
+        <button onClick={submitEdit} disabled={updateHoliday.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">{updateHoliday.isPending ? "Saving…" : "Save"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Date" type="date" value={editForm.holiday_date || ""} onChange={(v) => setEditForm({ ...editForm, holiday_date: v })} />

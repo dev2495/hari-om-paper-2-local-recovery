@@ -52,19 +52,19 @@ export default function SystemLocationsPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-slate-950 via-cyan-950 to-emerald-900 p-6 text-white shadow-2xl">
+      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-foreground via-cyan-950 to-emerald-900 p-6 text-white shadow-2xl">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">System setup</p>
+            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">System setup</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Inventory locations</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-cyan-50/78">
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
               Create warehouses, zones, bins, WIP holding points, QC hold areas, dispatch staging, and scrap locations used by stores and production.
             </p>
           </div>
           <div className="rounded-3xl border border-border/15 bg-card/10 p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-100/70">Current write scope</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Current write scope</p>
             <p className="mt-2 text-lg font-semibold">{displayPlantScope(activePlant, "Select plant")}</p>
-            {writeBlocked ? <p className="mt-1 text-xs text-amber-100">Select one plant before creating a location.</p> : null}
+            {writeBlocked ? <p className="mt-1 text-xs text-muted-foreground">Select one plant before creating a location.</p> : null}
           </div>
         </div>
       </section>
@@ -81,7 +81,7 @@ export default function SystemLocationsPage() {
             key={item.href}
             href={item.href}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              item.href === "/system/locations" ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
+              item.href === "/system/locations" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <item.icon className="h-4 w-4" />
@@ -97,7 +97,7 @@ export default function SystemLocationsPage() {
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Create</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">New storage location</h2>
             </div>
-            <div className="rounded-2xl bg-cyan-950 p-3 text-white">
+            <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
               <Warehouse className="h-5 w-5" />
             </div>
           </div>
@@ -110,25 +110,25 @@ export default function SystemLocationsPage() {
           <div className="mt-4 grid gap-3">
             <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Location code
-              <input required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} placeholder="RM-A-01" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" />
+              <input required value={form.code} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} placeholder="RM-A-01" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" />
             </label>
             <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Warehouse
-              <input required value={form.warehouse} onChange={(event) => setForm((current) => ({ ...current, warehouse: event.target.value }))} placeholder="RAW STORE" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" />
+              <input required value={form.warehouse} onChange={(event) => setForm((current) => ({ ...current, warehouse: event.target.value }))} placeholder="RAW STORE" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" />
             </label>
             <div className="grid grid-cols-2 gap-3">
               <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 Zone
-                <input value={form.zone} onChange={(event) => setForm((current) => ({ ...current, zone: event.target.value }))} placeholder="A" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" />
+                <input value={form.zone} onChange={(event) => setForm((current) => ({ ...current, zone: event.target.value }))} placeholder="A" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" />
               </label>
               <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 Bin
-                <input value={form.bin} onChange={(event) => setForm((current) => ({ ...current, bin: event.target.value }))} placeholder="01" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" />
+                <input value={form.bin} onChange={(event) => setForm((current) => ({ ...current, bin: event.target.value }))} placeholder="01" className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40" />
               </label>
             </div>
             <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Purpose
-              <select value={form.purpose} onChange={(event) => setForm((current) => ({ ...current, purpose: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700">
+              <select value={form.purpose} onChange={(event) => setForm((current) => ({ ...current, purpose: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-signal-cyan-ink/40">
                 <option value="STORAGE">Storage</option>
                 <option value="WIP">WIP</option>
                 <option value="QC">QC hold</option>
@@ -142,7 +142,7 @@ export default function SystemLocationsPage() {
               {submitError || "Location save failed. Check duplicate code and selected plant."}
             </div>
           ) : null}
-          <button disabled={writeBlocked || createLocation.isPending} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50">
+          <button disabled={writeBlocked || createLocation.isPending} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-primary text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-50">
             <Plus className="h-4 w-4" />
             Create location
           </button>

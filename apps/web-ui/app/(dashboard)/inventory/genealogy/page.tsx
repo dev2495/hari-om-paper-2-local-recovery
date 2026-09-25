@@ -197,12 +197,12 @@ export default function InventoryGenealogyPage() {
         description="Trace one job from sales release to planner schedule, production output logs, quality hold/inspection, packed FG stock, dispatch, sales fulfillment, and material reel consumption."
         aside={
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-100">
+            <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               <GitBranch className="h-3.5 w-3.5" />
               Active Trace
             </div>
             <p className="text-2xl font-semibold tracking-tight">{selectedJob ? refText("JC", selectedJob.id) : "Select job card"}</p>
-            <p className="text-sm text-slate-200/80">
+            <p className="text-sm text-muted-foreground">
               {selectedJob ? `${selectedJob.status || "status"} at ${selectedJob.current_stage || "stage"}. Reel drilldown is below.` : "Select a job card to load the full chain."}
             </p>
           </div>
@@ -247,20 +247,20 @@ export default function InventoryGenealogyPage() {
                     onClick={() => setSelectedJobCardId(String(job.id))}
                     className={`w-full rounded-[1.25rem] border p-4 text-left transition-all duration-200 ${
                       selected
-                        ? "border-slate-950 bg-slate-950 text-white shadow-[0_18px_35px_rgba(15,23,42,0.18)]"
+                        ? "border-primary bg-primary text-primary-foreground shadow-[0_18px_35px_rgba(15,23,42,0.18)]"
                         : "border-border bg-card hover:-translate-y-0.5 hover:border-border hover:shadow-sm"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-semibold">{refText("JC", job.id)}</p>
-                        <p className={`mt-1 text-xs ${selected ? "text-slate-300" : "text-muted-foreground"}`}>
+                        <p className={`mt-1 text-xs ${selected ? "text-muted-foreground" : "text-muted-foreground"}`}>
                           {job.product_code || "Product not captured"}
                         </p>
                       </div>
                       <StatusBadge value={job.status} />
                     </div>
-                    <div className={`mt-4 grid grid-cols-2 gap-2 text-xs ${selected ? "text-slate-300" : "text-muted-foreground"}`}>
+                    <div className={`mt-4 grid grid-cols-2 gap-2 text-xs ${selected ? "text-muted-foreground" : "text-muted-foreground"}`}>
                       <span>Stage {job.current_stage || "-"}</span>
                       <span>Qty {Number(job.released_qty || job.planned_qty || 0).toLocaleString("en-IN")}</span>
                       <span>SO {compactId(job.sales_order_id)}</span>
@@ -354,7 +354,7 @@ export default function InventoryGenealogyPage() {
 
                 <div className="overflow-hidden rounded-[1.25rem] border border-border">
                   <table className="w-full min-w-[760px] text-left text-sm">
-                    <thead className="bg-slate-950 text-[11px] uppercase tracking-[0.16em] text-white">
+                    <thead className="bg-[hsl(var(--surface-2))] text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                       <tr>
                         <th className="px-4 py-3">Stage</th>
                         <th className="px-4 py-3">Status</th>
@@ -485,7 +485,7 @@ export default function InventoryGenealogyPage() {
                 return (
                   <article key={node.label} className="relative rounded-[1.3rem] border border-border/80 bg-card/90 p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-2">
-                      <div className="rounded-2xl bg-slate-950 p-2.5 text-white">
+                      <div className="rounded-2xl bg-foreground p-2.5 text-background">
                         <Icon className="h-4 w-4" />
                       </div>
                       <span className="text-xs font-semibold text-muted-foreground">0{index + 1}</span>
@@ -512,7 +512,7 @@ export default function InventoryGenealogyPage() {
           ) : (
             <div className="overflow-hidden rounded-[1.25rem] border border-border">
               <table className="w-full min-w-[680px] text-left text-sm">
-                <thead className="bg-slate-950 text-[11px] uppercase tracking-[0.16em] text-white">
+                <thead className="bg-[hsl(var(--surface-2))] text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3">Issue</th>
                     <th className="px-4 py-3">Section</th>

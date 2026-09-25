@@ -369,13 +369,13 @@ export default function InventoryStockControlPage() {
         aside={
           <div className="grid gap-3 sm:grid-cols-2">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Closing value</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Closing value</p>
               <p className="mt-2 text-3xl font-semibold">{formatCompactCurrency(Number(totals.closing_value || 0))}</p>
             </div>
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Certified period</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Certified period</p>
               <p className="mt-2 text-lg font-semibold">{latestCertification?.period_end || "Not yet"}</p>
-              <p className="text-xs text-slate-300">{latestCertification?.status || "Draft a period below"}</p>
+              <p className="text-xs text-muted-foreground">{latestCertification?.status || "Draft a period below"}</p>
             </div>
           </div>
         }
@@ -393,13 +393,13 @@ export default function InventoryStockControlPage() {
         <span>You are in <strong>Stock certification</strong> · <strong>Carry-forward</strong></span>
         <Link
           href="/inventory/lifecycle"
-          className="ml-auto inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+          className="ml-auto inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
         >
           ← Lifecycle hub
         </Link>
         <Link
           href="/production/reconciliation"
-          className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+          className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
         >
           Next: Monthly reco →
         </Link>
@@ -410,7 +410,7 @@ export default function InventoryStockControlPage() {
           <BadgeCheck className="h-4 w-4" />
           Books locked through {String(booksStateQuery.data.locked_through)}
           {booksStateQuery.data.locked_by ? ` · ${booksStateQuery.data.locked_by}` : null}
-          <Link href="/production/reconciliation" className="ml-auto inline-flex items-center gap-1 rounded-full border border-emerald-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-emerald-ink hover:bg-signal-emerald-soft">
+          <Link href="/production/reconciliation" className="ml-auto inline-flex items-center gap-1 rounded-full border border-signal-emerald-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-emerald-ink hover:bg-signal-emerald-soft">
             Reconciliation <ArrowRight className="h-3 w-3" />
           </Link>
         </section>
@@ -449,13 +449,13 @@ export default function InventoryStockControlPage() {
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topMovementRows}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: any) => formatKg(value)} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Bar dataKey="opening" fill="#64748b" radius={[7, 7, 0, 0]} />
-                <Bar dataKey="in" fill="#0e7490" radius={[7, 7, 0, 0]} />
-                <Bar dataKey="out" fill="#f59e0b" radius={[7, 7, 0, 0]} />
+                <Tooltip formatter={(value: any) => formatKg(value)} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Bar dataKey="opening" fill="hsl(var(--chart-axis))" radius={[7, 7, 0, 0]} />
+                <Bar dataKey="in" fill="hsl(var(--chart-1))" radius={[7, 7, 0, 0]} />
+                <Bar dataKey="out" fill="hsl(var(--chart-6))" radius={[7, 7, 0, 0]} />
                 <Bar dataKey="close" fill="#15803d" radius={[7, 7, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -482,7 +482,7 @@ export default function InventoryStockControlPage() {
               type="button"
               disabled={writeBlocked || createCertification.isPending}
               onClick={draftCertification}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-45"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-45"
             >
               <FilePlus2 className="h-4 w-4" />
               Draft certification for period
@@ -517,20 +517,20 @@ export default function InventoryStockControlPage() {
             ) : null}
             <form onSubmit={postOpeningLoad} className="space-y-3">
               <div className="grid gap-2 sm:grid-cols-2">
-                <input disabled={manualOpeningLocked} value={openingForm.document_no} onChange={(event) => setOpeningForm((current) => ({ ...current, document_no: event.target.value }))} placeholder="Document no optional" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted" />
-                <input disabled={manualOpeningLocked} type="date" value={openingForm.effective_date} onChange={(event) => setOpeningForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted" />
+                <input disabled={manualOpeningLocked} value={openingForm.document_no} onChange={(event) => setOpeningForm((current) => ({ ...current, document_no: event.target.value }))} placeholder="Document no optional" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
+                <input disabled={manualOpeningLocked} type="date" value={openingForm.effective_date} onChange={(event) => setOpeningForm((current) => ({ ...current, effective_date: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
               </div>
-              <select disabled={manualOpeningLocked} required value={openingForm.item_id} onChange={(event) => setOpeningForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted">
+              <select disabled={manualOpeningLocked} required value={openingForm.item_id} onChange={(event) => setOpeningForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted">
                 <option value="">Select item</option>
                 {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
               </select>
               <div className="grid gap-2 sm:grid-cols-3">
-                <input disabled={manualOpeningLocked} required type="number" step="0.001" value={openingForm.qty} onChange={(event) => setOpeningForm((current) => ({ ...current, qty: event.target.value }))} placeholder="Qty" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted" />
-                <input disabled={manualOpeningLocked} value={openingForm.batch_or_reel} onChange={(event) => setOpeningForm((current) => ({ ...current, batch_or_reel: event.target.value }))} placeholder={selectedItem?.tracking_mode === "REEL" ? "Reel code" : "Batch no"} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted" />
-                <input disabled={manualOpeningLocked} type="number" step="0.01" value={openingForm.unit_cost} onChange={(event) => setOpeningForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted" />
+                <input disabled={manualOpeningLocked} required type="number" step="0.001" value={openingForm.qty} onChange={(event) => setOpeningForm((current) => ({ ...current, qty: event.target.value }))} placeholder="Qty" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
+                <input disabled={manualOpeningLocked} value={openingForm.batch_or_reel} onChange={(event) => setOpeningForm((current) => ({ ...current, batch_or_reel: event.target.value }))} placeholder={selectedItem?.tracking_mode === "REEL" ? "Reel code" : "Batch no"} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
+                <input disabled={manualOpeningLocked} type="number" step="0.01" value={openingForm.unit_cost} onChange={(event) => setOpeningForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
               </div>
-              <input disabled={manualOpeningLocked} value={openingForm.notes} onChange={(event) => setOpeningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Audit note" className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted" />
-              <button disabled={writeBlocked || manualOpeningLocked || createOpeningLoad.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-950 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-slate-950 hover:text-white disabled:opacity-45">
+              <input disabled={manualOpeningLocked} value={openingForm.notes} onChange={(event) => setOpeningForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Audit note" className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted" />
+              <button disabled={writeBlocked || manualOpeningLocked || createOpeningLoad.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-primary px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-primary/90 hover:text-primary-foreground disabled:opacity-45">
                 <BookMarked className="h-4 w-4" />
                 {manualOpeningLocked ? "Opening already initialized" : "Post opening load"}
               </button>
@@ -550,16 +550,16 @@ export default function InventoryStockControlPage() {
                 <FilterChip>{selectedCertification.count_state || "DRAFT"}</FilterChip>
                 <FilterChip>As of {formatDateTime(selectedCertification.stock_as_of_at)}</FilterChip>
                 <FilterChip>Count {formatDateTime(selectedCertification.count_taken_at || selectedCertification.counted_at)}</FilterChip>
-                <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-white disabled:opacity-45">
+                <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-primary-foreground disabled:opacity-45">
                   Save counts
                 </button>
-                <button type="button" disabled={selectedCertification.status !== "DRAFT" || certifyCertification.isPending} onClick={certifySelected} className="rounded-full border border-cyan-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-cyan-ink disabled:opacity-45">
+                <button type="button" disabled={selectedCertification.status !== "DRAFT" || certifyCertification.isPending} onClick={certifySelected} className="rounded-full border border-signal-cyan-ink/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-cyan-ink disabled:opacity-45">
                   Certify
                 </button>
-                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-emerald-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-emerald-ink disabled:opacity-45">
+                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-signal-emerald-ink/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-emerald-ink disabled:opacity-45">
                   Carry forward
                 </button>
-                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || certificationVarianceQty <= 0 || postCertificationVariance.isPending} onClick={postVarianceSelected} className="rounded-full border border-amber-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-amber-ink disabled:opacity-45">
+                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || certificationVarianceQty <= 0 || postCertificationVariance.isPending} onClick={postVarianceSelected} className="rounded-full border border-signal-amber-ink/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-amber-ink disabled:opacity-45">
                   Post variance
                 </button>
                 {certificationVarianceQty > 0 ? (
@@ -574,21 +574,21 @@ export default function InventoryStockControlPage() {
                   onChange={(event) => setSessionDraft((current) => ({ ...current, count_location_scope: event.target.value }))}
                   placeholder="Count scope / location"
                   disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted"
+                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
                 />
                 <input
                   value={sessionDraft.counted_by}
                   onChange={(event) => setSessionDraft((current) => ({ ...current, counted_by: event.target.value }))}
                   placeholder="Counted by"
                   disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted"
+                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
                 />
                 <input
                   value={sessionDraft.checked_by}
                   onChange={(event) => setSessionDraft((current) => ({ ...current, checked_by: event.target.value }))}
                   placeholder="Checked by"
                   disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted"
+                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
                 />
                 <label className="flex h-10 items-center gap-2 rounded-xl border border-border bg-card px-3 text-xs font-semibold text-muted-foreground">
                   Count
@@ -605,7 +605,7 @@ export default function InventoryStockControlPage() {
                   onChange={(event) => setSessionDraft((current) => ({ ...current, attachment_refs: event.target.value }))}
                   placeholder="Proof refs comma-separated"
                   disabled={selectedCertification.status !== "DRAFT"}
-                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-cyan-700 disabled:bg-muted"
+                  className="h-10 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:border-signal-cyan-ink/40 disabled:bg-muted"
                 />
               </div>
               <CompactTable
@@ -702,9 +702,9 @@ export default function InventoryStockControlPage() {
                       effective_at: current.effective_at.startsWith(current.effective_date) ? `${nextDate}T23:59` : current.effective_at,
                     }))
                   }}
-                  className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700"
+                  className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40"
                 />
-                <select value={adjustmentForm.reason_code} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason_code: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700">
+                <select value={adjustmentForm.reason_code} onChange={(event) => setAdjustmentForm((current) => ({ ...current, reason_code: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40">
                   <option value="MANUAL_CORRECTION">Manual correction</option>
                   <option value="PHYSICAL_COUNT_VARIANCE">Physical count variance</option>
                   <option value="SCRAP_DISCOVERY">Scrap discovery</option>
@@ -721,21 +721,21 @@ export default function InventoryStockControlPage() {
                   className="min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none"
                 />
               </label>
-              <select required value={adjustmentForm.item_id} onChange={(event) => setAdjustmentForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700">
+              <select required value={adjustmentForm.item_id} onChange={(event) => setAdjustmentForm((current) => ({ ...current, item_id: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40">
                 <option value="">Select item</option>
                 {items.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
               </select>
               <div className="grid gap-2 sm:grid-cols-2">
-                <input required type="number" step="0.001" value={adjustmentForm.qty_delta} onChange={(event) => setAdjustmentForm((current) => ({ ...current, qty_delta: event.target.value }))} placeholder="+ gain / - loss" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700" />
-                <input type="number" step="0.01" value={adjustmentForm.unit_cost} onChange={(event) => setAdjustmentForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost optional" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700" />
+                <input required type="number" step="0.001" value={adjustmentForm.qty_delta} onChange={(event) => setAdjustmentForm((current) => ({ ...current, qty_delta: event.target.value }))} placeholder="+ gain / - loss" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40" />
+                <input type="number" step="0.01" value={adjustmentForm.unit_cost} onChange={(event) => setAdjustmentForm((current) => ({ ...current, unit_cost: event.target.value }))} placeholder="Unit cost optional" className="h-11 rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40" />
               </div>
-              <input value={adjustmentForm.notes} onChange={(event) => setAdjustmentForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Approval note / reason" className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-cyan-700" />
+              <input value={adjustmentForm.notes} onChange={(event) => setAdjustmentForm((current) => ({ ...current, notes: event.target.value }))} placeholder="Approval note / reason" className="h-11 w-full rounded-xl border border-border px-3 text-sm outline-none focus:border-signal-cyan-ink/40" />
               {selectedAdjustmentItem ? (
                 <p className="rounded-xl border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
                   {selectedAdjustmentItem.tracking_mode === "REEL" ? "Reel correction will preserve reel traceability through scan events and generated adjustment reels." : "Bulk correction will post a ledger ADJUSTMENT transaction."}
                 </p>
               ) : null}
-              <button disabled={writeBlocked || createAdjustmentVoucher.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-cyan-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-cyan-800 disabled:opacity-45">
+              <button disabled={writeBlocked || createAdjustmentVoucher.isPending} className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-45">
                 <FilePlus2 className="h-4 w-4" />
                 {createAdjustmentVoucher.isPending ? "Posting adjustment..." : "Post adjustment voucher"}
               </button>
@@ -769,7 +769,7 @@ export default function InventoryStockControlPage() {
                     <div className="mt-2 flex flex-wrap items-center gap-2">
                       <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] ${
                         isPosted
-                          ? "border-emerald-700 bg-card text-signal-emerald-ink"
+                          ? "border-signal-emerald-ink/40 bg-card text-signal-emerald-ink"
                           : "border-signal-amber-line bg-card text-signal-amber-ink"
                       }`}>
                         {cfStatus}

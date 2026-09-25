@@ -47,7 +47,7 @@ function GuideFlowSvg({ steps }: { steps: GuideStep[] }) {
           <stop offset="100%" stopColor="hsl(var(--secondary))" />
         </linearGradient>
         <filter id="guide-shadow" x="-20%" y="-30%" width="140%" height="160%">
-          <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="#0f172a" floodOpacity="0.12" />
+          <feDropShadow dx="0" dy="10" stdDeviation="10" floodColor="hsl(var(--foreground))" floodOpacity="0.12" />
         </filter>
       </defs>
 
@@ -66,7 +66,7 @@ function GuideFlowSvg({ steps }: { steps: GuideStep[] }) {
               </g>
             ) : null}
             <rect x={x} y="56" width={boxWidth} height="96" rx="16" fill="url(#guide-node-fill)" stroke="hsl(var(--border))" filter="url(#guide-shadow)" />
-            <circle cx={x + 24} cy="82" r="14" fill="#0f172a" />
+            <circle cx={x + 24} cy="82" r="14" fill="hsl(var(--foreground))" />
             <text x={x + 24} y="87" textAnchor="middle" className="fill-white text-[13px] font-bold">
               {index + 1}
             </text>
@@ -152,7 +152,7 @@ function GuideIndex({ activeGuide, guides }: { activeGuide: GuideContent; guides
                   <p className="truncate text-sm font-semibold">{guide.title}</p>
                   <p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">{guide.eyebrow}</p>
                 </div>
-                <ArrowRight className={cn("mt-1 h-4 w-4 shrink-0", active ? "text-signal-cyan-ink" : "text-slate-300 group-hover:text-signal-cyan-ink")} />
+                <ArrowRight className={cn("mt-1 h-4 w-4 shrink-0", active ? "text-signal-cyan-ink" : "text-muted-foreground group-hover:text-signal-cyan-ink")} />
               </div>
             </Link>
           )

@@ -164,7 +164,7 @@ export default function PackagingMasterPage() {
                 onClick={() => setActiveSection(item.key)}
                 className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
                   activeSection === item.key
-                    ? "border-slate-950 bg-slate-950 text-white"
+                    ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-muted text-muted-foreground hover:bg-card"
                 }`}
               >
@@ -191,7 +191,7 @@ export default function PackagingMasterPage() {
                 onClick={() => setActiveSection(item.key)}
                 className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                   activeSection === item.key
-                    ? "border-slate-950 bg-slate-950 text-white"
+                    ? "border-primary bg-primary text-primary-foreground"
                     : "border-border bg-muted text-muted-foreground hover:border-border hover:bg-card"
                 }`}
               >

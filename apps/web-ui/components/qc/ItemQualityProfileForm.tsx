@@ -151,7 +151,7 @@ export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, o
         <button
           type="submit"
           disabled={saving || !item}
-          className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
         >
           Save item QC profile
         </button>
@@ -159,7 +159,7 @@ export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, o
           type="button"
           disabled={saving || !item || !onApprove}
           onClick={() => onApprove?.(false)}
-          className="rounded-xl border border-slate-900 px-3 py-2 text-sm font-semibold text-foreground disabled:opacity-50"
+          className="rounded-xl border border-foreground/80 px-3 py-2 text-sm font-semibold text-foreground disabled:opacity-50"
         >
           Approve profile
         </button>
@@ -167,7 +167,7 @@ export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, o
           type="button"
           disabled={saving || !item || !onApprove}
           onClick={() => onApprove?.(true)}
-          className="rounded-xl border border-amber-700 px-3 py-2 text-sm font-semibold text-signal-amber-ink disabled:opacity-50"
+          className="rounded-xl border border-signal-amber-ink/40 px-3 py-2 text-sm font-semibold text-signal-amber-ink disabled:opacity-50"
         >
           Approve exemption
         </button>

@@ -885,7 +885,7 @@ export default function SalesOrdersPage() {
           <div className="flex max-h-[calc(100vh-2rem)] min-h-[560px] flex-col">
             <DialogHeader className="shrink-0 border-b border-border bg-card px-5 py-4 sm:px-7">
               <div className="flex items-start gap-3 pr-8">
-                <div className="mt-0.5 rounded-xl bg-slate-950 p-2.5 text-white">
+                <div className="mt-0.5 rounded-xl bg-foreground p-2.5 text-background">
                   <Factory className="h-5 w-5" />
                 </div>
                 <div>
@@ -915,7 +915,7 @@ export default function SalesOrdersPage() {
                   <div className="flex flex-wrap gap-2">
                     <a
                       href={`/planning/board?section=winder&machine_id=${releaseOutcome.winderMachineId}&order_id=${releaseOutcome.orderId}`}
-                      className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
+                      className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
                       data-testid="sales-orders:open-winder-queue"
                     >
                       Open planning queue
@@ -1078,14 +1078,14 @@ export default function SalesOrdersPage() {
                           )}
                         </div>
 
-                        <div className="rounded-xl bg-slate-950 px-4 py-3 text-white">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-300">
+                        <div className="rounded-xl bg-foreground px-4 py-3 text-background">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                             {row.mode === "resume" ? "Planner handoff" : "Balance after"}
                           </p>
                           <p className="mt-1 text-xl font-semibold">
                             {row.mode === "resume" ? "Ready to retry" : `${balanceAfter.toFixed(0)} pcs`}
                           </p>
-                          <p className="mt-1 text-[11px] leading-4 text-slate-300">
+                          <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                             {row.mode === "resume" ? "No quantity will be released twice." : `${row.remaining_qty.toFixed(0)} pcs available now`}
                           </p>
                         </div>
@@ -1124,7 +1124,7 @@ export default function SalesOrdersPage() {
                     <CheckCircle2 className="h-4 w-4" /> All lines ready for planning
                   </span>
                 )}
-                <span className="hidden text-slate-300 sm:inline">|</span>
+                <span className="hidden text-muted-foreground sm:inline">|</span>
                 <span className="hidden text-muted-foreground sm:inline">{releaseSummary.totalQty.toFixed(0)} pcs across {releaseSummary.selectedCount} line{releaseSummary.selectedCount === 1 ? "" : "s"}</span>
               </div>
               <div className="flex w-full gap-2 sm:w-auto">
@@ -1140,7 +1140,7 @@ export default function SalesOrdersPage() {
                   type="button"
                   onClick={handleConfirmRelease}
                   disabled={releaseSummary.blockers > 0 || releasePreflight.isPending || releaseOrderLine.isPending || releaseSync.isPending}
-                  className="flex-1 rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
+                  className="flex-1 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none"
                 >
                   {releasePreflight.isPending || releaseOrderLine.isPending || releaseSync.isPending
                     ? "Validating and releasing..."

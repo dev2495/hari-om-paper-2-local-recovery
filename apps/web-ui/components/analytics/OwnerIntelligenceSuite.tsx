@@ -160,11 +160,11 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
         <div className="absolute inset-y-0 right-0 hidden w-1/2 bg-card lg:block" />
         <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-black uppercase tracking-[0.28em] text-cyan-200">Owner Intelligence</p>
+            <p className="text-[11px] font-black uppercase tracking-[0.28em] text-muted-foreground">Owner Intelligence</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">
               Live company health, WIP, variance, and exceptions.
             </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
               This reads the same owner-pack service used for reports: sales backlog, production stages, dispatch readiness, inventory risk, quality holds, and plant comparison.
             </p>
           </div>
@@ -180,7 +180,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             <div className="rounded-2xl border border-border/10 bg-card/10 px-4 py-3">
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Scope</p>
               <p className="mt-2 text-sm font-black">{plantScopeLabel}</p>
-              <p className="mt-1 text-xs text-slate-300">{canUseGlobal ? "Owner/Admin can use Global Analytics" : "Plant-isolated view"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{canUseGlobal ? "Owner/Admin can use Global Analytics" : "Plant-isolated view"}</p>
             </div>
           </div>
         </div>
@@ -208,15 +208,15 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={trendRows}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--chart-grid))" />
                     <XAxis dataKey="bucket" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                     <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                    <Bar dataKey="Winder" stackId="a" fill="#0891b2" radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="Oven" stackId="a" fill="#f59e0b" />
-                    <Bar dataKey="Process" stackId="a" fill="#0f766e" />
-                    <Bar dataKey="Pack" stackId="a" fill="#334155" />
-                    <Bar dataKey="Dispatch" stackId="a" fill="#16a34a" />
+                    <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                    <Bar dataKey="Winder" stackId="a" fill="hsl(var(--chart-8))" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="Oven" stackId="a" fill="hsl(var(--chart-6))" />
+                    <Bar dataKey="Process" stackId="a" fill="hsl(var(--chart-1))" />
+                    <Bar dataKey="Pack" stackId="a" fill="hsl(var(--muted-foreground))" />
+                    <Bar dataKey="Dispatch" stackId="a" fill="hsl(var(--chart-7))" />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -231,7 +231,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
                       <span className="text-xl font-black text-foreground">{formatNumber(row.count)}</span>
                     </div>
                     <div className="mt-2 h-2 rounded-full bg-muted">
-                      <div className="h-2 rounded-full bg-slate-950" style={{ width: `${Math.min(100, row.count * 8)}%` }} />
+                      <div className="h-2 rounded-full bg-foreground" style={{ width: `${Math.min(100, row.count * 8)}%` }} />
                     </div>
                   </div>
                 )) : <p className="text-sm text-muted-foreground">No active WIP rows in the selected window.</p>}
@@ -295,7 +295,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
               <SectionShell title="Inventory risk list" eyebrow="Stock">
                 <div className="overflow-hidden rounded-2xl border border-border">
                   <table className="w-full text-left text-sm">
-                    <thead className="bg-slate-950 text-white">
+                    <thead className="bg-[hsl(var(--surface-2))] text-muted-foreground">
                       <tr>
                         <th className="px-3 py-3 text-[10px] uppercase tracking-[0.18em]">Item</th>
                         <th className="px-3 py-3 text-right text-[10px] uppercase tracking-[0.18em]">Available</th>

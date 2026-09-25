@@ -581,7 +581,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                         min={deliveryMinDate}
                         value={line.due_date}
                         onChange={(event) => updateLine(line.localId, "due_date", event.target.value)}
-                        className={`h-11 w-full rounded-xl border bg-card px-3 text-sm ${dueError ? "border-rose-400" : "border-border"}`}
+                        className={`h-11 w-full rounded-xl border bg-card px-3 text-sm ${dueError ? "border-signal-rose-line" : "border-border"}`}
                       />
                       {dueError ? <p className="text-xs text-signal-rose-ink">{dueError}</p> : null}
                     </div>
@@ -635,7 +635,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
             data-testid="sales-orders:create-submit"
             type="submit"
             disabled={saving}
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white transition-all duration-200 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center justify-center rounded-xl bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground transition-all duration-200 hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving..." : editing ? "Save sales order" : "Create sales order"}
           </button>

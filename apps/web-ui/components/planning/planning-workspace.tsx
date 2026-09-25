@@ -125,7 +125,7 @@ const STAGE_THEME: Record<
     fill: "bg-slate-600",
     text: "text-foreground",
     pill: "bg-muted text-foreground border-border",
-    accentBar: "from-slate-500 to-slate-700",
+    accentBar: "from-slate-500 to-foreground",
     dropRing: "shadow-[0_0_0_1px_rgba(71,85,105,0.18),0_18px_40px_rgba(71,85,105,0.10)]",
     header: "text-muted-foreground",
   },
@@ -928,7 +928,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               href={boardHref({ view: item.key })}
               className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ${
                 active
-                  ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                  ? "border-primary bg-primary text-primary-foreground shadow-sm"
                   : "border-border bg-card/80 text-muted-foreground hover:-translate-y-0.5 hover:bg-card"
               }`}
             >
@@ -946,13 +946,13 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
             value={dateDraft}
             max={maxPlannerDate}
             onChange={(event) => setDateDraft(event.target.value)}
-            className="h-9 rounded-full border border-border bg-card px-3 text-xs font-semibold text-foreground outline-none transition focus:border-slate-400"
+            className="h-9 rounded-full border border-border bg-card px-3 text-xs font-semibold text-foreground outline-none transition focus:border-input"
           />
         </label>
         <button
           type="button"
           onClick={() => applyDateDraft(plannerView)}
-          className="h-9 rounded-full border border-slate-950 bg-slate-950 px-4 text-xs font-semibold text-white transition hover:-translate-y-0.5 active:translate-y-0"
+          className="h-9 rounded-full border border-primary bg-primary px-4 text-xs font-semibold text-primary-foreground transition hover:-translate-y-0.5 active:translate-y-0"
         >
           Show window
         </button>
@@ -1049,7 +1049,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                 href={canOpenDay ? boardHref({ date: day.date, view: "schedule" }) : boardHref({ date: maxPlannerDate, view: "schedule" })}
                 className={`group min-h-[150px] rounded-[1.25rem] border p-3 transition-all duration-300 ${
                   day.isToday
-                    ? "border-slate-950 bg-slate-950 text-white shadow-[0_18px_44px_rgba(15,23,42,0.18)]"
+                    ? "border-primary bg-primary text-primary-foreground shadow-[0_18px_44px_rgba(15,23,42,0.18)]"
                     : day.inMonth
                       ? "border-border bg-card hover:-translate-y-1 hover:border-border hover:shadow-[0_18px_42px_rgba(15,23,42,0.08)]"
                       : "border-border bg-muted/70 text-muted-foreground"
@@ -1435,7 +1435,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                         onClick={() => setQueueFilter(option.key)}
                         className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ${
                           active
-                            ? "border-slate-950 bg-slate-950 text-white shadow-sm"
+                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
                             : "border-border bg-muted text-muted-foreground hover:-translate-y-0.5 hover:bg-card"
                         }`}
                       >
@@ -1531,9 +1531,9 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                 </div>
                                 <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
                                   <span className="truncate font-semibold text-muted-foreground">{plannerSize(job)}</span>
-                                  <span className="shrink-0 text-slate-300">|</span>
+                                  <span className="shrink-0 text-muted-foreground">|</span>
                                   <span className="truncate">{job.customer_name || "-"}</span>
-                                  <span className="shrink-0 text-slate-300">|</span>
+                                  <span className="shrink-0 text-muted-foreground">|</span>
                                   <span className="truncate">
                                     {assignedMachine
                                       ? `Pref ${assignedMachine.code}`
@@ -1752,9 +1752,9 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                       </div>
                                       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-3 text-[9px] text-muted-foreground">
                                         <span className="truncate font-semibold">{plannerSize(job)}</span>
-                                        <span className="shrink-0 text-slate-300">|</span>
+                                        <span className="shrink-0 text-muted-foreground">|</span>
                                         <span className="truncate">{job.customer_name || "-"}</span>
-                                        <span className="shrink-0 text-slate-300">|</span>
+                                        <span className="shrink-0 text-muted-foreground">|</span>
                                         <span>
                                           {stage === "WINDER"
                                             ? `${formatLoad(winderMeterLoad(job))} m`
@@ -1897,7 +1897,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               type="button"
               onClick={handleSplit}
               disabled={splitSegment.isPending}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+              className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
             >
               Confirm split
             </button>

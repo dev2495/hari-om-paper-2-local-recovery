@@ -65,17 +65,17 @@ export function MasterHero({
   accent?: "cyan" | "emerald"
 }) {
   const gradients: Record<string, string> = {
-    cyan: "radial-gradient(120% 90% at 0% 0%, rgba(14,116,144,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, #0b1220 0%, #14274b 60%, #1d4ed8 100%)",
+    cyan: "radial-gradient(120% 90% at 0% 0%, rgba(14,116,144,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--foreground)) 60%, hsl(var(--chart-2)) 100%)",
     emerald:
-      "radial-gradient(120% 90% at 0% 0%, rgba(4,120,87,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, #0b1220 0%, #064e3b 60%, #047857 100%)",
+      "radial-gradient(120% 90% at 0% 0%, rgba(4,120,87,0.22), transparent 50%), radial-gradient(80% 70% at 100% 0%, rgba(245,158,11,0.14), transparent 55%), linear-gradient(135deg, hsl(var(--foreground)) 0%, hsl(var(--chart-7)) 60%, hsl(var(--chart-7)) 100%)",
   }
   const toneCls = (t?: string) =>
     t === "ok"
-      ? "border-signal-emerald-line/40 bg-emerald-400/15 text-emerald-100"
+      ? "border-signal-emerald-line/40 bg-emerald-400/15 text-muted-foreground"
       : t === "warn"
-        ? "border-signal-amber-line/40 bg-amber-400/15 text-amber-100"
+        ? "border-signal-amber-line/40 bg-amber-400/15 text-muted-foreground"
         : t === "critical"
-          ? "border-signal-rose-line/40 bg-rose-400/15 text-rose-100"
+          ? "border-signal-rose-line/40 bg-rose-400/15 text-muted-foreground"
           : "border-border/30 bg-card/10 text-white/90"
   return (
     <section
@@ -300,7 +300,7 @@ export function DataGrid<T extends { id: string }>({
                     onClick={() => onSelect?.(row)}
                     className={cn(
                       "border-b border-border cursor-pointer last:border-b-0",
-                      isSel ? "bg-signal-cyan-soft/60 shadow-[inset_3px_0_0_#0e7490]" : "hover:bg-muted",
+                      isSel ? "bg-signal-cyan-soft/60 shadow-[inset_3px_0_0_hsl(var(--chart-1))]" : "hover:bg-muted",
                     )}
                   >
                     <td className="py-2 pl-3 pr-2 align-middle" onClick={(e) => e.stopPropagation()}>
@@ -378,9 +378,9 @@ export function DetailDrawer({
   const active = tabs.find((t) => t.key === activeKey) || tabs[0]
   const headerGradient =
     accent === "emerald"
-      ? "linear-gradient(160deg, #0b1220 0%, #047857 100%)"
-      : "linear-gradient(160deg, #0b1220 0%, #0e7490 100%)"
-  const tabBorder = accent === "emerald" ? "border-emerald-600" : "border-cyan-700"
+      ? "linear-gradient(160deg, hsl(var(--foreground)) 0%, hsl(var(--chart-7)) 100%)"
+      : "linear-gradient(160deg, hsl(var(--foreground)) 0%, hsl(var(--chart-1)) 100%)"
+  const tabBorder = accent === "emerald" ? "border-signal-emerald-ink/40" : "border-signal-cyan-ink/40"
   return (
     <section className="sticky top-6 overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
       <div className="px-5 py-4 text-white" style={{ backgroundImage: headerGradient }}>
@@ -409,10 +409,10 @@ export function DetailDrawer({
                 className={cn(
                   "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
                   c.tone === "critical"
-                    ? "border-signal-rose-line/50 bg-rose-400/20 text-rose-100"
+                    ? "border-signal-rose-line/50 bg-rose-400/20 text-muted-foreground"
                     : c.tone === "warn"
-                      ? "border-signal-amber-line/50 bg-amber-400/20 text-amber-100"
-                      : "border-signal-emerald-line/50 bg-emerald-400/20 text-emerald-100",
+                      ? "border-signal-amber-line/50 bg-amber-400/20 text-muted-foreground"
+                      : "border-signal-emerald-line/50 bg-emerald-400/20 text-muted-foreground",
                 )}
               >
                 {c.label}
@@ -481,7 +481,7 @@ export function Modal({
   const sizeCls = size === "lg" ? "max-w-2xl" : size === "sm" ? "max-w-md" : "max-w-xl"
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 px-4 py-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-foreground px-4 py-8"
       onClick={onClose}
     >
       <div
@@ -540,7 +540,7 @@ export function LabeledInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
       />
       {hint ? <span className="text-[10.5px] text-muted-foreground">{hint}</span> : null}
     </label>
@@ -572,7 +572,7 @@ export function LabeledTextarea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
       />
     </label>
   )
@@ -763,7 +763,7 @@ export function ContactList({
             type="button"
             disabled={busy}
             onClick={submit}
-            className="inline-flex items-center gap-1 rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
           >
             <Plus className="h-3.5 w-3.5" /> Add contact
           </button>
@@ -832,7 +832,7 @@ function ContactCard({
             <button
               type="button"
               onClick={onCancelEdit}
-              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
             >
               Cancel
             </button>
@@ -840,7 +840,7 @@ function ContactCard({
               type="button"
               onClick={onSaveEdit}
               disabled={busy}
-              className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-50"
+              className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-50"
             >
               Save
             </button>
@@ -935,7 +935,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-input"
           >
             Cancel
           </button>

@@ -10,7 +10,7 @@ export function UserMenu() {
       <button
         type="button"
         onClick={logout}
-        className="rounded-full bg-slate-950 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-white"
+        className="rounded-full bg-primary px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-primary-foreground"
       >
         Logout
       </button>

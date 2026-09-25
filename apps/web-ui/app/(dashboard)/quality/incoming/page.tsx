@@ -150,7 +150,7 @@ export default function IncomingQualityPage() {
               <button
                 type="submit"
                 disabled={!selectedPending || createInventoryInspection.isPending}
-                className="w-full rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
               >
                 Submit readings — server verdict
               </button>

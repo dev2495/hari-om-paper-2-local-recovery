@@ -21,7 +21,7 @@ const formatNumber = (value: unknown, digits = 0) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
 const formatKg = (value: unknown) => `${formatNumber(value, 2)} kg`
 const formatCurrency = (value: unknown) => `₹${formatNumber(value, 0)}`
-const colors = ["#0e7490", "#f59e0b", "#0f766e", "#334155", "#be123c", "#7c3aed"]
+const colors = ["hsl(var(--chart-1))", "hsl(var(--chart-6))", "hsl(var(--chart-1))", "hsl(var(--muted-foreground))", "hsl(var(--chart-5))", "hsl(var(--chart-3))"]
 
 function rowQty(row: any) {
   return Number(row.available_qty ?? row.balance ?? row.qty_on_hand ?? row.qty_available ?? 0)
@@ -182,11 +182,11 @@ export default function InventoryOverviewPage() {
           <div className="mt-4 h-[310px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={categoryRows}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="type" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <Tooltip formatter={(value: any, name: string) => (name === "value" ? formatCurrency(value) : formatKg(value))} />
-                <Bar dataKey="qty" fill="#0e7490" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="qty" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -237,7 +237,7 @@ export default function InventoryOverviewPage() {
                   <span className="font-semibold text-foreground">{formatKg(row.kg)}</span>
                 </div>
                 <div className="mt-2 h-2 rounded-full bg-muted">
-                  <div className="h-2 rounded-full bg-cyan-800" style={{ width: `${Math.min(100, totalKg ? (row.kg / totalKg) * 100 : 0)}%` }} />
+                  <div className="h-2 rounded-full bg-primary/70" style={{ width: `${Math.min(100, totalKg ? (row.kg / totalKg) * 100 : 0)}%` }} />
                 </div>
               </div>
             ))}
@@ -251,11 +251,11 @@ export default function InventoryOverviewPage() {
           <div className="mt-4 h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={agingBuckets}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <Tooltip formatter={(value: any) => formatKg(value)} />
-                <Bar dataKey="weight_kg" fill="#f59e0b" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="weight_kg" fill="hsl(var(--chart-6))" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -270,7 +270,7 @@ export default function InventoryOverviewPage() {
             <Kpi label="Reels tracked" value={`${reels.length}`} hint="Reel records visible in current scope" tone="cyan" />
             <Kpi label="Locations" value={`${locations.length}`} hint="Created warehouse/bin locations" tone="amber" />
           </div>
-          <Link href="/analytics/mrp" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800">
+          <Link href="/analytics/mrp" className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90">
             Open MRP reorder and demand views
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -351,7 +351,7 @@ export default function InventoryOverviewPage() {
           </div>
           <div className="mt-4 overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+              <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Location</th>
                   <th className="px-3 py-3">Item</th>
@@ -387,7 +387,7 @@ export default function InventoryOverviewPage() {
             <p><b>Close certification</b> freezes book stock for a period, records physical count variance, and carries certified closing into next period opening.</p>
             <p><b>Alerts</b> come from item master reorder level, safety stock, aging, blocked stock, and location pressure. Configure these in item/location masters.</p>
           </div>
-          <Link href="/inventory/stock-control" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-amber-800">
+          <Link href="/inventory/stock-control" className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:bg-amber-800">
             Open stock close control <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

@@ -87,7 +87,7 @@ export function AuditFeed({
         {grouped.map((group) => (
           <div key={group.label} className="space-y-2">
             <p className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
-              {group.label} <span className="text-slate-300">·</span> {group.rows.length}
+              {group.label} <span className="text-muted-foreground">·</span> {group.rows.length}
             </p>
             <ul className="space-y-2">
               {group.rows.slice(0, 60).map((event) => {
@@ -141,19 +141,19 @@ export function AuditFeed({
  * ============================================================ */
 
 const ROLE_COLORS: Record<string, string> = {
-  Owner: "#0e7490",
-  Admin: "#7c3aed",
-  Planner: "#0891b2",
-  PlantManager: "#059669",
-  Sales: "#f59e0b",
+  Owner: "hsl(var(--chart-1))",
+  Admin: "hsl(var(--chart-3))",
+  Planner: "hsl(var(--chart-8))",
+  PlantManager: "hsl(var(--chart-7))",
+  Sales: "hsl(var(--chart-6))",
   Store: "#be185d",
-  Dispatch: "#0f766e",
-  Operator: "#64748b",
-  QC: "#dc2626",
+  Dispatch: "hsl(var(--chart-1))",
+  Operator: "hsl(var(--chart-axis))",
+  QC: "hsl(var(--chart-5))",
 }
 
 function roleColor(role: string) {
-  return ROLE_COLORS[role] || "#64748b"
+  return ROLE_COLORS[role] || "hsl(var(--chart-axis))"
 }
 
 export function AuditUsers({
@@ -193,12 +193,12 @@ export function AuditUsers({
             <div className="h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={roleDist} dataKey="count" nameKey="role" innerRadius={46} outerRadius={76} paddingAngle={3} stroke="#fff" strokeWidth={2}>
+                  <Pie data={roleDist} dataKey="count" nameKey="role" innerRadius={46} outerRadius={76} paddingAngle={3} stroke="hsl(var(--card))" strokeWidth={2}>
                     {roleDist.map((entry, i) => (
                       <Cell key={i} fill={entry.color} />
                     ))}
                   </Pie>
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -253,7 +253,7 @@ export function AuditUsers({
           <div className="overflow-hidden rounded-2xl border border-border">
             <div className="max-h-[460px] overflow-auto">
               <table className="w-full border-collapse text-sm">
-                <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.18em] text-white">
+                <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left">User</th>
                     <th className="px-4 py-3 text-left">Role</th>
@@ -369,10 +369,10 @@ export function AuditNotifications({
             <div className="h-[260px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={byRole} layout="vertical">
-                  <CartesianGrid horizontal={false} stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <YAxis type="category" dataKey="role" tick={{ fontSize: 10.5, fill: "#475569" }} tickLine={false} axisLine={false} width={100} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
+                  <CartesianGrid horizontal={false} stroke="hsl(var(--chart-grid))" strokeDasharray="3 3" />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <YAxis type="category" dataKey="role" tick={{ fontSize: 10.5, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} width={100} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
                   <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                     {byRole.map((r, i) => (
                       <Cell key={i} fill={r.color} />
@@ -505,10 +505,10 @@ export function AuditStreamTab({
             <div className="h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={actions} layout="vertical">
-                  <CartesianGrid horizontal={false} stroke="#e2e8f0" strokeDasharray="3 3" />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: "#64748b" }} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <YAxis type="category" dataKey="action" tick={{ fontSize: 10.5, fill: "#475569" }} tickLine={false} axisLine={false} width={130} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
+                  <CartesianGrid horizontal={false} stroke="hsl(var(--chart-grid))" strokeDasharray="3 3" />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <YAxis type="category" dataKey="action" tick={{ fontSize: 10.5, fill: "hsl(var(--chart-axis))" }} tickLine={false} axisLine={false} width={130} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
                   <Bar dataKey="count" radius={[0, 6, 6, 0]}>
                     {actions.map((a, i) => (
                       <Cell key={i} fill={a.color} />
@@ -555,7 +555,7 @@ export function AuditStreamTab({
           <div className="overflow-hidden rounded-2xl border border-border">
             <div className="max-h-[460px] overflow-auto">
               <table className="w-full border-collapse text-sm">
-                <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.18em] text-white">
+                <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left">When</th>
                     <th className="px-4 py-3 text-left">Severity</th>

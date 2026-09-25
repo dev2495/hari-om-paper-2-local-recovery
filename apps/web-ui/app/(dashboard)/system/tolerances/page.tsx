@@ -203,7 +203,7 @@ function TolerancesPage() {
             key={item.href}
             href={item.href}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              item.href === "/system/tolerances" ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
+              item.href === "/system/tolerances" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <item.icon className="h-4 w-4" />
@@ -259,7 +259,7 @@ function TolerancesPage() {
           type="button"
           onClick={onSave}
           disabled={!dirty || update.isPending || !selectedPlant}
-          className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900 disabled:opacity-40"
+          className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90 disabled:opacity-40"
           data-testid="tolerance-save"
         >
           {update.isPending ? "Saving…" : "Save changes"}
@@ -432,7 +432,7 @@ function ToleranceField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         data-testid={testId}
-        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-signal-cyan-line focus:outline-none"
       />
       {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
     </label>

@@ -369,7 +369,7 @@ export default function ToolsPage() {
           </div>
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
             <DialogTrigger asChild>
-              <Button disabled={writeBlocked} className="h-10 rounded-xl bg-slate-900 text-white hover:bg-slate-800">
+              <Button disabled={writeBlocked} className="h-10 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
                 <Plus className="mr-2 h-4 w-4" />
                 Add Tool
               </Button>
@@ -489,8 +489,8 @@ export default function ToolsPage() {
           </div>
         </div>
 
-        <div className="self-start rounded-[1.7rem] border border-border bg-slate-950 p-5 text-white shadow-sm">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Physical tool control</p>
+        <div className="self-start rounded-[1.7rem] border border-border bg-foreground p-5 text-background shadow-sm">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-signal-cyan-ink">Physical tool control</p>
           <h2 className="mt-1 text-lg font-semibold">QR asset ledger</h2>
           <div className="mt-5 grid grid-cols-2 gap-3">
             {[
@@ -500,7 +500,7 @@ export default function ToolsPage() {
               ["Grinding", assetReport.summary?.grinding_out || 0],
             ].map(([label, value]) => <div key={label} className="rounded-xl border border-border/10 bg-card/5 p-3"><p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>)}
           </div>
-          <p className="mt-5 text-sm leading-6 text-slate-300">Inward a physical unit against a definition, assign its Location Master position, and use the QR asset number for issue, return, grinding, and trace reports.</p>
+          <p className="mt-5 text-sm leading-6 text-muted-foreground">Inward a physical unit against a definition, assign its Location Master position, and use the QR asset number for issue, return, grinding, and trace reports.</p>
         </div>
       </section>
 
@@ -580,7 +580,7 @@ export default function ToolsPage() {
             <DialogTitle>Scan physical tool QR</DialogTitle>
             <DialogDescription>Point the camera at the label. The matching asset will be loaded into the ledger search.</DialogDescription>
           </DialogHeader>
-          <div className="overflow-hidden rounded-2xl border border-border bg-slate-950">
+          <div className="overflow-hidden rounded-2xl border border-border bg-foreground">
             <video ref={videoRef} muted playsInline className="aspect-square w-full object-cover" />
           </div>
           {scanError ? <p className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink">{scanError}</p> : null}

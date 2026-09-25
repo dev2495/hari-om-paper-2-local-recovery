@@ -22,7 +22,7 @@ function SystemSetupNav() {
                     key={item.href}
                     href={item.href}
                     className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                        item.href === "/system/plants" ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
+                        item.href === "/system/plants" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted"
                     }`}
                 >
                     <item.icon className="h-4 w-4" />

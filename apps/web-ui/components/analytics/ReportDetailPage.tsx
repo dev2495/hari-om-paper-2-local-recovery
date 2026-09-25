@@ -157,11 +157,11 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
         }
         aside={
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               From
               <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-border/10 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
-            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+            <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               To
               <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-border/10 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
@@ -199,12 +199,12 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
                 {chart.length && chartKeys.length ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={chart}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--chart-grid))" />
                       <XAxis dataKey="bucket" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                       <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                      <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
+                      <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
                       {chartKeys.map((key, index) => (
-                        <Bar key={key} dataKey={key} fill={["#0891b2", "#f59e0b", "#0f766e", "#334155"][index % 4]} radius={[6, 6, 0, 0]} />
+                        <Bar key={key} dataKey={key} fill={["hsl(var(--chart-8))", "hsl(var(--chart-6))", "hsl(var(--chart-1))", "hsl(var(--muted-foreground))"][index % 4]} radius={[6, 6, 0, 0]} />
                       ))}
                     </BarChart>
                   </ResponsiveContainer>

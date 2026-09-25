@@ -40,7 +40,7 @@ export default function SalesAnalyticsPage() {
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">Release to Dispatch</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release to Dispatch</p>
               <p className="mt-2 text-3xl font-semibold">{formatMetric(summary.release_to_dispatch_days, "days", 1)}</p>
             </div>
             <StatusBadge value={delayedRows.length > 0 ? "BLOCKED" : "ACTIVE"} label={`${delayedRows.length} delayed orders`} />

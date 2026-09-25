@@ -37,7 +37,7 @@ export default function ContactDirectoryPage() {
             <button
               type="button"
               onClick={() => setFilter("ALL")}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "ALL" ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-muted text-muted-foreground"}`}
+              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "ALL" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">All</p>
               <p className="mt-2 text-2xl font-semibold">{rows.length}</p>
@@ -45,7 +45,7 @@ export default function ContactDirectoryPage() {
             <button
               type="button"
               onClick={() => setFilter("CUSTOMER")}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "CUSTOMER" ? "border-cyan-900 bg-cyan-900 text-white" : "border-border bg-muted text-muted-foreground"}`}
+              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "CUSTOMER" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">Customers</p>
               <p className="mt-2 text-2xl font-semibold">{customerCount}</p>
@@ -53,7 +53,7 @@ export default function ContactDirectoryPage() {
             <button
               type="button"
               onClick={() => setFilter("VENDOR")}
-              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "VENDOR" ? "border-cyan-900 bg-cyan-900 text-white" : "border-border bg-muted text-muted-foreground"}`}
+              className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "VENDOR" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
               <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">Vendors</p>
               <p className="mt-2 text-2xl font-semibold">{vendorCount}</p>

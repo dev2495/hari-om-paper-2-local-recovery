@@ -60,7 +60,7 @@ export function EventDetailDialog({
             <div className="flex flex-wrap items-center gap-2">
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]"
-                style={{ background: meta.color + "1a", borderColor: meta.color + "55", color: meta.color }}
+                style={{ background: `color-mix(in srgb, ${meta.color} 10%, transparent)`, borderColor: `color-mix(in srgb, ${meta.color} 33%, transparent)`, color: meta.color }}
               >
                 <Icon className="h-3 w-3" />
                 {meta.short}
@@ -102,7 +102,7 @@ export function EventDetailDialog({
           {event.details && Object.keys(event.details).length > 0 ? (
             <section className="rounded-2xl border border-border bg-muted/60 p-4">
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Details</p>
-              <pre className="mt-3 max-h-[220px] overflow-auto rounded-xl bg-slate-950 p-3 text-[11.5px] leading-5 text-slate-200">
+              <pre className="mt-3 max-h-[220px] overflow-auto rounded-xl bg-foreground p-3 text-[11.5px] leading-5 text-background/70">
                 {JSON.stringify(event.details, null, 2)}
               </pre>
             </section>
@@ -111,7 +111,7 @@ export function EventDetailDialog({
           <div className="flex flex-wrap gap-2">
             {event.href ? (
               <Link href={event.href}>
-                <Button className="rounded-xl bg-slate-900 text-white hover:bg-slate-800">
+                <Button className="rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
                   <ExternalLink className="mr-2 h-4 w-4" />
                   Open in module
                 </Button>

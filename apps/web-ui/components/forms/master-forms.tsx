@@ -465,17 +465,17 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
 
   return (
     <form onSubmit={handleSubmit(submitMachine)} className="max-h-[78vh] space-y-5 overflow-y-auto px-1 pb-1">
-      <div className="overflow-hidden rounded-3xl border border-border bg-slate-950 text-white">
+      <div className="overflow-hidden rounded-3xl border border-border bg-foreground text-background">
         <div className="grid gap-4 p-5 md:grid-cols-[minmax(0,1fr)_220px]">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200">{selectedCopy.title}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{selectedCopy.title}</p>
             <h3 className="mt-2 text-xl font-semibold">Two-shift machine contract</h3>
-            <p className="mt-2 text-sm leading-6 text-slate-300">{selectedCopy.help}</p>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">{selectedCopy.help}</p>
           </div>
           <div className="rounded-2xl border border-border/10 bg-card/10 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">Planning rule</p>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Planning rule</p>
             <p className="mt-2 text-2xl font-semibold">2 shifts/day</p>
-            <p className="mt-1 text-xs leading-5 text-slate-300">Capacity is entered per shift. Daily visible capacity is calculated, not typed.</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Capacity is entered per shift. Daily visible capacity is calculated, not typed.</p>
           </div>
         </div>
       </div>

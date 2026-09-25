@@ -160,7 +160,7 @@ export default function SalesOrderDetailPage() {
                   handleOpenRelease()
                 }}
                 disabled={approveOrder.isPending}
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white"
+                className="inline-flex items-center gap-2 rounded-xl bg-foreground px-4 py-2.5 text-sm font-semibold text-background"
               >
                 Approve + Release
               </button>
@@ -177,14 +177,14 @@ export default function SalesOrderDetailPage() {
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Current Status</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Current Status</p>
               <div className="mt-3">
                 <StatusBadge value={order.status} />
               </div>
             </div>
-            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4 text-sm text-emerald-100">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4 text-sm text-muted-foreground">
               <p>{customerLabel}</p>
-              <p className="mt-1 text-xs text-emerald-100/80">Created {formatDate(order.created_at)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Created {formatDate(order.created_at)}</p>
             </div>
           </div>
         }
@@ -312,7 +312,7 @@ export default function SalesOrderDetailPage() {
                     </Link>
                     <Link
                       href={`/inventory/genealogy?job_card_id=${job.id}`}
-                      className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white transition hover:bg-slate-800"
+                      className="rounded-xl bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
                     >
                       Full trace
                     </Link>

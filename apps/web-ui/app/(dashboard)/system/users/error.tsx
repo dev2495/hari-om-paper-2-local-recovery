@@ -20,7 +20,7 @@ export default function UsersError({ error, reset }: { error: Error & { digest?:
           <button
             type="button"
             onClick={() => reset()}
-            className="rounded-xl bg-slate-950 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800"
+            className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90"
           >
             Try again
           </button>

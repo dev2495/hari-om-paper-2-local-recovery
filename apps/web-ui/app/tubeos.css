@@ -276,3 +276,9 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
 }
 
 @keyframes bell-ring { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 75% { transform: rotate(2deg); } }
+
+/* Inverted surfaces (bg-foreground) flip with the theme; keep their secondary text legible. */
+.bg-foreground .text-muted-foreground, .bg-foreground.text-muted-foreground { color: hsl(var(--background) / .68); }
+.bg-foreground .text-foreground { color: hsl(var(--background)); }
+.bg-primary .text-muted-foreground { color: hsl(var(--primary-foreground) / .75); }
+.bg-foreground [class*="text-signal-"] { color: hsl(var(--background) / .82); }

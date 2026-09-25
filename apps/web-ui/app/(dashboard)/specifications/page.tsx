@@ -387,7 +387,7 @@ export default function SpecificationsIndexPage() {
               className={cn(
                 "rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition",
                 versionView === view.key
-                  ? "border-slate-900 bg-slate-950 text-white"
+                  ? "border-foreground bg-foreground text-background"
                   : "border-border bg-card text-muted-foreground hover:border-border hover:text-foreground",
               )}
             >

@@ -83,7 +83,7 @@ function ViewSwitcher({ view }: { view: "reorder" | "demand" }) {
       <Link
         href="/analytics/mrp?view=reorder"
         className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-          view === "reorder" ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-card text-muted-foreground"
+          view === "reorder" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground"
         }`}
       >
         Reorder policy
@@ -91,7 +91,7 @@ function ViewSwitcher({ view }: { view: "reorder" | "demand" }) {
       <Link
         href="/analytics/mrp?view=demand"
         className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-          view === "demand" ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-card text-muted-foreground"
+          view === "demand" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground"
         }`}
       >
         Demand / BOM coverage
@@ -152,11 +152,11 @@ function ReorderPolicyView() {
         aside={
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Selected PO value</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Selected PO value</p>
               <p className="mt-2 text-2xl font-semibold">{formatCompactCurrency(poValue)}</p>
             </div>
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Urgent lines</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Urgent lines</p>
               <p className="mt-2 text-2xl font-semibold">{formatCompactNumber(urgentRows.length)}</p>
             </div>
           </div>
@@ -177,20 +177,20 @@ function ReorderPolicyView() {
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={demandChart}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="item" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: any) => formatNumber(value, 2)} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Bar dataKey="available" fill="#0e7490" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="reorder" fill="#f59e0b" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="order" fill="#be123c" radius={[8, 8, 0, 0]} />
+                <Tooltip formatter={(value: any) => formatNumber(value, 2)} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Bar dataKey="available" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="reorder" fill="hsl(var(--chart-6))" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="order" fill="hsl(var(--chart-5))" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </ChartCard>
 
         <ChartCard eyebrow="Purchase orders" title="Create a saved purchase order" description="Select a supplier and review quantities in the purchasing workspace. Saved orders are shared with the team and follow approval controls.">
-          <Link href="/purchase" className="inline-flex rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white">Open purchasing →</Link>
+          <Link href="/purchase" className="inline-flex rounded-xl bg-primary px-4 py-3 font-semibold text-primary-foreground">Open purchasing →</Link>
           <p className="mt-4 text-sm text-muted-foreground">Reorder suggestions are not committed orders and are not demand-driven shortages. Missing policy means a recommendation cannot be calculated.</p>
         </ChartCard>
       </section>
@@ -276,11 +276,11 @@ function DemandCoverageView() {
         aside={
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Open sales lines</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Open sales lines</p>
               <p className="mt-2 text-2xl font-semibold">{formatCompactNumber(demandSource.total_open_lines || 0)}</p>
             </div>
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Coverage state</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Coverage state</p>
               <p className="mt-2 text-2xl font-semibold">{completeness}</p>
             </div>
           </div>
@@ -307,19 +307,19 @@ function DemandCoverageView() {
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartRows}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="item" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: any) => formatNumber(value, 2)} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Bar dataKey="required" fill="#0e7490" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="usable" fill="#059669" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="shortfall" fill="#be123c" radius={[8, 8, 0, 0]} />
+                <Tooltip formatter={(value: any) => formatNumber(value, 2)} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Bar dataKey="required" fill="hsl(var(--chart-1))" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="usable" fill="hsl(var(--chart-7))" radius={[8, 8, 0, 0]} />
+                <Bar dataKey="shortfall" fill="hsl(var(--chart-5))" radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
         </ChartCard>
         <ChartCard eyebrow="Purchase" title="Supplier commitments stay on Purchase" description="A calendar entry is a commitment, not a stock transaction. Create or receive POs in Purchase.">
-          <Link href="/purchase" className="inline-flex rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white">Open purchasing →</Link>
+          <Link href="/purchase" className="inline-flex rounded-xl bg-primary px-4 py-3 font-semibold text-primary-foreground">Open purchasing →</Link>
           <p className="mt-4 text-sm text-muted-foreground">Open PO remainder is shown as supply due on each material row. It is not added into usable stock.</p>
         </ChartCard>
       </section>

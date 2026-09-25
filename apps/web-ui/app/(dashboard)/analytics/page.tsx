@@ -302,14 +302,14 @@ function AnalyticsLandingPage() {
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Line type="monotone" dataKey="winder" stroke="#0e7490" strokeWidth={2.2} dot={false} />
-                <Line type="monotone" dataKey="oven" stroke="#b45309" strokeWidth={2.2} dot={false} />
-                <Line type="monotone" dataKey="process" stroke="#6d28d9" strokeWidth={2.2} dot={false} />
-                <Line type="monotone" dataKey="dispatch" stroke="#047857" strokeWidth={2.2} dot={false} />
+                <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Line type="monotone" dataKey="winder" stroke="hsl(var(--chart-1))" strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="oven" stroke="hsl(var(--chart-6))" strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="process" stroke="hsl(var(--chart-3))" strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="dispatch" stroke="hsl(var(--chart-7))" strokeWidth={2.2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -318,12 +318,12 @@ function AnalyticsLandingPage() {
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <ReferenceLine y={92} stroke="#dc2626" strokeDasharray="6 6" />
-                <Tooltip formatter={(v: number) => [`${formatPct(v)}`, "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Line type="monotone" dataKey="otif" stroke="#047857" strokeWidth={2.6} dot={{ r: 3 }} />
+                <ReferenceLine y={92} stroke="hsl(var(--chart-5))" strokeDasharray="6 6" />
+                <Tooltip formatter={(v: number) => [`${formatPct(v)}`, "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Line type="monotone" dataKey="otif" stroke="hsl(var(--chart-7))" strokeWidth={2.6} dot={{ r: 3 }} />
               </LineChart>
             </ResponsiveContainer>
           </div>

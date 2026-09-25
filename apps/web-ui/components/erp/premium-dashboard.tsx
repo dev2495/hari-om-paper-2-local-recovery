@@ -99,7 +99,7 @@ export function FilterChip({
       className={cn(
         "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition",
         active
-          ? "border-slate-950 bg-slate-950 text-white"
+          ? "border-primary bg-primary text-primary-foreground"
           : "border-border bg-card text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink",
       )}
     >
@@ -267,7 +267,7 @@ export function CompactTable({
   return (
     <div className="max-w-full overflow-x-auto rounded-[1.4rem] border border-border">
       <table className="min-w-full text-left text-sm">
-        <thead className="bg-slate-950 text-white">
+        <thead className="bg-[hsl(var(--surface-2))] text-muted-foreground">
           <tr>
             {columns.map((column) => (
               <th key={column.key} className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em]">
@@ -311,7 +311,7 @@ export function TrendBars({
     <div className="h-[320px]">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={rows}>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--foreground))" }} />
@@ -343,7 +343,7 @@ export function AreaTrend({
               <stop offset="100%" stopColor={color} stopOpacity={0.05} />
             </linearGradient>
           </defs>
-          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+          <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
           <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--foreground))" }} />

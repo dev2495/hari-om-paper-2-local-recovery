@@ -57,7 +57,7 @@ export default function DispatchSelectionPage() {
                 aside={
                     <div>
                         <p className="text-2xl font-semibold text-white">{jobs.length}</p>
-                        <p className="text-xs font-medium uppercase tracking-[0.12em] text-slate-300">handoffs visible</p>
+                        <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">handoffs visible</p>
                     </div>
                 }
             />
@@ -67,7 +67,7 @@ export default function DispatchSelectionPage() {
                     <label className="text-xs font-semibold text-muted-foreground">Customer</label>
                     <input
                         type="text"
-                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500"
                         placeholder="Filter by customer..."
                         value={filterCustomer}
                         onChange={(e) => setFilterCustomer(e.target.value)}
@@ -77,7 +77,7 @@ export default function DispatchSelectionPage() {
                     <label className="text-xs font-semibold text-muted-foreground">Job Card No / ID</label>
                     <input
                         type="text"
-                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500"
                         placeholder="Search Job Card..."
                         value={filterJobNo}
                         onChange={(e) => setFilterJobNo(e.target.value)}
@@ -86,7 +86,7 @@ export default function DispatchSelectionPage() {
                 <div className="flex-1 space-y-1">
                     <label className="text-xs font-semibold text-muted-foreground">Dispatch Status</label>
                     <select
-                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500 bg-card"
+                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-signal-amber-ink/40 focus:ring-1 focus:ring-amber-500 bg-card"
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value)}
                     >
@@ -163,7 +163,7 @@ export default function DispatchSelectionPage() {
                                             </td>
                                             <td className="px-4 py-3">
                                                 {job.dispatch_status === "SEALED" ? (
-                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-emerald-200">SEALED</span>
+                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-signal-emerald-line">SEALED</span>
                                                 ) : job.dispatch_status === "DRAFT" ? (
                                                     <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-signal-amber-ink border-signal-amber-line bg-signal-amber-soft">DRAFT</span>
                                                 ) : (

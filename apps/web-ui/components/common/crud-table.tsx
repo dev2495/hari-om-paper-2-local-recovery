@@ -192,7 +192,7 @@ export function CrudTable({
                                     href={link.href}
                                     className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                                         active
-                                            ? "border-slate-950 bg-slate-950 text-white"
+                                            ? "border-primary bg-primary text-primary-foreground"
                                             : "border-border bg-muted text-muted-foreground hover:border-border hover:bg-card"
                                     }`}
                                 >
@@ -234,7 +234,7 @@ export function CrudTable({
                                 }}
                             >
                                 <DialogTrigger asChild>
-                                    <Button className="h-11 rounded-xl bg-slate-900 text-white shadow-lg shadow-slate-900/10 hover:bg-slate-800" disabled={writeBlocked}>
+                                    <Button className="h-11 rounded-xl bg-primary text-primary-foreground shadow-lg shadow-slate-900/10 hover:bg-primary/90" disabled={writeBlocked}>
                                         <Plus className="mr-2 h-4 w-4" />
                                         Add New
                                     </Button>

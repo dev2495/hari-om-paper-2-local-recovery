@@ -113,26 +113,26 @@ export default function InventoryLedgerPage() {
           {drillFrom ? (
             <Link
               href={drillFrom === "reconciliation" ? "/production/reconciliation" : `/${drillFrom}`}
-              className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
             >
               <ArrowLeft className="h-3 w-3" /> Back to {drillFrom}
             </Link>
           ) : (
             <Link
               href="/inventory/ledger"
-              className="inline-flex items-center gap-1 rounded-full border border-cyan-700 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
             >
               Clear drill <ArrowRight className="h-3 w-3" />
             </Link>
           )}
         </section>
       ) : null}
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl">
-        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Inventory audit</p>
+      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-foreground via-cyan-950 to-foreground p-6 text-white shadow-2xl">
+        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Inventory audit</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold tracking-[-0.04em]">Ledger, balances, and location truth</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-cyan-50/80">
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-muted-foreground">
               Physical, reserved, available, and transaction movement stay on one page so stores can audit stock without jumping between screens.
             </p>
           </div>
@@ -140,8 +140,8 @@ export default function InventoryLedgerPage() {
             Stock close <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
-        {isLoading ? <p className="mt-4 rounded-2xl bg-card/10 px-4 py-3 text-sm text-cyan-50">Loading live inventory ledger...</p> : null}
-        {isError ? <p className="mt-4 rounded-2xl border border-signal-rose-line/40 bg-rose-500/20 px-4 py-3 text-sm text-rose-50">Some inventory services failed. Showing whatever data loaded successfully.</p> : null}
+        {isLoading ? <p className="mt-4 rounded-2xl bg-card/10 px-4 py-3 text-sm text-muted-foreground">Loading live inventory ledger...</p> : null}
+        {isError ? <p className="mt-4 rounded-2xl border border-signal-rose-line/40 bg-rose-500/20 px-4 py-3 text-sm text-muted-foreground">Some inventory services failed. Showing whatever data loaded successfully.</p> : null}
       </section>
 
       <section className="grid gap-3 md:grid-cols-3">
@@ -157,7 +157,7 @@ export default function InventoryLedgerPage() {
                 <p className="mt-2 text-3xl font-semibold text-foreground">{formatNumber(card.value)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p>
               </div>
-              <div className="rounded-2xl bg-cyan-950 p-3 text-white">
+              <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
                 <card.icon className="h-5 w-5" />
               </div>
             </div>
@@ -194,7 +194,7 @@ export default function InventoryLedgerPage() {
           </div>
           <div className="mt-4 max-h-[460px] overflow-auto rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
+              <thead className="sticky top-0 bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Code</th>
                   <th className="px-3 py-3">Item</th>

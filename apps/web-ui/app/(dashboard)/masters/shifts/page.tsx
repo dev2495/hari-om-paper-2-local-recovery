@@ -165,7 +165,7 @@ function ShiftsPage() {
           </select>
         </FilterField>
         <span className="ml-auto" />
-        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">+ New shift</button>
+        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">+ New shift</button>
       </>}
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.9fr)]">
@@ -190,7 +190,7 @@ function ShiftsPage() {
               ) : (
                 <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft">Deactivate</button>
               )}
-              <button onClick={startEdit} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">Edit</button>
+              <button onClick={startEdit} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">Edit</button>
             </div>
           ) : null}
         />
@@ -198,7 +198,7 @@ function ShiftsPage() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New shift" size="md" footer={<>
         <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-        <button onClick={submitCreate} disabled={createShift.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{createShift.isPending ? "Creating…" : "Create"}</button>
+        <button onClick={submitCreate} disabled={createShift.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">{createShift.isPending ? "Creating…" : "Create"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={createForm.code} onChange={(v) => setCreateForm({ ...createForm, code: v })} placeholder="A / DAY / NIGHT" />
@@ -215,7 +215,7 @@ function ShiftsPage() {
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title={editForm.name || "Shift"} size="md" footer={<>
         <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-        <button onClick={submitEdit} disabled={updateShift.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{updateShift.isPending ? "Saving…" : "Save"}</button>
+        <button onClick={submitEdit} disabled={updateShift.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">{updateShift.isPending ? "Saving…" : "Save"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={editForm.code || ""} onChange={(v) => setEditForm({ ...editForm, code: v })} />

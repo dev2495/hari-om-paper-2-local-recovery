@@ -130,7 +130,7 @@ function OwnerPackPage() {
           </span>
         </FilterField>
         <span className="ml-auto" />
-        <a href="/api/analytics/reports/owner-pack/pdf?download=1" className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-900" rel="noopener" target="_blank">
+        <a href="/api/analytics/reports/owner-pack/pdf?download=1" className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90" rel="noopener" target="_blank">
           Export PDF
         </a>
       </ReportFilterBar>
@@ -171,15 +171,15 @@ function OwnerPackPage() {
               <AreaChart data={dispatchSeries}>
                 <defs>
                   <linearGradient id="dispatchFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#0e7490" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#0e7490" stopOpacity={0.05} />
+                    <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(v: number) => [`${formatNumber(v)} kg`, "Dispatch"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Area type="monotone" dataKey="dispatch" stroke="#0e7490" strokeWidth={2.4} fill="url(#dispatchFill)" />
+                <Tooltip formatter={(v: number) => [`${formatNumber(v)} kg`, "Dispatch"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Area type="monotone" dataKey="dispatch" stroke="hsl(var(--chart-1))" strokeWidth={2.4} fill="url(#dispatchFill)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

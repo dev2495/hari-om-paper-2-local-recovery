@@ -175,7 +175,7 @@ function ReasonCodesPage() {
           </select>
         </FilterField>
         <span className="ml-auto" />
-        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">+ New reason</button>
+        <button onClick={() => { setCreateForm({ ...blank }); setCreateOpen(true) }} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">+ New reason</button>
       </>}
     >
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.55fr)_minmax(380px,0.9fr)]">
@@ -203,7 +203,7 @@ function ReasonCodesPage() {
               ) : (
                 <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft">Deactivate</button>
               )}
-              <button onClick={startEdit} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">Edit</button>
+              <button onClick={startEdit} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow hover:bg-primary/90">Edit</button>
             </div>
           ) : null}
         />
@@ -211,7 +211,7 @@ function ReasonCodesPage() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New reason code" size="md" footer={<>
         <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-        <button onClick={submitCreate} disabled={createReason.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{createReason.isPending ? "Creating…" : "Create"}</button>
+        <button onClick={submitCreate} disabled={createReason.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">{createReason.isPending ? "Creating…" : "Create"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={createForm.code} onChange={(v) => setCreateForm({ ...createForm, code: v })} placeholder="DT-POWER" />
@@ -239,7 +239,7 @@ function ReasonCodesPage() {
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title={editForm.label || "Reason code"} size="md" footer={<>
         <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
-        <button onClick={submitEdit} disabled={updateReason.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{updateReason.isPending ? "Saving…" : "Save"}</button>
+        <button onClick={submitEdit} disabled={updateReason.isPending} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground shadow disabled:opacity-50">{updateReason.isPending ? "Saving…" : "Save"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={editForm.code || ""} onChange={(v) => setEditForm({ ...editForm, code: v })} />

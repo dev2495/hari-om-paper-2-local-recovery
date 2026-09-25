@@ -64,7 +64,7 @@ export function RoleGate({
           </strong>
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
-          <Button asChild className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+          <Button asChild className="rounded-2xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90">
             <Link href="/dashboard">Back to dashboard</Link>
           </Button>
         </div>

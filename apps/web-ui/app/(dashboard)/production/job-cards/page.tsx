@@ -113,9 +113,9 @@ export default function JobCardsPage() {
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Open Cards</p>
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Open Cards</p>
               <p className="mt-2 text-3xl font-semibold" data-testid="job-cards:open-count">{Number(aggregates.open_cards ?? visibleCards)}</p>
-              <p className="mt-1 text-xs text-emerald-100/80">Server aggregate across all job cards in plant scope</p>
+              <p className="mt-1 text-xs text-muted-foreground">Server aggregate across all job cards in plant scope</p>
             </div>
             <Link href="/planning/board?section=winder" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-semibold text-foreground">
               <Factory className="h-4 w-4" />
@@ -152,7 +152,7 @@ export default function JobCardsPage() {
               <PackageCheck className="h-3.5 w-3.5" />
               Issue to WIP
             </Link>
-            <Link href="/quality" className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-white hover:bg-slate-800">
+            <Link href="/quality" className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-primary-foreground hover:bg-primary/90">
               Quality desk <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -168,7 +168,7 @@ export default function JobCardsPage() {
                 href={href}
                 data-testid={`job-cards:stage-tile:${row.stage}`}
                 className={`rounded-[1.15rem] border px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 ${
-                  active ? "border-cyan-400 bg-signal-cyan-soft" : "border-border bg-muted"
+                  active ? "border-signal-cyan-line bg-signal-cyan-soft" : "border-border bg-muted"
                 }`}
               >
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{row.stage.replace(/_/g, " ")}</p>

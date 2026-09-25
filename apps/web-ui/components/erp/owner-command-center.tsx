@@ -57,7 +57,7 @@ function labelColumn(rows: any[]) {
   return candidates.find((candidate) => candidate in row) || Object.keys(row).find((key) => typeof row[key] === "string") || null
 }
 
-const palette = ["#0f766e", "#1d4ed8", "#b45309", "#7c3aed", "#be123c"]
+const palette = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-6))", "hsl(var(--chart-3))", "hsl(var(--chart-5))"]
 
 export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProps) {
   const headline = report?.headline || {}
@@ -86,9 +86,9 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
       <section className="rounded-[2rem] border border-border bg-card p-8 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-4xl">
-            <p className="text-xs font-black uppercase tracking-[0.35em] text-cyan-200">Owner Pack</p>
+            <p className="text-xs font-black uppercase tracking-[0.35em] text-muted-foreground">Owner Pack</p>
             <h1 className="mt-3 text-3xl font-black tracking-tight">Command center</h1>
-            <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-slate-200">
+            <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-muted-foreground">
               Consolidated production, sales, inventory, quality, and reconciliation posture. This page should read like a control pack, not a raw export.
             </p>
           </div>
@@ -132,9 +132,9 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
             ) : (
               <ChartBox>
                 <LineChart data={primarySeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#dbe4ee" />
-                  <XAxis dataKey={primaryLabel} stroke="#64748b" />
-                  <YAxis stroke="#64748b" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
+                  <XAxis dataKey={primaryLabel} stroke="hsl(var(--chart-axis))" />
+                  <YAxis stroke="hsl(var(--chart-axis))" />
                   <ChartTooltip />
                   {primaryMetrics.map((metric, index) => (
                     <Line key={metric} type="monotone" dataKey={metric} name={humanize(metric)} stroke={palette[index % palette.length]} strokeWidth={2.5} dot={false} />
@@ -178,9 +178,9 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
             ) : (
               <ChartBox>
                 <BarChart data={secondarySeries}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#dbe4ee" />
-                  <XAxis dataKey={secondaryLabel} stroke="#64748b" />
-                  <YAxis stroke="#64748b" />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
+                  <XAxis dataKey={secondaryLabel} stroke="hsl(var(--chart-axis))" />
+                  <YAxis stroke="hsl(var(--chart-axis))" />
                   <ChartTooltip />
                   {secondaryMetrics.map((metric, index) => (
                     <Bar key={metric} dataKey={metric} name={humanize(metric)} fill={palette[index % palette.length]} radius={[8, 8, 0, 0]} />

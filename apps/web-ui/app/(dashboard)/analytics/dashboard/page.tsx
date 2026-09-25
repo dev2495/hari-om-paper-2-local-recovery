@@ -87,14 +87,14 @@ export default function DashboardOverviewPage() {
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Line type="monotone" dataKey="winder" stroke="#0891b2" strokeWidth={2.2} dot={false} />
-                <Line type="monotone" dataKey="oven" stroke="#d97706" strokeWidth={2.2} dot={false} />
+                <Tooltip contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Line type="monotone" dataKey="winder" stroke="hsl(var(--chart-8))" strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="oven" stroke="hsl(var(--chart-6))" strokeWidth={2.2} dot={false} />
                 <Line type="monotone" dataKey="process" stroke="#4f46e5" strokeWidth={2.2} dot={false} />
-                <Line type="monotone" dataKey="dispatch" stroke="#16a34a" strokeWidth={2.2} dot={false} />
+                <Line type="monotone" dataKey="dispatch" stroke="hsl(var(--chart-7))" strokeWidth={2.2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -103,12 +103,12 @@ export default function DashboardOverviewPage() {
           <div className="h-[320px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={series}>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <Tooltip formatter={(value: number) => [formatPercent(value), "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Line type="monotone" dataKey="otif" stroke="#be123c" strokeWidth={2.4} dot={false} />
-                <Line type="monotone" dataKey={() => 92} stroke="#0f172a" strokeDasharray="6 6" dot={false} />
+                <Tooltip formatter={(value: number) => [formatPercent(value), "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Line type="monotone" dataKey="otif" stroke="hsl(var(--chart-5))" strokeWidth={2.4} dot={false} />
+                <Line type="monotone" dataKey={() => 92} stroke="hsl(var(--foreground))" strokeDasharray="6 6" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -124,11 +124,11 @@ export default function DashboardOverviewPage() {
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={topCustomers}>
-                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                   <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                  <Tooltip formatter={(value: number) => [formatCompactCurrency(value), "Value"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                  <Bar dataKey="value" fill="#0891b2" radius={[8, 8, 0, 0]} />
+                  <Tooltip formatter={(value: number) => [formatCompactCurrency(value), "Value"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                  <Bar dataKey="value" fill="hsl(var(--chart-8))" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>

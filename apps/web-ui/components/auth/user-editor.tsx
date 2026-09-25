@@ -350,7 +350,7 @@ export function UserEditor({ userId }: { userId?: string }) {
                     key={role}
                     title={roleMeta[role]?.summary || undefined}
                     className={`flex items-start gap-3 rounded-xl border p-3 transition ${
-                      active ? "border-cyan-500 bg-signal-cyan-soft/60" : "border-border"
+                      active ? "border-signal-cyan-ink/40 bg-signal-cyan-soft/60" : "border-border"
                     }`}
                   >
                     <input type="checkbox" className="mt-1" checked={active} onChange={() => toggleRole(role)} />
@@ -469,7 +469,7 @@ export function UserEditor({ userId }: { userId?: string }) {
           <Button
             type="submit"
             disabled={submitDisabled}
-            className="h-12 rounded-xl bg-slate-950 px-6 font-semibold text-white disabled:opacity-40"
+            className="h-12 rounded-xl bg-primary px-6 font-semibold text-primary-foreground disabled:opacity-40"
           >
             {saving ? "Saving…" : userId ? "Save changes" : "Create user"}
           </Button>

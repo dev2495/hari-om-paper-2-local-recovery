@@ -241,7 +241,7 @@ export function ReleaseToQueueDialog({
       <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-border bg-muted p-0" style={{ width: "min(980px, calc(100vw - 2rem))", maxWidth: "none" }}>
         <DialogHeader className="border-b border-border bg-card px-6 py-4">
           <div className="flex items-start gap-3">
-            <div className="rounded-xl bg-slate-950 p-2.5 text-white"><Factory className="h-5 w-5" /></div>
+            <div className="rounded-xl bg-foreground p-2.5 text-background"><Factory className="h-5 w-5" /></div>
             <div>
               <DialogTitle>Approve + release to winder queue</DialogTitle>
               <DialogDescription>Select an authorized same-plant winder. Geometry mismatch is advisory only.</DialogDescription>
@@ -270,7 +270,7 @@ export function ReleaseToQueueDialog({
               </div>
               <a
                 href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`}
-                className="inline-flex rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
+                className="inline-flex rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
                 data-testid="sales-order-detail:open-winder-queue"
               >
                 Open planning queue
@@ -329,7 +329,7 @@ export function ReleaseToQueueDialog({
                     const detail = error?.response?.data?.detail || error?.message || "Release failed."
                     showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
                   })}
-                  className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
                 >
                   <CheckCircle2 className="h-4 w-4" />
                   Release to queue

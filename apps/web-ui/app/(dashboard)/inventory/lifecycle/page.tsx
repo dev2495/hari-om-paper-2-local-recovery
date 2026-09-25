@@ -142,9 +142,9 @@ type StepStatus = "PENDING" | "ACTIVE" | "DONE" | "BLOCKED"
 
 const STATUS_COLORS: Record<StepStatus, { ring: string; bg: string; chip: string; chipLabel: string }> = {
   PENDING: { ring: "border-border", bg: "bg-muted/60", chip: "bg-muted text-muted-foreground", chipLabel: "Pending" },
-  ACTIVE: { ring: "border-signal-amber-line ring-2 ring-amber-200", bg: "bg-signal-amber-soft/70", chip: "bg-amber-200 text-signal-amber-ink", chipLabel: "Now" },
-  DONE: { ring: "border-signal-emerald-line", bg: "bg-signal-emerald-soft/70", chip: "bg-emerald-200 text-signal-emerald-ink", chipLabel: "Done" },
-  BLOCKED: { ring: "border-signal-rose-line ring-2 ring-rose-200", bg: "bg-signal-rose-soft/70", chip: "bg-rose-200 text-signal-rose-ink", chipLabel: "Blocked" },
+  ACTIVE: { ring: "border-signal-amber-line ring-2 ring-ring/15", bg: "bg-signal-amber-soft/70", chip: "bg-signal-amber-line text-signal-amber-ink", chipLabel: "Now" },
+  DONE: { ring: "border-signal-emerald-line", bg: "bg-signal-emerald-soft/70", chip: "bg-signal-emerald-line text-signal-emerald-ink", chipLabel: "Done" },
+  BLOCKED: { ring: "border-signal-rose-line ring-2 ring-ring/15", bg: "bg-signal-rose-soft/70", chip: "bg-signal-rose-line text-signal-rose-ink", chipLabel: "Blocked" },
 }
 
 function normalizeRows(raw: any): any[] {
@@ -308,9 +308,9 @@ function StockLifecycleHubPage() {
         }
         aside={
           <div className="space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/85">Next action</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Next action</p>
             <p className="text-lg font-semibold leading-tight">{nextAction.title}</p>
-            <p className="text-[12px] leading-5 text-slate-200/85">{nextAction.detail}</p>
+            <p className="text-[12px] leading-5 text-muted-foreground">{nextAction.detail}</p>
             <Link
               href={nextAction.href}
               className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/20 bg-card/10 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-white hover:bg-card/20"
@@ -357,7 +357,7 @@ function StockLifecycleHubPage() {
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-card shadow-sm ring-1 ring-slate-200">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-card shadow-sm ring-1 ring-border">
                     <Icon className="h-4.5 w-4.5 text-muted-foreground" />
                   </div>
                   <span className={cn("rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", colors.chip)}>
@@ -501,21 +501,21 @@ function StockLifecycleHubPage() {
             title="Theoretical"
             subtitle="What the spec says we should consume"
             value={fmtKg(summary?.total_theoretical_consumption_kg)}
-            color="#0e7490"
+            color="hsl(var(--chart-1))"
             icon={Sigma}
           />
           <StreamCard
             title="Ledger issued"
             subtitle="What stores actually issued day-by-day"
             value={fmtKg(summary?.total_ledger_issued_kg)}
-            color="#7c3aed"
+            color="hsl(var(--chart-3))"
             icon={Workflow}
           />
           <StreamCard
             title="Actual"
             subtitle="What the plant register confirms"
             value={fmtKg(summary?.total_actual_consumption_kg)}
-            color="#059669"
+            color="hsl(var(--chart-7))"
             icon={ClipboardCheck}
           />
         </div>
@@ -531,13 +531,13 @@ function StockLifecycleHubPage() {
                 },
               ]}
             >
-              <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "#475569" }} />
-              <YAxis tick={{ fontSize: 11, fill: "#64748b" }} />
-              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 12 }} />
-              <Bar dataKey="Theoretical" fill="#0e7490" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="Ledger" fill="#7c3aed" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="Actual" fill="#059669" radius={[6, 6, 0, 0]} />
+              <CartesianGrid stroke="hsl(var(--chart-grid))" vertical={false} strokeDasharray="3 3" />
+              <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--chart-axis))" }} />
+              <YAxis tick={{ fontSize: 11, fill: "hsl(var(--chart-axis))" }} />
+              <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 12 }} />
+              <Bar dataKey="Theoretical" fill="hsl(var(--chart-1))" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="Ledger" fill="hsl(var(--chart-3))" radius={[6, 6, 0, 0]} />
+              <Bar dataKey="Actual" fill="hsl(var(--chart-7))" radius={[6, 6, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
@@ -587,15 +587,15 @@ function StockLifecycleHubPage() {
                 <AreaChart data={historyTrend}>
                   <defs>
                     <linearGradient id="hub-trend" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#0e7490" stopOpacity={0.5} />
-                      <stop offset="100%" stopColor="#0e7490" stopOpacity={0.05} />
+                      <stop offset="0%" stopColor="hsl(var(--chart-1))" stopOpacity={0.5} />
+                      <stop offset="100%" stopColor="hsl(var(--chart-1))" stopOpacity={0.05} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid stroke="#e2e8f0" vertical={false} strokeDasharray="3 3" />
-                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#475569" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#64748b" }} />
-                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", fontSize: 11 }} />
-                  <Area type="monotone" dataKey="rows" stroke="#0e7490" strokeWidth={2} fill="url(#hub-trend)" />
+                  <CartesianGrid stroke="hsl(var(--chart-grid))" vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--chart-axis))" }} />
+                  <Tooltip contentStyle={{ borderRadius: 12, border: "1px solid hsl(var(--chart-grid))", fontSize: 11 }} />
+                  <Area type="monotone" dataKey="rows" stroke="hsl(var(--chart-1))" strokeWidth={2} fill="url(#hub-trend)" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
@@ -702,7 +702,7 @@ function ShortcutTile({ href, title, detail, icon: Icon }: { href: string; title
         <p className="text-sm font-semibold text-foreground">{title}</p>
         <p className="text-[12px] text-muted-foreground">{detail}</p>
       </div>
-      <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:text-signal-cyan-ink" />
+      <ArrowRight className="h-4 w-4 text-muted-foreground transition group-hover:text-signal-cyan-ink" />
     </Link>
   )
 }

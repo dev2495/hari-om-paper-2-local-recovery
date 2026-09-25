@@ -131,16 +131,16 @@ function SalesPulsePage() {
               <AreaChart data={otifData}>
                 <defs>
                   <linearGradient id="otifFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#047857" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="#047857" stopOpacity={0.05} />
+                    <stop offset="0%" stopColor="hsl(var(--chart-7))" stopOpacity={0.4} />
+                    <stop offset="100%" stopColor="hsl(var(--chart-7))" stopOpacity={0.05} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="#e2e8f0" />
+                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <ReferenceLine y={92} stroke="#dc2626" strokeDasharray="6 6" />
-                <Tooltip formatter={(v: number) => [`${formatPct(v)}`, "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
-                <Area type="monotone" dataKey="otif" stroke="#047857" strokeWidth={2.4} fill="url(#otifFill)" />
+                <ReferenceLine y={92} stroke="hsl(var(--chart-5))" strokeDasharray="6 6" />
+                <Tooltip formatter={(v: number) => [`${formatPct(v)}`, "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
+                <Area type="monotone" dataKey="otif" stroke="hsl(var(--chart-7))" strokeWidth={2.4} fill="url(#otifFill)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>

@@ -123,7 +123,7 @@ export function KeyboardScheduleForm({
             ))}
           </select>
         </label>
-        <button type="submit" data-testid="planner-keyboard-schedule:submit" disabled={busy || !jobId} className="self-end rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:opacity-40">
+        <button type="submit" data-testid="planner-keyboard-schedule:submit" disabled={busy || !jobId} className="self-end rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-40">
           Schedule
         </button>
       </div>

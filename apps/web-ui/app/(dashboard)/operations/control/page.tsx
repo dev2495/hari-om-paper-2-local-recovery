@@ -471,7 +471,7 @@ function OperationsControlPage() {
                       <button
                         type="button"
                         onClick={() => openResolveForm(h.id)}
-                        className="inline-flex items-center gap-1 rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-900"
+                        className="inline-flex items-center gap-1 rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90"
                       >
                         Resolve
                       </button>
@@ -484,14 +484,14 @@ function OperationsControlPage() {
                         <button
                           type="button"
                           onClick={() => setResolveDecision("CARRY_FORWARD")}
-                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "CARRY_FORWARD" ? "border-emerald-700 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}
+                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "CARRY_FORWARD" ? "border-signal-emerald-ink/40 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}
                         >
                           Carry forward<br /><span className="text-[10px] font-normal">Spawn top-up JC for the gap</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setResolveDecision("SHORT_CLOSE_SO")}
-                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "SHORT_CLOSE_SO" ? "border-amber-700 bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-card text-muted-foreground"}`}
+                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "SHORT_CLOSE_SO" ? "border-signal-amber-ink/40 bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-card text-muted-foreground"}`}
                         >
                           Short-close SO line<br /><span className="text-[10px] font-normal">Customer agreed to short ship</span>
                         </button>
@@ -516,7 +516,7 @@ function OperationsControlPage() {
                           type="button"
                           onClick={() => submitResolveHold(h.id)}
                           disabled={resolveHold.isPending}
-                          className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white hover:bg-slate-900 disabled:opacity-50"
+                          className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                         >
                           {resolveHold.isPending ? "Resolving…" : "Confirm decision"}
                         </button>
@@ -660,13 +660,13 @@ function OperationsControlPage() {
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
             <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Decision *</span>
             <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => setScDecision("CARRY_FORWARD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "CARRY_FORWARD" ? "border-emerald-700 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}>
+              <button type="button" onClick={() => setScDecision("CARRY_FORWARD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "CARRY_FORWARD" ? "border-signal-emerald-ink/40 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}>
                 Carry forward<br /><span className="text-[10px] font-normal">Spawn top-up JC for the gap</span>
               </button>
-              <button type="button" onClick={() => setScDecision("SHORT_CLOSE_SO")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "SHORT_CLOSE_SO" ? "border-amber-700 bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-card text-muted-foreground"}`}>
+              <button type="button" onClick={() => setScDecision("SHORT_CLOSE_SO")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "SHORT_CLOSE_SO" ? "border-signal-amber-ink/40 bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-card text-muted-foreground"}`}>
                 Short-close SO line<br /><span className="text-[10px] font-normal">Customer agreed to short ship</span>
               </button>
-              <button type="button" onClick={() => setScDecision("HOLD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "HOLD" ? "border-slate-700 bg-muted text-foreground" : "border-border bg-card text-muted-foreground"}`}>
+              <button type="button" onClick={() => setScDecision("HOLD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "HOLD" ? "border-foreground/80 bg-muted text-foreground" : "border-border bg-card text-muted-foreground"}`}>
                 Hold<br /><span className="text-[10px] font-normal">Decide later</span>
               </button>
             </div>

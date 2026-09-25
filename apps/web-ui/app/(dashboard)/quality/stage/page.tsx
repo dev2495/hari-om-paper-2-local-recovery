@@ -480,7 +480,7 @@ export default function StageQualityPage() {
                     setLastVerdict("")
                   }}
                   className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-                    stageType === stage.value ? "bg-slate-950 text-white" : "border border-border bg-card text-foreground"
+                    stageType === stage.value ? "bg-foreground text-background" : "border border-border bg-card text-foreground"
                   }`}
                 >
                   {stage.label}
@@ -555,7 +555,7 @@ export default function StageQualityPage() {
               <EmptyState label="Select a job card to load frozen Allowed ranges." />
             )}
             {selectedJobId && failCodes.length >= 2 ? (
-              <div className="space-y-2 rounded-2xl border border-slate-900 bg-card p-4" data-testid="quality-stage-common-cause">
+              <div className="space-y-2 rounded-2xl border border-foreground/80 bg-card p-4" data-testid="quality-stage-common-cause">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Common cause for related failures</div>
                 <p className="text-xs text-muted-foreground">One explanation can cover {failCodes.join(", ")}. Each failed parameter stays listed.</p>
                 <label className="block space-y-1">
@@ -564,7 +564,7 @@ export default function StageQualityPage() {
                     data-testid="stage-qc-common-explanation"
                     value={draft.commonExplanation}
                     onChange={(event) => updateDraft(stageType, { commonExplanation: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                     placeholder="Link one cause to all related failing fields"
                   />
                 </label>
@@ -574,7 +574,7 @@ export default function StageQualityPage() {
                     data-testid="stage-qc-common-containment"
                     value={draft.commonContainment}
                     onChange={(event) => updateDraft(stageType, { commonContainment: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                     placeholder="Immediate containment / affected scope"
                   />
                 </label>
@@ -584,14 +584,14 @@ export default function StageQualityPage() {
                     data-testid="stage-qc-common-assignee"
                     value={draft.commonAssignee}
                     onChange={(event) => updateDraft(stageType, { commonAssignee: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                     placeholder="Responsible person"
                   />
                 </label>
               </div>
             ) : null}
             {originalInspection && String(originalInspection.status).toUpperCase() === "FAIL" ? (
-              <div className="space-y-2 rounded-2xl border border-slate-900 bg-card p-4" data-testid="quality-stage-correction">
+              <div className="space-y-2 rounded-2xl border border-foreground/80 bg-card p-4" data-testid="quality-stage-correction">
                 <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Correction of a recorded FAIL</div>
                 <p className="text-xs text-muted-foreground">
                   Original value stays on the FAIL record. Changing a failing number to a passing one needs a reason, actor, time, and revision. The hold is not cleared.
@@ -608,7 +608,7 @@ export default function StageQualityPage() {
                     data-testid="quality-stage-correction-reason"
                     value={correctionReason}
                     onChange={(event) => setCorrectionReason(event.target.value)}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                     placeholder="Why the previously recorded number is being corrected"
                   />
                 </label>
@@ -625,7 +625,7 @@ export default function StageQualityPage() {
               </div>
             ) : null}
             {requiresInstrument ? (
-              <div className="space-y-3 rounded-2xl border border-slate-900 bg-card p-4" data-testid="quality-stage-instrument-required">
+              <div className="space-y-3 rounded-2xl border border-foreground/80 bg-card p-4" data-testid="quality-stage-instrument-required">
                 <div className="text-sm text-foreground">
                   Required instrument evidence controls readiness. Missing or expired instrument is not measured PASS, and calibration is not invented.
                 </div>
@@ -635,7 +635,7 @@ export default function StageQualityPage() {
                     data-testid="quality-stage-instrument-id"
                     value={draft.instrumentId}
                     onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                   />
                 </label>
                 <label className="block text-sm">
@@ -645,7 +645,7 @@ export default function StageQualityPage() {
                     data-testid="quality-stage-calibration-due"
                     value={draft.calibrationDue}
                     onChange={(event) => updateDraft(stageType, { calibrationDue: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                   />
                 </label>
                 <label className="block text-sm">
@@ -654,7 +654,7 @@ export default function StageQualityPage() {
                     data-testid="quality-stage-calibration-status"
                     value={draft.calibrationStatus}
                     onChange={(event) => updateDraft(stageType, { calibrationStatus: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                     placeholder="valid / expired / missing"
                   />
                 </label>
@@ -664,7 +664,7 @@ export default function StageQualityPage() {
                     data-testid="quality-stage-instrument-evidence"
                     value={draft.instrumentEvidence}
                     onChange={(event) => updateDraft(stageType, { instrumentEvidence: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                    className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                     placeholder="Certificate or documented evidence ref"
                   />
                 </label>
@@ -784,7 +784,7 @@ export default function StageQualityPage() {
                 type="submit"
                 data-testid="quality-stage-submit"
                 disabled={!selectedJobId || createInspection.isPending}
-                className="rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+                className="rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
               >
                 Submit stage readings
               </button>
@@ -795,7 +795,7 @@ export default function StageQualityPage() {
                 onClick={() => {
                   void handleCompleteCard()
                 }}
-                className="rounded-xl border border-slate-900 px-4 py-3 text-sm font-semibold text-foreground disabled:opacity-60"
+                className="rounded-xl border border-foreground/80 px-4 py-3 text-sm font-semibold text-foreground disabled:opacity-60"
               >
                 Submit complete job card
               </button>

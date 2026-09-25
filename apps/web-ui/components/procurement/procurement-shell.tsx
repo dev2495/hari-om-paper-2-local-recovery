@@ -8,10 +8,10 @@ import { PageHeader } from "@/components/workspace/page-header"
 import { cn } from "@/lib/utils"
 
 
-export const fieldClass = "h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 focus:border-cyan-700 focus:ring-4 focus:ring-cyan-100 disabled:bg-muted disabled:text-muted-foreground"
-export const areaClass = "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 focus:border-cyan-700 focus:ring-4 focus:ring-cyan-100"
-export const primaryButton = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
-export const secondaryButton = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-[border-color,background-color,transform] duration-150 hover:border-signal-cyan-line hover:bg-signal-cyan-soft active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+export const fieldClass = "h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 focus:border-signal-cyan-ink/40 focus:ring-4 focus:ring-ring/15 disabled:bg-muted disabled:text-muted-foreground"
+export const areaClass = "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 focus:border-signal-cyan-ink/40 focus:ring-4 focus:ring-ring/15"
+export const primaryButton = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50"
+export const secondaryButton = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-[border-color,background-color,transform] duration-150 hover:border-signal-cyan-line hover:bg-signal-cyan-soft active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50"
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (

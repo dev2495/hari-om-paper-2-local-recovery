@@ -68,7 +68,7 @@ export function StageQcFields({
   return (
     <div className="space-y-3" data-testid="stage-qc-fields">
       {issues.length ? (
-        <div className="rounded-xl border border-slate-900 bg-card p-3 text-sm text-foreground" data-testid="stage-qc-issue-summary" aria-label="Stage QC issues">
+        <div className="rounded-xl border border-foreground/80 bg-card p-3 text-sm text-foreground" data-testid="stage-qc-issue-summary" aria-label="Stage QC issues">
           <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">Issues</div>
           <ul className="mt-1 space-y-1">
             {issues.map((issue) => (
@@ -94,7 +94,7 @@ export function StageQcFields({
             />
           ) : (
             <div
-              className={printLayout ? "qc-print-writable min-h-11 border border-slate-900 bg-card px-2 py-2 text-sm" : "text-sm font-semibold text-foreground"}
+              className={printLayout ? "qc-print-writable min-h-11 border border-foreground/80 bg-card px-2 py-2 text-sm" : "text-sm font-semibold text-foreground"}
               data-testid="stage-qc-sample-id"
               data-blank={sampleId ? "false" : "true"}
             >
@@ -153,7 +153,7 @@ export function StageQcFields({
                   />
                 ) : (
                   <div
-                    className={printLayout ? "qc-print-writable min-h-11 border border-slate-900 bg-card px-2 py-2 text-sm text-foreground" : "text-sm font-semibold text-foreground"}
+                    className={printLayout ? "qc-print-writable min-h-11 border border-foreground/80 bg-card px-2 py-2 text-sm text-foreground" : "text-sm font-semibold text-foreground"}
                     data-testid={`stage-qc-reading-${rule.code}`}
                     data-blank={readings[rule.code] ? "false" : "true"}
                   >
@@ -173,7 +173,7 @@ export function StageQcFields({
               {feedback ? (
                 <p
                   className={`qc-exception mt-2 text-xs font-semibold text-foreground ${
-                    fail || feedback.verdict === "INVALID" ? "qc-exception-fail border border-slate-950 bg-card p-2" : "qc-exception-pass"
+                    fail || feedback.verdict === "INVALID" ? "qc-exception-fail border border-foreground/80 bg-card p-2" : "qc-exception-pass"
                   }`}
                   data-testid={`stage-qc-feedback-${rule.code}`}
                   id={`stage-qc-feedback-${rule.code}`}
@@ -195,7 +195,7 @@ export function StageQcFields({
                         data-testid={`stage-qc-reason-${rule.code}`}
                         value={reasons[rule.code] || ""}
                         onChange={(event) => onReasonChange?.(rule.code, event.target.value)}
-                        className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                         placeholder={
                           reasonCodes?.[rule.code] === "CAUSE_UNDER_INVESTIGATION"
                             ? "Facts only — do not invent a root cause"
@@ -205,7 +205,7 @@ export function StageQcFields({
                       />
                     ) : (
                       <div
-                        className={printLayout ? "qc-print-writable min-h-10 border border-slate-900 bg-card px-2 py-2 text-xs" : "text-xs text-muted-foreground"}
+                        className={printLayout ? "qc-print-writable min-h-10 border border-foreground/80 bg-card px-2 py-2 text-xs" : "text-xs text-muted-foreground"}
                         data-testid={`stage-qc-reason-${rule.code}`}
                         data-blank={reasons[rule.code] ? "false" : "true"}
                       >
@@ -221,7 +221,7 @@ export function StageQcFields({
                         data-testid={`stage-qc-reason-code-${rule.code}`}
                         value={reasonCodes?.[rule.code] || ""}
                         onChange={(event) => onReasonCodeChange?.(rule.code, event.target.value)}
-                        className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                        className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                       >
                         <option value="">Known explanation</option>
                         <option value="CAUSE_UNDER_INVESTIGATION">Cause under investigation</option>
@@ -238,7 +238,7 @@ export function StageQcFields({
                             data-testid={`stage-qc-containment-${rule.code}`}
                             value={containments?.[rule.code] || ""}
                             onChange={(event) => onContainmentChange?.(rule.code, event.target.value)}
-                            className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                            className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                             placeholder="Immediate containment / affected scope"
                             aria-required={fail ? true : undefined}
                           />
@@ -256,7 +256,7 @@ export function StageQcFields({
                             data-testid={`stage-qc-assignee-${rule.code}`}
                             value={assignees?.[rule.code] || ""}
                             onChange={(event) => onAssigneeChange?.(rule.code, event.target.value)}
-                            className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
+                            className="h-10 w-full rounded-xl border border-foreground/80 px-3 text-sm text-foreground"
                             placeholder="Responsible person"
                             aria-required={fail ? true : undefined}
                           />
