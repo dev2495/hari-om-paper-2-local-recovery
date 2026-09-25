@@ -14,6 +14,7 @@ import {
   History,
   PauseCircle,
   PlayCircle,
+  TimerOff,
   ListChecks,
   LoaderCircle,
   Plus,
@@ -260,6 +261,10 @@ export default function SalesOrdersPage() {
     readyOrders: Number(aggregates.ready_count || 0),
     syncedOrders: Number(aggregates.planner_synced_count || 0),
     openQty: Number(aggregates.open_qty || 0),
+    expiredOpen: Number(aggregates.expired_open_count || 0),
+    expiringSoon: Number(aggregates.expiring_7d_count || 0),
+    heldOrders: Number(aggregates.held_order_count || 0),
+    holdQty: Number(aggregates.hold_qty || 0),
   }
 
   const updateSelectedLines = (orderId: string, lineId: string, checked: boolean) => {
@@ -554,7 +559,7 @@ export default function SalesOrdersPage() {
           }
         />
 
-        <MetricRail>
+        <MetricRail className="md:grid-cols-3 2xl:grid-cols-6">
           <button type="button" className="text-left" onClick={() => { setView("orders"); setStatusFilter("draft") }}>
             <MetricCard label="Awaiting approval" value={metrics.draftOrders.toLocaleString("en-IN")} detail="Draft orders waiting for commercial approval" icon={CheckCircle2} tone="amber" />
           </button>
@@ -563,6 +568,8 @@ export default function SalesOrdersPage() {
           </button>
           <MetricCard label="Linked to planning" value={metrics.syncedOrders.toLocaleString("en-IN")} detail="Orders already mapped to job cards" icon={ClipboardCheck} tone="emerald" />
           <MetricCard label="Open quantity" value={`${metrics.openQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`} detail="Pieces still open across all in-scope orders" icon={Factory} tone="violet" />
+          <MetricCard label="Expired SOs" value={metrics.expiredOpen.toLocaleString("en-IN")} detail={`${metrics.expiringSoon} more expire within 7 days · consider a customer hold`} icon={TimerOff} tone={metrics.expiredOpen ? "rose" : "slate"} />
+          <MetricCard label="On customer hold" value={`${metrics.holdQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`} detail={`${metrics.heldOrders} order${metrics.heldOrders === 1 ? "" : "s"} held and closed`} icon={PauseCircle} tone="amber" />
         </MetricRail>
 
         <div className="flex flex-wrap items-center gap-2">

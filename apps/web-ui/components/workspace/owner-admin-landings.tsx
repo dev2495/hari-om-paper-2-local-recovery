@@ -107,6 +107,12 @@ export function OwnerLandingPage() {
     lowStockRows.length
       ? { id: "stock", tone: "warn" as const, title: `${lowStockRows.length} materials are under reorder or safety level.`, action: "Open MRP" }
       : null,
+    Number(salesAggregates?.expired_open_count || 0)
+      ? { id: "expired", tone: "warn" as const, title: `${salesAggregates.expired_open_count} open sales orders are past their expiry date${Number(salesAggregates?.expiring_7d_count || 0) ? `; ${salesAggregates.expiring_7d_count} more expire this week` : ""}.`, action: "Review SOs" }
+      : null,
+    Number(salesAggregates?.hold_qty || 0)
+      ? { id: "hold", tone: "warn" as const, title: `${Number(salesAggregates.hold_qty).toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs are on customer hold across ${salesAggregates.held_order_count} closed PO${Number(salesAggregates.held_order_count) === 1 ? "" : "s"}.`, action: "Open sales" }
+      : null,
   ].filter(Boolean) as Array<{ id: string; tone?: "good" | "warn" | "critical"; title: string; action?: string }>
 
   if (packLoading || salesLoading) return <LoadingState label="Loading the manufacturing overview…" />
@@ -139,7 +145,7 @@ export function OwnerLandingPage() {
         }
       />
 
-      <InsightStrip items={insights.map(item => ({ ...item, onClick: () => router.push(item.id === "delayed" ? "/sales-orders/pending" : item.id === "blocked" ? "/planning/tracker" : "/analytics/mrp") }))} />
+      <InsightStrip items={insights.map(item => ({ ...item, onClick: () => router.push(item.id === "delayed" ? "/sales-orders/pending" : item.id === "blocked" ? "/planning/tracker" : item.id === "expired" || item.id === "hold" ? "/sales-orders?status=all" : "/analytics/mrp") }))} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <KpiCard label="Dispatched value" value={metric(salesAggregates?.dispatched_value ?? headline.dispatch_value, formatCompactCurrency)} detail="Fulfilled quantity × sales-line rate" icon={BarChart3} onClick={() => router.push("/reports/dispatch")} hrefLabel="View dispatch report" />

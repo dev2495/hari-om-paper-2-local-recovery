@@ -738,6 +738,10 @@ class SalesOrderAggregatesResponse(BaseModel):
     released_open_value: float = 0.0
     dispatched_value: float = 0.0
     open_value_by_customer: List[dict] = Field(default_factory=list)
+    expired_open_count: int = 0
+    expiring_7d_count: int = 0
+    held_order_count: int = 0
+    hold_qty: float = 0.0
 
 
 class DeliveryScheduleRowInput(BaseModel):
@@ -918,7 +922,27 @@ def get_sales_order_aggregates(
         if float(row.open_value or 0.0) > 0
     ]
 
+    today = plant_today()
+    open_orders = base.filter(SalesOrder.status != SalesOrderStatus.CLOSED)
+    expired_open_count = int(open_orders.filter(SalesOrder.expiry_date < today).count() or 0)
+    expiring_7d_count = int(
+        open_orders.filter(SalesOrder.expiry_date >= today, SalesOrder.expiry_date <= today + timedelta(days=7)).count() or 0
+    )
+    held_order_count = int(base.filter(SalesOrder.held_at.isnot(None)).count() or 0)
+    hold_qty_query = apply_plant_scope(
+        db.query(func.coalesce(func.sum(SalesOrderLine.hold_qty), 0.0)).join(
+            SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id
+        ).filter(SalesOrder.held_at.isnot(None)),
+        SalesOrder.plant_id,
+        plant_scope,
+    )
+    hold_qty = float(hold_qty_query.scalar() or 0.0)
+
     return {
+        "expired_open_count": expired_open_count,
+        "expiring_7d_count": expiring_7d_count,
+        "held_order_count": held_order_count,
+        "hold_qty": round(hold_qty, 2),
         "draft_count": draft_count,
         "ready_count": ready_count,
         "approved_count": approved_count,
