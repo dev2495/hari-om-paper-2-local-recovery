@@ -166,7 +166,7 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Material split</p>
@@ -187,7 +187,7 @@ export default function InventoryOverviewPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <p className="text-[11.5px] font-semibold text-muted-foreground">Status split</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Usable vs blocked stock</h2>
           <div className="mt-4">
@@ -201,7 +201,7 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <p className="text-[11.5px] font-semibold text-muted-foreground">Paper types</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Top paper load</h2>
           <div className="mt-4 space-y-2">
@@ -220,7 +220,7 @@ export default function InventoryOverviewPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <p className="text-[11.5px] font-semibold text-muted-foreground">Aging</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Old stock risk</h2>
           <div className="mt-4 h-[220px]">
@@ -237,7 +237,7 @@ export default function InventoryOverviewPage() {
           <p className="mt-2 text-xs text-muted-foreground">{staleRows.length} stale reel/batch rows above 60 days.</p>
         </div>
 
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <p className="text-[11.5px] font-semibold text-muted-foreground">MRP actions</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Shortage and purchase queue</h2>
           <div className="mt-4 space-y-2">
@@ -253,7 +253,7 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <p className="text-[11.5px] font-semibold text-muted-foreground">Location pressure</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Occupied bins and staging</h2>
           <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
@@ -279,7 +279,7 @@ export default function InventoryOverviewPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Recent movement</p>
@@ -316,7 +316,7 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Location-wise stock</p>
@@ -353,7 +353,7 @@ export default function InventoryOverviewPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-signal-amber-line bg-signal-amber-soft p-5 shadow-xl shadow-amber-900/5">
+        <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft p-5 shadow-xl shadow-amber-900/5">
           <p className="text-[11.5px] font-semibold text-signal-amber-ink">Stock close logic</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Opening, alerts, and closing in one audit chain</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">

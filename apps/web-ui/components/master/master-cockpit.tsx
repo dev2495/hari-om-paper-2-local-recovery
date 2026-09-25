@@ -79,7 +79,7 @@ export function MasterHero({
           : "border-border/30 bg-card/10 text-white/90"
   return (
     <section
-      className="relative overflow-hidden rounded-[2rem] px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.18)]"
+      className="relative overflow-hidden rounded-xl px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.18)]"
       style={{ backgroundImage: gradients[accent] }}
     >
       <p className="text-[12px] font-semibold text-white/70">{eyebrow}</p>

@@ -107,7 +107,7 @@ function SectionShell({
   className?: string
 }) {
   return (
-    <section className={cn("rounded-[2rem] border border-border bg-card p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]", className)}>
+    <section className={cn("rounded-xl border border-border bg-card p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]", className)}>
       <p className="text-[11.5px] font-semibold text-muted-foreground">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-black tracking-tight text-foreground">{title}</h2>
       <div className="mt-4">{children}</div>
@@ -156,7 +156,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
 
   return (
     <div className={cn("space-y-5", className)} data-testid="owner-intelligence-suite">
-      <section className="relative overflow-hidden rounded-[2.1rem] border border-border bg-[#07111f] px-6 py-6 text-white shadow-[0_24px_90px_rgba(15,23,42,0.20)]">
+      <section className="relative overflow-hidden rounded-xl border border-border bg-[#07111f] px-6 py-6 text-white shadow-[0_24px_90px_rgba(15,23,42,0.20)]">
         <div className="absolute inset-y-0 right-0 hidden w-1/2 bg-card lg:block" />
         <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
@@ -187,9 +187,9 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
       </section>
 
       {query.isLoading ? (
-        <div className="rounded-[2rem] border border-border bg-card p-8 text-sm font-semibold text-muted-foreground">Loading owner intelligence...</div>
+        <div className="rounded-xl border border-border bg-card p-8 text-sm font-semibold text-muted-foreground">Loading owner intelligence...</div>
       ) : query.isError ? (
-        <div className="rounded-[2rem] border border-signal-rose-line bg-signal-rose-soft p-8 text-sm font-semibold text-signal-rose-ink">Unable to load analytics owner pack. Check analytics-service and BFF health.</div>
+        <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-8 text-sm font-semibold text-signal-rose-ink">Unable to load analytics owner pack. Check analytics-service and BFF health.</div>
       ) : (
         <>
           <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">

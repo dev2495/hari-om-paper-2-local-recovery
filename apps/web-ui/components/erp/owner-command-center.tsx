@@ -83,7 +83,7 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
 
   return (
     <div data-testid="analytics-owner-pack-page" className="space-y-6">
-      <section className="rounded-[2rem] border border-border bg-card p-8 text-white shadow-xl">
+      <section className="rounded-xl border border-border bg-card p-8 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-4xl">
             <p className="text-[12px] font-semibold text-muted-foreground">Owner Pack</p>

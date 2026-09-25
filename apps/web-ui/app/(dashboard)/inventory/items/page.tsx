@@ -97,7 +97,7 @@ export default function InventoryItemsPage() {
 
   return (
     <div className="space-y-5" data-testid="inventory-items-page">
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-[hsl(224_24%_13%)] p-6 text-white shadow-2xl">
+      <section className="tube-hero-card animate-enter-up">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[12px] font-semibold text-muted-foreground">Inventory master</p>
@@ -119,7 +119,7 @@ export default function InventoryItemsPage() {
 
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
         <div className="min-w-0 space-y-4">
-        <form onSubmit={handleSubmit} className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Create</p>
@@ -180,7 +180,7 @@ export default function InventoryItemsPage() {
           </button>
         </form>
 
-        <form onSubmit={savePolicy} className="rounded-[2rem] border border-signal-cyan-line bg-signal-cyan-soft/70 p-5 shadow-xl shadow-slate-900/5">
+        <form onSubmit={savePolicy} className="rounded-xl border border-signal-cyan-line bg-signal-cyan-soft/70 p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">Governance</p>
@@ -242,7 +242,7 @@ export default function InventoryItemsPage() {
         ) : null}
         </div>
 
-        <section className="min-w-0 rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <section className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Catalog</p>

@@ -52,7 +52,7 @@ export default function SystemLocationsPage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-emerald-900 p-6 text-white shadow-2xl">
+      <section className="tube-hero-card animate-enter-up">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[12px] font-semibold text-muted-foreground">System setup</p>
@@ -69,7 +69,7 @@ export default function SystemLocationsPage() {
         </div>
       </section>
 
-      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
+      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
         {[
           { href: "/system/users", label: "Users", icon: Building2 },
           { href: "/system/plants", label: "Plants", icon: Building2 },
@@ -91,7 +91,7 @@ export default function SystemLocationsPage() {
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <form onSubmit={handleSubmit} className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <form onSubmit={handleSubmit} className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Create</p>
@@ -148,7 +148,7 @@ export default function SystemLocationsPage() {
           </button>
         </form>
 
-        <section className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <section className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-[11.5px] font-semibold text-muted-foreground">Location master</p>

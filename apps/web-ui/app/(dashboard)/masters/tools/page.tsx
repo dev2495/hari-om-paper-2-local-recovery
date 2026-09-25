@@ -304,7 +304,7 @@ export default function ToolsPage() {
 
   return (
     <div className="space-y-6 px-6 pb-10 pt-2">
-      <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-premium">
+      <section className="overflow-hidden rounded-xl border border-border bg-card shadow-premium">
         <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_360px] lg:px-8">
           <div>
             <p className="text-[12px] font-semibold text-muted-foreground">Master Data Workspace</p>

@@ -147,7 +147,7 @@ export default function PackagingMasterPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
+      <section className="rounded-xl border border-border bg-card/90 p-6 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
             <p className="text-[12px] font-semibold text-muted-foreground">Packaging Workspace</p>
@@ -176,7 +176,7 @@ export default function PackagingMasterPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-border bg-card/90 p-5 shadow-premium">
+      <section className="rounded-xl border border-border bg-card/90 p-5 shadow-premium">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[12px] font-semibold text-muted-foreground">Active section</p>

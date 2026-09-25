@@ -124,13 +124,13 @@ export default function PendingOrdersWorkspacePage() {
         description="Filters, sort, counts and export run on the server for the authorized plant. Production status comes from linked job cards. Open the material plan for residual BOM requirements and dated purchasing coverage."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void exportRows()} className="inline-flex items-center gap-2 rounded-xl bg-card px-4 py-2.5 text-sm font-semibold text-foreground" data-testid="pending-orders:export">
+            <button type="button" onClick={() => void exportRows()} className="erp-btn-primary" data-testid="pending-orders:export">
               <Download className="h-4 w-4" />
               Export full set
             </button>
-            <Link href="/purchase/scheduler" className="rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">Material plan</Link>
-            <Link href="/purchase/supplier-deliveries" className="rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">Supplier deliveries</Link>
-            <Link href="/sales-orders" className="rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">
+            <Link href="/purchase/scheduler" className="erp-btn-secondary">Material plan</Link>
+            <Link href="/purchase/supplier-deliveries" className="erp-btn-secondary">Supplier deliveries</Link>
+            <Link href="/sales-orders" className="erp-btn-secondary">
               Sales queue
             </Link>
           </div>

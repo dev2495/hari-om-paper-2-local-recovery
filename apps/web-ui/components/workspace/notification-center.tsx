@@ -65,7 +65,7 @@ export function NotificationRow({
         {item.message ? <span className={cn("mt-0.5 block text-[12.5px] leading-5 text-muted-foreground", compact ? "line-clamp-2" : "line-clamp-3")}>{item.message}</span> : null}
         <span className="mt-1.5 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] font-medium text-muted-foreground">{category.label}</span>
-          {item.role_context ? <span className="text-[11px] text-muted-foreground/70">· for {item.role_context}</span> : null}
+          {item.role_context ? <span className="text-[11px] text-muted-foreground">· for {item.role_context}</span> : null}
           {priority !== "info" && actionLabel && item.href ? (
             <span className={cn("ml-auto inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-semibold", priority === "critical" ? "bg-signal-rose-soft text-signal-rose-ink" : "bg-primary/10 text-primary")}>
               {actionLabel}

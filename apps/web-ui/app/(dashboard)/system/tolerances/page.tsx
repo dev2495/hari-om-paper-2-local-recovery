@@ -191,7 +191,7 @@ function TolerancesPage() {
 
   return (
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="system-tolerances-page">
-      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
+      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
         {[
           { href: "/system/users", label: "Users", icon: Users2 },
           { href: "/system/plants", label: "Plants", icon: Building2 },

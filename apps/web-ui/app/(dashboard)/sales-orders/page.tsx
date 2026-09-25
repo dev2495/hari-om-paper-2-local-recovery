@@ -969,7 +969,7 @@ export default function SalesOrdersPage() {
       <Dialog open={Boolean(releaseDialogOrder)} onOpenChange={(open) => (!open ? closeReleaseDialog() : null)}>
         <DialogContent
           data-testid="sales-orders:release-dialog"
-          className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-border bg-muted p-0 shadow-2xl"
+          className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl border-border bg-muted p-0 shadow-2xl"
           style={{ width: "min(1180px, calc(100vw - 2rem))", maxWidth: "none" }}
         >
           <div className="flex max-h-[calc(100vh-2rem)] min-h-[560px] flex-col">

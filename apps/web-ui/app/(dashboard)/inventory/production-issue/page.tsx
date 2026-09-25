@@ -220,7 +220,7 @@ export default function InventoryProductionIssuePage() {
 
   return (
     <div className="space-y-6" data-testid="inventory-production-issue-form">
-      <section className="rounded-2xl border border-signal-amber-line/70 bg-gradient-to-r from-[hsl(224_28%_9%)] via-cyan-950 to-amber-900 p-6 text-white shadow-xl">
+      <section className="tube-hero-card animate-enter-up">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-[12px] font-semibold text-muted-foreground">Store to Production</p>

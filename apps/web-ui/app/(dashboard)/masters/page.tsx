@@ -73,7 +73,7 @@ export default function MasterOverviewPage() {
       {workspaceGroups.map((group) => {
         const Icon = group.icon
         return (
-          <section key={group.title} className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
+          <section key={group.title} className="rounded-xl border border-border bg-card/90 p-6 shadow-premium">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
                 <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-[12px] font-semibold text-muted-foreground">

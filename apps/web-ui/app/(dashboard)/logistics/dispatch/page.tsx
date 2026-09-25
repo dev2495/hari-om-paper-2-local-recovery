@@ -56,7 +56,7 @@ export default function DispatchSelectionPage() {
                 description="Create, resume, or review challans for packed jobs. Sealing posts FG stock and sales fulfillment together."
                 aside={
                     <div>
-                        <p className="text-2xl font-semibold text-white">{jobs.length}</p>
+                        <p className="text-2xl font-semibold text-foreground">{jobs.length}</p>
                         <p className="text-[12px] font-medium text-muted-foreground">handoffs visible</p>
                     </div>
                 }

@@ -122,7 +122,7 @@ export default function UsersPage() {
         ))}
       </div>
 
-      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
+      <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
         {[
           { href: "/system/users", label: "Users", icon: Users2, active: true },
           { href: "/system/plants", label: "Plants", icon: Building2, active: false },
@@ -143,7 +143,7 @@ export default function UsersPage() {
         ))}
       </section>
 
-      <section className="overflow-hidden rounded-[2rem] border border-border bg-card/92 shadow-xl shadow-slate-900/5">
+      <section className="overflow-hidden rounded-xl border border-border bg-card/92 shadow-xl shadow-slate-900/5">
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold text-foreground">User management</h2>

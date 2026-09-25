@@ -175,7 +175,7 @@ export function SpecQcToleranceDialog({
       aria-modal="true"
       tabIndex={-1}
     >
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-border bg-card shadow-2xl">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-2xl">
         <div className="border-b border-border px-6 py-4">
           <p className="text-[12px] font-semibold text-muted-foreground">Review quality tolerances</p>
           <h2 className="mt-1 text-2xl font-semibold text-foreground">Stage QC setup before save</h2>

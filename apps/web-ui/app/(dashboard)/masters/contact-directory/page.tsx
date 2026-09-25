@@ -27,7 +27,7 @@ export default function ContactDirectoryPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[1.75rem] border border-border bg-card/90 p-5 shadow-premium">
+      <section className="rounded-xl border border-border bg-card/90 p-5 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[12px] font-semibold text-muted-foreground">Contact Directory</p>

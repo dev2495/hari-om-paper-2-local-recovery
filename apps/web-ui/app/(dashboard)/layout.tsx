@@ -414,7 +414,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="ml-auto flex min-w-0 items-center gap-1 sm:ml-0">
           <AppearanceControls /><BooksLockedChip compact /><RoleSwitcher compact /><NotificationCenter />
           {userRoles.has("Owner") || userRoles.has("Admin") ? <PlantSwitcher compact /> : null}
-          <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
+          <Link href={`/help?route=${encodeURIComponent(pathname)}`} className="tube-icon-button max-[400px]:!hidden" aria-label="Open page guide" title="Open page guide"><BookOpen size={17} /></Link>
         </div>
       </header>
       <main id="workspace-content" tabIndex={-1} className="tube-content focus:outline-none"><div key={pathname} className="tube-page">{children}</div></main>

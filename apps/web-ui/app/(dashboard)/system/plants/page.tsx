@@ -16,7 +16,7 @@ function SystemSetupNav() {
     ]
 
     return (
-        <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
+        <section className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
             {items.map((item) => (
                 <Link
                     key={item.href}

@@ -238,7 +238,7 @@ export function ReleaseToQueueDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-border bg-muted p-0" style={{ width: "min(980px, calc(100vw - 2rem))", maxWidth: "none" }}>
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl border-border bg-muted p-0" style={{ width: "min(980px, calc(100vw - 2rem))", maxWidth: "none" }}>
         <DialogHeader className="border-b border-border bg-card px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-foreground p-2.5 text-background"><Factory className="h-5 w-5" /></div>

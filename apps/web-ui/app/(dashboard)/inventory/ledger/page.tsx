@@ -127,7 +127,7 @@ export default function InventoryLedgerPage() {
           )}
         </section>
       ) : null}
-      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-[hsl(224_24%_13%)] p-6 text-white shadow-2xl">
+      <section className="tube-hero-card animate-enter-up">
         <p className="text-[12px] font-semibold text-muted-foreground">Inventory audit</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -166,7 +166,7 @@ export default function InventoryLedgerPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[1fr_0.9fr]">
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <h2 className="text-lg font-semibold text-foreground">Inventory balances</h2>
           <p className="mt-1 text-sm text-muted-foreground">Opening + receipts - issues - reservations, by item master.</p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -221,7 +221,7 @@ export default function InventoryLedgerPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <h2 className="text-lg font-semibold text-foreground">Location-wise items</h2>
           <p className="mt-1 text-sm text-muted-foreground">Bin-level load for quick store audit and physical count prep.</p>
           <div className="mt-4 max-h-[460px] space-y-2 overflow-y-auto pr-1">
@@ -244,7 +244,7 @@ export default function InventoryLedgerPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+      <section className="rounded-xl border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-foreground">Recent transactions</h2>

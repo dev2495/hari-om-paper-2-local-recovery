@@ -207,7 +207,7 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
 /* Legacy style debt: soften over-rounded / over-shouted classes inside the workspace */
 .tube-content .uppercase { text-transform: none; letter-spacing: .01em; }
 .tube-content .shadow-xl, .tube-content .shadow-2xl, .tube-content .shadow-lg { box-shadow: var(--shadow-premium); }
-.tube-content [class*="rounded-[1.9rem]"], .tube-content [class*="rounded-[1.75rem]"], .tube-content [class*="rounded-[2rem]"], .tube-content .rounded-3xl { border-radius: 14px; }
+.tube-content [class*="rounded-[1.9rem]"], .tube-content [class*="rounded-xl"], .tube-content [class*="rounded-xl"], .tube-content .rounded-3xl { border-radius: 14px; }
 .tube-content [class*="rounded-[1.35rem]"], .tube-content [class*="rounded-[1.3rem]"], .tube-content [class*="rounded-[1.4rem]"], .tube-content [class*="rounded-[1.25rem]"], .tube-content [class*="rounded-[1.2rem]"], .tube-content [class*="rounded-[1.15rem]"], .tube-content [class*="rounded-[1.1rem]"], .tube-content .rounded-2xl { border-radius: 12px; }
 .tube-content [class*="hover:-translate-y-0.5"]:hover { transform: none; }
 
@@ -437,3 +437,21 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 [draggable="true"]:hover { transform: translateY(-1px); box-shadow: var(--shadow-premium-hover); }
 .qr-scan-line { animation: qr-scan 2s ease-in-out infinite alternate; }
 @keyframes qr-scan { from { top: 8%; } to { top: 90%; } }
+
+/* Legacy hero sections (were hard-coded dark gradients) → themed card with an accent glow */
+.tube-hero-card { position: relative; overflow: hidden; border: 1px solid hsl(var(--border)); border-radius: 14px; padding: 20px 22px; color: hsl(var(--foreground)); box-shadow: var(--shadow-sm);
+  background: radial-gradient(120% 140% at 100% 0%, hsl(var(--primary) / .09), transparent 55%), radial-gradient(90% 120% at 0% 100%, hsl(var(--chart-3) / .06), transparent 60%), hsl(var(--card)); }
+.tube-hero-card h1 { font-size: clamp(22px, 2.2vw, 28px); letter-spacing: -0.025em; }
+.tube-hero-card .text-white { color: hsl(var(--foreground)); }
+.tube-hero-card [class*="text-white/"] { color: hsl(var(--muted-foreground)); }
+.tube-hero-card [class*="bg-card/1"], .tube-hero-card [class*="bg-card/2"] { background: hsl(var(--surface-2)); }
+.tube-hero-card [class*="border-border/"] { border-color: hsl(var(--border)); }
+.tube-hero-card [class*="rounded-xl"], .tube-hero-card [class*="rounded-3xl"], .tube-hero-card [class*="rounded-2xl"] { border-radius: 10px; }
+
+/* Page-header actions: any leftover "on dark hero" links read as secondary buttons in both themes */
+.tube-page-header .text-white, .tube-page-actions .text-white { color: hsl(var(--foreground)); }
+.tube-page-actions a[class*="border-border/"], .tube-page-actions a[class*="border-white/"], .tube-page-actions a[class*="bg-card/1"] {
+  display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px; border-radius: 8px; font-size: 13px; font-weight: 550;
+  background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-xs, 0 1px 1px hsl(0 0% 0% / .04)); transition: background-color 160ms, border-color 160ms; }
+.tube-page-actions a[class*="border-border/"]:hover, .tube-page-actions a[class*="border-white/"]:hover, .tube-page-actions a[class*="bg-card/1"]:hover { background: hsl(var(--muted)); }
+.tube-header-aside [class*="border-white/"] { border-color: hsl(var(--border)); }

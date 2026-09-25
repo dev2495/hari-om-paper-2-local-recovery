@@ -165,10 +165,10 @@ export default function SalesOrderDetailPage() {
                 Approve + Release
               </button>
             ) : null}
-            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">
+            <Link href="/sales-orders/pending" className="erp-btn-secondary">
               Pending workspace
             </Link>
-            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-card/10 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-card/20">
+            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="erp-btn-secondary">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
             </Link>

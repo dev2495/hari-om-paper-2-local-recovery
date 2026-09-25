@@ -35,7 +35,11 @@ import { cn } from "@/lib/utils"
 type ReportType = "production" | "sales" | "inventory" | "quality" | "dispatch" | "plants" | "exceptions"
 
 const isoDay = (offsetDays = 0) => new Date(Date.now() - offsetDays * 86_400_000).toISOString().slice(0, 10)
-const formatLabel = (value: string) => value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase())
+const ACRONYMS = new Set(["qc", "fg", "rm", "wip", "otif", "po", "so", "grn", "id", "kg"])
+const formatLabel = (value: string) => {
+  const words = value.replace(/_/g, " ").trim().split(/\s+/)
+  return words.map((word, index) => (ACRONYMS.has(word.toLowerCase()) ? word.toUpperCase() : index === 0 ? word.charAt(0).toUpperCase() + word.slice(1).toLowerCase() : word.toLowerCase())).join(" ")
+}
 const formatCell = (value: unknown) => {
   if (value === null || value === undefined || value === "") return "—"
   if (typeof value === "number") return value.toLocaleString("en-IN", { maximumFractionDigits: 2 })
@@ -226,6 +230,7 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
   }, [allRows])
   const needle = search.trim().toLowerCase()
   const rows = needle ? allRows.filter((row) => columns.some((column) => String(row?.[column] ?? "").toLowerCase().includes(needle))) : allRows
+  const hasTrend = Array.isArray(data?.series)
   const activeRange = RANGES.find((range) => startDate === isoDay(range.days) && endDate === isoDay())?.label
 
   return (
@@ -274,8 +279,8 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
             })}
           </MetricRail>
 
-          <section className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
-            <Panel title="Trend" subtitle={chart.keys.length ? `Daily ${chart.keys.join(", ").toLowerCase()} for the window.` : "Daily movement for the window."}>
+          <section className={cn("grid gap-4", hasTrend && "xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]")}>
+            {hasTrend ? <Panel title="Trend" subtitle={chart.keys.length ? `Daily ${chart.keys.join(", ").toLowerCase()} for the window.` : "Daily movement for the window."}>
               <div className="h-[300px]">
                 {chart.rows.length && chart.keys.length ? (
                   <ResponsiveContainer width="100%" height="100%">
@@ -302,7 +307,7 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
                   <ChartEmptyState label="No movement recorded in this window." />
                 )}
               </div>
-            </Panel>
+            </Panel> : null}
             <Panel title={mix.title} subtitle="Hover a slice to focus it; linked slices open the source list.">
               <Donut
                 slices={mix.slices}

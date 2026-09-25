@@ -141,16 +141,16 @@ export default function JobCardsPage() {
         description="Stage and due-risk tiles are server totals for the authorized plant, not a page-sized sample. Click a stage to open that exact set."
         aside={
           <div className="space-y-3">
-            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[12px] text-muted-foreground">Open Cards</p>
+            <div className="rounded-lg border border-border bg-[hsl(var(--surface-2))] p-4">
+              <p className="text-[12px] text-muted-foreground">Open cards</p>
               <p className="mt-2 text-3xl font-semibold" data-testid="job-cards:open-count">{Number(aggregates.open_cards ?? visibleCards)}</p>
               <p className="mt-1 text-xs text-muted-foreground">Server aggregate across all job cards in plant scope</p>
             </div>
-            <Link href="/planning/board?section=winder" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-semibold text-foreground">
+            <Link href="/planning/board?section=winder" className="erp-btn-primary w-full">
               <Factory className="h-4 w-4" />
               Open planning board
             </Link>
-            <Link href="/production/job-cards/time-reconciliation" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold text-white">
+            <Link href="/production/job-cards/time-reconciliation" className="erp-btn-secondary w-full">
               <TimerReset className="h-4 w-4" />
               Card time reconciliation
             </Link>

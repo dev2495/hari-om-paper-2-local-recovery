@@ -105,7 +105,7 @@ export default function ParchmentsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
+      <section className="rounded-xl border border-border bg-card/90 p-6 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
             <p className="text-[12px] font-semibold text-muted-foreground">Parchment Workspace</p>
@@ -134,7 +134,7 @@ export default function ParchmentsPage() {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-[2rem] border border-border bg-card/90 p-5 shadow-premium">
+        <div className="rounded-xl border border-border bg-card/90 p-5 shadow-premium">
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[12px] font-semibold text-muted-foreground">Approved companies</p>

@@ -173,7 +173,7 @@ export function CrudTable({
 
     return (
         <div className="space-y-6">
-            <section className="rounded-[1.75rem] border border-border bg-card/90 px-4 py-4 shadow-premium">
+            <section className="rounded-xl border border-border bg-card/90 px-4 py-4 shadow-premium">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p className="text-[12px] font-semibold text-muted-foreground">
@@ -204,7 +204,7 @@ export function CrudTable({
                 </div>
             </section>
 
-            <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-premium">
+            <section className="overflow-hidden rounded-xl border border-border bg-card shadow-premium">
                 <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_320px] lg:px-8">
                     <div>
                         <p className="text-[12px] font-semibold text-muted-foreground">Master Data Workspace</p>
@@ -265,7 +265,7 @@ export function CrudTable({
                 </div>
             </section>
 
-            <section className="rounded-[2rem] border border-border bg-card/90 px-5 py-5 shadow-premium">
+            <section className="rounded-xl border border-border bg-card/90 px-5 py-5 shadow-premium">
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="relative w-full max-w-xl">
                         <Label htmlFor={`search-${lowercaseTitle}`} className="sr-only">Search {title}</Label>
@@ -284,7 +284,7 @@ export function CrudTable({
                 </div>
             </section>
 
-            <section className="overflow-hidden rounded-[2rem] border border-border bg-card/90 shadow-premium">
+            <section className="overflow-hidden rounded-xl border border-border bg-card/90 shadow-premium">
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[760px] caption-bottom text-sm">
                         <thead className="bg-muted text-[12px] text-muted-foreground">
