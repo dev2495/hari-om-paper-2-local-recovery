@@ -33,7 +33,7 @@ import {
   YAxis,
 } from "recharts"
 
-import { ExecutiveHero, Panel } from "@/components/erp/shell"
+import { ExecutiveHero, MetricCard, MetricRail, Panel } from "@/components/erp/shell"
 import { useAuth } from "@/context/AuthContext"
 import {
   useApproveMonthlyClose,
@@ -211,57 +211,44 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             </span>
           </>
         }
-        aside={
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Theoretical</p>
-                <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_theoretical_consumption_kg)}</p>
-              </div>
-              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Ledger</p>
-                <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_ledger_issued_kg)}</p>
-              </div>
-              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Actual</p>
-                <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_actual_consumption_kg)}</p>
-              </div>
-              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-3">
-                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">Variance</p>
-                <p className="mt-2 text-2xl font-semibold">{fmtKg(summary?.total_variance_kg)}</p>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                <AlertTriangle className="h-3 w-3" /> {summary?.rows_over_tolerance ?? 0} over tolerance
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                <Pencil className="h-3 w-3" /> {summary?.rows_needing_explanation ?? 0} need notes
-              </span>
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-border/20 bg-card/10 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                <Sigma className="h-3 w-3" /> {rows.length} items
-              </span>
-            </div>
-          </div>
-        }
       />
 
-      {/* Flow context */}
-      <section className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-signal-cyan-line bg-signal-cyan-soft/60 px-4 py-2.5 text-[12.5px] font-semibold text-signal-cyan-ink shadow-sm">
-        <span className="inline-flex items-center gap-1.5 rounded-full bg-card px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink">Step 5–6 of 6</span>
-        <span>You are in <strong>Monthly reconciliation</strong> · <strong>Books lock</strong></span>
-        <Link
-          href="/inventory/lifecycle"
-          className="ml-auto inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
-        >
-          ← Lifecycle hub
-        </Link>
-        <Link
-          href="/inventory/stock-control"
-          className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
-        >
-          Stock control
-        </Link>
+      <MetricRail className="xl:grid-cols-5 2xl:grid-cols-5">
+        <MetricCard label="Theoretical" value={fmtKg(summary?.total_theoretical_consumption_kg)} detail="From job-card BOM snapshots" icon={Sigma} tone="blue" href="#streams" />
+        <MetricCard label="Ledger issued" value={fmtKg(summary?.total_ledger_issued_kg)} detail="Daily production issues" icon={Workflow} tone="teal" href="#streams" />
+        <MetricCard label="Actual" value={fmtKg(summary?.total_actual_consumption_kg)} detail="Plant register import" icon={ClipboardCheck} tone="violet" href="?view=actuals" />
+        <MetricCard
+          label="Variance"
+          value={fmtKg(summary?.total_variance_kg)}
+          detail={Number(summary?.total_theoretical_consumption_kg) ? `${(Number(summary?.total_variance_kg || 0) / Number(summary?.total_theoretical_consumption_kg) * 100).toFixed(1)}% of theoretical` : "Actual − theoretical"}
+          icon={Scale}
+          tone={Math.abs(Number(summary?.total_variance_kg || 0)) > 0 ? "amber" : "emerald"}
+          href="#streams"
+        />
+        <MetricCard label="Needs explanation" value={`${summary?.rows_needing_explanation ?? 0}`} detail={`${summary?.rows_over_tolerance ?? 0} of ${rows.length} items over tolerance`} icon={AlertTriangle} tone={Number(summary?.rows_needing_explanation || 0) ? "rose" : "emerald"} href="?view=actuals" />
+      </MetricRail>
+
+      <section className="erp-panel rounded-xl px-4 py-3" aria-label="Close progress">
+        <ol className="flex flex-wrap items-center gap-x-2 gap-y-2">
+          {[
+            { label: "Stock certified", done: periodState?.stock_cert_status === "CERTIFIED" || periodState?.stock_cert_status === "CARRIED_FORWARD", href: "/inventory/stock-control" },
+            { label: "Actuals entered", done: Number(summary?.total_actual_consumption_kg || 0) > 0, href: "?view=actuals" },
+            { label: "Variances explained", done: Number(summary?.rows_needing_explanation || 0) === 0 && rows.length > 0, href: "?view=actuals" },
+            { label: "Close approved", done: isLocked || closeStatus === "APPROVED", href: "#close" },
+            { label: "Books locked", done: Boolean(books?.locked_through && dayjs(books.locked_through).format("YYYY-MM") >= month), href: "/inventory/lifecycle" },
+          ].map((step, index, steps) => {
+            const current = !step.done && steps.slice(0, index).every((previous) => previous.done)
+            return (
+              <li key={step.label} className="flex items-center gap-2">
+                <Link href={step.href} className={cn("group inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[12.5px] font-medium transition", step.done ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : current ? "border-primary/40 bg-primary/[.07] text-foreground shadow-[0_0_0_3px_hsl(var(--primary)/.08)]" : "border-border bg-card text-muted-foreground hover:text-foreground")}>
+                  <span className={cn("grid h-5 w-5 place-items-center rounded-full text-[11px] font-bold", step.done ? "bg-signal-emerald-ink text-background" : current ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>{step.done ? "✓" : index + 1}</span>
+                  {step.label}
+                </Link>
+                {index < steps.length - 1 ? <span className={cn("h-px w-5", step.done ? "bg-signal-emerald-ink/50" : "bg-border")} aria-hidden="true" /> : null}
+              </li>
+            )
+          })}
+        </ol>
       </section>
 
       {/* Books-locked banner */}
@@ -325,6 +312,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
       {activeTab === "workspace" && (
         <div className="space-y-5">
           <Panel
+            id="streams"
             title="Theoretical · Ledger · Actual"
             subtitle="Three independent consumption streams for the period. Variance = Actual − Theoretical. Ledger is the sum of daily ISSUE_PRODUCTION transactions."
             actions={
@@ -469,6 +457,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             </Panel>
 
             <Panel
+              id="close"
               title="Close month"
               subtitle="Add closing notes, then approve. Approval is blocked while blockers exist above."
             >

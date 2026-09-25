@@ -215,6 +215,7 @@ export function Panel({
   children,
   className,
   testId,
+  id,
 }: {
   title: string
   subtitle?: string
@@ -222,9 +223,11 @@ export function Panel({
   children: ReactNode
   className?: string
   testId?: string
+  id?: string
 }) {
   return (
     <section
+      id={id}
       data-testid={testId}
       className={cn("erp-panel min-w-0 rounded-xl p-4 sm:p-5", className)}
     >
