@@ -14,6 +14,8 @@ import {
   FlaskConical,
   Gauge,
   IndianRupee,
+  LayoutDashboard,
+  ListChecks,
   PackageCheck,
   PauseCircle,
   RefreshCw,
@@ -28,6 +30,8 @@ import { Area, Bar, BarChart, CartesianGrid, Cell, ComposedChart, Legend, Line, 
 
 import { ChartBox, ChartEmptyState, ChartTooltip } from "@/components/erp/charts"
 import { MetricCard, type MetricTone } from "@/components/erp/shell"
+import { Donut, RadialGauge, StackedMeter } from "@/components/erp/viz"
+import { ActionCenter } from "@/components/workspace/action-center"
 import { NotificationRow } from "@/components/workspace/notification-center"
 import { WorkQueue } from "@/components/workspace/work-queue"
 import { useAuth } from "@/context/AuthContext"
@@ -89,13 +93,13 @@ const ROLE_KPIS: Record<LandingRole, KpiKey[]> = {
   Operator: ["activeCards", "overdue", "produced", "qcHolds"],
 }
 
-type ChartKey = "output" | "orderFlow" | "pipeline" | "machines" | "quality" | "inventory" | "customers"
+type ChartKey = "output" | "orderFlow" | "pipeline" | "machines" | "quality" | "inventory" | "customers" | "orderStatus" | "stageDonut" | "commercial"
 const ROLE_CHARTS: Record<LandingRole, ChartKey[]> = {
-  Owner: ["orderFlow", "output", "pipeline", "inventory", "customers", "quality"],
+  Owner: ["orderFlow", "output", "orderStatus", "stageDonut", "commercial", "pipeline", "machines", "inventory", "customers", "quality"],
   Admin: ["orderFlow", "output", "pipeline", "inventory"],
-  PlantManager: ["output", "pipeline", "machines", "quality"],
+  PlantManager: ["output", "stageDonut", "pipeline", "machines", "quality"],
   Planner: ["pipeline", "output", "machines", "orderFlow"],
-  Sales: ["orderFlow", "customers"],
+  Sales: ["orderFlow", "orderStatus", "commercial", "customers"],
   QC: ["quality", "pipeline"],
   Store: ["inventory", "output"],
   Dispatch: ["orderFlow", "pipeline"],
@@ -140,10 +144,13 @@ function CardLink({ href, children }: { href: string; children: ReactNode }) {
  * source renders "Not reported", never zero.
  */
 const ANALYTICS_KPIS: KpiKey[] = ["orderBook", "bookedValue", "dispatchedValue", "otif", "leadTime", "dispatchQty", "produced", "activeCards", "overdue", "adherence", "utilization", "qcPass", "inventoryValue", "blocked"]
-const ANALYTICS_CHARTS: ChartKey[] = ["orderFlow", "output", "pipeline", "machines", "quality", "inventory", "customers"]
+const ANALYTICS_CHARTS: ChartKey[] = ["orderFlow", "output", "orderStatus", "stageDonut", "commercial", "pipeline", "machines", "quality", "inventory", "customers"]
+const OWNER_KPIS: KpiKey[] = ["orderBook", "bookedValue", "dispatchedValue", "otif", "dispatchQty", "produced", "leadTime", "activeCards", "overdue", "blocked", "adherence", "utilization", "qcPass", "qcHolds", "inventoryValue", "lowStock", "dispatchReady", "expired", "holdQty"]
 
 export function CommandCenter({ role, testId, variant = "landing", header }: { role: LandingRole; testId?: string; variant?: "landing" | "analytics"; header?: ReactNode }) {
   const analytics = variant === "analytics"
+  const ownerTabs = role === "Owner" && !analytics
+  const [focus, setFocus] = useState<"kpis" | "actions">("kpis")
   const { user, activePlant } = useAuth()
   const [period, setPeriod] = useState<Period>("30d")
   const range = useMemo(() => periodRange(period), [period])
@@ -215,7 +222,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
   }, [pack])
 
   const charts = analytics ? ANALYTICS_CHARTS : ROLE_CHARTS[role]
-  const kpiKeys = analytics ? ANALYTICS_KPIS : ROLE_KPIS[role]
+  const kpiKeys = analytics ? ANALYTICS_KPIS : ownerTabs ? OWNER_KPIS : ROLE_KPIS[role]
   const firstName = String(user?.name || "").split(/\s+/)[0]
   const inboxItems = (Array.isArray(inbox.data?.items) ? inbox.data.items : []) as InboxNotification[]
   const quick = LANDING_QUICK_ACTIONS[role] || []
@@ -387,6 +394,52 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         ) : <p className="py-10 text-center text-[13px] text-muted-foreground">No open order value.</p>}
       </Card>
     ),
+    orderStatus: (
+      <Card key="orderStatus" title="Order book by status" subtitle={`${num(salesAggregates?.total_order_count)} sales orders, server totals`} action={<CardLink href="/sales-orders?status=all">Orders</CardLink>}>
+        <Donut
+          centerLabel="orders"
+          slices={[
+            { label: "Draft / submitted", value: Number(salesAggregates?.draft_count || 0), color: "hsl(var(--chart-6))", href: "/sales-orders?status=draft" },
+            { label: "Approved, not released", value: Number(salesAggregates?.approved_count || 0), color: "hsl(var(--chart-2))", href: "/sales-orders?status=approved" },
+            { label: "Releasing / dispatching", value: Math.max(0, Number(salesAggregates?.ready_count || 0) - Number(salesAggregates?.approved_count || 0)), color: "hsl(var(--chart-1))", href: "/sales-orders?status=open" },
+            { label: "Closed", value: Math.max(0, Number(salesAggregates?.total_order_count || 0) - Number(salesAggregates?.open_order_count || 0) - Number(salesAggregates?.held_order_count || 0)), color: "hsl(var(--chart-7))", href: "/sales-orders?status=closed" },
+            { label: "Customer hold", value: Number(salesAggregates?.held_order_count || 0), color: "hsl(var(--chart-5))" },
+          ]}
+        />
+      </Card>
+    ),
+    stageDonut: (
+      <Card key="stageDonut" title="Open job cards by stage" subtitle={`${num(jobs.open_cards)} open · ${num(jobs.completed_cards)} completed`} action={<CardLink href="/production/job-cards">Job cards</CardLink>}>
+        <Donut
+          centerLabel="open cards"
+          slices={(Array.isArray(jobs.stage_counts) ? jobs.stage_counts : []).map((row: any, index: number) => ({ label: String(row.stage || "").charAt(0) + String(row.stage || "").slice(1).toLowerCase(), value: Number(row.count || 0), color: `hsl(var(--chart-${(index % 8) + 1}))`, href: `/production/job-cards?stage=${row.stage}` }))}
+        />
+      </Card>
+    ),
+    commercial: (
+      <Card key="commercial" title="Where the order book stands" subtitle={`${inr(Number(salesAggregates?.booked_value))} booked across all orders`} action={<CardLink href="/sales-orders/pending">Pending</CardLink>}>
+        <div className="space-y-5 pt-1">
+          <StackedMeter
+            total={Number(salesAggregates?.booked_value || 0)}
+            format={(value) => inr(value)}
+            parts={[
+              { label: "Dispatched", value: Number(salesAggregates?.dispatched_value || 0), color: "hsl(var(--chart-7))" },
+              { label: "Released, in production", value: Number(salesAggregates?.released_open_value || 0), color: "hsl(var(--chart-1))" },
+              { label: "Not yet released", value: Math.max(0, Number(salesAggregates?.open_order_book_value || 0) - Number(salesAggregates?.released_open_value || 0)), color: "hsl(var(--chart-6))" },
+            ]}
+          />
+          <div className="grid grid-cols-3 divide-x divide-border overflow-hidden rounded-lg border border-border text-center">
+            {[
+              ["Open qty", `${num(salesAggregates?.open_qty)} pcs`],
+              ["On hold", `${num(salesAggregates?.hold_qty)} pcs`],
+              ["Expired SOs", num(salesAggregates?.expired_open_count)],
+            ].map(([label, value]) => (
+              <div key={label} className="px-2 py-2.5"><p className="text-[11px] text-muted-foreground">{label}</p><p className="text-[14px] font-semibold tabular-nums">{value}</p></div>
+            ))}
+          </div>
+        </div>
+      </Card>
+    ),
   }
 
   return (
@@ -417,6 +470,12 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
                 ? `${attention.length} item${attention.length === 1 ? "" : "s"} need attention across orders, production, quality and stock in ${displayPlantScope(activePlant, "all plants")}.`
                 : `Nothing is late or blocked in ${displayPlantScope(activePlant, "all plants")}. Here is how the period is going.`}
             </p>
+            {ownerTabs ? (
+              <div className="tube-segment mt-4" role="tablist" aria-label="Owner focus">
+                <button type="button" role="tab" aria-selected={focus === "kpis"} data-state={focus === "kpis" ? "active" : undefined} onClick={() => setFocus("kpis")}><LayoutDashboard size={14} />Company KPIs</button>
+                <button type="button" role="tab" aria-selected={focus === "actions"} data-state={focus === "actions" ? "active" : undefined} onClick={() => setFocus("actions")}><ListChecks size={14} />Action center{attention.length ? <span className="ml-1 rounded-full bg-signal-rose-soft px-1.5 text-[11px] font-bold text-signal-rose-ink">{attention.length}</span> : null}</button>
+              </div>
+            ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div className="tube-segment" role="group" aria-label="Period">
@@ -432,7 +491,8 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       </section>
       )}
 
-      {analytics ? null : (
+      {ownerTabs && focus === "actions" ? <ActionCenter /> : (<>
+      {analytics || ownerTabs ? null : (
         <section aria-label="Waiting on you">
           <WorkQueue />
         </section>
@@ -458,6 +518,18 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
           )
         })}
       </section>
+
+      {analytics || ownerTabs ? (
+        <section className="erp-panel rounded-xl p-4 sm:p-5" aria-label="Health gauges">
+          <div className="mb-2 flex items-center justify-between"><h3 className="text-[14.5px] font-semibold tracking-tight">Operating health</h3><span className="text-[12px] text-muted-foreground">{dayjs(range.start_date).format("D MMM")} – {dayjs(range.end_date).format("D MMM")}</span></div>
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <RadialGauge label="On time, in full" value={pack.sales?.summary?.closed_orders ? Number(pack.sales.summary.otif_percent) : null} detail={`${num(pack.sales?.summary?.closed_orders)} closed orders`} color="hsl(var(--chart-3))" />
+            <RadialGauge label="Schedule adherence" value={packReady ? Number(pack.production?.summary?.schedule_adherence_percent || 0) : null} detail="Stages on their planned day" color="hsl(var(--chart-6))" />
+            <RadialGauge label="QC pass rate" value={pack.quality?.summary?.has_inspection_data ? Number(pack.quality.summary.pass_rate) : null} detail={`${num(pack.quality?.summary?.checked)} inspections`} color="hsl(var(--chart-7))" />
+            <RadialGauge label="Order book delivered" value={Number(salesAggregates?.booked_value) ? (Number(salesAggregates?.dispatched_value || 0) / Number(salesAggregates.booked_value)) * 100 : null} detail="Dispatched ÷ booked value" color="hsl(var(--chart-1))" />
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid gap-4 xl:grid-cols-2">
         {charts.slice(0, 2).map((key) => chart[key])}
@@ -525,7 +597,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
           {charts.slice(2, 5).map((key) => chart[key])}
         </div>
       ) : null}
-      {charts.length > 5 ? <div className="grid gap-4 xl:grid-cols-2">{charts.slice(5).map((key) => chart[key])}</div> : null}
+      {charts.length > 5 ? <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">{charts.slice(5).map((key) => chart[key])}</div> : null}
 
       {!analytics && quick.length ? (
         <section aria-label="Shortcuts" className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
@@ -540,6 +612,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
           ))}
         </section>
       ) : null}
+      </>)}
     </div>
   )
 }
