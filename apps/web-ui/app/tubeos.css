@@ -419,3 +419,15 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 @keyframes crumb-in { from { opacity: 0; transform: translateX(-6px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
 @media (min-width: 1024px) and (max-width: 1279px) { .tube-context { display: flex; } .tube-crumbs li:not(:last-child):not(:first-child) { display: none; } }
 @keyframes gauge-in { from { stroke-dasharray: 0 999; } }
+
+/* ───────────────────────── Planner drag & capacity ───────────────────────── */
+.planner-slot[data-fit="ok"] { border-color: hsl(var(--signal-emerald-line)); }
+.planner-slot[data-fit="tight"] { border-color: hsl(var(--signal-amber-line)); }
+.planner-slot[data-fit="over"] { border-color: hsl(var(--signal-rose-line)); background-image: repeating-linear-gradient(135deg, hsl(var(--signal-rose-soft) / .6) 0 6px, transparent 6px 12px); }
+.planner-slot[data-fit="blocked"] { opacity: .55; }
+.planner-slot[data-hover] { transform: translateY(-2px) scale(1.01); box-shadow: 0 0 0 2px hsl(var(--primary) / .45), var(--shadow-premium-hover); }
+.planner-slot[data-hover][data-fit="over"] { box-shadow: 0 0 0 2px hsl(var(--signal-rose-ink) / .55), var(--shadow-premium-hover); }
+.planner-projection { background-image: repeating-linear-gradient(45deg, transparent 0 4px, hsl(0 0% 100% / .35) 4px 8px); animation: fade-in 160ms ease both; }
+[draggable="true"] { cursor: grab; transition: transform 160ms var(--ease-spring), box-shadow 160ms ease, opacity 160ms ease; }
+[draggable="true"]:active { cursor: grabbing; }
+[draggable="true"]:hover { transform: translateY(-1px); box-shadow: var(--shadow-premium-hover); }

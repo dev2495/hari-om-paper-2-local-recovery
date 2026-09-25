@@ -281,6 +281,8 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const { showToast } = useApp()
   const { activePlant, user, isLoading: authLoading } = useAuth()
   const [draggedJob, setDraggedJob] = useState<any | null>(null)
+  const [hoverSlot, setHoverSlot] = useState<string | null>(null)
+  const [pendingDrop, setPendingDrop] = useState<{ job: any; target: DropTarget; label: string; overBy: number; unit: string } | null>(null)
   const [keyboardJob, setKeyboardJob] = useState<any | null>(null)
   const [splitDialogJob, setSplitDialogJob] = useState<any | null>(null)
   const [splitQty, setSplitQty] = useState("")
@@ -1504,7 +1506,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                 setHoverDetail(null)
                                 setDraggedJob(job)
                               }}
-                              onDragEnd={() => setDraggedJob(null)}
+                              onDragEnd={() => { setDraggedJob(null); setHoverSlot(null) }}
                               className={`group relative overflow-hidden rounded-[0.85rem] border bg-card px-2.5 py-1.5 transition-all duration-200 ${
                                 draggedJob?.segment_id === job.segment_id
                                   ? `${stageTheme.border} ${stageTheme.dropRing}`
@@ -1653,30 +1655,43 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                             const isBlockedMachine = machine.status === "DOWN" || machine.status === "MAINT"
                             const ratio = loadRatio(lane.current_load, lane.capacity_value)
                             const flatIndex = `${machine.id}-${dayColumn.date}-${lane.shift_code}-${slotIndex}`
+                            const capacity = Number(lane.capacity_value || 0)
+                            const alreadyHere = draggedJob && (lane.jobs || []).some((job: any) => job.segment_id === draggedJob.segment_id)
+                            const dragNeed = draggedJob && !alreadyHere ? capacityNeedFor(section, draggedJob) : 0
+                            const projected = Number(lane.current_load || 0) + dragNeed
+                            const projectedRatio = capacity > 0 ? (projected / capacity) * 100 : 0
+                            const fit: "none" | "ok" | "tight" | "over" | "blocked" = !draggedJob ? "none" : isBlockedMachine ? "blocked" : capacity <= 0 || dragNeed <= 0 ? "ok" : projectedRatio > 100 ? "over" : projectedRatio >= 85 ? "tight" : "ok"
+                            const isHover = hoverSlot === flatIndex
+                            const slotTarget = { machine_id: lane.machine_id || machine.id, plan_date: dayColumn.date, shift_code: lane.shift_code || null, sequence_no: (lane.jobs || []).length + 1 }
 
                             return (
                               <div
                                 key={flatIndex}
-                                className={`flex min-h-[210px] flex-col rounded-[1.35rem] border p-3 transition-all duration-200 ${
-                                  draggedJob
-                                    ? `${stageTheme.border} ${stageTheme.dropRing}`
-                                    : "border-border bg-card"
-                                } ${isBlockedMachine ? "bg-muted/80" : "bg-card"}`}
-                                onDragOver={(event) => event.preventDefault()}
+                                data-fit={fit}
+                                data-hover={isHover || undefined}
+                                className={`planner-slot relative flex min-h-[210px] flex-col rounded-xl border p-3 transition-all duration-200 ${isBlockedMachine ? "bg-muted/80" : "bg-card"} ${fit === "none" ? "border-border" : ""}`}
+                                onDragOver={(event) => { event.preventDefault(); if (hoverSlot !== flatIndex) setHoverSlot(flatIndex) }}
+                                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setHoverSlot((current) => (current === flatIndex ? null : current)) }}
                                 onDrop={() => {
+                                  setHoverSlot(null)
                                   if (isBlockedMachine) {
                                     setDraggedJob(null)
                                     showToast(`Cannot schedule on ${machine.code} while it is ${machine.status}.`, "error")
                                     return
                                   }
-                                  void handleDrop({
-                                    machine_id: lane.machine_id || machine.id,
-                                    plan_date: dayColumn.date,
-                                    shift_code: lane.shift_code || null,
-                                    sequence_no: (lane.jobs || []).length + 1,
-                                  })
+                                  if (fit === "over" && draggedJob) {
+                                    setPendingDrop({ job: draggedJob, target: slotTarget, label: `${machine.code || machine.name} · ${dayjs(dayColumn.date).format("DD MMM")} · ${lane.shift_label || lane.shift_code || "shift"}`, overBy: projected - capacity, unit: lane.capacity_unit || capacityUnitFor(section) })
+                                    setDraggedJob(null)
+                                    return
+                                  }
+                                  void handleDrop(slotTarget)
                                 }}
                               >
+                                {draggedJob && isHover ? (
+                                  <span className={`pointer-events-none absolute -top-2.5 left-3 z-10 rounded-full px-2 py-0.5 text-[10.5px] font-semibold shadow-sm animate-scale-in ${fit === "over" ? "bg-signal-rose-ink text-background" : fit === "tight" ? "bg-signal-amber-ink text-background" : fit === "blocked" ? "bg-muted-foreground text-background" : "bg-signal-emerald-ink text-background"}`}>
+                                    {fit === "blocked" ? "Machine unavailable" : fit === "over" ? `Over by ${formatLoad(projected - capacity)} — will split` : capacity > 0 ? `Fits · ${Math.round(projectedRatio)}% after drop` : "Drop here"}
+                                  </span>
+                                ) : null}
                                 <div className="flex items-start justify-between gap-2">
                                   <div>
                                     <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
@@ -1687,9 +1702,15 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                   {lane.warning ? <StatusBadge value="BLOCKED" label={lane.warning} /> : null}
                                 </div>
 
-                                <div className="mt-3 rounded-full bg-muted">
+                                <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-muted">
+                                  {draggedJob && dragNeed > 0 && capacity > 0 ? (
+                                    <div
+                                      className={`planner-projection absolute inset-y-0 left-0 rounded-full ${projectedRatio > 100 ? "bg-signal-rose-ink/40" : projectedRatio >= 85 ? "bg-signal-amber-ink/40" : "bg-signal-emerald-ink/35"}`}
+                                      style={{ width: `${Math.min(100, projectedRatio)}%` }}
+                                    />
+                                  ) : null}
                                   <div
-                                    className={`h-2 rounded-full ${
+                                    className={`relative h-2 rounded-full transition-[width] duration-500 ${
                                       ratio >= 100 ? "bg-rose-500" : ratio >= 85 ? "bg-amber-500" : stageTheme.fill
                                     }`}
                                     style={{ width: `${ratio}%` }}
@@ -1729,7 +1750,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                         setHoverDetail(null)
                                         setDraggedJob(job)
                                       }}
-                                      onDragEnd={() => setDraggedJob(null)}
+                                      onDragEnd={() => { setDraggedJob(null); setHoverSlot(null) }}
                                       className={`group relative overflow-hidden rounded-lg border px-2 py-1 text-xs transition-all duration-200 ${
                                         draggedJob?.segment_id === job.segment_id
                                           ? `${stageTheme.border} bg-card ${stageTheme.dropRing}`
@@ -1856,6 +1877,21 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           </div>
         </div>
       ) : null}
+
+      <Dialog open={Boolean(pendingDrop)} onOpenChange={(open) => !open && setPendingDrop(null)}>
+        <DialogContent className="sm:max-w-md" data-testid="planner-capacity-confirm">
+          <DialogHeader>
+            <DialogTitle>Slot will be over capacity</DialogTitle>
+            <DialogDescription>
+              {pendingDrop ? `${jobCardRef(pendingDrop.job)} needs more than ${pendingDrop.label} has left — over by ${formatLoad(pendingDrop.overBy)} ${pendingDrop.unit}. The planner keeps what fits here and splits the rest into the next shift.` : null}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button type="button" className="erp-btn-secondary" onClick={() => setPendingDrop(null)}>Choose another slot</button>
+            <button type="button" className="erp-btn-primary" onClick={() => { const drop = pendingDrop; setPendingDrop(null); if (drop) void scheduleSegment(drop.job, drop.target) }}>Schedule and split</button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(splitDialogJob)} onOpenChange={(open) => !open && setSplitDialogJob(null)}>
         <DialogContent className="max-w-lg">
