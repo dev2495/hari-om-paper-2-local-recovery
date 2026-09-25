@@ -173,5 +173,6 @@ async def release_order_line(line_id: str, request: Request, token: str = Depend
         href=f"/sales-orders/{order_id}" if order_id else "/sales-orders",
         recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Operator"],
         payload={"order_id": order_id, "line_id": line_id},
+        plant_id=(request.headers.get("X-Plant-ID") or "").strip() if (request.headers.get("X-Plant-ID") or "").strip().upper() not in {"", "ALL"} else None,
     )
     return response

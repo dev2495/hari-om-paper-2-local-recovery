@@ -4,6 +4,7 @@ import os
 from src.middleware.auth import get_token
 from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
+from src.services import handoff_events
 
 router = APIRouter()
 PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004")
@@ -92,7 +93,9 @@ async def get_job_qc_template(job_card_id: str, request: Request, token: str = D
 
 @router.post("/quality/job-cards/{job_card_id}/complete")
 async def complete_job_card_qc(job_card_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/complete", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/job-cards/{job_card_id}/complete", request, token)
+    handoff_events.notify_qc_complete(response, request, token, job_card_id)
+    return response
 
 
 @router.post("/quality/supervisor/inspections")
@@ -122,12 +125,17 @@ async def list_quality_holds(request: Request, token: str = Depends(get_token)):
 
 @router.post("/quality/holds")
 async def create_quality_hold(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/holds", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, "/quality/holds", request, token)
+    if request.method == "POST":
+        handoff_events.notify_hold(response, request, token, released=False)
+    return response
 
 
 @router.post("/quality/holds/{hold_id}/release")
 async def release_quality_hold(hold_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/holds/{hold_id}/release", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/quality/holds/{hold_id}/release", request, token)
+    handoff_events.notify_hold(response, request, token, released=True)
+    return response
 
 
 @router.post("/machines")
@@ -157,7 +165,9 @@ async def create_planning_job_card(request: Request, token: str = Depends(get_to
 
 @router.post("/sales-orders/{sales_order_id}/release-sync")
 async def release_sync_sales_order(sales_order_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/sales-orders/{sales_order_id}/release-sync", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/sales-orders/{sales_order_id}/release-sync", request, token)
+    handoff_events.notify_release_sync(response, request, token, sales_order_id)
+    return response
 
 
 @router.post("/sales-orders/{sales_order_id}/release-preflight")
@@ -218,7 +228,19 @@ async def move_planning_board(request: Request, token: str = Depends(get_token))
 
 @router.post("/job-cards/{job_card_id}/assign-machine")
 async def assign_planning_machine(job_card_id: str, request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/assign-machine", request, token)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    response = await proxy_to_service(
+        PRODUCTION_SERVICE_URL,
+        f"/job-cards/{job_card_id}/assign-machine",
+        request,
+        token,
+        json_body=body if isinstance(body, dict) else None,
+    )
+    handoff_events.notify_machine_assigned(response, request, token, job_card_id, body)
+    return response
 
 
 @router.post("/job-cards/{job_card_id}/stage-output")
@@ -240,13 +262,15 @@ async def post_planning_stage_output(job_card_id: str, request: Request, token: 
         candidate = body.get("end_time") or body.get("actual_end") or body.get("work_date")
         if candidate:
             await assert_not_backdated(token, plant_id, effective_date=candidate)
-    return await proxy_to_service(
+    response = await proxy_to_service(
         PRODUCTION_SERVICE_URL,
         f"/job-cards/{job_card_id}/stage-output",
         request,
         token,
         json_body=body if isinstance(body, dict) else None,
     )
+    handoff_events.notify_stage_output(response, request, token, job_card_id)
+    return response
 
 
 @router.get("/planning/time-reconciliation")
@@ -371,9 +395,11 @@ async def put_tolerance_settings(request: Request, token: str = Depends(get_toke
 @router.post("/operations/short-close/{job_card_id}")
 async def post_short_close(job_card_id: str, request: Request, token: str = Depends(get_token)):
     """Close a job card with a gap, reason code, and decision."""
-    return await proxy_to_service(
+    response = await proxy_to_service(
         PRODUCTION_SERVICE_URL, f"/operations/short-close/{job_card_id}", request, token
     )
+    handoff_events.notify_short_close(response, request, token, job_card_id)
+    return response
 
 
 @router.get("/operations/short-close")
@@ -402,7 +428,9 @@ async def post_resolve_hold(short_close_id: str, request: Request, token: str = 
 
 @router.post("/operations/downtime")
 async def post_downtime(request: Request, token: str = Depends(get_token)):
-    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/downtime", request, token)
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, "/operations/downtime", request, token)
+    handoff_events.notify_downtime(response, request, token)
+    return response
 
 
 @router.put("/operations/downtime/{downtime_id}")

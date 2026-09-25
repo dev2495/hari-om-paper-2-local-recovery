@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { AlertTriangle, CheckCircle2, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
+import { AlertTriangle, CheckCircle2, Inbox, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -42,6 +42,12 @@ const navigationUnits: NavGroup[] = [
         href: "/dashboard",
         icon: Gauge,
         description: "Control room overview, alerts, and operating posture.",
+      },
+      {
+        name: "Inbox",
+        href: "/inbox",
+        icon: Inbox,
+        description: "Your role's live work queue plus every handoff, hold and approval that involves you.",
       },
       {
         name: "Guide",

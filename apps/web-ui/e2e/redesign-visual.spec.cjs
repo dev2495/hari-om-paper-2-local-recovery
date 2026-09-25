@@ -37,15 +37,15 @@ test('theme persistence, deliberate navigation resize, command keyboard and mobi
  await page.setViewportSize({width:1440,height:1000})
  await page.goto('/purchase')
  await page.getByRole('button',{name:'Appearance settings',exact:true}).click()
- await page.getByRole('combobox',{name:'Appearance',exact:true}).selectOption('dark')
- await page.getByRole('button',{name:'Close',exact:true}).click()
+ await page.getByRole('group',{name:'Theme',exact:true}).getByRole('button',{name:'Dark',exact:true}).click()
+ await page.keyboard.press('Escape')
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
  await page.reload()
  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
  await page.getByRole('button',{name:'Collapse navigation',exact:true}).click()
  await expect(page.locator('.tube-shell')).toHaveAttribute('data-rail','compact')
  // Transition completion is observed, then pointer movement must not resize content.
- await expect.poll(async()=>(await page.locator('main').boundingBox()).x).toBe(76)
+ await expect.poll(async()=>(await page.locator('main').boundingBox()).x).toBe(64)
  const before=(await page.locator('main').boundingBox()).x
  await page.locator('.tube-rail').hover()
  expect((await page.locator('main').boundingBox()).x).toBe(before)

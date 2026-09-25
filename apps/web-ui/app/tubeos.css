@@ -274,3 +274,5 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
   .tube-page { animation: none !important; }
   :root[data-theme="dark"] { --background: 0 0% 100%; --foreground: 0 0% 0%; --card: 0 0% 100%; --muted: 0 0% 95%; --muted-foreground: 0 0% 25%; --border: 0 0% 80%; --surface-2: 0 0% 97%; color-scheme: light; }
 }
+
+@keyframes bell-ring { 0%, 100% { transform: rotate(0); } 15% { transform: rotate(14deg); } 30% { transform: rotate(-12deg); } 45% { transform: rotate(8deg); } 60% { transform: rotate(-5deg); } 75% { transform: rotate(2deg); } }

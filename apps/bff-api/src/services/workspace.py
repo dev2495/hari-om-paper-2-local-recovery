@@ -174,12 +174,20 @@ async def emit_from_response(
     exclude_user_ids: list[str] | None = None,
     role_context: str | None = None,
     payload: dict[str, Any] | None = None,
+    plant_id: str | None = None,
 ) -> None:
     if response.status_code >= 400:
         return
     body = response_body_json(response)
     if isinstance(body, dict) and body.get("idempotent") is True:
         return
+    event_payload = dict(payload or {})
+    # Plant-scoped delivery needs a plant; most mutation responses carry it.
+    if not (plant_id or event_payload.get("plant_id") or event_payload.get("plant")) and isinstance(body, dict):
+        nested_order = body.get("order") if isinstance(body.get("order"), dict) else {}
+        body_plant = body.get("plant_id") or nested_order.get("plant_id")
+        if body_plant and str(body_plant).upper() != "ALL":
+            event_payload["plant_id"] = str(body_plant)
     try:
         await emit_notification_event(
             token=token,
@@ -191,7 +199,8 @@ async def emit_from_response(
             recipient_user_ids=recipient_user_ids,
             exclude_user_ids=exclude_user_ids,
             role_context=role_context,
-            payload=payload,
+            payload=event_payload,
+            plant_id=plant_id,
         )
     except httpx.RequestError:
         return

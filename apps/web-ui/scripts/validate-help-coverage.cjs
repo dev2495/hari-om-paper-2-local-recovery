@@ -6,7 +6,7 @@ const dashboardRoot = path.join(webRoot, "app", "(dashboard)")
 const guideContentPath = path.join(webRoot, "lib", "guide-content.ts")
 
 const routePatterns = [
-  { pattern: /^\/(?:dashboard|control-tower|landing|help)(?:\/.*)?$/, guideId: "dashboard" },
+  { pattern: /^\/(?:dashboard|control-tower|landing|help|inbox)(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/sales-orders(?:\/.*)?$/, guideId: "sales" },
   { pattern: /^\/(?:specs|specifications)(?:\/.*)?$/, guideId: "specifications" },
   { pattern: /^\/purchase\/scheduler(?:\/.*)?$/, guideId: "purchase-scheduler" },

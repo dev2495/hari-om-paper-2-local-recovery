@@ -382,6 +382,50 @@ async def get_notification_unread_count(request: Request):
     return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to fetch unread count"))
 
 
+@router.get("/notifications/summary")
+async def get_notification_summary(request: Request):
+    token = extract_token(request)
+    try:
+        response = await http_client.get(
+            f"{AUTH_SERVICE_URL}/notifications/summary",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to summarise notifications"))
+
+
+@router.post("/notifications/read")
+async def mark_many_notifications_read(request: Request):
+    token = extract_token(request)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {"ids": []}
+    try:
+        response = await http_client.post(
+            f"{AUTH_SERVICE_URL}/notifications/read",
+            headers={"Authorization": f"Bearer {token}"},
+            json=body if isinstance(body, dict) else {"ids": []},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to mark notifications read"))
+
+
+@router.post("/notifications/{notification_id}/unread")
+async def mark_notification_unread(notification_id: str, request: Request):
+    token = extract_token(request)
+    try:
+        response = await http_client.post(
+            f"{AUTH_SERVICE_URL}/notifications/{notification_id}/unread",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except httpx.RequestError:
+        return JSONResponse(status_code=503, content={"detail": "Auth service unavailable"})
+    return JSONResponse(status_code=response.status_code, content=_safe_json(response, "Unable to mark notification unread"))
+
+
 @router.post("/notifications/mark-all-read")
 async def mark_all_notifications_read(request: Request):
     token = extract_token(request)

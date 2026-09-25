@@ -237,6 +237,74 @@ def create_notifications(
     return created
 
 
+# Inbox taxonomy. Categories follow the order → plan → make → check → store → ship flow.
+NOTIFICATION_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "sales": ("SALES_", "CUSTOMER_"),
+    "planning": ("JOB_CARDS_READY", "JOB_CARD_SCHEDULED", "JOB_CARD_STAGE", "MACHINE_", "MRP_"),
+    "production": ("JOB_CARD_READY_FOR", "JOB_CARD_CLOSED", "JOB_CARD_SHORT", "STATUS_CHANGE", "COIL_", "REEL_"),
+    "quality": ("QC_", "INVENTORY_QC_", "RECIPE_"),
+    "stores": ("INVENTORY_", "FG_", "TOOL_"),
+    "purchase": ("PURCHASE_",),
+    "dispatch": ("DISPATCH_",),
+    "design": ("SPEC_",),
+    "system": ("REPORT_", "LOGIN_"),
+}
+
+CRITICAL_EVENTS = {"QC_HOLD", "QC_HOLD_RAISED", "QC_REJECTED", "MACHINE_DOWNTIME", "INVENTORY_STOCK_COUNT_VARIANCE_POSTED", "REPORT_EXCEPTIONS_FOUND"}
+ACTION_EVENTS = {
+    "SALES_ORDER_CREATED", "SALES_ORDER_APPROVED", "SPEC_REVIEW_REQUESTED", "PURCHASE_ORDER_SUBMITTED",
+    "JOB_CARDS_READY_TO_PLAN", "JOB_CARD_STAGE_HANDOFF", "JOB_CARD_READY_FOR_DISPATCH", "JOB_CARD_CLOSED",
+    "JOB_CARD_SHORT_CLOSED", "QC_SETUP_REQUIRED", "PURCHASE_GRN_POSTED", "MRP_SHORTAGE_DRAFTED", "CUSTOMER_REJECTION_INWARDED",
+}
+
+
+def notification_category(event_type: str | None) -> str:
+    value = str(event_type or "").upper()
+    # Longest matching prefix wins so JOB_CARD_READY_FOR_DISPATCH lands in production, not planning.
+    best, best_len = "system", -1
+    for category, prefixes in NOTIFICATION_CATEGORIES.items():
+        for prefix in prefixes:
+            if value.startswith(prefix) and len(prefix) > best_len:
+                best, best_len = category, len(prefix)
+    if value in {"QC_HOLD"}:
+        return "quality"
+    return best
+
+
+def notification_priority(event_type: str | None, payload: dict[str, Any] | None = None) -> str:
+    declared = str((payload or {}).get("priority") or "").lower()
+    if declared in {"critical", "action", "info"}:
+        return declared
+    value = str(event_type or "").upper()
+    if value in CRITICAL_EVENTS:
+        return "critical"
+    if value in ACTION_EVENTS:
+        return "action"
+    return "info"
+
+
+def category_event_filter(category: str):
+    """SQL filter for a category, mirroring notification_category's prefix rules."""
+    from sqlalchemy import and_, false, not_, or_
+
+    prefixes = NOTIFICATION_CATEGORIES.get(category)
+    if prefixes is None:
+        return false()
+    clauses = [models.Notification.event_type.like(f"{prefix}%") for prefix in prefixes]
+    # Exclude longer prefixes owned by another category (e.g. INVENTORY_QC_ → quality).
+    exclusions = []
+    for other, other_prefixes in NOTIFICATION_CATEGORIES.items():
+        if other == category:
+            continue
+        for other_prefix in other_prefixes:
+            if any(other_prefix.startswith(prefix) and len(other_prefix) > len(prefix) for prefix in prefixes):
+                exclusions.append(models.Notification.event_type.like(f"{other_prefix}%"))
+    condition = or_(*clauses)
+    if category == "quality":
+        condition = or_(condition, models.Notification.event_type == "QC_HOLD")
+    return and_(condition, not_(or_(*exclusions))) if exclusions else condition
+
+
 def serialize_notification(notification: models.Notification) -> dict[str, Any]:
     payload = {}
     if notification.payload:
@@ -260,4 +328,7 @@ def serialize_notification(notification: models.Notification) -> dict[str, Any]:
         "created_at": notification.created_at.isoformat() if notification.created_at else None,
         "actor_user_id": str(notification.actor_user_id) if notification.actor_user_id else None,
         "payload": payload,
+        "category": notification_category(notification.event_type),
+        "priority": notification_priority(notification.event_type, payload),
+        "action": payload.get("action") if isinstance(payload, dict) else None,
     }
