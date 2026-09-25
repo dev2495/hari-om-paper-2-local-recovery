@@ -1,5 +1,7 @@
 "use client"
 
+import { QrScanner } from "@/components/common/qr-scanner"
+
 import dayjs from "dayjs"
 import { Barcode, PackageCheck, Plus, Scissors, Trash2, Undo2 } from "lucide-react"
 import type { KeyboardEvent } from "react"
@@ -97,8 +99,8 @@ export default function ReelIssuePage() {
     }))
   }
 
-  function resolveScan() {
-    const parsed = parseInventoryQr(scanCode)
+  function resolveScan(value: string = scanCode) {
+    const parsed = parseInventoryQr(value)
     if (parsed.entityType && parsed.entityType !== "REEL") {
       setNotice({ tone: "error", text: "Scan a reel or coil QR label." })
       return
@@ -235,7 +237,10 @@ export default function ReelIssuePage() {
                 onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); resolveScan() } }}
               />
             </div>
-            <button type="button" className={secondaryButton} onClick={resolveScan}><PackageCheck className="h-4 w-4" /> Select</button>
+            <div className="flex gap-2">
+              <button type="button" className={secondaryButton} onClick={() => resolveScan()}><PackageCheck className="h-4 w-4" /> Select</button>
+              <QrScanner onScan={(value) => { setScanCode(value); resolveScan(value) }} label="Camera" title="Scan reel label" hint="Point the camera at the reel or coil QR label." />
+            </div>
           </div>
           <form onSubmit={submitIssue} className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
             <Field label="Reel / coil">
