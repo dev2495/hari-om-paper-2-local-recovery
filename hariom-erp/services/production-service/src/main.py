@@ -110,6 +110,16 @@ def _ensure_schema_compatibility():
         "CREATE INDEX IF NOT EXISTS ix_quality_inspections_observation_fingerprint ON quality_inspections (observation_fingerprint)",
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_quality_inspections_observation_fingerprint "
         "ON quality_inspections (observation_fingerprint) WHERE observation_fingerprint IS NOT NULL",
+        # Scale indexes: job-card list ordering, the late-entry/time
+        # reconciliation report, and the per-shift capacity check that runs on
+        # every stage completion.
+        "CREATE INDEX IF NOT EXISTS ix_job_cards_plant_created ON job_cards (plant_id, created_at DESC)",
+        "CREATE INDEX IF NOT EXISTS ix_job_cards_release_lot ON job_cards (release_lot_id)",
+        "CREATE INDEX IF NOT EXISTS ix_job_cards_sales_order_line ON job_cards (sales_order_line_id)",
+        "CREATE INDEX IF NOT EXISTS ix_job_card_stages_entered_at ON job_card_stages (entered_at)",
+        "CREATE INDEX IF NOT EXISTS ix_segments_capacity_lookup "
+        "ON job_card_stage_segments (stage_type, machine_id, shift_code, completed_at) "
+        "WHERE status = 'COMPLETED'",
     ]
     for _statement in _short_close_downtime_migrations:
         try:

@@ -249,6 +249,11 @@ async def post_planning_stage_output(job_card_id: str, request: Request, token: 
     )
 
 
+@router.get("/planning/time-reconciliation")
+async def get_stage_time_reconciliation(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/time-reconciliation", request, token)
+
+
 @router.get("/planning/export")
 async def export_planning_board(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/export", request, token)

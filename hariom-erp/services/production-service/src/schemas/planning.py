@@ -508,6 +508,8 @@ class JobCardPlanningStage(BaseModel):
     material_allocations: list[dict[str, Any]] = Field(default_factory=list)
     location_id: Optional[str] = None
     required_capacity: Optional[float] = None
+    entered_by: Optional[str] = None
+    entered_at: Optional[datetime] = None
 
 
 class JobCardStageSegmentResponse(BaseModel):
@@ -582,6 +584,7 @@ class JobCardPlanningDetail(BaseModel):
     packing_record: Optional[dict[str, Any]] = None
     quality_inspections: list[dict[str, Any]] = Field(default_factory=list)
     quality_holds: list[dict[str, Any]] = Field(default_factory=list)
+    dispatch_history: list[dict[str, Any]] = Field(default_factory=list)
     audit_events: list[dict[str, Any]] = Field(default_factory=list)
     created_at: datetime
 
@@ -721,6 +724,26 @@ class StageOutputPayload(BaseModel):
     entry_snapshot: dict[str, Any] = Field(default_factory=dict)
     remarks: Optional[str] = None
     override_reason: Optional[str] = None
+    # Shift written on the card; recorded on the entry, planner shift is untouched.
+    shift_code: Optional[str] = None
+
+    @field_validator("shift_code")
+    @classmethod
+    def validate_output_shift_code(cls, value: Optional[str]) -> Optional[str]:
+        if value is None or not value.strip():
+            return None
+        normalized = _normalize_upper(value).replace(" ", "_")
+        if normalized not in SHIFT_CODES:
+            raise ValueError("shift_code must be one of SHIFT_A, SHIFT_B")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_card_window(self):
+        if self.start_time and self.end_time:
+            start, end = self.start_time, self.end_time
+            if (start.tzinfo is None) == (end.tzinfo is None) and end < start:
+                raise ValueError("end_time must be greater than or equal to start_time")
+        return self
 
     @field_validator("stage")
     @classmethod

@@ -1553,6 +1553,12 @@ def list_purchase_receipts(
 ):
     rows = (
         db.query(PurchaseReceipt)
+        # Batch-load relations instead of one query per receipt/line.
+        .options(
+            selectinload(PurchaseReceipt.order),
+            selectinload(PurchaseReceipt.lines).selectinload(PurchaseReceiptLine.item),
+            selectinload(PurchaseReceipt.lines).selectinload(PurchaseReceiptLine.batch),
+        )
         .filter(PurchaseReceipt.plant_id == plant_id)
         .order_by(PurchaseReceipt.created_at.desc())
         .limit(limit)

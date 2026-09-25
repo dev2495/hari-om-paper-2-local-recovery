@@ -377,6 +377,7 @@ export const productionApi = {
   getPendingJobCardsByOrder: () => api.get("/api/production/job-cards/pending-by-order"),
   exportJobCards: (params?: any) => api.get("/api/production/job-cards/export", { params, responseType: "blob" }),
   getPlanningJobCard: (id: string) => api.get(`/api/production/job-cards/${id}`),
+  getStageTimeReconciliation: (params?: any) => api.get("/api/production/planning/time-reconciliation", { params }),
   getJobCardGenealogy: (id: string) => api.get(`/api/production/genealogy/job-cards/${id}`),
   getPlanningQueue: (params: {
     stage: string
