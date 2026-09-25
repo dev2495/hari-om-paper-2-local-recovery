@@ -4,7 +4,6 @@ import dayjs from "dayjs"
 import Link from "next/link"
 import {
   ArrowRightLeft,
-  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -18,7 +17,6 @@ import {
   ListChecks,
   LoaderCircle,
   Plus,
-  Rows3,
   Search,
   Send,
 } from "lucide-react"
@@ -30,7 +28,6 @@ import {
   MetricRail,
   StatusBadge,
 } from "@/components/erp/shell"
-import { DeliveryCalendarBoard } from "@/components/sales/delivery-calendar-board"
 import { PageHeader } from "@/components/workspace/page-header"
 import { RowMenu } from "@/components/common/row-menu"
 import { QuerySwitch } from "@/components/workspace/query-state"
@@ -185,20 +182,11 @@ export default function SalesOrdersPage() {
   } | null>(null)
   const searchParams = useSearchParams()
   const [statusFilter, setStatusFilter] = useState(() => searchParams?.get("status") || "open")
-  const [view, setViewState] = useState<"orders" | "calendar">(() => (searchParams?.get("view") === "calendar" ? "calendar" : "orders"))
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [holdOrder, setHoldOrder] = useState<any | null>(null)
   const [holdReason, setHoldReason] = useState("")
   const holdSalesOrder = useHoldSalesOrder()
   const resumeSalesOrder = useResumeSalesOrder()
-  const setView = (next: "orders" | "calendar") => {
-    setViewState(next)
-    const params = new URLSearchParams(window.location.search)
-    if (next === "calendar") params.set("view", "calendar")
-    else params.delete("view")
-    const query = params.toString()
-    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}`)
-  }
   const [pageSize, setPageSize] = useState(25)
   const [pageIndex, setPageIndex] = useState(0)
   const deferredSearch = useDeferredValue(search.trim())
@@ -544,7 +532,7 @@ export default function SalesOrdersPage() {
         <PageHeader
           badge="Sales"
           title="Sales orders"
-          description="Long-running customer POs, line-level releases to planning, and every delivery commitment on one calendar."
+          description="Every customer PO with released, delivered, pending and held quantity. Expand an order to release its lines to planning."
           actions={
             <>
               <Link href="/sales-orders/pending" className="erp-btn-secondary">
@@ -560,10 +548,10 @@ export default function SalesOrdersPage() {
         />
 
         <MetricRail className="md:grid-cols-3 2xl:grid-cols-6">
-          <button type="button" className="text-left" onClick={() => { setView("orders"); setStatusFilter("draft") }}>
+          <button type="button" className="text-left" onClick={() => setStatusFilter("draft")}>
             <MetricCard label="Awaiting approval" value={metrics.draftOrders.toLocaleString("en-IN")} detail="Draft orders waiting for commercial approval" icon={CheckCircle2} tone="amber" />
           </button>
-          <button type="button" className="text-left" onClick={() => { setView("orders"); setStatusFilter("open") }}>
+          <button type="button" className="text-left" onClick={() => setStatusFilter("open")}>
             <MetricCard label="Ready to release" value={metrics.readyOrders.toLocaleString("en-IN")} detail="Approved orders with lines still to release" icon={ArrowRightLeft} tone="cyan" />
           </button>
           <MetricCard label="Linked to planning" value={metrics.syncedOrders.toLocaleString("en-IN")} detail="Orders already mapped to job cards" icon={ClipboardCheck} tone="emerald" />
@@ -572,22 +560,6 @@ export default function SalesOrdersPage() {
           <MetricCard label="On customer hold" value={`${metrics.holdQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`} detail={`${metrics.heldOrders} order${metrics.heldOrders === 1 ? "" : "s"} held and closed`} icon={PauseCircle} tone="amber" />
         </MetricRail>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="tube-segment" role="tablist" aria-label="Sales view">
-            <button type="button" role="tab" aria-selected={view === "orders"} data-state={view === "orders" ? "active" : undefined} onClick={() => setView("orders")}>
-              <Rows3 size={14} />
-              Orders
-            </button>
-            <button type="button" role="tab" aria-selected={view === "calendar"} data-state={view === "calendar" ? "active" : undefined} onClick={() => setView("calendar")}>
-              <CalendarDays size={14} />
-              Delivery calendar
-            </button>
-          </div>
-        </div>
-
-        {view === "calendar" ? (
-          <DeliveryCalendarBoard customerName={customerName} />
-        ) : (
         <section className="erp-panel min-w-0 overflow-hidden rounded-xl" aria-label="Sales order register">
           <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
             <label className="flex h-9 min-w-[200px] flex-1 items-center gap-2 rounded-lg border border-border bg-card px-2.5 sm:max-w-[360px] focus-within:border-ring/70 focus-within:ring-[3px] focus-within:ring-ring/15">
@@ -917,7 +889,6 @@ export default function SalesOrdersPage() {
             </div>
           ) : null}
         </section>
-        )}
       </div>
 
       <Dialog open={Boolean(holdOrder)} onOpenChange={(open) => (!open ? setHoldOrder(null) : null)}>

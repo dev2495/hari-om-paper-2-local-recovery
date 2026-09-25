@@ -32,6 +32,7 @@ type NavGroup = {
 }
 
 const SIDEBAR_STORAGE_KEY = "hariom_sidebar_pinned_v3"
+const GROUPS_STORAGE_KEY = "hariom_sidebar_groups_v1"
 
 const navigationUnits: NavGroup[] = [
   {
@@ -272,6 +273,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const { user, isLoading, logout, activeRole } = useAuth()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sidebarPinned, setSidebarPinned] = useState(true)
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => new Set(["Overview"]))
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
   const userRoles = useMemo(() => new Set([user?.role, ...(user?.roles || [])].filter(Boolean) as string[]), [user?.role, user?.roles])
@@ -292,7 +294,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return parent ? canSeeLink(parent, userRoles) : userRoles.has("Owner") || userRoles.has("Admin")
   }).slice(0, 16), [searchQuery, userRoles])
   useEffect(() => {
-    try { const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY); if (saved !== null) setSidebarPinned(saved === "true") } catch { /* Session-only layout. */ }
+    try {
+      const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY); if (saved !== null) setSidebarPinned(saved === "true")
+      const savedGroups = JSON.parse(localStorage.getItem(GROUPS_STORAGE_KEY) || "null")
+      if (Array.isArray(savedGroups)) setOpenGroups(new Set(savedGroups.map(String)))
+    } catch { /* Session-only layout. */ }
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(open => !open) }
     }
@@ -308,18 +314,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const signOut = async () => { await logout(); router.push("/login") }
   const navigate = (href: string) => { setSearchOpen(false); setSearchQuery(""); setMobileNavOpen(false); router.push(href) }
   const initials = (user?.name || "Hari Om").split(/\s+/).slice(0,2).map(word => word[0]).join("")
+  const isGroupOpen = (title: string, mobile: boolean) => (mobile || !sidebarPinned) ? true : openGroups.has(title) || title === groupName
+  const toggleGroup = (title: string) => setOpenGroups((currentGroups) => {
+    const next = new Set(currentGroups)
+    if (next.has(title) || title === groupName) next.delete(title)
+    else next.add(title)
+    try { localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(Array.from(next))) } catch { /* Session-only layout. */ }
+    return next
+  })
   const navigation = (mobile = false) => <nav className="tube-navigation" aria-label={mobile ? "Mobile workspaces" : "Workspaces"}>
-    {groups.map(group => <details className="tube-nav-group" key={group.title} open={mobile || !sidebarPinned || group.title === groupName || group.title === "Overview"}>
-      {sidebarPinned || mobile ? <summary>{group.title}<ChevronRight size={12} aria-hidden="true" /></summary> : null}
-      {group.items.map(item => <div key={item.href}>
-        <Link href={item.href} className="tube-nav-link" aria-label={item.name} title={`${item.name} · ${item.description}`} aria-current={current?.href === item.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}>
-          <item.icon aria-hidden="true" /><span>{item.name}</span>
-        </Link>
-        {(sidebarPinned || mobile) && current?.href === item.href && MODULE_NAVIGATION[item.href] ? <div className="tube-subnav">
-          {MODULE_NAVIGATION[item.href].map(child => <Link key={child.href} href={child.href} className="tube-nav-link" aria-current={pathname === child.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><span>{child.name}</span></Link>)}
-        </div> : null}
-      </div>)}
-    </details>)}
+    {groups.map(group => {
+      const open = isGroupOpen(group.title, mobile)
+      const groupId = `nav-group-${group.title.replace(/[^a-z]+/gi, "-").toLowerCase()}${mobile ? "-m" : ""}`
+      return <div className="tube-nav-group" key={group.title} data-open={open}>
+        <button type="button" className="tube-nav-group-toggle" aria-expanded={open} aria-controls={groupId} onClick={() => toggleGroup(group.title)}>
+          <span>{group.title}</span><ChevronRight size={12} aria-hidden="true" />
+        </button>
+        <div className="tube-nav-items" id={groupId}><div>
+          {group.items.map(item => <div key={item.href}>
+            <Link href={item.href} className="tube-nav-link" aria-label={item.name} data-tip={item.name} aria-current={current?.href === item.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}>
+              <item.icon aria-hidden="true" /><span>{item.name}</span>
+            </Link>
+            {current?.href === item.href && MODULE_NAVIGATION[item.href] ? <div className="tube-subnav">
+              {MODULE_NAVIGATION[item.href].map(child => <Link key={child.href} href={child.href} className="tube-nav-link" aria-current={pathname === child.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><span>{child.name}</span></Link>)}
+            </div> : null}
+          </div>)}
+        </div></div>
+      </div>
+    })}
   </nav>
   if (isLoading) return <div className="tube-shell" role="status" aria-label="Loading workspace">
     <aside className="tube-rail"><div className="tube-brand"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></div><div className="space-y-2 p-3">{Array.from({ length: 9 }, (_, n) => <div key={n} className="skeleton h-7" style={{ width: `${60 + ((n * 17) % 35)}%` }} />)}</div></aside>

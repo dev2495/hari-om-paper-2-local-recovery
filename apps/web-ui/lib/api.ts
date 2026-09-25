@@ -330,7 +330,6 @@ export const salesApi = {
   getOrderDeliverySchedules: (id: string) => api.get(`/api/sales/orders/${id}/delivery-schedules`),
   holdOrder: (id: string, reason: string) => api.post(`/api/sales/orders/${id}/hold`, { reason }),
   resumeOrder: (id: string) => api.post(`/api/sales/orders/${id}/resume`),
-  getDeliveryCalendar: (params: { start: string; end: string; customer_id?: string; search?: string }) => api.get("/api/sales/orders/delivery-calendar", { params }),
   previewOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/preview`, data),
   commitOrderDeliverySchedules: (id: string, data: any) => api.post(`/api/sales/orders/${id}/delivery-schedules/commit`, data),
   patchOrderDeliverySchedule: (orderId: string, scheduleId: string, data: any) =>
