@@ -86,7 +86,7 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
       <section className="rounded-[2rem] border border-border bg-card p-8 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-4xl">
-            <p className="text-xs font-black uppercase tracking-[0.35em] text-muted-foreground">Owner Pack</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Owner Pack</p>
             <h1 className="mt-3 text-3xl font-black tracking-tight">Command center</h1>
             <p className="mt-3 max-w-3xl text-sm font-medium leading-6 text-muted-foreground">
               Consolidated production, sales, inventory, quality, and reconciliation posture. This page should read like a control pack, not a raw export.
@@ -97,7 +97,7 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
             {printHref ? (
               <a
                 href={printHref}
-                className="inline-flex rounded-full bg-card px-5 py-2 text-xs font-black uppercase tracking-[0.2em] text-foreground"
+                className="inline-flex rounded-full bg-card px-5 py-2 text-[12px] font-semibold text-foreground"
               >
                 Print pack
               </a>
@@ -112,7 +112,7 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
             <article key={label} className="rounded-[1.5rem] border border-border bg-card p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.25em] text-muted-foreground">{label}</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground">{label}</p>
                   <p className="mt-3 text-2xl font-black text-foreground">{value}</p>
                 </div>
                 <div className="rounded-2xl bg-muted p-2.5 text-muted-foreground">
@@ -194,7 +194,7 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
         <Panel title="Filter Preset" subtitle="The active owner-pack filter context that downstream reports inherit.">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-[1.25rem] border border-border bg-muted p-4">
-              <p className="text-xs font-black uppercase tracking-[0.3em] text-signal-cyan-ink">Active Preset</p>
+              <p className="text-[12px] font-semibold text-signal-cyan-ink">Active Preset</p>
               <p data-testid="analytics-filter:active-preset" className="mt-2 text-sm font-black text-foreground">
                 All plants and current reporting window
               </p>
@@ -206,7 +206,7 @@ export function OwnerCommandCenter({ report, printHref }: OwnerCommandCenterProp
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-[0.2em] text-muted-foreground">Preset</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground">Preset</p>
                   <p className="mt-2 text-foreground">All plants</p>
                 </div>
                 <ScrollText className="h-4 w-4 text-muted-foreground" />

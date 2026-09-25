@@ -54,7 +54,7 @@ export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, o
     >
       <div className="grid gap-3 md:grid-cols-2">
         <label className="space-y-1">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Setup status</span>
+          <span className="text-[12px] font-semibold text-muted-foreground">Setup status</span>
           <select
             value={["draft", "complete"].includes(profile.setup_status || profile.status) ? (profile.setup_status || profile.status) : "draft"}
             onChange={(event) =>
@@ -78,7 +78,7 @@ export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, o
       <div className="rounded-2xl border border-border md:overflow-x-auto">
         <table className="block w-full border-collapse text-sm md:table">
           <thead className="hidden md:table-header-group">
-            <tr className="bg-muted text-left text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            <tr className="bg-muted text-left text-[12px] text-muted-foreground">
               <th className="px-3 py-2">Code</th>
               <th className="px-3 py-2">Label</th>
               <th className="px-3 py-2">Unit</th>

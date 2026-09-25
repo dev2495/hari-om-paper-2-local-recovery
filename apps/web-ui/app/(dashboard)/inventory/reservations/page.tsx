@@ -148,7 +148,7 @@ export default function InventoryReservationsPage() {
   return (
     <div className="min-w-0 space-y-5 overflow-x-hidden">
       <section className="rounded-3xl bg-foreground p-5 text-background">
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Finished-goods allocation</p>
+        <p className="text-[12px] font-semibold text-muted-foreground">Finished-goods allocation</p>
         <h1 className="mt-2 text-2xl font-semibold">Reserve real stock against released customer demand</h1>
         <p className="mt-2 max-w-3xl text-sm text-muted-foreground">Each reservation is tied to a sales-order line, approved specification, finished-good item, and physical lot. Dispatch consumes the matching reservation automatically.</p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs">

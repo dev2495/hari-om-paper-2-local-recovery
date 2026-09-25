@@ -197,7 +197,7 @@ export default function InventoryGenealogyPage() {
         description="Trace one job from sales release to planner schedule, production output logs, quality hold/inspection, packed FG stock, dispatch, sales fulfillment, and material reel consumption."
         aside={
           <div className="space-y-4">
-            <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[12px] font-semibold text-muted-foreground">
               <GitBranch className="h-3.5 w-3.5" />
               Active Trace
             </div>
@@ -281,22 +281,22 @@ export default function InventoryGenealogyPage() {
               <>
                 <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
                   <div className="rounded-[1.25rem] border border-signal-cyan-line bg-signal-cyan-soft p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-cyan-ink">Packed FG</p>
+                    <p className="text-[12px] font-semibold text-signal-cyan-ink">Packed FG</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">{Number(genealogy.packing?.total_packed_qty || 0).toLocaleString("en-IN")}</p>
                     <p className="mt-1 text-sm text-muted-foreground">Batch {compactId(genealogy.fg_inventory?.batch_id)}</p>
                   </div>
                   <div className="rounded-[1.25rem] border border-signal-emerald-line bg-signal-emerald-soft p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-emerald-ink">Quality</p>
+                    <p className="text-[12px] font-semibold text-signal-emerald-ink">Quality</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">{activeHoldCount ? "Blocked" : "Clear"}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{asArray(genealogy.quality?.inspections).length} inspection rows</p>
                   </div>
                   <div className="rounded-[1.25rem] border border-signal-amber-line bg-signal-amber-soft p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-amber-ink">Material Issues</p>
+                    <p className="text-[12px] font-semibold text-signal-amber-ink">Material Issues</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">{materialProofCount}</p>
                     <p className="mt-1 text-sm text-muted-foreground">Reel issues plus shift ledgers</p>
                   </div>
                   <div className="rounded-[1.25rem] border border-border bg-muted p-4">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Dispatch</p>
+                    <p className="text-[12px] font-semibold text-muted-foreground">Dispatch</p>
                     <p className="mt-2 text-2xl font-semibold text-foreground">{genealogy.dispatch?.status || "Pending"}</p>
                     <p className="mt-1 text-sm text-muted-foreground">{genealogy.dispatch?.dispatch_snapshot?.dispatch_ref || "No challan sealed"}</p>
                   </div>
@@ -354,7 +354,7 @@ export default function InventoryGenealogyPage() {
 
                 <div className="overflow-hidden rounded-[1.25rem] border border-border">
                   <table className="w-full min-w-[760px] text-left text-sm">
-                    <thead className="bg-[hsl(var(--surface-2))] text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <thead className="bg-[hsl(var(--surface-2))] text-[12px] text-muted-foreground">
                       <tr>
                         <th className="px-4 py-3">Stage</th>
                         <th className="px-4 py-3">Status</th>
@@ -386,7 +386,7 @@ export default function InventoryGenealogyPage() {
                     <article key={ledger.id} className="rounded-[1.2rem] border border-signal-amber-line bg-card p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-amber-ink">Shift material proof</p>
+                          <p className="text-[12px] font-semibold text-signal-amber-ink">Shift material proof</p>
                           <p className="mt-2 font-semibold text-foreground">{ledger.stage_type} | {ledger.shift_code}</p>
                           <p className="mt-1 text-sm leading-6 text-muted-foreground">
                             {kg(ledger.issued_weight_kg)} issued, {kg(ledger.consumed_weight_kg)} consumed, {kg(ledger.wastage_weight_kg)} wastage.
@@ -400,7 +400,7 @@ export default function InventoryGenealogyPage() {
                     <article key={issue.id} className="rounded-[1.2rem] border border-signal-cyan-line bg-card p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-cyan-ink">Reel issue proof</p>
+                          <p className="text-[12px] font-semibold text-signal-cyan-ink">Reel issue proof</p>
                           <p className="mt-2 font-semibold text-foreground">{compactId(issue.id)}</p>
                           <p className="mt-1 text-sm leading-6 text-muted-foreground">
                             {kg(issue.issued_weight_kg)} issued, {kg(issue.consumed_weight_kg)} consumed.
@@ -490,7 +490,7 @@ export default function InventoryGenealogyPage() {
                       </div>
                       <span className="text-xs font-semibold text-muted-foreground">0{index + 1}</span>
                     </div>
-                    <p className="mt-4 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{node.label}</p>
+                    <p className="mt-4 text-[12px] font-semibold text-muted-foreground">{node.label}</p>
                     <p className="mt-2 text-lg font-semibold text-foreground">{node.value}</p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">{node.detail}</p>
                   </article>
@@ -512,7 +512,7 @@ export default function InventoryGenealogyPage() {
           ) : (
             <div className="overflow-hidden rounded-[1.25rem] border border-border">
               <table className="w-full min-w-[680px] text-left text-sm">
-                <thead className="bg-[hsl(var(--surface-2))] text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                <thead className="bg-[hsl(var(--surface-2))] text-[12px] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3">Issue</th>
                     <th className="px-4 py-3">Section</th>
@@ -556,7 +556,7 @@ export default function InventoryGenealogyPage() {
                     <div>
                       <div className="flex flex-wrap items-center gap-2">
                         <StatusBadge value={event.event_type} />
-                        <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{event.source || "SOURCE"}</span>
+                        <span className="text-[12px] font-semibold text-muted-foreground">{event.source || "SOURCE"}</span>
                       </div>
                       <p className="mt-2 text-sm text-muted-foreground">{metadataText(event.metadata)}</p>
                     </div>

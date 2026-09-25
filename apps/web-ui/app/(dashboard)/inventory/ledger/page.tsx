@@ -107,20 +107,20 @@ export default function InventoryLedgerPage() {
               · {drillStart} → {drillEnd}
             </span>
           ) : null}
-          <span className="ml-auto text-[11px] uppercase tracking-[0.12em] text-signal-cyan-ink">
+          <span className="ml-auto text-[12px] text-signal-cyan-ink">
             {transactions.length} txn(s)
           </span>
           {drillFrom ? (
             <Link
               href={drillFrom === "reconciliation" ? "/production/reconciliation" : `/${drillFrom}`}
-              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[11.5px] font-semibold text-signal-cyan-ink hover:bg-card"
             >
               <ArrowLeft className="h-3 w-3" /> Back to {drillFrom}
             </Link>
           ) : (
             <Link
               href="/inventory/ledger"
-              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-card"
+              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-ink/40 px-3 py-1 text-[11.5px] font-semibold text-signal-cyan-ink hover:bg-card"
             >
               Clear drill <ArrowRight className="h-3 w-3" />
             </Link>
@@ -128,7 +128,7 @@ export default function InventoryLedgerPage() {
         </section>
       ) : null}
       <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-[hsl(224_24%_13%)] p-6 text-white shadow-2xl">
-        <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Inventory audit</p>
+        <p className="text-[12px] font-semibold text-muted-foreground">Inventory audit</p>
         <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="text-3xl font-semibold tracking-[-0.04em]">Ledger, balances, and location truth</h1>
@@ -153,7 +153,7 @@ export default function InventoryLedgerPage() {
           <div key={card.label} className="rounded-[1.5rem] border border-border bg-card p-4 shadow-lg shadow-slate-900/5">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
+                <p className="text-[11.5px] font-semibold text-muted-foreground">{card.label}</p>
                 <p className="mt-2 text-3xl font-semibold text-foreground">{formatNumber(card.value)}</p>
                 <p className="mt-1 text-xs text-muted-foreground">{card.detail}</p>
               </div>
@@ -194,7 +194,7 @@ export default function InventoryLedgerPage() {
           </div>
           <div className="mt-4 max-h-[460px] overflow-auto rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="sticky top-0 bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Code</th>
                   <th className="px-3 py-3">Item</th>
@@ -262,7 +262,7 @@ export default function InventoryLedgerPage() {
         </div>
         <div className="mt-4 overflow-auto rounded-2xl border border-border">
           <table className="w-full text-left text-sm">
-            <thead className="bg-muted text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <thead className="bg-muted text-[11.5px] text-muted-foreground">
               <tr>
                 <th className="px-3 py-3">Date</th>
                 <th className="px-3 py-3">Type</th>

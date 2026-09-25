@@ -108,7 +108,7 @@ function InfoPanel({
     <section className={cn("rounded-2xl border p-5 shadow-sm", toneClass)}>
       <div className="flex items-center gap-2">
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-card/85 text-foreground shadow-sm">{icon}</span>
-        <h2 className="text-sm font-bold uppercase tracking-[0.18em]">{title}</h2>
+        <h2 className="text-sm font-semibold">{title}</h2>
       </div>
       <ul className="mt-4 space-y-3">
         {items.map((item) => (
@@ -127,7 +127,7 @@ function GuideIndex({ activeGuide, guides }: { activeGuide: GuideContent; guides
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">Guide library</p>
+          <p className="text-[12px] font-semibold text-muted-foreground">Guide library</p>
           <h2 className="mt-1 text-lg font-semibold text-foreground">All operator flows</h2>
         </div>
         <BookOpen className="h-5 w-5 text-signal-cyan-ink" />

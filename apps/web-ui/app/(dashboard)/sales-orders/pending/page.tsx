@@ -213,7 +213,7 @@ export default function PendingOrdersWorkspacePage() {
         ) : (
           <div className="overflow-x-auto rounded-[1.35rem] border border-border">
             <table className="min-w-full">
-              <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="bg-muted text-[12px] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Order</th>
                   <th className="px-4 py-3 text-left">Customer / source</th>

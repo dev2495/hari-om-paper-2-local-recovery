@@ -307,7 +307,7 @@ export default function ToolsPage() {
       <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-premium">
         <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_360px] lg:px-8">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Master Data Workspace</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Master Data Workspace</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Tooling Master</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
               Five fixed tooling categories define the spec-sheet dropdowns. Physical units are inwarded and controlled below with QR, location, issue, return, grinding, and production usage.
@@ -331,7 +331,7 @@ export default function ToolsPage() {
               return (
                 <div key={metric.label} className={`rounded-2xl border p-4 ${metric.tone}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{metric.label}</p>
+                    <p className="text-[11.5px] font-semibold text-muted-foreground">{metric.label}</p>
                     <Icon className="h-4 w-4 text-muted-foreground" />
                   </div>
                   <p className="mt-3 text-3xl font-semibold text-foreground">{metric.value}</p>
@@ -394,7 +394,7 @@ export default function ToolsPage() {
       <section className="overflow-hidden rounded-[1.7rem] border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
-            <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 border-b border-border bg-muted px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 border-b border-border bg-muted px-4 py-3 text-[12px] font-semibold text-muted-foreground">
               <div>Tool</div>
               <div>Category</div>
               <div>Status</div>
@@ -450,7 +450,7 @@ export default function ToolsPage() {
         <div className="rounded-[1.7rem] border border-border bg-card p-5 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Editable dropdown registry</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Editable dropdown registry</p>
               <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">Tool attributes</h2>
               <p className="mt-1 text-sm text-muted-foreground">Only these option values feed the five tooling definitions and the notch process fields.</p>
             </div>
@@ -476,7 +476,7 @@ export default function ToolsPage() {
             {(options as any[]).map((option) => (
               <div key={option.id} className={`rounded-xl border px-3 py-3 ${option.active === false ? "border-border bg-muted text-muted-foreground" : "border-border bg-muted"}`}>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{CATEGORY_LABELS[option.category] || option.category} · {option.field_key}</p>
+                  <p className="text-[11.5px] font-semibold text-muted-foreground">{CATEGORY_LABELS[option.category] || option.category} · {option.field_key}</p>
                   <p className="mt-1 text-sm font-semibold text-foreground">{option.value}</p>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -490,7 +490,7 @@ export default function ToolsPage() {
         </div>
 
         <div className="self-start rounded-[1.7rem] border border-border bg-foreground p-5 text-background shadow-sm">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-signal-cyan-ink">Physical tool control</p>
+          <p className="text-[11.5px] font-semibold text-signal-cyan-ink">Physical tool control</p>
           <h2 className="mt-1 text-lg font-semibold">QR asset ledger</h2>
           <div className="mt-5 grid grid-cols-2 gap-3">
             {[
@@ -498,7 +498,7 @@ export default function ToolsPage() {
               ["Available", assetReport.summary?.available || 0],
               ["Issued", assetReport.summary?.issued || 0],
               ["Grinding", assetReport.summary?.grinding_out || 0],
-            ].map(([label, value]) => <div key={label} className="rounded-xl border border-border/10 bg-card/5 p-3"><p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>)}
+            ].map(([label, value]) => <div key={label} className="rounded-xl border border-border/10 bg-card/5 p-3"><p className="text-[11.5px] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>)}
           </div>
           <p className="mt-5 text-sm leading-6 text-muted-foreground">Inward a physical unit against a definition, assign its Location Master position, and use the QR asset number for issue, return, grinding, and trace reports.</p>
         </div>
@@ -507,7 +507,7 @@ export default function ToolsPage() {
       <section className="rounded-[1.7rem] border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Physical register</p>
+            <p className="text-[11.5px] font-semibold text-muted-foreground">Physical register</p>
             <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">Inwarded tools and lifecycle</h2>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -523,7 +523,7 @@ export default function ToolsPage() {
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
-            <thead><tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
+            <thead><tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
             <tbody>{(assets as any[]).map((asset) => <tr key={asset.id} className="border-b border-border"><td className="py-3 pr-3"><p className="font-semibold text-foreground">{asset.asset_no}</p><p className="text-xs text-muted-foreground">{asset.qr_value}</p>{asset.current_job_card_id ? <p className="mt-1 text-xs font-medium text-signal-cyan-ink">{asset.current_job_card_id} · {asset.current_stage_type || "Assigned"}</p> : null}</td><td className="py-3 pr-3">{asset.definition_name}<p className="text-xs text-muted-foreground">{CATEGORY_LABELS[asset.category] || asset.category}</p></td><td className="py-3 pr-3"><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${assetStatusClass(asset.status)}`}>{asset.status}</span></td><td className="py-3 pr-3 text-muted-foreground">{asset.location_label || "-"}</td><td className="py-3 pr-3 font-semibold">V{asset.grind_version || 0}</td><td className="py-3 pr-3">{Number(asset.produced_qty || 0).toLocaleString("en-IN")}</td><td className="py-3"><div className="flex flex-wrap gap-1.5"><Button size="sm" variant="ghost" onClick={() => setSelectedAssetId(asset.id)}><Eye className="mr-1 h-3.5 w-3.5" />Details / label</Button>{asset.status !== "SCRAP" ? <Button size="sm" variant="ghost" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: asset.location_id || "", value: "" }); setActionDialog({ kind: "move", asset }) }}><MapPin className="mr-1 h-3.5 w-3.5" />Move</Button> : null}{asset.status === "AVAILABLE" ? <><Button size="sm" variant="outline" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: "", value: "" }); setActionDialog({ kind: "issue", asset }) }}>Issue</Button><Button size="sm" variant="outline" onClick={() => action(maintainMutation, asset)}>Maintain</Button>{asset.category === "BLADE" ? <Button size="sm" variant="outline" onClick={() => action(grindingOutMutation, asset)}>Grinding out</Button> : null}<Button size="sm" variant="outline" onClick={() => action(scrapMutation, asset)}>Scrap</Button></> : null}{asset.status === "ISSUED" ? <Button size="sm" variant="outline" onClick={() => action(returnMutation, asset)}>Return</Button> : null}{asset.status === "MAINTENANCE" ? <Button size="sm" variant="outline" onClick={() => action(maintenanceCompleteMutation, asset)}>Complete maintenance</Button> : null}{asset.status === "GRINDING_OUT" ? <Button size="sm" variant="outline" onClick={() => action(grindingReturnMutation, asset)}>Grinding return</Button> : null}</div></td></tr>)}</tbody>
           </table>
         </div>
@@ -568,7 +568,7 @@ export default function ToolsPage() {
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Physical tool trace</DialogTitle><DialogDescription>Print the permanent QR label and review every inward, movement, issue, use, return, grinding, maintenance, and scrap event.</DialogDescription></DialogHeader>
           {selectedAssetQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading tool history...</p> : selectedAssetQuery.data?.asset ? <div className="grid gap-5 md:grid-cols-[260px_1fr]">
-            <div className="rounded-xl border border-border p-4 text-center" data-tool-label-qr><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Physical tool</p><p className="mt-2 text-xl font-bold text-foreground">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-muted-foreground">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={selectedAssetQuery.data.asset.qr_value} size={164} level="M" /></div><p className="break-all text-[11px] text-muted-foreground">{selectedAssetQuery.data.asset.qr_value}</p><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
+            <div className="rounded-xl border border-border p-4 text-center" data-tool-label-qr><p className="text-[12px] font-semibold text-muted-foreground">Physical tool</p><p className="mt-2 text-xl font-bold text-foreground">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-muted-foreground">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={selectedAssetQuery.data.asset.qr_value} size={164} level="M" /></div><p className="break-all text-[11px] text-muted-foreground">{selectedAssetQuery.data.asset.qr_value}</p><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
             <div className="max-h-[460px] overflow-y-auto pr-1"><div className="mb-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Status</p><p className="font-semibold">{selectedAssetQuery.data.asset.status}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Location</p><p className="font-semibold">{selectedAssetQuery.data.asset.location_label || "-"}</p></div></div><div className="space-y-2">{(selectedAssetQuery.data.events || []).map((event: any) => <div key={event.id} className="rounded-lg border border-border px-3 py-2"><div className="flex justify-between gap-3"><p className="text-sm font-semibold text-foreground">{event.event_type}</p><p className="text-xs text-muted-foreground">{formatDate(event.event_at)}</p></div><p className="mt-1 text-xs text-muted-foreground">{[event.job_card_id, event.stage_type, event.grind_version !== null ? `V${event.grind_version}` : "", event.actor].filter(Boolean).join(" · ") || "System lifecycle event"}</p>{event.good_qty || event.scrap_qty ? <p className="mt-1 text-xs text-muted-foreground">Good {Number(event.good_qty || 0).toLocaleString("en-IN")} · Scrap {Number(event.scrap_qty || 0).toLocaleString("en-IN")}</p> : null}</div>)}</div></div>
           </div> : <p className="py-8 text-sm text-signal-rose-ink">Tool details could not be loaded.</p>}
         </DialogContent>
@@ -592,7 +592,7 @@ export default function ToolsPage() {
       <section className="rounded-[1.7rem] border border-border bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Ledger</p>
+            <p className="text-[11.5px] font-semibold text-muted-foreground">Ledger</p>
             <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">Recent Tool Events</h2>
           </div>
           <Link href="/reports/tooling" className="text-sm font-semibold text-signal-cyan-ink hover:underline">
@@ -602,7 +602,7 @@ export default function ToolsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+              <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Time</th>
                 <th className="py-2 pr-3">Tool</th>
                 <th className="py-2 pr-3">Event</th>

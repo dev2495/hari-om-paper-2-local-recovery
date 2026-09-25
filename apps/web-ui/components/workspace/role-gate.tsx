@@ -51,7 +51,7 @@ export function RoleGate({
   return (
     <div className="max-w-2xl space-y-6 animate-enter-up" data-testid="role-gate-denied" role="alert">
       <section className="rounded-[2rem] border border-signal-amber-line bg-signal-amber-soft p-8 shadow-premium">
-        <div className="inline-flex items-center gap-2 rounded-full border border-signal-amber-line bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-signal-amber-ink">
+        <div className="inline-flex items-center gap-2 rounded-full border border-signal-amber-line bg-card px-3 py-1 text-[12px] font-semibold text-signal-amber-ink">
           <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
           Restricted
         </div>

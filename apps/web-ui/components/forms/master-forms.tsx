@@ -468,12 +468,12 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
       <div className="overflow-hidden rounded-3xl border border-border bg-foreground text-background">
         <div className="grid gap-4 p-5 md:grid-cols-[minmax(0,1fr)_220px]">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{selectedCopy.title}</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">{selectedCopy.title}</p>
             <h3 className="mt-2 text-xl font-semibold">Two-shift machine contract</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{selectedCopy.help}</p>
           </div>
           <div className="rounded-2xl border border-border/10 bg-card/10 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Planning rule</p>
+            <p className="text-[11.5px] font-semibold text-muted-foreground">Planning rule</p>
             <p className="mt-2 text-2xl font-semibold">2 shifts/day</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">Capacity is entered per shift. Daily visible capacity is calculated, not typed.</p>
           </div>
@@ -538,14 +538,14 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-2xl bg-card/85 p-3">
             <Gauge className="h-4 w-4 text-signal-cyan-ink" />
-            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-signal-cyan-ink">Per shift</p>
+            <p className="mt-2 text-[11.5px] font-semibold text-signal-cyan-ink">Per shift</p>
             <p className="mt-1 text-xl font-semibold text-foreground">
               {department === "OVEN" ? ovenShiftBamboo.toFixed(0) : capacityValue ? capacityValue.toFixed(0) : "-"}
             </p>
           </div>
           <div className="rounded-2xl bg-card/85 p-3">
             <Factory className="h-4 w-4 text-signal-cyan-ink" />
-            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-signal-cyan-ink">Two shifts</p>
+            <p className="mt-2 text-[11.5px] font-semibold text-signal-cyan-ink">Two shifts</p>
             <p className="mt-1 text-xl font-semibold text-foreground">{dailyCapacity ? dailyCapacity.toFixed(0) : "-"}</p>
           </div>
         </div>
@@ -562,7 +562,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
             <Input className="h-12 rounded-2xl bg-card" type="number" step="0.1" inputMode="decimal" {...register("cycle_time_hours", { required: true, valueAsNumber: true })} />
           </div>
           <div className="rounded-2xl bg-card/85 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-signal-amber-ink">Planner capacity</p>
+            <p className="text-[11.5px] font-semibold text-signal-amber-ink">Planner capacity</p>
             <p className="mt-2 text-xl font-semibold text-foreground">{ovenShiftBamboo.toFixed(0)} bamboo/shift</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">Used to split oven slots by load, not just batch count.</p>
           </div>
@@ -572,7 +572,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
       <div className="rounded-3xl border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Capability window</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Capability window</p>
             <p className="mt-1 text-sm leading-6 text-muted-foreground">
               Keep ranges tight so wrong-size job cards cannot be scheduled onto this machine.
             </p>
@@ -894,7 +894,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
       <div className="rounded-2xl border border-border bg-muted p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+            <p className="text-[11.5px] font-semibold text-muted-foreground">
               {TOOL_CATEGORY_LABELS[selectedCategory]} points
             </p>
             <p className="mt-1 text-xs text-muted-foreground">These fields create the spec-sheet dropdown value.</p>

@@ -55,14 +55,14 @@ export default function SystemLocationsPage() {
       <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-emerald-900 p-6 text-white shadow-2xl">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">System setup</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">System setup</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Inventory locations</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
               Create warehouses, zones, bins, WIP holding points, QC hold areas, dispatch staging, and scrap locations used by stores and production.
             </p>
           </div>
           <div className="rounded-3xl border border-border/15 bg-card/10 p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Current write scope</p>
+            <p className="text-[11.5px] font-semibold text-muted-foreground">Current write scope</p>
             <p className="mt-2 text-lg font-semibold">{displayPlantScope(activePlant, "Select plant")}</p>
             {writeBlocked ? <p className="mt-1 text-xs text-muted-foreground">Select one plant before creating a location.</p> : null}
           </div>
@@ -94,7 +94,7 @@ export default function SystemLocationsPage() {
         <form onSubmit={handleSubmit} className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Create</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Create</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">New storage location</h2>
             </div>
             <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
@@ -151,7 +151,7 @@ export default function SystemLocationsPage() {
         <section className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Location master</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Location master</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">Warehouses, zones, and bins</h2>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -164,7 +164,7 @@ export default function SystemLocationsPage() {
           </div>
           <div className="mt-5 overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="bg-muted text-[12px] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">Code</th>
                   <th className="px-4 py-3">Warehouse</th>

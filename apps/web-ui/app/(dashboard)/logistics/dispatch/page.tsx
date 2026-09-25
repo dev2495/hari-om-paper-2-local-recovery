@@ -57,7 +57,7 @@ export default function DispatchSelectionPage() {
                 aside={
                     <div>
                         <p className="text-2xl font-semibold text-white">{jobs.length}</p>
-                        <p className="text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground">handoffs visible</p>
+                        <p className="text-[12px] font-medium text-muted-foreground">handoffs visible</p>
                     </div>
                 }
             />

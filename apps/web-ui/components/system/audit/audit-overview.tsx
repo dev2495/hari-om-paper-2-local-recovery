@@ -80,7 +80,7 @@ function KpiTile({
   }
   return (
     <div className={cn("rounded-[1.3rem] border px-4 py-3 shadow-sm", toneClass[tone])}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+      <p className="text-[11.5px] font-semibold text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
       {hint ? <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{hint}</p> : null}
     </div>
@@ -141,7 +141,7 @@ export function AuditOverview({
             </div>
             {heatmap.map((row, d) => (
               <div key={d} className="grid grid-cols-[32px_repeat(24,minmax(0,1fr))] gap-[3px] items-center">
-                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.04em]">{DAY_LABELS[d]}</span>
+                <span className="text-[11.5px] font-semibold text-muted-foreground">{DAY_LABELS[d]}</span>
                 {row.map((count, h) => (
                   <span
                     key={h}
@@ -163,7 +163,7 @@ export function AuditOverview({
                 className="rounded-2xl border px-4 py-3"
                 style={{ background: SEVERITY_COLORS[sv].bg, borderColor: SEVERITY_COLORS[sv].ring, color: SEVERITY_COLORS[sv].fg }}
               >
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-85">{sv}</p>
+                <p className="text-[11.5px] font-semibold opacity-85">{sv}</p>
                 <p className="mt-1 text-2xl font-semibold leading-none">{formatNumber(sev[sv])}</p>
               </div>
             ))}
@@ -212,7 +212,7 @@ export function AuditOverview({
                         </span>
                         <span>
                           <span className="block text-sm font-semibold text-foreground">{a.actor}</span>
-                          <span className="block text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{a.role || "—"}</span>
+                          <span className="block text-[11.5px] font-semibold text-muted-foreground">{a.role || "—"}</span>
                         </span>
                       </span>
                       <span className="text-sm font-bold text-foreground">{a.count}</span>
@@ -314,16 +314,16 @@ export function AuditOverview({
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <span
-                        className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]"
+                        className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold"
                         style={{ background: `color-mix(in srgb, ${meta.color} 10%, transparent)`, borderColor: `color-mix(in srgb, ${meta.color} 33%, transparent)`, color: meta.color }}
                       >
                         <Icon className="h-3 w-3" />
                         {meta.short}
                       </span>
-                      <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", severityClass(ev.severity))}>
+                      <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold", severityClass(ev.severity))}>
                         {ev.severity}
                       </span>
-                      <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                      <span className="text-[11.5px] font-semibold text-muted-foreground">
                         {timestampText(ev.timestamp, true)} · {relativeTime(ev.timestamp)}
                       </span>
                     </div>

@@ -53,7 +53,7 @@ function Kpi({ label, value, hint, tone = "slate" }: { label: string; value: str
   }
   return (
     <div className={`rounded-xl border px-4 py-3 shadow-sm ${toneClass[tone] || toneClass.slate}`}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-60">{label}</p>
+      <p className="text-[11.5px] font-semibold opacity-60">{label}</p>
       <p className="mt-2 text-2xl font-semibold leading-none">{value}</p>
       <p className="mt-1 text-xs leading-5 opacity-70">{hint}</p>
     </div>
@@ -169,7 +169,7 @@ export default function InventoryOverviewPage() {
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Material split</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Material split</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">Stock by category and kg</h2>
             </div>
             <p className="text-xs text-muted-foreground">Raw paper, adhesive, parchment, FG, and packing pressure.</p>
@@ -188,7 +188,7 @@ export default function InventoryOverviewPage() {
         </div>
 
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Status split</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Status split</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Usable vs blocked stock</h2>
           <div className="mt-4">
             <Donut
@@ -202,7 +202,7 @@ export default function InventoryOverviewPage() {
 
       <section className="grid gap-4 xl:grid-cols-3">
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Paper types</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Paper types</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Top paper load</h2>
           <div className="mt-4 space-y-2">
             {paperRows.map((row) => (
@@ -221,7 +221,7 @@ export default function InventoryOverviewPage() {
         </div>
 
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Aging</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Aging</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Old stock risk</h2>
           <div className="mt-4 h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -238,7 +238,7 @@ export default function InventoryOverviewPage() {
         </div>
 
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">MRP actions</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">MRP actions</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Shortage and purchase queue</h2>
           <div className="mt-4 space-y-2">
             <Kpi label="Critical items" value={`${criticalRows.length}`} hint="At/below reorder point where configured" tone={criticalRows.length ? "rose" : "emerald"} />
@@ -254,7 +254,7 @@ export default function InventoryOverviewPage() {
 
       <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Location pressure</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Location pressure</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Occupied bins and staging</h2>
           <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {locationRows.slice(0, 10).map((row: any) => (
@@ -282,14 +282,14 @@ export default function InventoryOverviewPage() {
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Recent movement</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Recent movement</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">Latest ledger postings</h2>
             </div>
             <Link href="/inventory/ledger" className="text-xs font-semibold text-signal-cyan-ink">Full ledger</Link>
           </div>
           <div className="mt-4 overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-muted text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="bg-muted text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Date</th>
                   <th className="px-3 py-3">Type</th>
@@ -319,14 +319,14 @@ export default function InventoryOverviewPage() {
         <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Location-wise stock</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Location-wise stock</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">All visible item load by bin</h2>
             </div>
             <Link href="/inventory/ledger" className="text-xs font-semibold text-signal-cyan-ink">Open balances</Link>
           </div>
           <div className="mt-4 overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Location</th>
                   <th className="px-3 py-3">Item</th>
@@ -354,7 +354,7 @@ export default function InventoryOverviewPage() {
         </div>
 
         <div className="rounded-[2rem] border border-signal-amber-line bg-signal-amber-soft p-5 shadow-xl shadow-amber-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-signal-amber-ink">Stock close logic</p>
+          <p className="text-[11.5px] font-semibold text-signal-amber-ink">Stock close logic</p>
           <h2 className="mt-1 text-xl font-semibold text-foreground">Opening, alerts, and closing in one audit chain</h2>
           <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
             <p><b>Opening load</b> is only for go-live or year carry-forward. It posts an auditable OPENING transaction and should not be used for daily GRN.</p>

@@ -83,7 +83,7 @@ function PurchaseRegister() {
         {orders.isLoading ? <div className="h-40 animate-pulse rounded-lg bg-muted" /> : orders.isError ? <ErrorState message="Purchase orders could not be loaded. Totals are unavailable until this request succeeds." onRetry={() => orders.refetch()} /> : items.length ? (
           <div className="overflow-x-auto rounded-lg border border-border">
             <table className="w-full min-w-[1080px] text-left text-sm">
-              <thead className="sticky top-0 bg-muted text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground"><tr>
+              <thead className="sticky top-0 bg-muted text-[11.5px] font-semibold text-muted-foreground"><tr>
                 {['PO / revision','Vendor','Material','Ordered','Received','Open','Expected units','Rate / unit','Amount','Approval','Next'].map((head) => <th key={head} className="border-b border-border px-3 py-3">{head}</th>)}
               </tr></thead>
               <tbody>{items.flatMap((order) => order.lines.map((line) => ({ order, line }))).map(({ order, line }) => {

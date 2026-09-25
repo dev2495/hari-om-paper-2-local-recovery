@@ -39,7 +39,7 @@ function Section({
 
   return (
     <section className="space-y-2">
-      <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
+      <p className="px-1 text-[12px] font-semibold text-muted-foreground">{title}</p>
       <div className="space-y-2">
         {items.map((item) => (
           <button

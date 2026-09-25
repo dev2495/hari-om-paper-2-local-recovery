@@ -40,7 +40,7 @@ export default function SalesAnalyticsPage() {
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release to Dispatch</p>
+              <p className="text-[12px] text-muted-foreground">Release to Dispatch</p>
               <p className="mt-2 text-3xl font-semibold">{formatMetric(summary.release_to_dispatch_days, "days", 1)}</p>
             </div>
             <StatusBadge value={delayedRows.length > 0 ? "BLOCKED" : "ACTIVE"} label={`${delayedRows.length} delayed orders`} />
@@ -81,17 +81,17 @@ export default function SalesAnalyticsPage() {
         <Panel title="Commercial Snapshot" subtitle="Current order-health mix for the selected reporting scope.">
           <div className="space-y-3">
             <div className="rounded-[1.2rem] border border-border bg-muted p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">OTIF</p>
+              <p className="text-[12px] text-muted-foreground">OTIF</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{formatMetric(summary.otif_percent, "%", 1)}</p>
               <p className="mt-2 text-sm text-muted-foreground">On-time in-full performance for closed orders.</p>
             </div>
             <div className="rounded-[1.2rem] border border-border bg-muted p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release to Dispatch</p>
+              <p className="text-[12px] text-muted-foreground">Release to Dispatch</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{formatMetric(summary.release_to_dispatch_days, "days", 1)}</p>
               <p className="mt-2 text-sm text-muted-foreground">Average time from order creation to final dispatch confirmation.</p>
             </div>
             <div className="rounded-[1.2rem] border border-border bg-muted p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release Backlog</p>
+              <p className="text-[12px] text-muted-foreground">Release Backlog</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{formatMetric(summary.backlog_orders)}</p>
               <p className="mt-2 text-sm text-muted-foreground">Orders partially released or released into manufacturing but not yet fully dispatched.</p>
             </div>

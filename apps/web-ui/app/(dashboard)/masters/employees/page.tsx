@@ -343,14 +343,14 @@ function EmployeesPage() {
           <LabeledInput label="Code" required value={createForm.employee_code} onChange={(v) => setCreateForm({ ...createForm, employee_code: v })} placeholder="EMP-001" />
           <LabeledInput label="Name" required value={createForm.name} onChange={(v) => setCreateForm({ ...createForm, name: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Role</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Role</span>
             <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Department</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Department</span>
             <select value={createForm.department} onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -360,7 +360,7 @@ function EmployeesPage() {
           <LabeledInput label="Email" value={createForm.email} onChange={(v) => setCreateForm({ ...createForm, email: v })} />
           <LabeledInput label="Skills (csv)" value={createForm.skills} onChange={(v) => setCreateForm({ ...createForm, skills: v })} placeholder="WINDER, OVEN" />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Default shift</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Default shift</span>
             <select value={createForm.default_shift} onChange={(e) => setCreateForm({ ...createForm, default_shift: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {shifts.filter((s) => s.is_active !== false).map((s) => <option key={s.id} value={s.code}>{s.code} · {s.name}</option>)}
@@ -382,14 +382,14 @@ function EmployeesPage() {
           <LabeledInput label="Code" required value={editForm.employee_code || ""} onChange={(v) => setEditForm({ ...editForm, employee_code: v })} />
           <LabeledInput label="Name" required value={editForm.name || ""} onChange={(v) => setEditForm({ ...editForm, name: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Role</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Role</span>
             <select value={editForm.role || ""} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Department</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Department</span>
             <select value={editForm.department || ""} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
@@ -399,7 +399,7 @@ function EmployeesPage() {
           <LabeledInput label="Email" value={editForm.email || ""} onChange={(v) => setEditForm({ ...editForm, email: v })} />
           <LabeledInput label="Skills (csv)" value={editForm.skills || ""} onChange={(v) => setEditForm({ ...editForm, skills: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Default shift</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Default shift</span>
             <select value={editForm.default_shift || ""} onChange={(e) => setEditForm({ ...editForm, default_shift: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {shifts.filter((s) => s.is_active !== false).map((s) => <option key={s.id} value={s.code}>{s.code} · {s.name}</option>)}

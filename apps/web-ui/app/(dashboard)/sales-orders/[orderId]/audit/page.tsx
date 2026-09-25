@@ -67,17 +67,17 @@ export default function SalesOrderAuditPage() {
       >
         <div className="grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-border bg-muted p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Order</p>
+            <p className="text-[12px] text-muted-foreground">Order</p>
             <p className="mt-2 text-sm font-semibold text-foreground">{order.order_no}</p>
           </div>
           <div className="rounded-2xl border border-border bg-muted p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Status</p>
+            <p className="text-[12px] text-muted-foreground">Status</p>
             <div className="mt-2">
               <StatusBadge value={order.status} />
             </div>
           </div>
           <div className="rounded-2xl border border-border bg-muted p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Audit Events</p>
+            <p className="text-[12px] text-muted-foreground">Audit Events</p>
             <p className="mt-2 text-sm font-semibold text-foreground">{events.length}</p>
           </div>
         </div>

@@ -100,7 +100,7 @@ export default function InventoryItemsPage() {
       <section className="rounded-[2rem] border border-border bg-gradient-to-br from-[hsl(224_28%_9%)] via-cyan-950 to-[hsl(224_24%_13%)] p-6 text-white shadow-2xl">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Inventory master</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Inventory master</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-[-0.04em]">Items and stock policy</h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
               Create RM, FG, adhesive, parchment, packaging, tool, and OTHER items with tracking mode, UOM, reorder, safety, and lead-time controls.
@@ -109,7 +109,7 @@ export default function InventoryItemsPage() {
           <div className="grid gap-2 sm:grid-cols-4 xl:w-[560px]">
             {itemTypes.map((type) => (
               <div key={type} className="rounded-2xl border border-border/15 bg-card/10 px-3 py-2">
-                <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">{type.replace(/_/g, " ")}</p>
+                <p className="text-[12px] font-semibold text-muted-foreground">{type.replace(/_/g, " ")}</p>
                 <p className="mt-1 text-xl font-semibold">{typeCounts[type] || 0}</p>
               </div>
             ))}
@@ -122,7 +122,7 @@ export default function InventoryItemsPage() {
         <form onSubmit={handleSubmit} className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Create</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Create</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">New item</h2>
             </div>
             <div className="rounded-2xl bg-primary p-3 text-primary-foreground">
@@ -183,7 +183,7 @@ export default function InventoryItemsPage() {
         <form onSubmit={savePolicy} className="rounded-[2rem] border border-signal-cyan-line bg-signal-cyan-soft/70 p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-signal-cyan-ink/70">Governance</p>
+              <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">Governance</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">MRP policy</h2>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">Select a row to edit reorder, safety stock, and lead time used by MRP and stock-close risk.</p>
             </div>
@@ -214,7 +214,7 @@ export default function InventoryItemsPage() {
         </form>
         {selectedItem ? (
           <div className="mt-5 rounded-2xl border border-signal-cyan-line bg-card p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-signal-cyan-ink/70">Incoming QC profile</p>
+            <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">Incoming QC profile</p>
             <p className="mt-1 text-xs text-muted-foreground">Owned item rules used by incoming QC. No invented thresholds.</p>
             <div className="mt-3">
               <ItemQualityProfileForm
@@ -245,7 +245,7 @@ export default function InventoryItemsPage() {
         <section className="min-w-0 rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Catalog</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Catalog</p>
               <h2 className="mt-1 text-xl font-semibold text-foreground">Inventory item master</h2>
             </div>
             <Link href="/analytics/mrp" className="inline-flex items-center gap-1 text-sm font-semibold text-signal-cyan-ink">
@@ -254,7 +254,7 @@ export default function InventoryItemsPage() {
           </div>
           <div className="mt-4 overflow-x-auto rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-muted text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="bg-muted text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Type</th>

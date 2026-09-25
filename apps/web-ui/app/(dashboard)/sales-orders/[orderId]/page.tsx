@@ -177,7 +177,7 @@ export default function SalesOrderDetailPage() {
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Current Status</p>
+              <p className="text-[12px] text-muted-foreground">Current Status</p>
               <div className="mt-3">
                 <StatusBadge value={order.status} />
               </div>
@@ -217,11 +217,11 @@ export default function SalesOrderDetailPage() {
         <Panel title="Commercial Header" subtitle="The sales truth that planning and dispatch should read, not reinterpret.">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Customer</p>
+              <p className="text-[12px] text-muted-foreground">Customer</p>
               <p className="mt-2 font-semibold text-foreground">{customerLabel}</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Order source</p>
+              <p className="text-[12px] text-muted-foreground">Order source</p>
               <p className="mt-2 font-semibold text-foreground">{salesOrderOriginLabel(order.origin)}</p>
               <p className="mt-1 text-muted-foreground">{salesOrderReferenceLabel(order)}</p>
               {isInternalOrigin(order.origin) ? (
@@ -231,20 +231,20 @@ export default function SalesOrderDetailPage() {
               )}
             </div>
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Commercial Notes</p>
+              <p className="text-[12px] text-muted-foreground">Commercial Notes</p>
               <p className="mt-2 text-muted-foreground">{order.notes || "No commercial notes recorded."}</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Earliest Delivery Date</p>
+              <p className="text-[12px] text-muted-foreground">Earliest Delivery Date</p>
               <p className="mt-2 text-muted-foreground">{formatDate(earliestDue)}</p>
               <p className="mt-1 text-xs text-muted-foreground">Earliest outstanding call-off, or unscheduled line delivery date.</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Approved</p>
+              <p className="text-[12px] text-muted-foreground">Approved</p>
               <p className="mt-2 text-muted-foreground">{formatDate(order.approved_at)}</p>
             </div>
             <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Released</p>
+              <p className="text-[12px] text-muted-foreground">Released</p>
               <p className="mt-2 text-muted-foreground">{formatDate(order.released_at)}</p>
             </div>
           </div>
@@ -253,7 +253,7 @@ export default function SalesOrderDetailPage() {
         <Panel title="Flow Next" subtitle="What this PO should do next in the sales -> planning -> production path.">
           <div className="space-y-4">
             <div className="rounded-[1.25rem] border border-border bg-card p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner Handoff</p>
+              <p className="text-[12px] text-muted-foreground">Planner Handoff</p>
               <p className="mt-2 text-lg font-semibold text-foreground">Release exact line quantities and schedule them into the next 3 days.</p>
               <p className="mt-2 text-sm text-muted-foreground">Each job becomes floor-executable only after the planner assigns a valid machine, shift, and plan date.</p>
             </div>
@@ -330,7 +330,7 @@ export default function SalesOrderDetailPage() {
             <div key={line.id} className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div>
-                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <label className="flex items-center gap-2 text-[12px] text-muted-foreground">
                     <input
                       type="checkbox"
                       checked={selectedLineIds.includes(String(line.id))}
@@ -348,19 +348,19 @@ export default function SalesOrderDetailPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div className="rounded-xl border border-border bg-muted px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Qty</p>
+                    <p className="text-[11.5px] text-muted-foreground">Qty</p>
                     <p className="mt-1 text-base font-semibold text-foreground">{Number(line.qty || 0).toFixed(0)}</p>
                   </div>
                   <div className="rounded-xl border border-border bg-muted px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Released</p>
+                    <p className="text-[11.5px] text-muted-foreground">Released</p>
                     <p className="mt-1 text-base font-semibold text-foreground">{Number(line.released_qty || 0).toFixed(0)}</p>
                   </div>
                   <div className="rounded-xl border border-border bg-muted px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Fulfilled</p>
+                    <p className="text-[11.5px] text-muted-foreground">Fulfilled</p>
                     <p className="mt-1 text-base font-semibold text-foreground">{Number(line.fulfilled_qty || 0).toFixed(0)}</p>
                   </div>
                   <div className="rounded-xl border border-border bg-muted px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Remaining</p>
+                    <p className="text-[11.5px] text-muted-foreground">Remaining</p>
                     <p className="mt-1 text-base font-semibold text-foreground">{Number(line.remaining_qty || 0).toFixed(0)}</p>
                   </div>
                 </div>

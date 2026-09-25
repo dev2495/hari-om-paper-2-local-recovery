@@ -420,7 +420,7 @@ export default function StageQualityPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1 md:col-span-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Job card</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">Job card</span>
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
@@ -452,7 +452,7 @@ export default function StageQualityPage() {
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Stage</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">Stage</span>
                 <select
                   value={stageType}
                   onChange={(event) => {
@@ -489,7 +489,7 @@ export default function StageQualityPage() {
             </div>
             {stageType === "OVEN" ? (
               <label className="block space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Oven checkpoint</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">Oven checkpoint</span>
                 <select
                   value={draft.ovenCheckpoint}
                   onChange={(event) => {
@@ -518,7 +518,7 @@ export default function StageQualityPage() {
             {selectedJobId ? (
               <>
                 <label className="block space-y-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Measured at</span>
+                  <span className="text-[12px] font-semibold text-muted-foreground">Measured at</span>
                   <input
                     type="datetime-local"
                     data-testid="quality-stage-measured-at"
@@ -556,10 +556,10 @@ export default function StageQualityPage() {
             )}
             {selectedJobId && failCodes.length >= 2 ? (
               <div className="space-y-2 rounded-2xl border border-foreground/80 bg-card p-4" data-testid="quality-stage-common-cause">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Common cause for related failures</div>
+                <div className="text-[12px] font-semibold text-muted-foreground">Common cause for related failures</div>
                 <p className="text-xs text-muted-foreground">One explanation can cover {failCodes.join(", ")}. Each failed parameter stays listed.</p>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Common-cause explanation</span>
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Common-cause explanation</span>
                   <input
                     data-testid="stage-qc-common-explanation"
                     value={draft.commonExplanation}
@@ -569,7 +569,7 @@ export default function StageQualityPage() {
                   />
                 </label>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Containment</span>
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Containment</span>
                   <input
                     data-testid="stage-qc-common-containment"
                     value={draft.commonContainment}
@@ -579,7 +579,7 @@ export default function StageQualityPage() {
                   />
                 </label>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Assignee</span>
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Assignee</span>
                   <input
                     data-testid="stage-qc-common-assignee"
                     value={draft.commonAssignee}
@@ -592,7 +592,7 @@ export default function StageQualityPage() {
             ) : null}
             {originalInspection && String(originalInspection.status).toUpperCase() === "FAIL" ? (
               <div className="space-y-2 rounded-2xl border border-foreground/80 bg-card p-4" data-testid="quality-stage-correction">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Correction of a recorded FAIL</div>
+                <div className="text-[12px] font-semibold text-muted-foreground">Correction of a recorded FAIL</div>
                 <p className="text-xs text-muted-foreground">
                   Original value stays on the FAIL record. Changing a failing number to a passing one needs a reason, actor, time, and revision. The hold is not cleared.
                 </p>
@@ -603,7 +603,7 @@ export default function StageQualityPage() {
                   {String(originalInspection.readings?.height ?? "")}
                 </div>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Correction reason</span>
+                  <span className="text-[11.5px] font-semibold text-muted-foreground">Correction reason</span>
                   <input
                     data-testid="quality-stage-correction-reason"
                     value={correctionReason}
@@ -630,7 +630,7 @@ export default function StageQualityPage() {
                   Required instrument evidence controls readiness. Missing or expired instrument is not measured PASS, and calibration is not invented.
                 </div>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Instrument ID</span>
+                  <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Instrument ID</span>
                   <input
                     data-testid="quality-stage-instrument-id"
                     value={draft.instrumentId}
@@ -639,7 +639,7 @@ export default function StageQualityPage() {
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Calibration due</span>
+                  <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Calibration due</span>
                   <input
                     type="date"
                     data-testid="quality-stage-calibration-due"
@@ -649,7 +649,7 @@ export default function StageQualityPage() {
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Instrument status</span>
+                  <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Instrument status</span>
                   <input
                     data-testid="quality-stage-calibration-status"
                     value={draft.calibrationStatus}
@@ -659,7 +659,7 @@ export default function StageQualityPage() {
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Calibration evidence</span>
+                  <span className="mb-1 block text-[12px] font-semibold text-muted-foreground">Calibration evidence</span>
                   <input
                     data-testid="quality-stage-instrument-evidence"
                     value={draft.instrumentEvidence}

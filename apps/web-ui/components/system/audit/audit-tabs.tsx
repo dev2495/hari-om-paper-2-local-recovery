@@ -86,7 +86,7 @@ export function AuditFeed({
       <div className="space-y-5">
         {grouped.map((group) => (
           <div key={group.label} className="space-y-2">
-            <p className="text-[10.5px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
+            <p className="text-[11.5px] font-semibold text-muted-foreground">
               {group.label} <span className="text-muted-foreground">·</span> {group.rows.length}
             </p>
             <ul className="space-y-2">
@@ -111,10 +111,10 @@ export function AuditFeed({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-semibold text-foreground">{event.action.replaceAll("_", " ")}</span>
-                        <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", severityClass(event.severity))}>
+                        <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-[11.5px] font-semibold", severityClass(event.severity))}>
                           {event.severity}
                         </span>
-                        <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                        <span className="text-[11.5px] font-semibold text-muted-foreground">
                           {timestampText(event.timestamp, true)} · {relativeTime(event.timestamp)}
                         </span>
                       </div>
@@ -253,7 +253,7 @@ export function AuditUsers({
           <div className="overflow-hidden rounded-2xl border border-border">
             <div className="max-h-[460px] overflow-auto">
               <table className="w-full border-collapse text-sm">
-                <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left">User</th>
                     <th className="px-4 py-3 text-left">Role</th>
@@ -280,7 +280,7 @@ export function AuditUsers({
                         </td>
                         <td className="px-4 py-2.5">
                           <span
-                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em]"
+                            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold"
                             style={{ borderColor: roleColor(role) + "55", background: roleColor(role) + "1a", color: roleColor(role) }}
                           >
                             {role}
@@ -289,7 +289,7 @@ export function AuditUsers({
                         <td className="px-4 py-2.5 font-mono text-[11.5px] text-muted-foreground">{u?.plant_id || "—"}</td>
                         <td className="px-4 py-2.5">
                           <span className={cn(
-                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em]",
+                            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold",
                             u?.is_active === false ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
                           )}>
                             <span className={cn(
@@ -311,7 +311,7 @@ export function AuditUsers({
           </div>
         )}
         <div className="mt-3 flex items-center justify-end">
-          <Link href="/system/users" className="inline-flex items-center gap-1.5 text-[12px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:text-signal-cyan-ink">
+          <Link href="/system/users" className="inline-flex items-center gap-1.5 text-[12px] font-semibold text-signal-cyan-ink hover:text-signal-cyan-ink">
             <UserCog className="h-3.5 w-3.5" />
             Manage users & roles
           </Link>
@@ -344,19 +344,19 @@ export function AuditNotifications({
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-signal-cyan-line bg-signal-cyan-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Total Alerts</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Total Alerts</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(filtered.length)}</p>
         </div>
         <div className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Critical / High</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Critical / High</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(sev.CRITICAL + sev.HIGH)}</p>
         </div>
         <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Medium</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Medium</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(sev.MEDIUM)}</p>
         </div>
         <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Info</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Info</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(sev.LOW)}</p>
         </div>
       </div>
@@ -403,14 +403,14 @@ export function AuditNotifications({
                   onKeyDown={(e) => e.key === "Enter" && onSelect(event)}
                   className="flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-card px-4 py-3 transition hover:border-signal-cyan-line hover:bg-signal-cyan-soft/30"
                 >
-                  <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", severityClass(event.severity))}>
+                  <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold", severityClass(event.severity))}>
                     {event.severity}
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-semibold text-foreground">{event.action.replaceAll("_", " ")}</p>
                     <p className="text-[12.5px] text-muted-foreground">{event.summary}</p>
                   </div>
-                  <span className="shrink-0 text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  <span className="shrink-0 text-[11.5px] font-semibold text-muted-foreground">
                     {relativeTime(event.timestamp)}
                   </span>
                 </li>
@@ -451,19 +451,19 @@ export function AuditStreamTab({
     <div className="space-y-5">
       <div className="grid gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-signal-cyan-line bg-signal-cyan-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Events</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Events</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(filtered.length)}</p>
         </div>
         <div className="rounded-2xl border border-signal-violet-line bg-signal-violet-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Actors</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Actors</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(new Set(filtered.map((e) => e.actor)).size)}</p>
         </div>
         <div className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Critical / High</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Critical / High</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(sev.CRITICAL + sev.HIGH)}</p>
         </div>
         <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft/70 px-4 py-3">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">Healthy</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Healthy</p>
           <p className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(sev.LOW + sev.MEDIUM)}</p>
         </div>
       </div>
@@ -524,7 +524,7 @@ export function AuditStreamTab({
           <div className="grid grid-cols-2 gap-2">
             {(["CRITICAL", "HIGH", "MEDIUM", "LOW"] as const).map((sv) => (
               <div key={sv} className={cn("rounded-xl border px-3 py-2.5", severityClass(sv as any))}>
-                <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-85">{sv}</p>
+                <p className="text-[11.5px] font-semibold opacity-85">{sv}</p>
                 <p className="mt-1 text-xl font-semibold leading-none">{formatNumber(sev[sv as keyof typeof sev])}</p>
               </div>
             ))}
@@ -555,7 +555,7 @@ export function AuditStreamTab({
           <div className="overflow-hidden rounded-2xl border border-border">
             <div className="max-h-[460px] overflow-auto">
               <table className="w-full border-collapse text-sm">
-                <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
+                <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left">When</th>
                     <th className="px-4 py-3 text-left">Severity</th>
@@ -577,7 +577,7 @@ export function AuditStreamTab({
                         <span className="block text-[11px] text-muted-foreground">{relativeTime(event.timestamp)}</span>
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", severityClass(event.severity))}>
+                        <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold", severityClass(event.severity))}>
                           {event.severity}
                         </span>
                       </td>
@@ -589,7 +589,7 @@ export function AuditStreamTab({
                           </span>
                           <span>
                             <span className="block font-semibold text-foreground">{event.actor}</span>
-                            <span className="block text-[10.5px] font-bold uppercase tracking-[0.1em] text-muted-foreground">{event.role || "—"}</span>
+                            <span className="block text-[11.5px] font-semibold text-muted-foreground">{event.role || "—"}</span>
                           </span>
                         </span>
                       </td>

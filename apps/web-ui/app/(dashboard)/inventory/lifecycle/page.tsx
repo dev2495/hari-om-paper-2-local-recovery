@@ -281,7 +281,7 @@ function StockLifecycleHubPage() {
           <>
             <Link
               href={nextAction.href}
-              className="inline-flex items-center gap-2 rounded-full bg-emerald-700 px-4 py-1.5 text-[12px] font-bold uppercase tracking-[0.14em] text-white shadow-md transition hover:bg-emerald-800"
+              className="erp-btn-primary !h-9"
             >
               <Sparkles className="h-3.5 w-3.5" />
               {nextAction.cta}
@@ -289,7 +289,7 @@ function StockLifecycleHubPage() {
             </Link>
             <span
               className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em]",
+                "inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-[12.5px] font-semibold",
                 isLocked
                   ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                   : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
@@ -299,7 +299,7 @@ function StockLifecycleHubPage() {
               Books {isLocked ? "locked" : "open"}
             </span>
             {blockerCount > 0 ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-signal-rose-line bg-signal-rose-soft px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-signal-rose-ink">
+              <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3 text-[12.5px] font-semibold text-signal-rose-ink">
                 <AlertTriangle className="h-3 w-3" />
                 {blockerCount} blocker{blockerCount === 1 ? "" : "s"}
               </span>
@@ -308,12 +308,12 @@ function StockLifecycleHubPage() {
         }
         aside={
           <div className="space-y-3">
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Next action</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Next action</p>
             <p className="text-lg font-semibold leading-tight">{nextAction.title}</p>
             <p className="text-[12px] leading-5 text-muted-foreground">{nextAction.detail}</p>
             <Link
               href={nextAction.href}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/20 bg-card/10 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-white hover:bg-card/20"
+              className="erp-btn-secondary w-full"
             >
               {nextAction.cta} <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -322,7 +322,7 @@ function StockLifecycleHubPage() {
       />
 
       {/* ── KPI rail ── */}
-      <section className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+      <section className="stagger grid gap-3 sm:grid-cols-2 md:grid-cols-3 2xl:grid-cols-6">
         <KpiTile label="Closing value" value={fmtCurrency(closingValue)} hint="Book at end of period" tone="cyan" icon={Database} />
         <KpiTile label="Theoretical" value={fmtKg(summary?.total_theoretical_consumption_kg)} hint="From BOM × produced" tone="cyan" icon={Sigma} />
         <KpiTile label="Ledger issued" value={fmtKg(summary?.total_ledger_issued_kg)} hint="Daily ISSUE_PRODUCTION sum" tone="violet" icon={Workflow} />
@@ -351,27 +351,27 @@ function StockLifecycleHubPage() {
               <li
                 key={step.key}
                 className={cn(
-                  "flex flex-col gap-2 rounded-[1.3rem] border p-4 shadow-sm transition",
+                  "flex flex-col gap-2 rounded-xl border p-3.5 transition-shadow hover:shadow-md",
                   colors.ring,
                   colors.bg,
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-card shadow-sm ring-1 ring-border">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-card shadow-sm ring-1 ring-border">
                     <Icon className="h-4.5 w-4.5 text-muted-foreground" />
                   </div>
-                  <span className={cn("rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", colors.chip)}>
+                  <span className={cn("rounded-full px-2.5 py-0.5 text-[11.5px] font-semibold", colors.chip)}>
                     {colors.chipLabel}
                   </span>
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Step {step.index}</p>
+                  <p className="text-[11.5px] font-medium text-muted-foreground">Step {step.index}</p>
                   <p className="text-sm font-semibold text-foreground">{step.title}</p>
                   <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{step.description}</p>
                 </div>
                 <Link
                   href={step.href}
-                  className="mt-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:text-signal-cyan-ink"
+                  className="mt-auto inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-primary hover:underline"
                 >
                   {step.cta} <ArrowRight className="h-3 w-3" />
                 </Link>
@@ -389,7 +389,7 @@ function StockLifecycleHubPage() {
           actions={
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em]",
+                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold",
                 blockerCount === 0
                   ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                   : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
@@ -411,12 +411,12 @@ function StockLifecycleHubPage() {
                 <li key={`${b.code}:${b.item_code || i}`} className="flex items-start gap-3 rounded-xl border border-signal-rose-line bg-card px-3 py-2.5 shadow-sm">
                   <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-signal-rose-ink" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-rose-ink">{b.code.replaceAll("_", " ")}</p>
+                    <p className="text-[11.5px] font-semibold text-signal-rose-ink">{b.code.replaceAll("_", " ")}</p>
                     <p className="text-[12.5px] text-muted-foreground">{b.detail}</p>
                   </div>
                   <Link
                     href={b.code === "CERT_NOT_CERTIFIED" ? "/inventory/stock-control" : "/production/reconciliation"}
-                    className="shrink-0 rounded-full border border-signal-rose-line px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-rose-ink hover:bg-signal-rose-soft"
+                    className="shrink-0 rounded-full border border-signal-rose-line px-2.5 py-0.5 text-[11.5px] font-semibold text-signal-rose-ink hover:bg-signal-rose-soft"
                   >
                     Fix
                   </Link>
@@ -435,7 +435,7 @@ function StockLifecycleHubPage() {
           actions={
             <Link
               href="/production/reconciliation"
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:border-signal-cyan-line"
             >
               See all <ArrowRight className="h-3 w-3" />
             </Link>
@@ -459,11 +459,11 @@ function StockLifecycleHubPage() {
                       {fmtKg(row.variance_kg)}
                     </p>
                     {row.needs_explanation ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-signal-amber-ink">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[12px] font-semibold text-signal-amber-ink">
                         <Pencil className="h-2.5 w-2.5" /> Note needed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-signal-violet-ink">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[12px] font-semibold text-signal-violet-ink">
                         <CheckCircle2 className="h-2.5 w-2.5" /> Explained
                       </span>
                     )}
@@ -471,7 +471,7 @@ function StockLifecycleHubPage() {
                   {row.item_id ? (
                     <Link
                       href={`/inventory/ledger?item_id=${row.item_id}&start=${startDate}&end=${endDate}&from=reconciliation`}
-                      className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-signal-cyan-soft"
+                      className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2.5 py-1 text-[11.5px] font-semibold text-signal-cyan-ink hover:bg-signal-cyan-soft"
                     >
                       Drill
                     </Link>
@@ -490,7 +490,7 @@ function StockLifecycleHubPage() {
         actions={
           <Link
             href="/production/reconciliation"
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:border-signal-cyan-line"
           >
             Full table <ArrowRight className="h-3 w-3" />
           </Link>
@@ -551,7 +551,7 @@ function StockLifecycleHubPage() {
           actions={
             <Link
               href="/production/reconciliation?tab=drift"
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:border-signal-cyan-line"
             >
               Full drift <ArrowRight className="h-3 w-3" />
             </Link>
@@ -571,7 +571,7 @@ function StockLifecycleHubPage() {
           actions={
             <Link
               href="/production/reconciliation?tab=history"
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[12px] font-semibold text-muted-foreground hover:border-signal-cyan-line"
             >
               See history <ArrowRight className="h-3 w-3" />
             </Link>
@@ -631,23 +631,25 @@ function KpiTile({
   tone?: "cyan" | "emerald" | "amber" | "rose" | "violet" | "slate"
   icon: LucideIcon
 }) {
-  const toneClass: Record<string, string> = {
-    cyan: "border-signal-cyan-line bg-signal-cyan-soft/70 text-signal-cyan-ink",
-    emerald: "border-signal-emerald-line bg-signal-emerald-soft/70 text-signal-emerald-ink",
-    amber: "border-signal-amber-line bg-signal-amber-soft/70 text-signal-amber-ink",
-    rose: "border-signal-rose-line bg-signal-rose-soft/70 text-signal-rose-ink",
-    violet: "border-signal-violet-line bg-signal-violet-soft/70 text-signal-violet-ink",
-    slate: "border-border bg-card/90 text-foreground",
+  const chip: Record<string, string> = {
+    cyan: "bg-signal-cyan-soft text-signal-cyan-ink ring-signal-cyan-line",
+    emerald: "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line",
+    amber: "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line",
+    rose: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line",
+    violet: "bg-signal-violet-soft text-signal-violet-ink ring-signal-violet-line",
+    slate: "bg-muted text-muted-foreground ring-border",
   }
   return (
-    <div className={cn("relative overflow-hidden rounded-[1.3rem] border px-4 py-3 shadow-sm", toneClass[tone])}>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-[10px] font-bold uppercase tracking-[0.2em] opacity-65">{label}</p>
-        <Icon className="h-3.5 w-3.5 opacity-50" />
+    <article className="tube-kpi erp-metric-card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="tube-kpi-label truncate">{label}</p>
+          <p className="tube-kpi-value">{value}</p>
+        </div>
+        <span className={cn("tube-kpi-icon ring-1 ring-inset", chip[tone])}><Icon aria-hidden="true" /></span>
       </div>
-      <p className="mt-2 text-[1.5rem] font-semibold leading-none tabular-nums tracking-tight">{value}</p>
-      <p className="mt-1.5 text-[11px] leading-4 opacity-75">{hint}</p>
-    </div>
+      <p className="mt-2 text-[12.5px] leading-5 text-muted-foreground">{hint}</p>
+    </article>
   )
 }
 
@@ -666,11 +668,11 @@ function StreamCard({
 }) {
   return (
     <div
-      className="rounded-2xl border border-border bg-card p-4 shadow-sm"
-      style={{ borderTop: `4px solid ${color}` }}
+      className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm"
+      style={{ boxShadow: `inset 0 3px 0 ${color}` }}
     >
       <div className="flex items-center justify-between">
-        <p className="text-[10.5px] font-bold uppercase tracking-[0.16em]" style={{ color }}>{title}</p>
+        <p className="text-[12.5px] font-semibold" style={{ color }}>{title}</p>
         <Icon className="h-4 w-4" style={{ color }} />
       </div>
       <p className="mt-3 text-3xl font-semibold leading-none tabular-nums tracking-tight text-foreground">{value}</p>
@@ -682,8 +684,8 @@ function StreamCard({
 function MiniTile({ label, value, accent }: { label: string; value: string; accent?: "amber" | "emerald" }) {
   const accentClass = accent === "amber" ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : accent === "emerald" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card"
   return (
-    <div className={cn("rounded-2xl border px-3 py-2.5 shadow-sm", accentClass)}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-65">{label}</p>
+    <div className={cn("rounded-lg border px-3 py-2.5", accentClass)}>
+      <p className="text-[11.5px] font-medium opacity-75">{label}</p>
       <p className="mt-1 text-xl font-semibold leading-none tabular-nums">{value}</p>
     </div>
   )
@@ -693,9 +695,9 @@ function ShortcutTile({ href, title, detail, icon: Icon }: { href: string; title
   return (
     <Link
       href={href}
-      className="group flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-signal-cyan-line hover:shadow-md"
+      className="group flex items-center gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md"
     >
-      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-700 via-cyan-600 to-emerald-500 text-white shadow-sm">
+      <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/20">
         <Icon className="h-4.5 w-4.5" />
       </span>
       <div className="min-w-0 flex-1">

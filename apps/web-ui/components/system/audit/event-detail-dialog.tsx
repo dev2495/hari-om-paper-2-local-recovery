@@ -59,16 +59,16 @@ export function EventDetailDialog({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <span
-                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]"
+                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold"
                 style={{ background: `color-mix(in srgb, ${meta.color} 10%, transparent)`, borderColor: `color-mix(in srgb, ${meta.color} 33%, transparent)`, color: meta.color }}
               >
                 <Icon className="h-3 w-3" />
                 {meta.short}
               </span>
-              <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", severityClass(event.severity))}>
+              <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold", severityClass(event.severity))}>
                 {event.severity}
               </span>
-              <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+              <span className="text-[11.5px] font-semibold text-muted-foreground">
                 {timestampText(event.timestamp)} · {relativeTime(event.timestamp)}
               </span>
             </div>
@@ -88,7 +88,7 @@ export function EventDetailDialog({
 
         <div className="grid gap-4 px-6 py-5">
           <section className="rounded-2xl border border-border bg-muted/60 p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Who · What · Where</p>
+            <p className="text-[11.5px] font-semibold text-muted-foreground">Who · What · Where</p>
             <dl className="mt-3 grid gap-2 text-[12.5px]">
               <KV k="Actor" v={event.actor} />
               <KV k="Role" v={event.role || "—"} />
@@ -101,7 +101,7 @@ export function EventDetailDialog({
 
           {event.details && Object.keys(event.details).length > 0 ? (
             <section className="rounded-2xl border border-border bg-muted/60 p-4">
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Details</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Details</p>
               <pre className="mt-3 max-h-[220px] overflow-auto rounded-xl bg-foreground p-3 text-[11.5px] leading-5 text-background/70">
                 {JSON.stringify(event.details, null, 2)}
               </pre>
@@ -131,7 +131,7 @@ export function EventDetailDialog({
 function KV({ k, v, mono }: { k: string; v: string; mono?: boolean }) {
   return (
     <div className="grid grid-cols-[100px_1fr] items-baseline gap-3">
-      <dt className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{k}</dt>
+      <dt className="text-[11.5px] font-semibold text-muted-foreground">{k}</dt>
       <dd className={cn("break-words font-semibold text-foreground", mono ? "font-mono text-[12px]" : "")}>{v}</dd>
     </div>
   )

@@ -136,7 +136,7 @@ export function IntelligenceReportCatalog() {
             role="tab"
             aria-selected={audience === value}
             variant={audience === value ? "default" : "outline"}
-            className="h-8 rounded-full px-3 text-[11px] font-semibold uppercase tracking-[0.14em]"
+            className="h-8 rounded-full px-3 text-[12px] font-semibold"
             onClick={() => setAudience(value)}
           >
             {AUDIENCE_LABELS[value]}
@@ -148,7 +148,7 @@ export function IntelligenceReportCatalog() {
         if (!groupReports.length) return null
         return (
           <div key={group} className="space-y-3">
-            <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{AUDIENCE_LABELS[group]}</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">{AUDIENCE_LABELS[group]}</p>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {groupReports.map((report) => (
                 <Link key={report.href} href={report.href} className="group">
@@ -158,7 +158,7 @@ export function IntelligenceReportCatalog() {
                       <CardDescription className="text-sm leading-6">{report.description}</CardDescription>
                     </CardHeader>
                     <CardContent className="px-5 pb-5 pt-0">
-                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-signal-cyan-ink">Open report</span>
+                      <span className="text-[12px] font-semibold text-signal-cyan-ink">Open report</span>
                     </CardContent>
                   </Card>
                 </Link>

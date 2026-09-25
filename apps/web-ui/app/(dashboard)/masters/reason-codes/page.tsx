@@ -216,7 +216,7 @@ function ReasonCodesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={createForm.code} onChange={(v) => setCreateForm({ ...createForm, code: v })} placeholder="DT-POWER" />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
             <select value={createForm.category} onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
             </select>
@@ -225,7 +225,7 @@ function ReasonCodesPage() {
             <LabeledInput label="Label" required value={createForm.label} onChange={(v) => setCreateForm({ ...createForm, label: v })} placeholder="Power cut" />
           </div>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Severity</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Severity</span>
             <select value={createForm.severity} onChange={(e) => setCreateForm({ ...createForm, severity: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -244,14 +244,14 @@ function ReasonCodesPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Code" required value={editForm.code || ""} onChange={(v) => setEditForm({ ...editForm, code: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Category *</span>
             <select value={editForm.category || ""} onChange={(e) => setEditForm({ ...editForm, category: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {CATEGORIES.map((c) => <option key={c} value={c}>{c.replace("_", " ")}</option>)}
             </select>
           </label>
           <div className="sm:col-span-2"><LabeledInput label="Label" required value={editForm.label || ""} onChange={(v) => setEditForm({ ...editForm, label: v })} /></div>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Severity</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Severity</span>
             <select value={editForm.severity || ""} onChange={(e) => setEditForm({ ...editForm, severity: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {SEVERITIES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>

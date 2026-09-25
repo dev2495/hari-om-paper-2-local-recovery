@@ -76,7 +76,7 @@ export function KeyboardScheduleForm({
       data-testid="planner-keyboard-schedule"
       className="min-w-0 max-w-full overflow-hidden rounded-[1.2rem] border border-border bg-card/90 p-3 shadow-sm"
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Keyboard scheduling</p>
+      <p className="text-[12px] font-semibold text-muted-foreground">Keyboard scheduling</p>
       <p className="mt-1 text-xs text-muted-foreground">Same move as drag-and-drop. Focus a queue card and press Enter, or pick a card here.</p>
       <div className="mt-3 grid gap-2 lg:grid-cols-5">
         <label className="text-xs font-semibold text-muted-foreground">

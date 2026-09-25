@@ -187,7 +187,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             />
             <span
               className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em]",
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-semibold",
                 isLocked
                   ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                   : closeStatus === "DRAFT"
@@ -200,7 +200,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             </span>
             <span
               className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em]",
+                "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-semibold",
                 periodState?.stock_cert_status === "CERTIFIED" || periodState?.stock_cert_status === "CARRIED_FORWARD"
                   ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                   : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
@@ -268,7 +268,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
           title="Close blockers"
           subtitle="Resolve every item below before the monthly close can be approved."
           actions={
-            <span className="inline-flex items-center gap-2 rounded-full border border-signal-rose-line bg-signal-rose-soft px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-signal-rose-ink">
+            <span className="inline-flex items-center gap-2 rounded-full border border-signal-rose-line bg-signal-rose-soft px-3 py-1 text-[12px] font-semibold text-signal-rose-ink">
               <AlertTriangle className="h-3.5 w-3.5" />
               {blockers.length} blocker{blockers.length === 1 ? "" : "s"}
             </span>
@@ -284,20 +284,20 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                   <AlertTriangle className="h-3.5 w-3.5" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-signal-rose-ink">{b.code.replaceAll("_", " ")}</p>
+                  <p className="text-[12px] font-semibold text-signal-rose-ink">{b.code.replaceAll("_", " ")}</p>
                   <p className="mt-0.5 text-sm font-semibold text-foreground">{b.detail}</p>
                 </div>
                 {b.code === "CERT_NOT_CERTIFIED" ? (
                   <Link
                     href="/inventory/stock-control"
-                    className="shrink-0 rounded-xl bg-rose-900 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white shadow-sm"
+                    className="shrink-0 rounded-xl bg-rose-900 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm"
                   >
                     Open stock cert
                   </Link>
                 ) : b.code === "VARIANCE_NEEDS_NOTE" ? (
                   <button
                     onClick={() => setActiveTab("actuals")}
-                    className="shrink-0 rounded-xl bg-amber-700 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-white shadow-sm"
+                    className="shrink-0 rounded-xl bg-amber-700 px-3 py-1.5 text-[12px] font-semibold text-white shadow-sm"
                   >
                     Add note
                   </button>
@@ -332,7 +332,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             <div className="overflow-hidden rounded-2xl border border-border">
               <div className="max-h-[520px] overflow-auto">
                 <table className="w-full border-collapse text-sm">
-                  <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left">Item</th>
                       <th className="px-3 py-3 text-right">Theoretical</th>
@@ -388,7 +388,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                             <td className="px-3 py-2.5">
                               <span
                                 className={cn(
-                                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]",
+                                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold",
                                   status === "emerald"
                                     ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                                     : status === "amber"
@@ -412,7 +412,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                               {row.item_id ? (
                                 <Link
                                   href={`/inventory/ledger?item_id=${row.item_id}&start=${summary?.month_start}&end=${summary?.month_end}&from=reconciliation`}
-                                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1 text-[10.5px] font-bold uppercase tracking-[0.1em] text-signal-cyan-ink hover:border-signal-cyan-line"
+                                  className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-2 py-1 text-[11.5px] font-semibold text-signal-cyan-ink hover:border-signal-cyan-line"
                                 >
                                   <Workflow className="h-3 w-3" /> Drill
                                 </Link>
@@ -474,7 +474,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                   onClick={handleApprove}
                   disabled={!canApprove || approveMutation.isPending}
                   className={cn(
-                    "inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold uppercase tracking-[0.1em] shadow-md transition",
+                    "inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold shadow-md transition",
                     canApprove
                       ? "bg-gradient-to-br from-emerald-700 via-emerald-600 to-cyan-600 text-white hover:-translate-y-0.5"
                       : "cursor-not-allowed bg-muted text-muted-foreground",
@@ -484,7 +484,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                 </button>
                 {approveErrorBlockers.length > 0 && (
                   <div className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft p-3 text-[12.5px] text-signal-rose-ink">
-                    <p className="font-bold uppercase tracking-[0.12em]">Approval rejected — {approveErrorBlockers.length} blocker(s)</p>
+                    <p className="font-semibold">Approval rejected — {approveErrorBlockers.length} blocker(s)</p>
                     <ul className="mt-1.5 list-disc pl-5">
                       {approveErrorBlockers.map((b, i) => (
                         <li key={i}>{b.detail}</li>
@@ -515,7 +515,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                 onClick={handleSaveActuals}
                 disabled={importMutation.isPending || writeBlocked || isLocked}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-bold uppercase tracking-[0.1em] shadow-md",
+                  "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold shadow-md",
                   writeBlocked || isLocked
                     ? "cursor-not-allowed bg-muted text-muted-foreground"
                     : "bg-primary text-primary-foreground hover:bg-primary/90",
@@ -530,7 +530,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
           <div className="overflow-hidden rounded-2xl border border-border">
             <div className="max-h-[560px] overflow-auto">
               <table className="w-full border-collapse text-sm">
-                <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3 text-left">Item</th>
                     <th className="px-3 py-3 text-right">Theoretical</th>
@@ -642,7 +642,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
             <div className="mt-4 overflow-hidden rounded-2xl border border-border">
               <div className="max-h-[420px] overflow-auto">
                 <table className="w-full border-collapse text-sm">
-                  <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+                  <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                     <tr>
                       <th className="px-4 py-3 text-left">Item</th>
                       <th className="px-3 py-3 text-right">Theoretical</th>
@@ -673,7 +673,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                           <td className="px-3 py-2.5 text-center">
                             <span
                               className={cn(
-                                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]",
+                                "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11.5px] font-semibold",
                                 row.over_tolerance ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
                               )}
                             >
@@ -715,7 +715,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
           )}
           <div className="overflow-hidden rounded-2xl border border-border">
             <table className="w-full border-collapse text-sm">
-              <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+              <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Month</th>
                   <th className="px-3 py-3 text-left">Status</th>
@@ -731,7 +731,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                     <td className="px-3 py-2.5">
                       <span
                         className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]",
+                          "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] font-semibold",
                           String(row.status).toUpperCase() === "APPROVED"
                             ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
                             : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
@@ -771,7 +771,7 @@ function KpiTile({ label, value, tone = "cyan" }: { label: string; value: string
   }
   return (
     <div className={cn("rounded-2xl border px-4 py-3 shadow-sm", toneClass[tone])}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+      <p className="text-[11.5px] font-semibold text-muted-foreground">{label}</p>
       <p className="mt-2 text-2xl font-semibold leading-none tracking-tight text-foreground">{value}</p>
     </div>
   )

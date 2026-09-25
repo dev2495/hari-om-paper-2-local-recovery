@@ -139,7 +139,7 @@ function VarianceBridgePage() {
         {itemRows.length ? (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Item</th>
                 <th className="py-2 pr-3 text-right">Theoretical</th>
                 <th className="py-2 pr-3 text-right">Ledger</th>

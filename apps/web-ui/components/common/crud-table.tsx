@@ -176,7 +176,7 @@ export function CrudTable({
             <section className="rounded-[1.75rem] border border-border bg-card/90 px-4 py-4 shadow-premium">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                        <p className="text-[12px] font-semibold text-muted-foreground">
                             {workspace === "masters" ? "Master Workspace" : "System Workspace"}
                         </p>
                         <p className="mt-2 text-sm text-muted-foreground">
@@ -207,7 +207,7 @@ export function CrudTable({
             <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-premium">
                 <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_320px] lg:px-8">
                     <div>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Master Data Workspace</p>
+                        <p className="text-[12px] font-semibold text-muted-foreground">Master Data Workspace</p>
                         <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">{title}</h1>
                         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">{subtitle}</p>
                         <p className="mt-3 inline-flex max-w-3xl rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1.5 text-xs font-semibold text-signal-amber-ink">
@@ -216,7 +216,7 @@ export function CrudTable({
                     </div>
                     <div className="flex flex-col gap-3 rounded-[1.5rem] border border-border bg-card/80 p-4 shadow-sm">
                         <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{metricLabel}</p>
+                            <p className="text-[12px] font-semibold text-muted-foreground">{metricLabel}</p>
                             <p className="mt-2 text-3xl font-semibold text-foreground">{filteredData.length}</p>
                             <p className="mt-1 text-sm text-muted-foreground">{data.length} total records available in this scope.</p>
                             {writeBlocked ? (
@@ -278,7 +278,7 @@ export function CrudTable({
                             className="h-12 rounded-full border-border bg-muted pl-11 shadow-inner"
                         />
                     </div>
-                    <div className="rounded-full border border-border bg-muted px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    <div className="rounded-full border border-border bg-muted px-4 py-2 text-[12px] font-semibold text-muted-foreground">
                         {filteredData.length === data.length ? "All rows visible" : `${filteredData.length} of ${data.length} rows visible`}
                     </div>
                 </div>
@@ -287,7 +287,7 @@ export function CrudTable({
             <section className="overflow-hidden rounded-[2rem] border border-border bg-card/90 shadow-premium">
                 <div className="overflow-x-auto">
                     <table className="w-full min-w-[760px] caption-bottom text-sm">
-                        <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                        <thead className="bg-muted text-[12px] text-muted-foreground">
                         <tr className="border-b border-border">
                             {columns.map((col, i) => (
                                 <th key={i} className="h-12 px-4 text-left align-middle font-semibold">
@@ -327,7 +327,7 @@ export function CrudTable({
                                     ))}
                                     <td className="p-4 align-middle text-right">
                                         <div className="flex items-center justify-end gap-2">
-                                            <span className={`rounded-full px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] ${rowActive ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-muted text-muted-foreground"}`}>
+                                            <span className={`rounded-full px-2 py-1 text-[11.5px] font-semibold ${rowActive ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-muted text-muted-foreground"}`}>
                                                 {rowActive ? "Active" : "Disabled"}
                                             </span>
                                             {rowActions ? rowActions(row) : null}

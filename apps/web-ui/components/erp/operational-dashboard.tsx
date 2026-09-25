@@ -48,7 +48,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
       <section className="rounded-[1.8rem] border border-border/70 bg-card/90 p-6 shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Operational Dashboard</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Operational Dashboard</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
               {plannerView ? "Today’s queues, bottlenecks, and release handoff" : "Role-first action queues and floor visibility"}
             </h1>
@@ -82,7 +82,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
             <div className="rounded-[1.2rem] border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Planning</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground">Planning</p>
                   <p className="mt-1 text-base font-semibold text-foreground">Unscheduled or blocked execution</p>
                 </div>
                 <div className="text-right">
@@ -94,7 +94,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
             <div className="rounded-[1.2rem] border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Stores</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground">Stores</p>
                   <p className="mt-1 text-base font-semibold text-foreground">Low-stock or dispatch-readiness pressure</p>
                 </div>
                 <div className="text-right">
@@ -106,7 +106,7 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
             <div className="rounded-[1.2rem] border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Dispatch</p>
+                  <p className="text-[12px] font-semibold text-muted-foreground">Dispatch</p>
                   <p className="mt-1 text-base font-semibold text-foreground">Ready for sealing</p>
                 </div>
                 <div className="text-right">

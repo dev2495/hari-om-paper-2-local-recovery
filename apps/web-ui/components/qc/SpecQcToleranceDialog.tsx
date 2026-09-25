@@ -177,7 +177,7 @@ export function SpecQcToleranceDialog({
     >
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-border bg-card shadow-2xl">
         <div className="border-b border-border px-6 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Review quality tolerances</p>
+          <p className="text-[12px] font-semibold text-muted-foreground">Review quality tolerances</p>
           <h2 className="mt-1 text-2xl font-semibold text-foreground">Stage QC setup before save</h2>
           <p className="mt-2 text-sm text-muted-foreground">
             {context.customer || "Customer pending"} · {context.product || "Product pending"} · {context.plant || "Plant"} · {context.dimensions || "Dimensions pending"}
@@ -213,7 +213,7 @@ export function SpecQcToleranceDialog({
         <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
           {stage === "PROCESS" ? (
             <label className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Notching</span>
+              <span className="text-[12px] font-semibold text-muted-foreground">Notching</span>
               <select
                 data-testid="spec-qc-notching-state"
                 className="h-10 rounded-xl border border-border px-2"
@@ -228,7 +228,7 @@ export function SpecQcToleranceDialog({
           ) : null}
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-muted text-left text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+              <tr className="bg-muted text-left text-[12px] text-muted-foreground">
                 <th className="border border-border px-2 py-2">Parameter</th>
                 <th className="border border-border px-2 py-2">Unit</th>
                 <th className="border border-border px-2 py-2">Method</th>

@@ -142,7 +142,7 @@ export default function JobCardsPage() {
         aside={
           <div className="space-y-3">
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Open Cards</p>
+              <p className="text-[12px] text-muted-foreground">Open Cards</p>
               <p className="mt-2 text-3xl font-semibold" data-testid="job-cards:open-count">{Number(aggregates.open_cards ?? visibleCards)}</p>
               <p className="mt-1 text-xs text-muted-foreground">Server aggregate across all job cards in plant scope</p>
             </div>
@@ -177,11 +177,11 @@ export default function JobCardsPage() {
         subtitle="Open production is grouped by current stage. Tile counts are a full-scope server aggregate; the list below uses the same stage filter."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/inventory/production-issue" className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink">
+            <Link href="/inventory/production-issue" className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-[12px] font-semibold text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink">
               <PackageCheck className="h-3.5 w-3.5" />
               Issue to WIP
             </Link>
-            <Link href="/quality" className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-primary-foreground hover:bg-primary/90">
+            <Link href="/quality" className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-[12px] font-semibold text-primary-foreground hover:bg-primary/90">
               Quality desk <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
@@ -200,7 +200,7 @@ export default function JobCardsPage() {
                   active ? "border-signal-cyan-line bg-signal-cyan-soft" : "border-border bg-muted"
                 }`}
               >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{row.stage.replace(/_/g, " ")}</p>
+                <p className="text-[11.5px] font-semibold text-muted-foreground">{row.stage.replace(/_/g, " ")}</p>
                 <p className="mt-2 text-2xl font-semibold text-foreground">{row.count}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {row.stage === "QC" ? "Final gate cards" : row.stage === "DISPATCH" ? "Ready for dispatch check" : "Open cards in this stage"}
@@ -222,12 +222,12 @@ export default function JobCardsPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {stageFilter ? (
-              <button type="button" onClick={() => replaceQuery({ stage: null })} className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-signal-cyan-ink">
+              <button type="button" onClick={() => replaceQuery({ stage: null })} className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-3 py-1 text-[12px] font-semibold text-signal-cyan-ink">
                 Stage {stageFilter} ×
               </button>
             ) : null}
             {dueRiskParam ? (
-              <button type="button" onClick={() => replaceQuery({ due: null })} className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-signal-amber-ink">
+              <button type="button" onClick={() => replaceQuery({ due: null })} className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1 text-[12px] font-semibold text-signal-amber-ink">
                 {dueRiskParam === "PRIORITY" ? "Priority 3-day" : "Overdue"} ×
               </button>
             ) : null}

@@ -336,7 +336,7 @@ export function Funnel({ stages, unit = "" }: { stages: FunnelStage[]; unit?: st
         return (
           <div key={stage.label}>
             <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
-              <span className="uppercase tracking-wide">{stage.label}</span>
+              <span className="">{stage.label}</span>
               <span>
                 <span className="font-bold text-foreground">{formatNumber(stage.value)}</span>
                 {unit ? <span className="ml-1 text-muted-foreground">{unit}</span> : null}
@@ -386,7 +386,7 @@ export function CalendarHeatmap({
       <table className="min-w-full border-separate border-spacing-1 text-[10px]">
         <thead>
           <tr>
-            <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider px-1">&nbsp;</th>
+            <th className="text-left text-muted-foreground font-semibold px-1">&nbsp;</th>
             {colLabels.map((cl) => (
               <th key={cl} className="text-center text-muted-foreground font-semibold w-7">
                 {cl}
@@ -397,7 +397,7 @@ export function CalendarHeatmap({
         <tbody>
           {Array.from({ length: rows }).map((_, r) => (
             <tr key={rowLabels[r] || r}>
-              <td className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap pr-2">
+              <td className="text-muted-foreground text-[12px] font-semibold whitespace-nowrap pr-2">
                 {rowLabels[r] || `R${r}`}
               </td>
               {Array.from({ length: cols }).map((__, c) => {
@@ -788,7 +788,7 @@ export function LeadTimeAnatomy({ stages, totalLabel = "Total" }: { stages: Lead
   const total = stages.reduce((acc, s) => acc + s.days, 0) || 1
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+      <div className="mb-2 flex items-center justify-between text-[12px] font-semibold text-muted-foreground">
         <span>Order created → dispatch</span>
         <span>
           {totalLabel}: <span className="font-bold text-foreground">{formatNumber(total, 1)} d</span>

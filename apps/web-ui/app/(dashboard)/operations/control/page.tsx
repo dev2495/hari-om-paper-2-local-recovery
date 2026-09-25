@@ -349,7 +349,7 @@ function OperationsControlPage() {
           {Array.isArray(shortCloses) && shortCloses.length > 0 ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Job card</th>
                   <th className="py-2 pr-3">Scope</th>
                   <th className="py-2 pr-3 text-right">Planned</th>
@@ -384,7 +384,7 @@ function OperationsControlPage() {
           {Array.isArray(downtimeRows) && downtimeRows.length > 0 ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Machine</th>
                   <th className="py-2 pr-3">Started</th>
                   <th className="py-2 pr-3">Ended</th>
@@ -561,7 +561,7 @@ function OperationsControlPage() {
                           {d.duration_minutes ? <span className="ml-2 font-semibold text-muted-foreground">{Math.round(Number(d.duration_minutes))} m</span> : null}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Affected:</span>
+                          <span className="text-[12px] font-semibold text-muted-foreground">Affected:</span>
                           {affected.map((jc) => (
                             <DrillLink key={jc} href={`/planning/board?job_card_id=${jc}`}>{String(jc).slice(0, 8)}</DrillLink>
                           ))}
@@ -616,7 +616,7 @@ function OperationsControlPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Job card *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Job card *</span>
             <select value={scJobCardId} onChange={(e) => setScJobCardId(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose an open job card…</option>
               {openJobCards.map((j: any) => (
@@ -632,7 +632,7 @@ function OperationsControlPage() {
             </div>
           ) : null}
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Short-close scope: whole card or a specific stage *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Short-close scope: whole card or a specific stage *</span>
             <select value={scStageType} onChange={(e) => setScStageType(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {SHORT_CLOSE_STAGES.map((s) => (
                 <option key={s} value={s}>{s === "JOB_CARD" ? "Whole job card" : s} {s === "JOB_CARD" ? "(default)" : ""}</option>
@@ -642,11 +642,11 @@ function OperationsControlPage() {
           </label>
           <LabeledInput label="Produced qty" required value={scProduced} onChange={setScProduced} type="number" placeholder="e.g. 50000" />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Gap (auto)</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Gap (auto)</span>
             <span className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-bold text-signal-rose-ink">{gapPreview > 0 ? formatNumber(gapPreview) : "—"}</span>
           </label>
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Reason code *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Reason code *</span>
             <select value={scReason} onChange={(e) => setScReason(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {(Array.isArray(scReasons) ? scReasons : []).filter((r: any) => r.is_active !== false).map((r: any) => (
@@ -658,7 +658,7 @@ function OperationsControlPage() {
             ) : null}
           </label>
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Decision *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Decision *</span>
             <div className="grid grid-cols-3 gap-2">
               <button type="button" onClick={() => setScDecision("CARRY_FORWARD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "CARRY_FORWARD" ? "border-signal-emerald-ink/40 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}>
                 Carry forward<br /><span className="text-[10px] font-normal">Spawn top-up JC for the gap</span>
@@ -696,7 +696,7 @@ function OperationsControlPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Machine *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Machine *</span>
             <select value={dtMachineId} onChange={(e) => setDtMachineId(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {machines.filter((m: any) => m.active !== false).map((m: any) => (
@@ -707,7 +707,7 @@ function OperationsControlPage() {
           <LabeledInput label="Started at" required type="datetime-local" value={dtStartedAt} onChange={setDtStartedAt} />
           <LabeledInput label="Ended at (blank = still down)" type="datetime-local" value={dtEndedAt} onChange={setDtEndedAt} />
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Reason code *</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Reason code *</span>
             <select value={dtReason} onChange={(e) => setDtReason(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {(Array.isArray(dtReasons) ? dtReasons : []).filter((r: any) => r.is_active !== false).map((r: any) => (

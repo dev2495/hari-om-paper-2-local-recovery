@@ -150,7 +150,7 @@ export default function PackagingMasterPage() {
       <section className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Packaging Workspace</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Packaging Workspace</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">One packing workspace, not three long pages</h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Keep boxes, plastic sheets, and fadda in one compact flow. Switch the active packing master from here instead of scrolling through stacked sections that waste page height.
@@ -168,7 +168,7 @@ export default function PackagingMasterPage() {
                     : "border-border bg-muted text-muted-foreground hover:bg-card"
                 }`}
               >
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">{item.label}</p>
+                <p className="text-[12px] font-semibold opacity-70">{item.label}</p>
                 <p className="mt-2 text-2xl font-semibold">{counts[item.key]}</p>
               </button>
             ))}
@@ -179,7 +179,7 @@ export default function PackagingMasterPage() {
       <section className="rounded-[2rem] border border-border bg-card/90 p-5 shadow-premium">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Active section</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Active section</p>
             <h2 className="mt-2 text-2xl font-semibold text-foreground">{section.title}</h2>
             <p className="mt-2 text-sm text-muted-foreground">{section.subtitle}</p>
           </div>

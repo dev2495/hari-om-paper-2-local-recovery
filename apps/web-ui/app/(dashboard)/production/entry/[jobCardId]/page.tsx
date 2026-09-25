@@ -45,7 +45,7 @@ export default function ProductionMobileEntryPage() {
     return (
       <div className="flex min-h-screen items-center justify-center px-6">
         <div className="max-w-lg rounded-[1.8rem] border border-signal-rose-line bg-card/95 p-7 shadow-lg">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal-rose-ink">Access denied</p>
+          <p className="text-[12px] font-semibold text-signal-rose-ink">Access denied</p>
           <h1 className="mt-3 text-2xl font-semibold tracking-tight text-foreground">This account cannot open mobile production entry.</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             Operator, plant-manager, owner, or admin access is required for QR stage entry.

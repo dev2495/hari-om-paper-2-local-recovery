@@ -21,7 +21,7 @@ export function NumericInput({ unit, className = "", disabled, ...props }: Numer
   return (
     <div className="relative">
       {input}
-      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-[12px] font-semibold text-muted-foreground">
         {unit}
       </span>
     </div>

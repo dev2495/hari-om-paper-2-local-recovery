@@ -86,7 +86,7 @@ function KpiCard({
   return (
     <div className={cn("rounded-[1.6rem] border px-5 py-4 shadow-[0_16px_45px_rgba(15,23,42,0.06)]", toneClass)}>
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[10px] font-black uppercase tracking-[0.22em] opacity-60">{label}</p>
+        <p className="text-[11.5px] font-semibold opacity-60">{label}</p>
         <Icon className="h-4 w-4 opacity-60" />
       </div>
       <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
@@ -108,7 +108,7 @@ function SectionShell({
 }) {
   return (
     <section className={cn("rounded-[2rem] border border-border bg-card p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]", className)}>
-      <p className="text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground">{eyebrow}</p>
+      <p className="text-[11.5px] font-semibold text-muted-foreground">{eyebrow}</p>
       <h2 className="mt-2 text-xl font-black tracking-tight text-foreground">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
@@ -160,7 +160,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
         <div className="absolute inset-y-0 right-0 hidden w-1/2 bg-card lg:block" />
         <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-black uppercase tracking-[0.28em] text-muted-foreground">Owner Intelligence</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Owner Intelligence</p>
             <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">
               Live company health, WIP, variance, and exceptions.
             </h1>
@@ -169,16 +169,16 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">
+            <label className="text-[11.5px] font-semibold text-muted-foreground">
               From
               <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
-            <label className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">
+            <label className="text-[11.5px] font-semibold text-muted-foreground">
               To
               <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
             <div className="rounded-2xl border border-border/10 bg-card/10 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Scope</p>
+              <p className="text-[11.5px] font-semibold text-muted-foreground">Scope</p>
               <p className="mt-2 text-sm font-black">{plantScopeLabel}</p>
               <p className="mt-1 text-xs text-muted-foreground">{canUseGlobal ? "Owner/Admin can use Global Analytics" : "Plant-isolated view"}</p>
             </div>
@@ -273,11 +273,11 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
                 <p>Rejections are tracked at stage entry as reject quantity plus reason; month close explains remaining variance against actual stock.</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-2xl border border-border bg-muted px-4 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">Checked</p>
+                    <p className="text-[11.5px] font-semibold text-muted-foreground">Checked</p>
                     <p className="mt-2 text-2xl font-black text-foreground">{formatNumber(quality.summary?.checked)}</p>
                   </div>
                   <div className="rounded-2xl border border-border bg-muted px-4 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">Compliance</p>
+                    <p className="text-[11.5px] font-semibold text-muted-foreground">Compliance</p>
                     <p className="mt-2 text-2xl font-black text-foreground">{formatPct(quality.summary?.compliance_percent)}</p>
                   </div>
                 </div>
@@ -297,8 +297,8 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
                   <table className="w-full text-left text-sm">
                     <thead className="bg-[hsl(var(--surface-2))] text-muted-foreground">
                       <tr>
-                        <th className="px-3 py-3 text-[10px] uppercase tracking-[0.18em]">Item</th>
-                        <th className="px-3 py-3 text-right text-[10px] uppercase tracking-[0.18em]">Available</th>
+                        <th className="px-3 py-3 text-[11.5px]">Item</th>
+                        <th className="px-3 py-3 text-right text-[11.5px]">Available</th>
                       </tr>
                     </thead>
                     <tbody>

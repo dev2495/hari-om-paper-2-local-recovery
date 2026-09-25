@@ -162,7 +162,7 @@ function OperationsCommandPage() {
         {operatorRows.length ? (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Operator</th>
                 <th className="py-2 pr-3">Stage</th>
                 <th className="py-2 pr-3 text-right">Cards</th>
@@ -203,7 +203,7 @@ function OperationsCommandPage() {
         {blockedRows.length ? (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 <th className="py-2 pr-3">Job card</th>
                 <th className="py-2 pr-3">Customer</th>
                 <th className="py-2 pr-3">Stage</th>
@@ -238,21 +238,21 @@ function OperationsCommandPage() {
             <>
               <div className="grid grid-cols-3 gap-2 mb-3">
                 <div className="rounded-lg border border-border bg-muted px-3 py-2">
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Median</div>
+                  <div className="text-[11.5px] font-semibold text-muted-foreground">Median</div>
                   <div className="text-lg font-bold">{Math.round(Number((lag as any).summary.median_minutes || 0))} min</div>
                 </div>
                 <div className={`rounded-lg border px-3 py-2 ${Number((lag as any).summary.p90_minutes || 0) > 360 ? "border-signal-amber-line bg-signal-amber-soft" : "border-border bg-muted"}`}>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">p90</div>
+                  <div className="text-[11.5px] font-semibold text-muted-foreground">p90</div>
                   <div className="text-lg font-bold">{Math.round(Number((lag as any).summary.p90_minutes || 0))} min</div>
                 </div>
                 <div className={`rounded-lg border px-3 py-2 ${Number((lag as any).summary.late_count || 0) ? "border-signal-rose-line bg-signal-rose-soft" : "border-signal-emerald-line bg-signal-emerald-soft"}`}>
-                  <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">&gt; 6h late</div>
+                  <div className="text-[11.5px] font-semibold text-muted-foreground">&gt; 6h late</div>
                   <div className="text-lg font-bold">{(lag as any).summary.late_count} / {(lag as any).summary.sample_size}</div>
                 </div>
               </div>
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                     <th className="py-2 pr-3">Job card</th>
                     <th className="py-2 pr-3">Stage</th>
                     <th className="py-2 pr-3">Actual end</th>
@@ -287,7 +287,7 @@ function OperationsCommandPage() {
         >
           <div className="space-y-3">
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Short-closes ({Array.isArray(shortCloses) ? shortCloses.length : 0})</p>
+              <p className="text-[12px] font-semibold text-muted-foreground mb-1">Short-closes ({Array.isArray(shortCloses) ? shortCloses.length : 0})</p>
               {Array.isArray(shortCloses) && shortCloses.length > 0 ? (
                 <table className="w-full text-xs">
                   <thead><tr className="text-[10px] font-bold uppercase text-muted-foreground border-b border-border">
@@ -310,7 +310,7 @@ function OperationsCommandPage() {
             </div>
 
             <div>
-              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Downtime ({Array.isArray(downtimeRows) ? downtimeRows.length : 0})</p>
+              <p className="text-[12px] font-semibold text-muted-foreground mb-1">Downtime ({Array.isArray(downtimeRows) ? downtimeRows.length : 0})</p>
               {Array.isArray(downtimeRows) && downtimeRows.length > 0 ? (
                 <table className="w-full text-xs">
                   <thead><tr className="text-[10px] font-bold uppercase text-muted-foreground border-b border-border">

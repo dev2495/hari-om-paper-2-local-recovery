@@ -30,7 +30,7 @@ export default function ContactDirectoryPage() {
       <section className="rounded-[1.75rem] border border-border bg-card/90 p-5 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Contact Directory</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Contact Directory</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">Customer and vendor contacts</h1>
           </div>
           <div className="grid gap-3 sm:grid-cols-3 xl:w-[540px]">
@@ -39,7 +39,7 @@ export default function ContactDirectoryPage() {
               onClick={() => setFilter("ALL")}
               className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "ALL" ? "border-primary bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">All</p>
+              <p className="text-[11.5px] font-semibold opacity-70">All</p>
               <p className="mt-2 text-2xl font-semibold">{rows.length}</p>
             </button>
             <button
@@ -47,7 +47,7 @@ export default function ContactDirectoryPage() {
               onClick={() => setFilter("CUSTOMER")}
               className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "CUSTOMER" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">Customers</p>
+              <p className="text-[11.5px] font-semibold opacity-70">Customers</p>
               <p className="mt-2 text-2xl font-semibold">{customerCount}</p>
             </button>
             <button
@@ -55,7 +55,7 @@ export default function ContactDirectoryPage() {
               onClick={() => setFilter("VENDOR")}
               className={`rounded-2xl border px-4 py-3 text-left transition ${filter === "VENDOR" ? "border-signal-cyan-ink/40 bg-primary text-primary-foreground" : "border-border bg-muted text-muted-foreground"}`}
             >
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] opacity-70">Vendors</p>
+              <p className="text-[11.5px] font-semibold opacity-70">Vendors</p>
               <p className="mt-2 text-2xl font-semibold">{vendorCount}</p>
             </button>
           </div>
@@ -77,7 +77,7 @@ export default function ContactDirectoryPage() {
       <section className="overflow-hidden rounded-[1.5rem] border border-border bg-card/90 shadow-premium">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="bg-muted text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <thead className="bg-muted text-[11.5px] text-muted-foreground">
               <tr>
                 <th className="px-4 py-3">Type</th>
                 <th className="px-4 py-3">Master</th>

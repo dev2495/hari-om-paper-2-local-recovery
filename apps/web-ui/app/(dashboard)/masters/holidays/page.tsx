@@ -187,7 +187,7 @@ function HolidaysPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Date" required type="date" value={createForm.holiday_date} onChange={(v) => setCreateForm({ ...createForm, holiday_date: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Type</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Type</span>
             <select value={createForm.holiday_type} onChange={(e) => setCreateForm({ ...createForm, holiday_type: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {HOLIDAY_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
             </select>
@@ -209,7 +209,7 @@ function HolidaysPage() {
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Date" type="date" value={editForm.holiday_date || ""} onChange={(v) => setEditForm({ ...editForm, holiday_date: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Type</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Type</span>
             <select value={editForm.holiday_type || "PUBLIC_HOLIDAY"} onChange={(e) => setEditForm({ ...editForm, holiday_type: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {HOLIDAY_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
             </select>

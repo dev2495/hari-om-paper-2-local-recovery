@@ -90,12 +90,12 @@ export default function ManualFgInwardPage() {
         description="Rework yield, customer returns, manual adjustments — anything that lands FG in stock without a production job behind it. Every post is audit-logged and idempotent on the optional reference."
         actions={
           <>
-            <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <span className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-[12px] font-semibold text-muted-foreground">
               <PackageCheck className="h-3.5 w-3.5" /> {items.length} FG items
             </span>
             <Link
               href="/inventory/ledger"
-              className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink"
+              className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-card/90 px-3 py-1.5 text-[12px] font-semibold text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink"
             >
               View ledger <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -204,7 +204,7 @@ export default function ManualFgInwardPage() {
               type="submit"
               disabled={writeBlocked || manualInward.isPending || !form.item_id || !form.qty}
               className={cn(
-                "inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold uppercase tracking-[0.1em] shadow-md transition",
+                "inline-flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold shadow-md transition",
                 writeBlocked || manualInward.isPending || !form.item_id || !form.qty
                   ? "cursor-not-allowed bg-muted text-muted-foreground"
                   : "bg-gradient-to-br from-cyan-700 via-cyan-600 to-emerald-500 text-white hover:-translate-y-0.5",
@@ -258,7 +258,7 @@ export default function ManualFgInwardPage() {
       <Panel title="Recent FG inward (latest 10)" subtitle="Both job-driven and manual FG appear here. Posted manually = movement_metadata.manual=true.">
         <div className="overflow-hidden rounded-2xl border border-border">
           <table className="w-full border-collapse text-sm">
-            <thead className="bg-[hsl(var(--surface-2))] text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            <thead className="bg-[hsl(var(--surface-2))] text-[11.5px] text-muted-foreground">
               <tr>
                 <th className="px-4 py-3 text-left">When</th>
                 <th className="px-3 py-3 text-left">Item</th>
@@ -286,17 +286,17 @@ export default function ManualFgInwardPage() {
                     <td className="px-3 py-2.5 text-right tabular-nums font-semibold text-foreground">{fmtKg(row.qty_change || row.quantity)}</td>
                     <td className="px-3 py-2.5">
                       {row.movement_metadata?.manual ? (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-signal-violet-ink">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-violet-ink">
                           Manual · {row.movement_metadata.reason_code || ""}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink">
+                        <span className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2 py-0.5 text-[11.5px] font-semibold text-signal-cyan-ink">
                           Job close
                         </span>
                       )}
                     </td>
                     <td className="px-3 py-2.5 font-mono text-[11.5px] text-muted-foreground">{row.external_ref || row.reference || "—"}</td>
-                    <td className="px-3 py-2.5 text-[11px] uppercase tracking-[0.1em] text-muted-foreground">{row.stock_status || "—"}</td>
+                    <td className="px-3 py-2.5 text-[12px] text-muted-foreground">{row.stock_status || "—"}</td>
                   </tr>
                 ))
               )}
@@ -311,7 +311,7 @@ export default function ManualFgInwardPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{label}</span>
+      <span className="text-[11.5px] font-semibold text-muted-foreground">{label}</span>
       {children}
     </label>
   )
@@ -322,7 +322,7 @@ function ReasonHelp({ icon, title, detail }: { icon: React.ReactNode; title: str
     <li className="flex items-start gap-3 rounded-2xl border border-border bg-card px-3 py-2.5 shadow-sm">
       <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-signal-cyan-soft text-signal-cyan-ink">{icon}</span>
       <div className="min-w-0">
-        <p className="text-[11px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink">{title}</p>
+        <p className="text-[12px] font-semibold text-signal-cyan-ink">{title}</p>
         <p className="mt-0.5 text-[12.5px] text-muted-foreground">{detail}</p>
       </div>
     </li>

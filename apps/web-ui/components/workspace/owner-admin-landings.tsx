@@ -105,7 +105,7 @@ export function AdminLandingPage() {
         }
         aside={
           <div className="space-y-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Status banner</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Status banner</p>
             <p className="text-2xl font-semibold tracking-tight">
               System {systemStatus.toLowerCase()}, {formatCompactNumber(Number(summary.services_up || 0))} of {formatCompactNumber(Number(summary.services_total || 0))} service probes passing.
             </p>

@@ -641,7 +641,7 @@ export default function VendorsPage() {
             placeholder="VEND-XXX"
           />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Category</span>
             <select
               value={createForm.category}
               onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
@@ -682,7 +682,7 @@ export default function VendorsPage() {
           />
         </div>
         <div className="mt-4 rounded-xl border border-border bg-muted/60 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Primary contact (optional — you can add more later)</p>
+          <p className="text-[11.5px] font-semibold text-muted-foreground">Primary contact (optional — you can add more later)</p>
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
             <LabeledInput
               label="Name"
@@ -739,7 +739,7 @@ export default function VendorsPage() {
             onChange={(v) => setEditForm({ ...editForm, supplier_code: v })}
           />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category</span>
+            <span className="text-[11.5px] font-semibold text-muted-foreground">Category</span>
             <select
               value={editForm.category || ""}
               onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
@@ -817,7 +817,7 @@ export default function VendorsPage() {
 function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3 text-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
+      <span className="text-[11.5px] font-semibold text-muted-foreground">{label}</span>
       <span className="text-foreground">{value}</span>
     </div>
   )

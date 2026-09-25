@@ -89,15 +89,15 @@ export default function StageTimeReconciliationPage() {
       >
         <div className="flex flex-wrap items-end gap-3 text-sm">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Entered from</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">Entered from</span>
             <input type="date" value={dateFrom} onChange={(event) => resetPage(setDateFrom)(event.target.value)} className="rounded-lg border border-input px-3 py-2" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Entered to</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">Entered to</span>
             <input type="date" value={dateTo} onChange={(event) => resetPage(setDateTo)(event.target.value)} className="rounded-lg border border-input px-3 py-2" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Stage</span>
+            <span className="text-[12px] font-semibold text-muted-foreground">Stage</span>
             <select value={stage} onChange={(event) => resetPage(setStage)(event.target.value)} className="rounded-lg border border-input px-3 py-2">
               {STAGES.map((value) => (
                 <option key={value || "all"} value={value}>
@@ -134,7 +134,7 @@ export default function StageTimeReconciliationPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full text-left text-sm">
-              <thead className="text-[11px] uppercase tracking-wide text-muted-foreground">
+              <thead className="text-[12px] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-2">Job card</th>
                   <th className="px-3 py-2">Stage</th>

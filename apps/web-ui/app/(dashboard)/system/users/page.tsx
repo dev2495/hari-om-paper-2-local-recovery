@@ -115,7 +115,7 @@ export default function UsersPage() {
           { label: "Current scope", value: scopeLabel, note: "Top plant switcher governs this list" },
         ].map((item) => (
           <div key={item.label} className="erp-panel rounded-[1.4rem] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">{item.label}</p>
+            <p className="text-[11.5px] font-semibold text-muted-foreground">{item.label}</p>
             <p className="mt-2 text-lg font-semibold text-foreground">{item.value}</p>
             <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
           </div>
@@ -179,7 +179,7 @@ export default function UsersPage() {
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
             </select>
-            <span className="rounded-full border border-border bg-muted px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            <span className="rounded-full border border-border bg-muted px-3 py-2 text-[12px] font-semibold text-muted-foreground">
               {visibleUsers.length}/{scopedUsers.length}
             </span>
           </div>
@@ -187,7 +187,7 @@ export default function UsersPage() {
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
-            <thead className="bg-muted text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            <thead className="bg-muted text-[12px] font-semibold text-muted-foreground">
               <tr>
                 <th className="px-6 py-4">User</th>
                 <th className="px-6 py-4">Roles</th>

@@ -383,7 +383,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Sales</p>
+          <p className="text-[12px] font-semibold text-muted-foreground">Sales</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
             {editing ? "Edit sales order" : "New sales order"}
           </h1>
@@ -397,7 +397,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
         <Panel title="Order header" subtitle="Customer stays on both customer PO and internal orders. External PO fields stay empty for internal orders.">
           <div className="space-y-4">
             <fieldset>
-              <legend className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Order source</legend>
+              <legend className="text-[12px] font-semibold text-muted-foreground">Order source</legend>
               <div className="mt-2 inline-flex rounded-xl border border-border bg-muted p-1">
                 <button
                   type="button"
@@ -422,7 +422,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Customer</label>
+                <label className="text-[12px] font-semibold text-muted-foreground">Customer</label>
                 <select
                   data-testid="sales-orders:customer"
                   required
@@ -442,7 +442,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
               {customerPoMode ? (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Customer PO number</label>
+                    <label className="text-[12px] font-semibold text-muted-foreground">Customer PO number</label>
                     <input
                       data-testid="sales-orders:po-number"
                       required={customerPoMode}
@@ -454,7 +454,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                     {fieldErrors.po_number ? <p className="text-xs text-signal-rose-ink">{fieldErrors.po_number}</p> : null}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Customer PO Date</label>
+                    <label className="text-[12px] font-semibold text-muted-foreground">Customer PO Date</label>
                     <input
                       data-testid="sales-orders:po-date"
                       type="date"
@@ -468,7 +468,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                 </>
               ) : (
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Internal order date</label>
+                  <label className="text-[12px] font-semibold text-muted-foreground">Internal order date</label>
                   <input
                     data-testid="sales-orders:internal-order-date"
                     type="date"
@@ -481,7 +481,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                 </div>
               )}
               <div className="space-y-1">
-                <label htmlFor="sales-order-expiry" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">SO expiry date</label>
+                <label htmlFor="sales-order-expiry" className="text-[12px] font-semibold text-muted-foreground">SO expiry date</label>
                 <input
                   id="sales-order-expiry"
                   data-testid="sales-orders:expiry-date"
@@ -498,7 +498,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                 </p>
               </div>
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
-                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Notes</label>
+                <label className="text-[12px] font-semibold text-muted-foreground">Notes</label>
                 <textarea
                   data-testid="sales-orders:notes"
                   rows={1}
@@ -538,7 +538,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Approved Specification</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Approved Specification</label>
                       <select
                         data-testid={index === 0 ? "sales-orders:spec" : undefined}
                         required
@@ -555,7 +555,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Product Code</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Product Code</label>
                       <input
                         required
                         value={line.product_code}
@@ -565,7 +565,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Size Label</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Size Label</label>
                       <input
                         value={line.size_label}
                         readOnly
@@ -574,7 +574,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       />
                     </div>
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Rate / Pc</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Rate / Pc</label>
                       <input
                         type="number"
                         step="0.01"
@@ -586,7 +586,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Order Qty</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Order Qty</label>
                       <input
                         data-testid={index === 0 ? "sales-orders:qty" : undefined}
                         required
@@ -599,7 +599,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Delivery Date</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Delivery Date</label>
                       <input
                         data-testid={index === 0 ? "sales-orders:due-date" : `sales-orders:due-date-${index}`}
                         required
@@ -621,7 +621,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       Parchment required
                     </label>
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Parchment Color</label>
+                      <label className="text-[12px] font-semibold text-muted-foreground">Parchment Color</label>
                       <select
                         data-testid={index === 0 ? "sales-orders:parchment" : undefined}
                         value={line.parchment_color_id}

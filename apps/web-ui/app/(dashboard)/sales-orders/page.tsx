@@ -1045,7 +1045,7 @@ export default function SalesOrdersPage() {
                         ["Winders", releaseSummary.machineCount.toFixed(0)],
                       ].map(([label, value], index) => (
                         <div key={label} className={`px-4 py-3 ${index > 0 ? "border-l border-border" : ""}`}>
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+                          <p className="text-[11.5px] font-semibold text-muted-foreground">{label}</p>
                           <p className="mt-1 text-base font-semibold text-foreground">{value}</p>
                         </div>
                       ))}
@@ -1079,10 +1079,10 @@ export default function SalesOrdersPage() {
                       <div className="grid gap-5 p-5 lg:grid-cols-[minmax(190px,1.1fr)_180px_minmax(280px,1.25fr)_150px] lg:items-start">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            <span className="text-[12px] font-semibold text-muted-foreground">
                               Line {line?.line_no || "-"}
                             </span>
-                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${row.mode === "resume" ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-cyan-soft text-signal-cyan-ink"}`}>
+                            <span className={`rounded-full px-2.5 py-1 text-[11.5px] font-semibold ${row.mode === "resume" ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-cyan-soft text-signal-cyan-ink"}`}>
                               {row.mode === "resume" ? "Pending handoff" : "New release"}
                             </span>
                           </div>
@@ -1094,7 +1094,7 @@ export default function SalesOrdersPage() {
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          <label className="text-[11.5px] font-semibold text-muted-foreground">
                             Production quantity
                           </label>
                           <div className="relative mt-2">
@@ -1134,7 +1134,7 @@ export default function SalesOrdersPage() {
 
                         <div>
                           <div className="flex items-center justify-between gap-3">
-                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Winder queue</label>
+                            <label className="text-[11.5px] font-semibold text-muted-foreground">Winder queue</label>
                             {row.compatibility_warning ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-signal-amber-ink">
                                 Advisory mismatch
@@ -1169,7 +1169,7 @@ export default function SalesOrdersPage() {
                         </div>
 
                         <div className="rounded-xl bg-foreground px-4 py-3 text-background">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          <p className="text-[11.5px] font-semibold text-muted-foreground">
                             {row.mode === "resume" ? "Planner handoff" : "Balance after"}
                           </p>
                           <p className="mt-1 text-xl font-semibold">

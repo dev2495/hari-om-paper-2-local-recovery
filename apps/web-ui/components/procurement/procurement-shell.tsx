@@ -79,7 +79,7 @@ export function QuantityLotStrip({ ordered, received, open, lots, expectedLots, 
         { k: "Open to receive", v: open },
         { k: showPlan ? "Lots actual / plan" : "Physical lots", v: showPlan ? `${lots} / ${expectedLots}` : String(lots) }].map((item, index) => (
         <div key={item.k} className={cn("px-4 py-3", index > 0 && "border-t border-signal-cyan-line sm:border-l sm:border-t-0")}>
-          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-signal-cyan-ink/70">{item.k}</p>
+          <p className="text-[11.5px] font-semibold text-signal-cyan-ink/70">{item.k}</p>
           <p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{item.v}</p>
         </div>
       ))}
@@ -97,7 +97,7 @@ export function StateBadge({ value }: { value: string | null | undefined }) {
   const state = String(value || "UNKNOWN").toUpperCase()
   const good = ["APPROVED", "ACTIVE", "CLEAR", "RECEIVED", "SETTLED", "RECOVERED", "PASS"].includes(state)
   const bad = ["REJECTED", "BLOCKED", "CRITICAL", "VOID"].includes(state)
-  return <span className={cn("inline-flex rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em]",
+  return <span className={cn("inline-flex rounded-md px-2 py-1 text-[11.5px] font-semibold",
     good ? "bg-signal-emerald-soft text-signal-emerald-ink" : bad ? "bg-signal-rose-soft text-signal-rose-ink" : "bg-signal-amber-soft text-signal-amber-ink")}>{state.replaceAll("_", " ")}</span>
 }
 

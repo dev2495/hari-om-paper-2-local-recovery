@@ -30,7 +30,7 @@ export function DataGrid<T>({
     <div data-testid={testId} className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
             {columns.map((column) => (
               <th
                 key={column.key}

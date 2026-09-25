@@ -11,7 +11,7 @@ function AnalyticsLayoutContent({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto max-w-[1600px] space-y-6 pb-12">
       <div className="erp-panel flex flex-col gap-3 rounded-[1.4rem] px-4 py-3 sm:flex-row sm:items-end sm:justify-between">
-        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-signal-cyan-ink/70">Reporting window</p>
+        <p className="text-[12px] font-semibold text-signal-cyan-ink/70">Reporting window</p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="space-y-1">
             <Label htmlFor="analytics-start-date">From</Label>

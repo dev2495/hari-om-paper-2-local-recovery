@@ -162,7 +162,7 @@ function InventoryIntelligencePage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
             <thead>
-              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                 {["Type", "Date", "Amigo no", "Party/Mill", "Item/Variety", "Qty", "PO", "Bill", "Rate", "Location", "QC"].map((head) => (
                   <th key={head} className="py-2 pr-3">{head}</th>
                 ))}
@@ -199,7 +199,7 @@ function InventoryIntelligencePage() {
           {topMovers.length ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Item</th>
                   <th className="py-2 pr-3">Type</th>
                   <th className="py-2 pr-3 text-right">Issued 30d</th>
@@ -233,7 +233,7 @@ function InventoryIntelligencePage() {
           {shortages.length ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <tr className="border-b border-border text-left text-[12px] font-semibold text-muted-foreground">
                   <th className="py-2 pr-3">Item</th>
                   <th className="py-2 pr-3 text-right">Available</th>
                   <th className="py-2 pr-3 text-right">DOH</th>

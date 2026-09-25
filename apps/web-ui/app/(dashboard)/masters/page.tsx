@@ -76,7 +76,7 @@ export default function MasterOverviewPage() {
           <section key={group.title} className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-[12px] font-semibold text-muted-foreground">
                   <Icon className="h-3.5 w-3.5" />
                   {group.eyebrow}
                 </div>

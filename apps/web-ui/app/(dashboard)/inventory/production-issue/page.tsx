@@ -223,13 +223,13 @@ export default function InventoryProductionIssuePage() {
       <section className="rounded-2xl border border-signal-amber-line/70 bg-gradient-to-r from-[hsl(224_28%_9%)] via-cyan-950 to-amber-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-muted-foreground">Store to Production</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Store to Production</p>
             <h1 className="mt-2 text-3xl font-semibold">Production Issue</h1>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
               Issue material from a selected batch into WIP against a job card. Controlled manual issue remains available for corrections only.
             </p>
           </div>
-          <div className="rounded-2xl border border-border/15 bg-card/10 px-4 py-3 text-xs uppercase tracking-[0.18em]">
+          <div className="rounded-2xl border border-border/15 bg-card/10 px-4 py-3 text-[12px]">
             FG inward remains auto-posted from job close.
           </div>
         </div>

@@ -528,16 +528,16 @@ export default function InventoryStockControlPage() {
                 <FilterChip>{selectedCertification.count_state || "DRAFT"}</FilterChip>
                 <FilterChip>As of {formatDateTime(selectedCertification.stock_as_of_at)}</FilterChip>
                 <FilterChip>Count {formatDateTime(selectedCertification.count_taken_at || selectedCertification.counted_at)}</FilterChip>
-                <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-primary px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-primary-foreground disabled:opacity-45">
+                <button type="button" disabled={selectedCertification.status !== "DRAFT" || updateCertification.isPending} onClick={savePhysicalCounts} className="rounded-full bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground disabled:opacity-45">
                   Save counts
                 </button>
-                <button type="button" disabled={selectedCertification.status !== "DRAFT" || certifyCertification.isPending} onClick={certifySelected} className="rounded-full border border-signal-cyan-ink/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-cyan-ink disabled:opacity-45">
+                <button type="button" disabled={selectedCertification.status !== "DRAFT" || certifyCertification.isPending} onClick={certifySelected} className="rounded-full border border-signal-cyan-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-cyan-ink disabled:opacity-45">
                   Certify
                 </button>
-                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-signal-emerald-ink/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-emerald-ink disabled:opacity-45">
+                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || createCarryForward.isPending} onClick={carryForwardSelected} className="rounded-full border border-signal-emerald-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-emerald-ink disabled:opacity-45">
                   Carry forward
                 </button>
-                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || certificationVarianceQty <= 0 || postCertificationVariance.isPending} onClick={postVarianceSelected} className="rounded-full border border-signal-amber-ink/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-signal-amber-ink disabled:opacity-45">
+                <button type="button" disabled={!["CERTIFIED", "CARRIED_FORWARD"].includes(String(selectedCertification.status)) || certificationVarianceQty <= 0 || postCertificationVariance.isPending} onClick={postVarianceSelected} className="rounded-full border border-signal-amber-ink/40 px-3 py-1.5 text-[12px] font-semibold text-signal-amber-ink disabled:opacity-45">
                   Post variance
                 </button>
                 {certificationVarianceQty > 0 ? (

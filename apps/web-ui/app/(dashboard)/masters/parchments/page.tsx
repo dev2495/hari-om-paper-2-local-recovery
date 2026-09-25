@@ -108,7 +108,7 @@ export default function ParchmentsPage() {
       <section className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Parchment Workspace</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Parchment Workspace</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Company first, then sub parchment</h1>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Keep parchment companies separate from the actual vendor master. The spec sheet uses these company families, while downstream flows keep using the actual sub parchment rows.
@@ -116,14 +116,14 @@ export default function ParchmentsPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
                 <Tags className="h-3.5 w-3.5" />
                 Companies
               </div>
               <p className="mt-2 text-3xl font-semibold text-foreground">{vendorOptions.length}</p>
             </div>
             <div className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <div className="flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
                 <SwatchBook className="h-3.5 w-3.5" />
                 Sub parchments
               </div>
@@ -137,7 +137,7 @@ export default function ParchmentsPage() {
         <div className="rounded-[2rem] border border-border bg-card/90 p-5 shadow-premium">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Approved companies</p>
+              <p className="text-[12px] font-semibold text-muted-foreground">Approved companies</p>
               <h2 className="mt-2 text-xl font-semibold text-foreground">Company directory</h2>
             </div>
             <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>

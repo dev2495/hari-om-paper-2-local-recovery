@@ -116,7 +116,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
                 <Field label="Ply bond"><input className={fieldClass} min="0" step="0.01" type="number" value={line.plybond} onChange={(e) => setLine(line.key, { plybond: e.target.value })} /></Field>
                 <Field label="Bulk"><input className={fieldClass} min="0" step="0.001" type="number" value={line.bulk} onChange={(e) => setLine(line.key, { bulk: e.target.value })} /></Field>
                 <Field label="COBB"><input className={fieldClass} value={line.cobb} onChange={(e) => setLine(line.key, { cobb: e.target.value })} /></Field>
-                <div className="rounded-lg bg-card px-3 py-2"><p className="text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Line amount</p><p className="mt-2 font-semibold tabular-nums text-foreground">₹{(Number(line.qty_ordered || 0) * Number(line.unit_cost || 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
+                <div className="rounded-lg bg-card px-3 py-2"><p className="text-[11.5px] font-semibold text-muted-foreground">Line amount</p><p className="mt-2 font-semibold tabular-nums text-foreground">₹{(Number(line.qty_ordered || 0) * Number(line.unit_cost || 0)).toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
               </div><label className="mt-3 flex items-center gap-2 text-sm"><input type="checkbox" checked={line.incoming_qc_required} onChange={(event) => setLine(line.key, { incoming_qc_required: event.target.checked })} /> Incoming QC required</label></details>
             </article>
           ))}</div>
@@ -130,7 +130,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
         </WorkPanel>
 
         <section className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-xl border border-border bg-card/95 p-4 shadow-xl backdrop-blur sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">Draft total</p><p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{lines.length} lines · {quantities} · ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
+          <div><p className="text-[12px] font-semibold text-muted-foreground">Draft total</p><p className="mt-1 text-lg font-semibold tabular-nums text-foreground">{lines.length} lines · {quantities} · ₹{totalValue.toLocaleString("en-IN", { maximumFractionDigits: 2 })}</p></div>
           <button disabled={create.isPending} className={primaryButton}><Save className="h-4 w-4" />{create.isPending ? "Saving…" : orderId ? "Save revision for reapproval" : "Save PO draft"}</button>
         </section>
       </form>

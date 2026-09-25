@@ -199,7 +199,7 @@ export default function SpecificationsIndexPage() {
             <ScrollText className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-signal-amber-ink">
+            <p className="text-[12px] font-semibold text-signal-amber-ink">
               Recipe cascade bottleneck
             </p>
             <p className="mt-1 text-sm font-semibold text-signal-amber-ink">
@@ -212,7 +212,7 @@ export default function SpecificationsIndexPage() {
                 <Link
                   key={spec.id}
                   href={`/specifications/${spec.id}`}
-                  className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-signal-amber-ink hover:bg-signal-amber-soft"
+                  className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-card px-2.5 py-0.5 text-[12px] font-semibold text-signal-amber-ink hover:bg-signal-amber-soft"
                 >
                   {String(spec.product_code || spec.id).slice(0, 14)}
                   <ArrowRight className="h-3 w-3" />
@@ -253,17 +253,17 @@ export default function SpecificationsIndexPage() {
 
       <section className="grid gap-3 rounded-[32px] border border-border bg-card/80 p-5 shadow-premium sm:grid-cols-3">
             <div className="rounded-[28px] border border-border bg-muted px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Active Specs</p>
+              <p className="text-[12px] font-semibold text-muted-foreground">Active Specs</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{statusCounts.all}</p>
               <p className="mt-1 text-sm text-muted-foreground">All active draft, Owner review, trial, and live records in the current plant.</p>
             </div>
             <div className="rounded-[28px] border border-border bg-muted px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Review Queue</p>
+              <p className="text-[12px] font-semibold text-muted-foreground">Review Queue</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{statusCounts.review + statusCounts.trial}</p>
               <p className="mt-1 text-sm text-muted-foreground">Versions waiting for validation or Owner approval.</p>
             </div>
             <div className="rounded-[28px] border border-border bg-muted px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Approved Live</p>
+              <p className="text-[12px] font-semibold text-muted-foreground">Approved Live</p>
               <p className="mt-2 text-3xl font-semibold text-foreground">{statusCounts.approved}</p>
               <p className="mt-1 text-sm text-muted-foreground">Approved snapshots that planning and production can rely on.</p>
             </div>
@@ -275,7 +275,7 @@ export default function SpecificationsIndexPage() {
           className="space-y-4 rounded-[32px] border border-border bg-card/80 px-5 py-5 shadow-premium"
         >
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Assign profile</p>
+            <p className="text-[12px] font-semibold text-muted-foreground">Assign profile</p>
             <h2 className="mt-1 text-lg font-semibold text-foreground">Assign profile to selected specs</h2>
             <p className="mt-1 text-sm text-muted-foreground">
               Preview per-spec impact first. Apply writes draft QC only — it does not publish and it does not rewrite issued jobs.
@@ -339,7 +339,7 @@ export default function SpecificationsIndexPage() {
           {assignPreview?.results ? (
             <div className="overflow-x-auto rounded-2xl border border-border" data-testid="spec-assign-results">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                <thead className="bg-muted text-[12px] text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2">Spec</th>
                     <th className="px-3 py-2">Applicable</th>
@@ -385,7 +385,7 @@ export default function SpecificationsIndexPage() {
                 setStatusFilter("all")
               }}
               className={cn(
-                "rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition",
+                "rounded-full border px-4 py-2 text-[12px] font-semibold transition",
                 versionView === view.key
                   ? "border-foreground bg-foreground text-background"
                   : "border-border bg-card text-muted-foreground hover:border-border hover:text-foreground",
@@ -415,7 +415,7 @@ export default function SpecificationsIndexPage() {
                 type="button"
                 onClick={() => setStatusFilter(filter)}
                 className={cn(
-                  "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition",
+                  "rounded-full border px-3 py-2 text-[12px] font-semibold transition",
                   statusFilter === filter
                     ? "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink"
                     : "border-border bg-card text-muted-foreground hover:border-border hover:text-foreground",
@@ -474,7 +474,7 @@ export default function SpecificationsIndexPage() {
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
                       {canAuthorQc ? (
-                        <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        <label className="flex items-center gap-2 text-[12px] font-semibold text-muted-foreground">
                           <input
                             type="checkbox"
                             data-testid={`spec-assign-select-${spec.id}`}
@@ -484,7 +484,7 @@ export default function SpecificationsIndexPage() {
                           Select
                         </label>
                       ) : null}
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                      <p className="text-[12px] font-semibold text-muted-foreground">
                         Saved {formatDate(spec.created_at)}
                       </p>
                       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusTone(spec.status)}`}>
@@ -516,7 +516,7 @@ export default function SpecificationsIndexPage() {
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-4">
                       <div className="rounded-2xl border border-border bg-muted px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Client Dimensions</p>
+                        <p className="text-[12px] font-semibold text-muted-foreground">Client Dimensions</p>
                         <p className="mt-2 text-sm font-medium text-foreground">
                           ID {formatSpecMeasure(summary.idMm)} / OD {formatSpecMeasure(summary.odMm)}
                         </p>
@@ -530,19 +530,19 @@ export default function SpecificationsIndexPage() {
                         </p>
                       </div>
                       <div className="rounded-2xl border border-border bg-muted px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Strength</p>
+                        <p className="text-[12px] font-semibold text-muted-foreground">Strength</p>
                         <p className="mt-2 text-sm font-medium text-foreground">CS {formatSpecMeasure(summary.requiredCs)}</p>
                         <p className="mt-1 text-xs text-muted-foreground">Target wt. {formatSpecMeasure(summary.targetWeightG)} g</p>
                       </div>
                       <div className="rounded-2xl border border-border bg-muted px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Recipe</p>
+                        <p className="text-[12px] font-semibold text-muted-foreground">Recipe</p>
                         <p className="mt-2 text-sm font-medium text-foreground">{profileRecipeRows.length || 0} saved rows</p>
                         <p className="mt-1 text-xs text-muted-foreground">
                           {spec.adhesive_components_json ? "Adhesive split stored" : "Adhesive split pending"}
                         </p>
                       </div>
                       <div className="rounded-2xl border border-border bg-muted px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Packing</p>
+                        <p className="text-[12px] font-semibold text-muted-foreground">Packing</p>
                         <p className="mt-2 text-sm font-medium text-foreground">
                           {spec.profile?.packing?.box_code || spec.profile?.packing_rules?.packing_target?.box_code || "-"}
                         </p>

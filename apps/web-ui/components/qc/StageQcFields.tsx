@@ -69,7 +69,7 @@ export function StageQcFields({
     <div className="space-y-3" data-testid="stage-qc-fields">
       {issues.length ? (
         <div className="rounded-xl border border-foreground/80 bg-card p-3 text-sm text-foreground" data-testid="stage-qc-issue-summary" aria-label="Stage QC issues">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em]">Issues</div>
+          <div className="text-[12px] font-semibold">Issues</div>
           <ul className="mt-1 space-y-1">
             {issues.map((issue) => (
               <li key={issue.code}>
@@ -83,7 +83,7 @@ export function StageQcFields({
       ) : null}
       {paired ? (
         <label className="block space-y-1">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Sample / pair ID</span>
+          <span className="text-[12px] font-semibold text-muted-foreground">Sample / pair ID</span>
           {editable ? (
             <input
               value={sampleId || ""}
@@ -104,7 +104,7 @@ export function StageQcFields({
         </label>
       ) : editable && !printLayout ? (
         <label className="block space-y-1">
-          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Sample ID</span>
+          <span className="text-[12px] font-semibold text-muted-foreground">Sample ID</span>
           <input
             value={sampleId || ""}
             onChange={(event) => onSampleIdChange?.(event.target.value)}
@@ -129,7 +129,7 @@ export function StageQcFields({
           return (
             <div key={rule.code} id={`qc-field-${rule.code}`} className="rounded-2xl border border-border bg-card p-3">
               <label className="space-y-1" htmlFor={editable && !notYetDue ? `stage-qc-reading-${rule.code}` : undefined}>
-                <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{rule.label}</span>
+                <span className="text-[12px] font-semibold text-muted-foreground">{rule.label}</span>
                 {rule.applicable === false ? (
                   <div className="text-sm font-semibold text-foreground" data-testid={`stage-qc-na-${rule.code}`}>
                     NOT APPLICABLE
@@ -186,7 +186,7 @@ export function StageQcFields({
               {showReasons && rule.applicable !== false && !notYetDue ? (
                 <div className="mt-2 space-y-2">
                   <label className="block space-y-1" htmlFor={editable ? `stage-qc-reason-${rule.code}` : undefined}>
-                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    <span className="text-[11.5px] font-semibold text-muted-foreground">
                       {reasonCodes?.[rule.code] === "CAUSE_UNDER_INVESTIGATION" ? "Factual note" : "Reason if FAIL"}
                     </span>
                     {editable ? (
@@ -215,7 +215,7 @@ export function StageQcFields({
                   </label>
                   {allowUnknownCause && editable ? (
                     <label className="block space-y-1" htmlFor={`stage-qc-reason-code-${rule.code}`}>
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Reason code</span>
+                      <span className="text-[11.5px] font-semibold text-muted-foreground">Reason code</span>
                       <select
                         id={`stage-qc-reason-code-${rule.code}`}
                         data-testid={`stage-qc-reason-code-${rule.code}`}
@@ -231,7 +231,7 @@ export function StageQcFields({
                   {allowUnknownCause && reasonCodes?.[rule.code] === "CAUSE_UNDER_INVESTIGATION" ? (
                     <>
                       <label className="block space-y-1" htmlFor={`stage-qc-containment-${rule.code}`}>
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Containment</span>
+                        <span className="text-[11.5px] font-semibold text-muted-foreground">Containment</span>
                         {editable ? (
                           <input
                             id={`stage-qc-containment-${rule.code}`}
@@ -249,7 +249,7 @@ export function StageQcFields({
                         )}
                       </label>
                       <label className="block space-y-1" htmlFor={`stage-qc-assignee-${rule.code}`}>
-                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Assignee</span>
+                        <span className="text-[11.5px] font-semibold text-muted-foreground">Assignee</span>
                         {editable ? (
                           <input
                             id={`stage-qc-assignee-${rule.code}`}
