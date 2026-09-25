@@ -1,12 +1,20 @@
-"""Original QCT-017..026 against isolated hariom_nverify inventory."""
+"""Original QCT-017..026 against isolated hariom_nverify inventory.
+
+Receipts run on the Procurement V2 flow (request-keyed PO, maker submit + checker
+approve, governed receipt); the legacy GRN route is removed.
+"""
 from __future__ import annotations
 
+import json
 import os
+import sys
 import uuid
+from pathlib import Path
 from datetime import date
 
 import pytest
 from fastapi import HTTPException
+from sqlalchemy import text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.attributes import flag_modified
 
@@ -22,6 +30,10 @@ from src.models import (
     InventoryQualityInspection,
     ItemMaster,
     ItemType,
+    PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseOrderRevision,
+    PurchaseReceiptLine,
     StockBatch,
     StockTransaction,
     TrackingMode,
@@ -36,15 +48,14 @@ from src.routers.items import (
     copy_item_quality_template,
     upsert_item_quality_profile,
 )
+from src.routers.procurement import GovernedReceiptCreate, post_governed_receipt
 from src.routers.purchase import (
-    GrnCreate,
-    GrnLineCreate,
     PurchaseOrderCreate,
     PurchaseOrderLineCreate,
+    RevisionActionPayload,
     approve_purchase_order,
     create_purchase_order,
-    post_grn,
-    retry_incoming_qc_tasks,
+    submit_purchase_order,
 )
 from src.routers.quality import QualityInspectionCreate, consume_destructive_sample, create_quality_inspection, list_quality_templates, DestructiveSampleConsume
 from src.services.stock_calc import get_usable_item_qty
@@ -103,6 +114,94 @@ def setup_module() -> None:
 
 def _user(sub: str, roles=("Store",)) -> dict:
     return {"sub": sub, "actual_sub": sub, "roles": list(roles), "token": ""}
+
+
+MAKER = _user("store-a", roles=("Store",))
+CHECKER = _user("plant-checker", roles=("PlantManager",))
+
+
+def _submit_and_approve(db, po_id, plant_id: str) -> dict:
+    """Maker submits and a different checker approves the exact revision content."""
+    po_id = uuid.UUID(str(po_id))
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+    revision = db.query(PurchaseOrderRevision).filter_by(
+        purchase_order_id=po_id, revision_no=order.current_revision_no
+    ).one()
+    submitted = submit_purchase_order(
+        po_id,
+        RevisionActionPayload(expected_version=order.version, content_hash=revision.content_hash, reason="Ready"),
+        db=db,
+        plant_id=plant_id,
+        current_user=MAKER,
+    )
+    return approve_purchase_order(
+        po_id,
+        RevisionActionPayload(expected_version=submitted["version"], content_hash=revision.content_hash, reason="Approved"),
+        db=db,
+        plant_id=plant_id,
+        current_user=CHECKER,
+    )
+
+
+def _receipt(db, po_id, po_line_id, qty, location_id, *, received_date=date(2026, 9, 18), request_id=None, **line_extra):
+    """Governed receipt request with an invoice at the approved rate (commercially CLEAR)."""
+    request_id = request_id or uuid.uuid4()
+    rate = float(db.query(PurchaseOrderLine).filter(PurchaseOrderLine.id == po_line_id).one().unit_cost)
+    return GovernedReceiptCreate(
+        request_id=request_id,
+        purchase_order_id=uuid.UUID(str(po_id)),
+        received_date=received_date,
+        invoice_no=f"INV-{request_id.hex[:12]}",
+        invoice_date=received_date,
+        lines=[{"po_line_id": po_line_id, "quantity": qty, "invoice_rate": rate, "location_id": location_id, **line_extra}],
+    )
+
+
+def _receive(db, plant_id: str, payload: GovernedReceiptCreate, user: dict = MAKER) -> dict:
+    return post_governed_receipt(payload, db=db, plant_id=plant_id, current_user=user)
+
+
+def _receipt_batch(db, receipt: dict) -> StockBatch:
+    line = db.query(PurchaseReceiptLine).filter(PurchaseReceiptLine.id == uuid.UUID(receipt["lines"][0]["id"])).one()
+    return db.query(StockBatch).filter(StockBatch.id == line.batch_id).one()
+
+
+class _AuthTransport:
+    """Stands in for auth-service: records notification and audit posts, optionally failing one task."""
+
+    def __init__(self, fail_notification_for=None):
+        self.fail_notification_for = fail_notification_for
+        self.notifications: list[dict] = []
+        self.audits: list[dict] = []
+
+    def post(self, url, json, headers, timeout):
+        assert headers["X-Internal-Token"] == "test-token"
+        if url.endswith("/notifications/events"):
+            if json["event_id"] == self.fail_notification_for:
+                raise ConnectionError("notification service unavailable")
+            self.notifications.append(json)
+        else:
+            self.audits.append(json)
+        return type("Response", (), {"status_code": 200})()
+
+
+def _run_relay(transport) -> None:
+    """Drain the outbox with the production relay code until nothing is pending."""
+    shared = str(Path(__file__).resolve().parents[3] / "shared")
+    if shared not in sys.path:
+        sys.path.insert(0, shared)
+    from audit_relay import deliver_batch
+
+    while deliver_batch(engine, "http://auth/audit-events/ingest", "test-token", transport=transport,
+                        notify_endpoint="http://auth/notifications/events"):
+        pass
+
+
+def _qc_task_rows(db, lot_key: str, lot_id) -> list:
+    return db.execute(
+        text("SELECT id, body, delivered_at FROM audit_outbox WHERE body LIKE :needle"),
+        {"needle": f'%"{lot_key}": "{lot_id}"%'},
+    ).mappings().all()
 
 
 def _scope() -> dict:
@@ -228,7 +327,7 @@ def test_qct019_exemption_inside_scope_is_not_required_outside_stays_restricted(
 
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-EX-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Exempt Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=10, incoming_qc_required=True)],
@@ -238,23 +337,13 @@ def test_qct019_exemption_inside_scope_is_not_required_outside_stays_restricted(
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
 
-        inside = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-IN-{suffix}",
-                received_date=date(2026, 9, 10),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=40, location_id=loc.id, batch_no=f"LOT-IN-{suffix}")],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        inside = _receive(db, PLANT, _receipt(db, po_id, po_line_id, 40, loc.id, received_date=date(2026, 9, 10), batch_no=f"LOT-IN-{suffix}"))
         assert inside["lines"][0]["qc_status"] == "NOT_REQUIRED"
-        assert inside["lines"][0]["stock_status"] == "UNRESTRICTED"
-        inside_batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(str(inside["lines"][0]["batch_id"]))).one()
+        inside_batch = _receipt_batch(db, inside)
+        assert inside_batch.stock_status == "UNRESTRICTED"
         inspect_inside = create_quality_inspection(
             QualityInspectionCreate(
                 entity_type="BATCH",
@@ -271,20 +360,10 @@ def test_qct019_exemption_inside_scope_is_not_required_outside_stays_restricted(
         assert inspect_inside.status == "NOT_REQUIRED"
         assert inspect_inside.status != "PASS"
 
-        outside = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-OUT-{suffix}",
-                received_date=date(2026, 8, 1),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=40, location_id=loc.id, batch_no=f"LOT-OUT-{suffix}")],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        outside = _receive(db, PLANT, _receipt(db, po_id, po_line_id, 40, loc.id, received_date=date(2026, 8, 1), batch_no=f"LOT-OUT-{suffix}"))
         assert outside["lines"][0]["qc_status"] == "PENDING"
-        assert outside["lines"][0]["stock_status"] == "QC_HOLD"
-        outside_batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(str(outside["lines"][0]["batch_id"]))).one()
+        outside_batch = _receipt_batch(db, outside)
+        assert outside_batch.stock_status == "QC_HOLD"
         inspect_out = create_quality_inspection(
             QualityInspectionCreate(
                 entity_type="BATCH",
@@ -366,7 +445,7 @@ def test_qct021_022_po_qualifier_retained_and_conflict_does_not_weaken_item():
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-PB-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Qualifier Mills",
                 lines=[
@@ -406,7 +485,7 @@ def test_qct023_supplier_certificate_stays_separate_from_local_reading():
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-CERT-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Cert Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=9)],
@@ -416,22 +495,12 @@ def test_qct023_supplier_certificate_stays_separate_from_local_reading():
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
-        posted = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-CERT-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=uuid.UUID(str(created["lines"][0]["id"])), qty_received=20, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        _submit_and_approve(db, po_id, PLANT)
+        posted = _receive(db, PLANT, _receipt(db, po_id, uuid.UUID(str(created["lines"][0]["id"])), 20, loc.id, received_date=date(2026, 9, 18)))
         inspection = create_quality_inspection(
             QualityInspectionCreate(
                 entity_type="BATCH",
-                entity_id=uuid.UUID(str(posted["lines"][0]["batch_id"])),
+                entity_id=_receipt_batch(db, posted).id,
                 source="INWARD",
                 readings={"gsm": 210},
                 supplier_certificate={"gsm": 190, "document": "MILL-TC-1"},
@@ -445,7 +514,7 @@ def test_qct023_supplier_certificate_stays_separate_from_local_reading():
         assert inspection.readings["gsm"] == 210
         assert inspection.evaluation["supplier_certificate"]["gsm"] == 190
         assert inspection.evaluation["evidence_sources"]["local_readings"]["gsm"] == 210
-        batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(str(posted["lines"][0]["batch_id"]))).one()
+        batch = _receipt_batch(db, posted)
         assert batch.stock_status == "QC_HOLD"
     finally:
         db.close()
@@ -461,7 +530,7 @@ def test_qct024_two_receipts_keep_independent_lots_and_sample_count_is_not_qty()
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-2R-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Two Lot Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=150, unit_cost=8)],
@@ -471,32 +540,12 @@ def test_qct024_two_receipts_keep_independent_lots_and_sample_count_is_not_qty()
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
-        first = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-A-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=80, location_id=loc.id, batch_no=f"LOT-A-{suffix}", sample_count=2)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        second = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-B-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=70, location_id=loc.id, batch_no=f"LOT-B-{suffix}", sample_count=3)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        batch_a = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(str(first["lines"][0]["batch_id"]))).one()
-        batch_b = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(str(second["lines"][0]["batch_id"]))).one()
+        first = _receive(db, PLANT, _receipt(db, po_id, po_line_id, 80, loc.id, received_date=date(2026, 9, 18), batch_no=f"LOT-A-{suffix}", sample_count=2))
+        second = _receive(db, PLANT, _receipt(db, po_id, po_line_id, 70, loc.id, received_date=date(2026, 9, 18), batch_no=f"LOT-B-{suffix}", sample_count=3))
+        batch_a = _receipt_batch(db, first)
+        batch_b = _receipt_batch(db, second)
         assert batch_a.id != batch_b.id
         assert batch_a.batch_no != batch_b.batch_no
         assert float(batch_a.received_qty) == 80
@@ -526,7 +575,7 @@ def test_qct024_two_receipts_keep_independent_lots_and_sample_count_is_not_qty()
         db.close()
 
 
-def test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold(monkeypatch):
+def test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold():
     db = Session()
     try:
         suffix = uuid.uuid4().hex[:8]
@@ -536,7 +585,7 @@ def test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold(monk
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-RP-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Replay Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=30, unit_cost=7, incoming_qc_required=True)],
@@ -546,40 +595,57 @@ def test_qct025_026_grn_replay_one_task_and_notification_failure_keeps_hold(monk
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
 
-        def boom(**_kwargs):
-            raise RuntimeError("task notification interrupted")
-
-        monkeypatch.setattr("src.routers.purchase.emit_audit_event", boom)
-        payload = GrnCreate(
-            grn_no=f"GRN-RP-{suffix}",
-            received_date=date(2026, 9, 18),
-            lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=30, location_id=loc.id, batch_no=f"LOT-RP-{suffix}")],
-        )
-        first = post_grn(po_id, payload, db=db, plant_id=PLANT, current_user=_user("store-a", roles=("Store",)))
-        replay = post_grn(po_id, payload, db=db, plant_id=PLANT, current_user=_user("store-a", roles=("Store",)))
+        payload = _receipt(db, po_id, po_line_id, 30, loc.id, batch_no=f"LOT-RP-{suffix}")
+        first = _receive(db, PLANT, payload)
+        replay = _receive(db, PLANT, payload)
         assert replay.get("idempotent") is True
         assert replay["id"] == first["id"]
         batches = db.query(StockBatch).filter(StockBatch.item_id == item.id).all()
         assert len(batches) == 1
-        assert batches[0].stock_status == "QC_HOLD"
-        assert batches[0].inward_metadata["incoming_qc_task"]["status"] == "PENDING"
-        assert batches[0].inward_metadata["incoming_qc_task"]["delivery_status"] == "PENDING"
-        assert batches[0].inward_metadata["incoming_qc_task"].get("outbox_event_id")
-        assert get_usable_item_qty(str(item.id), db) == 0
-        inspections = db.query(InventoryQualityInspection).filter(InventoryQualityInspection.entity_id == batches[0].id).all()
-        assert inspections == []
-        first_retry = retry_incoming_qc_tasks(db=db, plant_id=PLANT, current_user=_user("qc", roles=("QC",)))
-        assert first_retry["delivered"] >= 1
-        db.refresh(batches[0])
-        assert batches[0].inward_metadata["incoming_qc_task"]["delivery_status"] == "DELIVERED"
-        assert batches[0].stock_status == "QC_HOLD"
-        event_id = batches[0].inward_metadata["incoming_qc_task"].get("outbox_event_id")
-        second_retry = retry_incoming_qc_tasks(db=db, plant_id=PLANT, current_user=_user("qc", roles=("QC",)))
+        batch = batches[0]
+        assert batch.stock_status == "QC_HOLD"
+        assert batch.inward_metadata["incoming_qc_task"]["status"] == "PENDING"
+        event_id = batch.inward_metadata["incoming_qc_task"].get("outbox_event_id")
         assert event_id
-        assert event_id not in (second_retry.get("delivered_ids") or [])
+        # The replay did not queue a second task: exactly one pending task for this lot.
+        rows = _qc_task_rows(db, "batch_id", batch.id)
+        assert [row["id"] for row in rows] == [event_id]
+        assert rows[0]["delivered_at"] is None
+        task = json.loads(rows[0]["body"])
+        assert task["plant_id"] == PLANT
+        assert task["notify"]["recipient_roles"] == ["QC"]
+        assert task["notify"]["href"] == "/quality/incoming"
+        assert get_usable_item_qty(str(item.id), db) == 0
+        inspections = db.query(InventoryQualityInspection).filter(InventoryQualityInspection.entity_id == batch.id).all()
+        assert inspections == []
+
+        # Notification failure: the task stays pending and the stock stays held.
+        with pytest.raises(ConnectionError):
+            _run_relay(_AuthTransport(fail_notification_for=event_id))
+        assert _qc_task_rows(db, "batch_id", batch.id)[0]["delivered_at"] is None
+        db.refresh(batch)
+        assert batch.stock_status == "QC_HOLD"
+
+        # Retry delivers it once: one QC notification for this plant, then the audit record.
+        delivered = _AuthTransport()
+        _run_relay(delivered)
+        notices = [row for row in delivered.notifications if row["event_id"] == event_id]
+        assert len(notices) == 1
+        assert notices[0]["recipient_roles"] == ["QC"] and notices[0]["plant_id"] == PLANT
+        assert notices[0]["payload"]["batch_id"] == str(batch.id)
+        audits = [row for row in delivered.audits if row["id"] == event_id]
+        assert len(audits) == 1 and "notify" not in audits[0]
+        assert _qc_task_rows(db, "batch_id", batch.id)[0]["delivered_at"] is not None
+        db.refresh(batch)
+        assert batch.stock_status == "QC_HOLD"
+
+        again = _AuthTransport()
+        _run_relay(again)
+        assert event_id not in {row["event_id"] for row in again.notifications}
+        assert event_id not in {row["id"] for row in again.audits}
         assert db.query(StockBatch).filter(StockBatch.item_id == item.id).count() == 1
     finally:
         db.close()
@@ -598,7 +664,7 @@ def test_qct028_destructive_sample_coverage_is_not_consumption_and_replays_once(
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-DS-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Sample Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5, incoming_qc_required=False)],
@@ -608,20 +674,10 @@ def test_qct028_destructive_sample_coverage_is_not_consumption_and_replays_once(
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
-        grn = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-DS-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=20, location_id=loc.id, sample_count=3)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        batch_id = uuid.UUID(grn["lines"][0]["batch_id"])
+        grn = _receive(db, PLANT, _receipt(db, po_id, po_line_id, 20, loc.id, received_date=date(2026, 9, 18), sample_count=3))
+        batch_id = _receipt_batch(db, grn).id
         inspection = create_quality_inspection(
             QualityInspectionCreate(
                 entity_type="BATCH",

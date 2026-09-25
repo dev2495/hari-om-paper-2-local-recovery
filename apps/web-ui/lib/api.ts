@@ -584,7 +584,6 @@ export const purchaseApi = {
   getOrderHistory: (id: string) => api.get(`/api/purchase/orders/${id}/history`),
   shortCloseOrder: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/short-close`, data),
   cancelOrder: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/cancel`, data),
-  postGrn: (id: string, data: any) => api.post(`/api/purchase/orders/${id}/grn`, data),
   getReceipts: () => api.get("/api/purchase/receipts"),
   updateSchedule: (id: string, data: any) => api.patch(`/api/purchase/schedules/${id}`, data),
   getSchedules: () => api.get("/api/purchase/schedules"),

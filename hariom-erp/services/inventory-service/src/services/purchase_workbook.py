@@ -260,7 +260,7 @@ def commit_workbook(
 
     posted_po_ids: list[str] = []
     created: list[dict[str, Any]] = []
-    for annotated, raw in zip(preview["rows"], rows or []):
+    for row_index, (annotated, raw) in enumerate(zip(preview["rows"], rows or [])):
         if not annotated.get("would_create_po"):
             continue
         unit_cost = _finite_qty(raw.get("unit_cost"))
@@ -268,6 +268,8 @@ def commit_workbook(
             unit_cost = 0.0
         payload = purchase_order_create_cls(
             po_no=None,
+            # Stable per source row: a retried import replays the same PO instead of duplicating it.
+            request_id=uuid.uuid5(uuid.NAMESPACE_URL, f"purchase-workbook:{fingerprint}:{row_index}"),
             supplier_id=uuid.UUID(str(raw["supplier_id"])),
             supplier_name=str(raw.get("vendor") or "Workbook vendor").strip() or "Workbook vendor",
             notes=f"workbook:{source_name}",

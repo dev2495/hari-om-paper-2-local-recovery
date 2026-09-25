@@ -12,8 +12,7 @@ def initial_quality(item, plant_id, received_date, metadata=None):
     exempt = exemption_scope_applies(metadata["quality_profile"], plant_id=plant_id,
         as_of=received_date, item_id=item.id)
     status = "NOT_REQUIRED" if exempt else "PENDING"
-    metadata["incoming_qc_task"] = {"status": status, "notification_status": status,
-        "delivery_status": status}
+    metadata["incoming_qc_task"] = {"status": status}
     return metadata, status
 
 

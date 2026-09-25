@@ -59,9 +59,9 @@ from ..models import (
     StockTransaction,
     SupplierInvoice,
     SupplierInvoiceLine,
-    TrackingMode,
     TransactionType,
 )
+from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.labels import reel_label_payload
 from ..services.receipt_quality import initial_quality, refresh_receipt_stock
 from ..services.procurement import (
@@ -119,6 +119,7 @@ class GovernedReceiptLineInput(BaseModel):
     charge_amount: float = Field(default=0, ge=0)
     batch_no: Optional[str] = Field(default=None, max_length=100)
     location_id: Optional[uuid.UUID] = None
+    sample_count: Optional[int] = Field(default=None, ge=0)
     lots: list[PaperLotInput] = Field(default_factory=list)
 
 
@@ -373,6 +374,8 @@ def post_governed_receipt(
         width_evidence = _width_variance(requested.lots, revision_line.specification_json or {}) if is_reel else None
         commercial = "INVOICE_PENDING" if payload.invoice_pending else ("RATE_REVIEW" if comparison.requires_review or invoice_qty != qty or width_evidence else "CLEAR")
         quality_metadata, qc_status = initial_quality(po_line.item, plant_id, payload.received_date)
+        if requested.sample_count is not None:
+            quality_metadata["sample_count"] = requested.sample_count
         stock_status = "BLOCKED" if commercial != "CLEAR" else ("QC_HOLD" if qc_status == "PENDING" else "UNRESTRICTED")
         receipt_line = PurchaseReceiptLine(
             receipt_id=receipt.id, purchase_order_line_id=po_line.id, approved_revision_line_id=revision_line.id,
@@ -421,6 +424,12 @@ def post_governed_receipt(
                 )
                 db.add(reel)
                 db.flush()
+                if qc_status == "PENDING":
+                    # One durable QC task per held reel, committed with the receipt.
+                    event_id = enqueue_incoming_qc_task(db, plant_id=plant_id, receipt_id=str(receipt.id),
+                        reel_id=str(reel.id), grn_no=grn_no, po_no=order.po_no, stock_status=stock_status)
+                    reel.inward_metadata = {**reel.inward_metadata,
+                        "incoming_qc_task": {**reel.inward_metadata["incoming_qc_task"], "outbox_event_id": event_id}}
                 db.add(ReceiptStockAllocation(receipt_line_id=receipt_line.id, reel_id=reel.id, allocated_qty=lot.net_weight_kg))
                 label_snapshot = reel_label_payload(reel, po_line.item)
                 db.add(LotLabelRecord(plant_id=plant_id, reel_id=reel.id, label_code=at_no, content_snapshot=label_snapshot))
@@ -440,6 +449,12 @@ def post_governed_receipt(
             db.flush()
             receipt_line.batch_id = batch.id
             db.add(ReceiptStockAllocation(receipt_line_id=receipt_line.id, batch_id=batch.id, allocated_qty=qty))
+            if qc_status == "PENDING":
+                # Durable QC task intent commits with the held receipt; delivery retries separately.
+                event_id = enqueue_incoming_qc_task(db, plant_id=plant_id, receipt_id=str(receipt.id),
+                    batch_id=str(batch.id), grn_no=grn_no, po_no=order.po_no, stock_status=stock_status)
+                batch.inward_metadata = {**batch.inward_metadata,
+                    "incoming_qc_task": {**batch.inward_metadata["incoming_qc_task"], "outbox_event_id": event_id}}
             db.add(StockTransaction(item_id=po_line.item_id, batch_id=batch.id, transaction_type=TransactionType.INWARD,
                 qty_change=float(qty), reference_type=ReferenceType.PURCHASE, reference_id=order.id, plant_id=plant_id,
                 effective_date=payload.received_date, location_id=requested.location_id, stock_status=stock_status,
@@ -717,7 +732,6 @@ def attach_invoice_to_receipt(
 
         receipt_line.invoice_rate = requested.invoice_rate
         receipt_line.commercial_status = line_state
-        stock_state = "BLOCKED" if line_state != "CLEAR" or invoice_qty != qty else ("QC_HOLD" if receipt_line.qc_status == "PENDING" else "UNRESTRICTED")
         for stock_allocation in db.query(ReceiptStockAllocation).filter(ReceiptStockAllocation.receipt_line_id == receipt_line.id).all():
             if stock_allocation.reel_id:
                 reel = db.query(PaperReel).filter(PaperReel.id == stock_allocation.reel_id).first()

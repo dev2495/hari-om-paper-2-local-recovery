@@ -1,15 +1,17 @@
-"""Durable incoming-QC task delivery queue (QCT-026).
+"""Durable incoming-QC tasks (QCT-026).
 
-GRN commit writes the task intent into ``audit_outbox`` in the same
-transaction as the restricted receipt. Delivery can fail after commit; retry
-replays undelivered rows once per event id.
+A receipt writes one task per held lot into ``audit_outbox`` in the same
+transaction as the restricted stock. The supervised audit relay delivers it as
+an in-app notification to QC users of the plant and then records it in the audit
+log; failures stay pending and retry, and the auth service dedupes by event id.
+The outbox row (``delivered_at``) is the delivery state.
 """
 from __future__ import annotations
 
 import json
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Optional
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -22,10 +24,17 @@ def enqueue_incoming_qc_task(
     *,
     plant_id: str,
     receipt_id: str,
-    batch_id: str,
+    batch_id: Optional[str] = None,
+    reel_id: Optional[str] = None,
     grn_no: str,
-    po_no: str,
+    po_no: Optional[str] = None,
+    stock_status: str = "QC_HOLD",
 ) -> str:
+    """Queue one incoming-QC task for one held lot: a bulk batch or a paper reel."""
+    if bool(batch_id) == bool(reel_id):
+        raise ValueError("an incoming QC task needs exactly one batch_id or reel_id")
+    lot_ref = {"batch_id": str(batch_id)} if batch_id else {"reel_id": str(reel_id)}
+    lot_kind = "Batch" if batch_id else "Paper reel"
     event_id = str(uuid.uuid4())
     occurred = datetime.utcnow()
     body = {
@@ -39,10 +48,18 @@ def enqueue_incoming_qc_task(
         "summary": f"Incoming QC task for GRN {grn_no}",
         "payload": {
             "receipt_id": str(receipt_id),
-            "batch_id": str(batch_id),
+            **lot_ref,
             "grn_no": grn_no,
             "po_no": po_no,
-            "stock_status": "QC_HOLD",
+            "stock_status": stock_status,
+        },
+        # Fan-out request for the relay; stripped before the audit record is written.
+        "notify": {
+            "title": f"Incoming QC: GRN {grn_no}",
+            "message": f"{lot_kind} received on GRN {grn_no}{f' (PO {po_no})' if po_no else ''} is held until incoming QC.",
+            "href": "/quality/incoming",
+            "recipient_roles": ["QC"],
+            "role_context": "QC",
         },
     }
     db.execute(
@@ -57,63 +74,3 @@ def enqueue_incoming_qc_task(
         },
     )
     return event_id
-
-
-def list_pending_incoming_qc_tasks(db: Session) -> list[dict[str, Any]]:
-    rows = db.execute(
-        text(
-            "SELECT id, body, attempts FROM audit_outbox "
-            "WHERE delivered_at IS NULL AND body LIKE :needle "
-            "ORDER BY occurred_at ASC"
-        ),
-        {"needle": f"%{EVENT_TYPE}%"},
-    ).mappings().all()
-    pending = []
-    for row in rows:
-        try:
-            body = json.loads(row["body"])
-        except (TypeError, ValueError):
-            continue
-        if body.get("event_type") != EVENT_TYPE:
-            continue
-        pending.append({"id": row["id"], "body": body, "attempts": int(row["attempts"] or 0)})
-    return pending
-
-
-def retry_incoming_qc_task_deliveries(
-    db: Session,
-    *,
-    deliver: Callable[[dict[str, Any]], None],
-    limit: int = 50,
-) -> dict[str, Any]:
-    """Deliver undelivered incoming-QC tasks. Failures stay pending and increment attempts."""
-    pending = list_pending_incoming_qc_tasks(db)[: max(1, int(limit))]
-    delivered_ids: list[str] = []
-    failed_ids: list[str] = []
-    for item in pending:
-        event_id = item["id"]
-        try:
-            deliver(item["body"])
-        except Exception:
-            db.execute(
-                text("UPDATE audit_outbox SET attempts = attempts + 1 WHERE id = :id AND delivered_at IS NULL"),
-                {"id": event_id},
-            )
-            failed_ids.append(event_id)
-            continue
-        updated = db.execute(
-            text(
-                "UPDATE audit_outbox SET delivered_at = :now, attempts = attempts + 1 "
-                "WHERE id = :id AND delivered_at IS NULL"
-            ),
-            {"id": event_id, "now": datetime.utcnow()},
-        )
-        if getattr(updated, "rowcount", 1):
-            delivered_ids.append(event_id)
-    return {
-        "pending_before": len(pending),
-        "delivered_ids": delivered_ids,
-        "failed_ids": failed_ids,
-        "delivered": len(delivered_ids),
-        "failed": len(failed_ids),
-    }

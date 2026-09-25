@@ -1,4 +1,9 @@
-"""Original PUR-03 GRN replay/concurrency against isolated hariom_nverify inventory."""
+"""Original PUR-03 GRN replay/concurrency against isolated hariom_nverify inventory.
+
+Runs on the Procurement V2 flow: server-numbered POs created with a request key,
+maker submit + different-checker approve pinned to the revision content hash, and
+receipts posted through the governed receipt route (the legacy GRN route is removed).
+"""
 from __future__ import annotations
 
 import os
@@ -26,20 +31,23 @@ from src.models import (
     ItemMaster,
     ItemType,
     PurchaseOrder,
+    PurchaseOrderLine,
+    PurchaseOrderRevision,
     PurchaseReceipt,
+    PurchaseReceiptLine,
     StockBatch,
     StockTransaction,
     TrackingMode,
     UOM,
 )
 from src.quality_pin import pin_quality_profile_metadata
+from src.routers.procurement import GovernedReceiptCreate, post_governed_receipt
 from src.routers.purchase import (
-    GrnCreate,
-    GrnLineCreate,
     PurchaseOrderCreate,
     PurchaseOrderLineCreate,
     ReceiptEvidenceCreate,
     ReceiptQcPayload,
+    RevisionActionPayload,
     SupplierScheduleCommit,
     SupplierScheduleRowIn,
     WorkbookImportPayload,
@@ -49,11 +57,10 @@ from src.routers.purchase import (
     commit_supplier_schedules,
     create_purchase_order,
     list_supplier_schedules,
-    post_grn,
     preview_purchase_workbook,
     print_purchase_order,
     reject_purchase_remainder,
-    retry_incoming_qc_tasks,
+    submit_purchase_order,
     update_receipt_line_qc,
     RejectRemainderPayload,
 )
@@ -105,6 +112,56 @@ def _user(sub: str, roles=("Store",)) -> dict:
     return {"sub": sub, "actual_sub": sub, "roles": list(roles), "token": ""}
 
 
+MAKER = _user("store-a", roles=("Store",))
+CHECKER = _user("plant-checker", roles=("PlantManager",))
+
+
+def _submit_and_approve(db, po_id, plant_id: str) -> dict:
+    """Maker submits and a different checker approves the exact revision content."""
+    po_id = uuid.UUID(str(po_id))
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
+    revision = db.query(PurchaseOrderRevision).filter_by(
+        purchase_order_id=po_id, revision_no=order.current_revision_no
+    ).one()
+    submitted = submit_purchase_order(
+        po_id,
+        RevisionActionPayload(expected_version=order.version, content_hash=revision.content_hash, reason="Ready"),
+        db=db,
+        plant_id=plant_id,
+        current_user=MAKER,
+    )
+    return approve_purchase_order(
+        po_id,
+        RevisionActionPayload(expected_version=submitted["version"], content_hash=revision.content_hash, reason="Approved"),
+        db=db,
+        plant_id=plant_id,
+        current_user=CHECKER,
+    )
+
+
+def _receipt(db, po_id, po_line_id, qty, location_id, *, received_date=date(2026, 9, 18), request_id=None, **line_extra):
+    """Governed receipt request with an invoice at the approved rate (commercially CLEAR)."""
+    request_id = request_id or uuid.uuid4()
+    rate = float(db.query(PurchaseOrderLine).filter(PurchaseOrderLine.id == po_line_id).one().unit_cost)
+    return GovernedReceiptCreate(
+        request_id=request_id,
+        purchase_order_id=uuid.UUID(str(po_id)),
+        received_date=received_date,
+        invoice_no=f"INV-{request_id.hex[:12]}",
+        invoice_date=received_date,
+        lines=[{"po_line_id": po_line_id, "quantity": qty, "invoice_rate": rate, "location_id": location_id, **line_extra}],
+    )
+
+
+def _receive(db, plant_id: str, payload: GovernedReceiptCreate, user: dict = MAKER) -> dict:
+    return post_governed_receipt(payload, db=db, plant_id=plant_id, current_user=user)
+
+
+def _receipt_batch(db, receipt: dict) -> StockBatch:
+    line = db.query(PurchaseReceiptLine).filter(PurchaseReceiptLine.id == uuid.UUID(receipt["lines"][0]["id"])).one()
+    return db.query(StockBatch).filter(StockBatch.id == line.batch_id).one()
+
+
 def _item_and_location(db, suffix: str):
     item = ItemMaster(
         item_code=f"NV-PUR-{suffix}",
@@ -129,7 +186,7 @@ def test_pur03_same_grn_key_replays_and_balance_receive_does_not_overreceipt():
         item, loc = _item_and_location(db, suffix)
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Verify Paper Mills",
                 lines=[
@@ -146,32 +203,12 @@ def test_pur03_same_grn_key_replays_and_balance_receive_does_not_overreceipt():
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"] if isinstance(created, dict) else created.id))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
         po_line_id = order.lines[0].id
-        grn_no = f"GRN-{suffix}"
-        first = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=grn_no,
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=40, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        replay = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=grn_no,
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=40, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        grn_request = _receipt(db, po_id, po_line_id, 40, loc.id)
+        first = _receive(db, PLANT, grn_request)
+        replay = _receive(db, PLANT, grn_request)
         assert replay.get("idempotent") is True
         assert replay["id"] == first["id"]
         receipts = db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == po_id).count()
@@ -180,29 +217,11 @@ def test_pur03_same_grn_key_replays_and_balance_receive_does_not_overreceipt():
         assert len(batches) == 1
         assert abs(float(batches[0].received_qty) - 40) < 1e-9
         with pytest.raises(HTTPException) as over:
-            post_grn(
-                po_id,
-                GrnCreate(
-                    grn_no=f"GRN-{suffix}-OVER",
-                    received_date=date(2026, 9, 18),
-                    lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=70, location_id=loc.id)],
-                ),
-                db=db,
-                plant_id=PLANT,
-                current_user=_user("store-a", roles=("Store",)),
-            )
-        assert over.value.status_code == 400
-        remaining = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-{suffix}-BAL",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=60, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+            _receive(db, PLANT, _receipt(db, po_id, po_line_id, 70, loc.id))
+        assert over.value.status_code == 422
+        db.rollback()
+        assert db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == po_id).count() == 1
+        remaining = _receive(db, PLANT, _receipt(db, po_id, po_line_id, 60, loc.id))
         assert remaining.get("idempotent") is not True
         db.refresh(order.lines[0])
         assert abs(float(order.lines[0].qty_received) - 100) < 1e-9
@@ -221,7 +240,7 @@ def test_pur03_concurrent_remaining_balance_cannot_double_inward():
         item, loc = _item_and_location(db, suffix)
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-C-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Verify Paper Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=30, incoming_qc_required=True)],
@@ -231,22 +250,12 @@ def test_pur03_concurrent_remaining_balance_cannot_double_inward():
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"] if isinstance(created, dict) else created.id))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
         po_line_id = order.lines[0].id
         loc_id = loc.id
         item_id = item.id
-        post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-{suffix}-40",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=40, location_id=loc_id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        _receive(db, PLANT, _receipt(db, po_id, po_line_id, 40, loc_id))
     finally:
         db.close()
 
@@ -258,18 +267,10 @@ def test_pur03_concurrent_remaining_balance_cannot_double_inward():
         worker_engine = create_engine(URL, poolclass=NullPool)
         session = sessionmaker(bind=worker_engine, autoflush=False, autocommit=False)()
         try:
+            request = _receipt(session, po_id, po_line_id, 60, loc_id)
+            session.rollback()
             barrier.wait(timeout=10)
-            post_grn(
-                po_id,
-                GrnCreate(
-                    grn_no=f"GRN-{suffix}-{tag}",
-                    received_date=date(2026, 9, 18),
-                    lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=60, location_id=loc_id)],
-                ),
-                db=session,
-                plant_id=PLANT,
-                current_user=_user(f"store-{tag}", roles=("Store",)),
-            )
+            _receive(session, PLANT, request, user=_user(f"store-{tag}", roles=("Store",)))
             with lock:
                 results.append(("ok", tag))
         except HTTPException as exc:
@@ -312,6 +313,20 @@ def _approved_profile(low: float, high: float) -> dict:
     }
 
 
+def _pass_incoming_qc(db, batch: StockBatch) -> None:
+    """Release a held receipt the only allowed way: a QC PASS against the pinned profile."""
+    assert batch.stock_status == "QC_HOLD"
+    inspection = create_quality_inspection(
+        QualityInspectionCreate(entity_type="BATCH", entity_id=batch.id, readings={"gsm": 200}, disposition="ACCEPT"),
+        db=db,
+        plant_id=PLANT,
+        current_user=_user("qc-a", roles=("QC",)),
+    )
+    assert inspection.status == "PASS"
+    db.refresh(batch)
+    assert batch.stock_status == "UNRESTRICTED"
+
+
 def test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_schedule():
     db = Session()
     try:
@@ -340,7 +355,7 @@ def test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_sched
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-6-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Six Line Mills",
                 tax_terms="GST extra as applicable",
@@ -354,6 +369,7 @@ def test_pur01_six_line_po_keeps_typed_terms_and_does_not_fabricate_tax_or_sched
                         item_id=item.id,
                         qty_ordered=10 * idx,
                         unit_cost=idx,
+                        uom=item.uom.value,
                         incoming_qc_required=True,
                         **extra,
                     )
@@ -392,7 +408,7 @@ def test_pur02_supplier_line_splits_stay_on_calendar_and_cannot_over_schedule():
         item, _loc = _item_and_location(db, suffix)
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-S-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Split Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=12)],
@@ -460,7 +476,7 @@ def test_pur04_qc_required_receipt_stays_held_until_pass():
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-QC-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Hold Mills",
                 lines=[
@@ -474,23 +490,13 @@ def test_pur04_qc_required_receipt_stays_held_until_pass():
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-        grn = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-QC-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=50, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        grn = _receive(db, PLANT, _receipt(db, po_id, order.lines[0].id, 50, loc.id, received_date=date(2026, 9, 18)))
         batch = db.query(StockBatch).filter(StockBatch.item_id == item.id).one()
         assert batch.stock_status == "QC_HOLD"
         assert get_usable_item_qty(str(item.id), db) == 0
-        receipt_line_id = uuid.UUID(grn["lines"][0]["receipt_line_id"])
+        receipt_line_id = uuid.UUID(grn["lines"][0]["id"])
         with pytest.raises(HTTPException) as desk:
             update_receipt_line_qc(
                 receipt_line_id,
@@ -538,9 +544,11 @@ def test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close():
     try:
         suffix = uuid.uuid4().hex[:8]
         item, loc = _item_and_location(db, suffix)
+        item.quality_profile = _approved_profile(180, 220)
+        db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-PR-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Partial Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=100, unit_cost=8, incoming_qc_required=False)],
@@ -550,34 +558,27 @@ def test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close():
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-        post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-PR-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=60, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        grn = _receive(db, PLANT, _receipt(db, po_id, order.lines[0].id, 60, loc.id, received_date=date(2026, 9, 18)))
+        _pass_incoming_qc(db, _receipt_batch(db, grn))
+        assert get_usable_item_qty(str(item.id), db) == 60
         db.refresh(order.lines[0])
+        rejected_line_id = order.lines[0].id
         assert order.lines[0].line_status == "PARTIAL"
         remaining = float(order.lines[0].qty_ordered) - float(order.lines[0].qty_received)
         assert abs(remaining - 40) < 1e-9
         assert order.lines[0].line_status != "CLOSED"
         rejected = reject_purchase_remainder(
             po_id,
-            order.lines[0].id,
+            rejected_line_id,
             RejectRemainderPayload(qty_rejected=40, disposition="REPLACE", replacement_qty=40),
             db=db,
             plant_id=PLANT,
             current_user=_user("store-a", roles=("Store",)),
         )
         db.refresh(order)
-        line = next(row for row in order.lines if row.id == order.lines[0].id)
+        line = next(row for row in order.lines if row.id == rejected_line_id)
         assert abs(float(line.qty_rejected or 0) - 40) < 1e-9
         assert abs(float(line.qty_received or 0) - 60) < 1e-9
         open_qty = float(line.qty_ordered) - float(line.qty_received) - float(line.qty_rejected)
@@ -589,6 +590,7 @@ def test_pur05_partial_receive_keeps_remainder_explicit_without_silent_close():
         assert abs(float(replacement.qty_ordered) - 40) < 1e-9
         assert abs(float(replacement.qty_received or 0)) < 1e-9
         assert (replacement.metadata_json or {}).get("not_stock") is True
+        assert rejected["usable_stock_unchanged"] is True
         assert get_usable_item_qty(str(item.id), db) == 60
         receipts = db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == order.id).count()
         assert receipts == 1
@@ -621,7 +623,7 @@ def test_qct015_two_same_category_items_pin_their_own_bounds_on_receipt():
         for item, low, high in items:
             created = create_purchase_order(
                 PurchaseOrderCreate(
-                    po_no=f"PO-{item.item_code[-6:]}",
+                    request_id=uuid.uuid4(),
                     supplier_id=uuid.uuid4(),
                     supplier_name="Family Mills",
                     lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=25, unit_cost=5, incoming_qc_required=True)],
@@ -631,19 +633,9 @@ def test_qct015_two_same_category_items_pin_their_own_bounds_on_receipt():
                 current_user=_user("store-a", roles=("Store",)),
             )
             po_id = uuid.UUID(str(created["id"]))
-            approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+            _submit_and_approve(db, po_id, PLANT)
             order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-            post_grn(
-                po_id,
-                GrnCreate(
-                    grn_no=f"GRN-{item.item_code[-6:]}",
-                    received_date=date(2026, 9, 18),
-                    lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=25, location_id=loc.id)],
-                ),
-                db=db,
-                plant_id=PLANT,
-                current_user=_user("store-a", roles=("Store",)),
-            )
+            _receive(db, PLANT, _receipt(db, po_id, order.lines[0].id, 25, loc.id, received_date=date(2026, 9, 18)))
             batch = db.query(StockBatch).filter(StockBatch.item_id == item.id).one()
             pinned = (batch.inward_metadata or {}).get("quality_profile") or {}
             param = pinned["parameters"][0]
@@ -742,7 +734,7 @@ def test_pur08_evidence_links_to_batch_and_print_uses_amigo_not_hari_om():
         item, loc = _item_and_location(db, suffix)
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-AMIGO-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Verify Paper Mills",
                 tax_terms="GST extra as applicable",
@@ -765,20 +757,10 @@ def test_pur08_evidence_links_to_batch_and_print_uses_amigo_not_hari_om():
         assert "hari om" not in str(missing["issuer_name"]).lower()
         unresolved = resolve_po_print_unresolved()
         assert unresolved["issuer_name"] is None
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-        grn = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-EV-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=40, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        batch_id = uuid.UUID(grn["lines"][0]["batch_id"])
+        grn = _receive(db, PLANT, _receipt(db, po_id, order.lines[0].id, 40, loc.id, received_date=date(2026, 9, 18)))
+        batch_id = _receipt_batch(db, grn).id
         receipt_id = uuid.UUID(grn["id"])
         attached = attach_receipt_evidence(
             receipt_id,
@@ -853,10 +835,10 @@ def test_qct016_same_item_code_uses_receiving_plant_profile_not_global_or_other_
         db.add_all([loc_a, loc_b, item_a, item_b])
         db.flush()
 
-        def _receive(plant, item, loc, low):
+        def _receive_at_plant(plant, item, loc, low):
             created = create_purchase_order(
                 PurchaseOrderCreate(
-                    po_no=f"PO-{plant[-1]}-{suffix}",
+                    request_id=uuid.uuid4(),
                     supplier_id=uuid.uuid4(),
                     supplier_name="Plant mills",
                     lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=15, unit_cost=8, incoming_qc_required=True)],
@@ -866,27 +848,17 @@ def test_qct016_same_item_code_uses_receiving_plant_profile_not_global_or_other_
                 current_user=_user("store-a", roles=("Store",)),
             )
             po_id = uuid.UUID(str(created["id"]))
-            approve_purchase_order(po_id, db=db, plant_id=plant, current_user=_user("owner-a", roles=("Owner",)))
+            _submit_and_approve(db, po_id, plant)
             order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-            grn = post_grn(
-                po_id,
-                GrnCreate(
-                    grn_no=f"GRN-{plant[-1]}-{suffix}",
-                    received_date=date(2026, 9, 18),
-                    lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=15, location_id=loc.id)],
-                ),
-                db=db,
-                plant_id=plant,
-                current_user=_user("store-a", roles=("Store",)),
-            )
-            batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(grn["lines"][0]["batch_id"])).one()
+            grn = _receive(db, plant, _receipt(db, po_id, order.lines[0].id, 15, loc.id, received_date=date(2026, 9, 18)))
+            batch = _receipt_batch(db, grn)
             profile = (batch.inward_metadata or {}).get("quality_profile") or {}
             assert profile["parameters"][0]["min"] == low
             assert batch.plant_id == plant
             return batch
 
-        pin_a = _receive("PLANT_A", item_a, loc_a, 40)
-        pin_b = _receive("PLANT_B", item_b, loc_b, 80)
+        pin_a = _receive_at_plant("PLANT_A", item_a, loc_a, 40)
+        pin_b = _receive_at_plant("PLANT_B", item_b, loc_b, 80)
         assert pin_a.inward_metadata["quality_profile"]["parameters"][0]["min"] != pin_b.inward_metadata["quality_profile"]["parameters"][0]["min"]
         from src.utils.auth import _resolve_scope
 
@@ -919,7 +891,7 @@ def test_qct018_missing_approved_setup_keeps_receipt_restricted_and_never_pass()
         db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-NS-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="No setup mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=18, unit_cost=9, incoming_qc_required=True)],
@@ -929,20 +901,10 @@ def test_qct018_missing_approved_setup_keeps_receipt_restricted_and_never_pass()
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-        grn = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-NS-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=18, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        batch = db.query(StockBatch).filter(StockBatch.id == uuid.UUID(grn["lines"][0]["batch_id"])).one()
+        grn = _receive(db, PLANT, _receipt(db, po_id, order.lines[0].id, 18, loc.id, received_date=date(2026, 9, 18)))
+        batch = _receipt_batch(db, grn)
         assert batch.stock_status == "QC_HOLD"
         pinned = (batch.inward_metadata or {}).get("quality_profile") or {}
         assert str(pinned.get("status") or "").lower() == "missing"
@@ -971,9 +933,11 @@ def test_reg01_dispatch_retry_same_ref_does_not_duplicate_outward():
     try:
         suffix = uuid.uuid4().hex[:8]
         item, loc = _item_and_location(db, suffix)
+        item.quality_profile = _approved_profile(180, 220)
+        db.flush()
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-DSP-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Dispatch mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=80, unit_cost=4, incoming_qc_required=False)],
@@ -983,20 +947,12 @@ def test_reg01_dispatch_retry_same_ref_does_not_duplicate_outward():
             current_user=_user("store-a", roles=("Store",)),
         )
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id).one()
-        grn = post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-DSP-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=order.lines[0].id, qty_received=80, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
-        batch_id = uuid.UUID(grn["lines"][0]["batch_id"])
+        grn = _receive(db, PLANT, _receipt(db, po_id, order.lines[0].id, 80, loc.id, received_date=date(2026, 9, 18)))
+        batch = _receipt_batch(db, grn)
+        _pass_incoming_qc(db, batch)
+        batch_id = batch.id
         ref = f"DIS-{suffix}"
         first = create_dispatch(
             DispatchCreate(item_id=item.id, batch_id=batch_id, qty=30, dispatch_ref=ref),
@@ -1045,57 +1001,40 @@ def test_inc02_malformed_duplicate_and_conflict_do_not_false_succeed():
         item, loc = _item_and_location(db, suffix)
         with pytest.raises(ValidationError):
             PurchaseOrderLineCreate(item_id=item.id, qty_ordered=10, unit_cost=1, unknown_field="nope")
-        created = create_purchase_order(
-            PurchaseOrderCreate(
-                po_no=f"PO-INC-{suffix}",
-                supplier_id=uuid.uuid4(),
-                supplier_name="Incident Mills",
-                lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
+        po_request = PurchaseOrderCreate(
+            request_id=uuid.uuid4(),
+            supplier_id=uuid.uuid4(),
+            supplier_name="Incident Mills",
+            lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5)],
         )
+        created = create_purchase_order(po_request, db=db, plant_id=PLANT, current_user=_user("store-a", roles=("Store",)))
+        # Exact retry of the same PO request returns the saved PO instead of a second one.
+        retried = create_purchase_order(po_request, db=db, plant_id=PLANT, current_user=_user("store-a", roles=("Store",)))
+        assert retried["id"] == created["id"]
+        assert retried["po_no"] == created["po_no"]
+        # Reusing the PO request key with different details is a conflict, never a silent success.
         with pytest.raises(HTTPException) as duplicate:
             create_purchase_order(
-                PurchaseOrderCreate(
-                    po_no=f"PO-INC-{suffix}",
-                    supplier_id=uuid.uuid4(),
-                    supplier_name="Incident Mills",
-                    lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=20, unit_cost=5)],
-                ),
+                po_request.model_copy(update={"supplier_id": uuid.uuid4()}),
                 db=db,
                 plant_id=PLANT,
                 current_user=_user("store-a", roles=("Store",)),
             )
-        assert duplicate.value.status_code == 400
+        assert duplicate.value.status_code == 409
+        assert db.query(PurchaseOrder).filter(PurchaseOrder.request_id == po_request.request_id).count() == 1
         po_id = uuid.UUID(str(created["id"]))
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         po_line_id = uuid.UUID(str(created["lines"][0]["id"]))
-        post_grn(
-            po_id,
-            GrnCreate(
-                grn_no=f"GRN-INC-{suffix}",
-                received_date=date(2026, 9, 18),
-                lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=10, location_id=loc.id)],
-            ),
-            db=db,
-            plant_id=PLANT,
-            current_user=_user("store-a", roles=("Store",)),
-        )
+        grn_request = _receipt(db, po_id, po_line_id, 10, loc.id, received_date=date(2026, 9, 18))
+        _receive(db, PLANT, grn_request)
+        # Same receipt request key with a different quantity must not post or replay.
+        changed = grn_request.model_copy(update={"lines": [grn_request.lines[0].model_copy(update={"quantity": 11})]})
         with pytest.raises(HTTPException) as conflict:
-            post_grn(
-                po_id,
-                GrnCreate(
-                    grn_no=f"GRN-INC-{suffix}",
-                    received_date=date(2026, 9, 18),
-                    lines=[GrnLineCreate(po_line_id=po_line_id, qty_received=11, location_id=loc.id)],
-                ),
-                db=db,
-                plant_id=PLANT,
-                current_user=_user("store-a", roles=("Store",)),
-            )
+            _receive(db, PLANT, changed)
         assert conflict.value.status_code == 409
+        db.rollback()
+        assert db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == po_id).count() == 1
+        assert abs(float(db.query(PurchaseOrderLine).filter(PurchaseOrderLine.id == po_line_id).one().qty_received) - 10) < 1e-9
     finally:
         db.close()
 
@@ -1115,7 +1054,7 @@ def test_reg04_isolated_target_build_reports_measured_concurrency():
             barrier.wait(timeout=10)
             created = create_purchase_order(
                 PurchaseOrderCreate(
-                    po_no=f"PO-R4-{suffix}",
+                    request_id=uuid.uuid4(),
                     supplier_id=uuid.uuid4(),
                     supplier_name="Load Mills",
                     lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=5, unit_cost=3)],
@@ -1140,7 +1079,8 @@ def test_reg04_isolated_target_build_reports_measured_concurrency():
         thread.join(timeout=30)
     elapsed_ms = (time.perf_counter() - started) * 1000
     assert len(results) == 8, results
-    assert all(isinstance(row, str) and row.startswith("PO-R4-") for row in results), results
+    # PO numbers are server-assigned from the plant's RM/PM series; concurrent creates must not collide.
+    assert all(isinstance(row, str) and row.startswith("RP-PM/") for row in results), results
     assert len(set(results)) == 8
     assert elapsed_ms < 15000
 
@@ -1152,7 +1092,7 @@ def test_plan05_supplier_dates_do_not_post_stock_or_receipt():
         item, _loc = _item_and_location(db, suffix)
         created = create_purchase_order(
             PurchaseOrderCreate(
-                po_no=f"PO-P5-{suffix}",
+                request_id=uuid.uuid4(),
                 supplier_id=uuid.uuid4(),
                 supplier_name="Calendar Mills",
                 lines=[PurchaseOrderLineCreate(item_id=item.id, qty_ordered=80, unit_cost=6)],
@@ -1163,7 +1103,7 @@ def test_plan05_supplier_dates_do_not_post_stock_or_receipt():
         )
         po_id = uuid.UUID(str(created["id"]))
         line_id = uuid.UUID(created["lines"][0]["id"])
-        approve_purchase_order(po_id, db=db, plant_id=PLANT, current_user=_user("owner-a", roles=("Owner",)))
+        _submit_and_approve(db, po_id, PLANT)
         before_tx = db.query(StockTransaction).filter(StockTransaction.item_id == item.id).count()
         before_grn = db.query(PurchaseReceipt).filter(PurchaseReceipt.purchase_order_id == po_id).count()
         committed = commit_supplier_schedules(

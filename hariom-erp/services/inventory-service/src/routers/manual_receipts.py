@@ -20,6 +20,7 @@ from ..models import (
     ReceiptInvoiceAllocation, PurchaseDiscrepancy, LotLabelRecord, ReelScanEvent, ReelScanEventType,
     ReelScanSource, ReelStatus, CostSource, TransactionType, ReferenceType,
 )
+from ..quality_task_queue import enqueue_incoming_qc_task
 from ..services.labels import reel_label_payload
 from ..services.receipt_quality import initial_quality
 from ..services.procurement import canonical_hash, normalize_invoice_number
@@ -85,6 +86,14 @@ def preview_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(g
             "totals": {"quantity_kg": float(sum(row[2] for row in rows)), "physical_unit_count": sum(len(row[0].lots) for row in rows)}}
 
 
+def _queue_qc_task(db: Session, lot, *, plant_id: str, receipt: PurchaseReceipt, **lot_ref) -> None:
+    """Durable incoming-QC task per held lot, committed with the manual receipt."""
+    event_id = enqueue_incoming_qc_task(db, plant_id=plant_id, receipt_id=str(receipt.id),
+        grn_no=receipt.grn_no, stock_status=lot.stock_status, **lot_ref)
+    lot.inward_metadata = {**lot.inward_metadata,
+        "incoming_qc_task": {**lot.inward_metadata["incoming_qc_task"], "outbox_event_id": event_id}}
+
+
 @router.post("/manual-receipts")
 def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "PlantManager"]))):
     fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
@@ -135,6 +144,8 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                     commercial_status=state, inward_date=payload.received_date, inward_metadata=metadata)
                 db.add(reel)
                 db.flush()
+                if qc_status == "PENDING":
+                    _queue_qc_task(db, reel, plant_id=plant_id, receipt=receipt, reel_id=str(reel.id))
                 db.add(ReceiptStockAllocation(receipt_line_id=line.id, reel_id=reel.id, allocated_qty=lot.net_weight_kg))
                 db.add(LotLabelRecord(plant_id=plant_id, reel_id=reel.id, label_code=at_no, content_snapshot=reel_label_payload(reel, item)))
                 db.add(ReelScanEvent(plant_id=_plant_uuid(plant_id), reel_id=reel.id, event_type=ReelScanEventType.INWARD_SCAN, source=ReelScanSource.INVENTORY, event_metadata=metadata))
@@ -145,6 +156,8 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
             db.add(batch)
             db.flush()
             line.batch_id = batch.id
+            if qc_status == "PENDING":
+                _queue_qc_task(db, batch, plant_id=plant_id, receipt=receipt, batch_id=str(batch.id))
             db.add(ReceiptStockAllocation(receipt_line_id=line.id, batch_id=batch.id, allocated_qty=qty))
             db.add(StockTransaction(plant_id=plant_id, item_id=item.id, batch_id=batch.id, transaction_type=TransactionType.INWARD,
                 qty_change=float(qty), reference_type=ReferenceType.PURCHASE, reference_id=receipt.id, effective_date=payload.received_date,
