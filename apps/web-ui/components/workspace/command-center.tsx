@@ -498,7 +498,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
         </section>
       )}
 
-      <section className={cn("stagger grid gap-3 sm:grid-cols-2", kpiKeys.length > 4 ? "xl:grid-cols-4" : "xl:grid-cols-4")} aria-label="Key figures">
+      <section className="stagger grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 2xl:grid-cols-4" aria-label="Key figures">
         {kpiKeys.map((key) => {
           const kpi = kpis[key]
           const failed = (key in { orderBook: 1, bookedValue: 1, dispatchedValue: 1, expired: 1, holdQty: 1 } && salesQuery.isError) || (["activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && jobsQuery.isError) || (!["orderBook", "bookedValue", "dispatchedValue", "expired", "holdQty", "activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && packQuery.isError)

@@ -461,3 +461,13 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 /* Grid items never force the page wider than the viewport (wide tables scroll inside their own wrapper).
    :where() keeps specificity at zero so explicit min-w-* utilities still win. */
 :where(.tube-page .grid) > * { min-width: 0; }
+@media (max-width: 639px) {
+  .tube-kpi { padding: 12px; }
+  .tube-kpi-value { font-size: 20px; margin-top: 6px; }
+  .tube-kpi-icon { width: 26px; height: 26px; border-radius: 7px; }
+  .tube-kpi-icon svg { width: 14px; height: 14px; }
+  .tube-kpi .line-clamp-2 { font-size: 11.5px; line-height: 16px; }
+}
+@media (max-width: 639px) {
+  .tube-kpi .tube-kpi-label.truncate { white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
+}

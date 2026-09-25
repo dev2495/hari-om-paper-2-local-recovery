@@ -153,7 +153,7 @@ export default function InventoryOverviewPage() {
         <MetricCard label="Locations used" value={`${occupiedLocations}/${totalLocations}`} detail="Warehouse occupancy" icon={ClipboardCheck} tone="amber" progress={totalLocations ? (occupiedLocations / totalLocations) * 100 : null} href="/system/locations" />
       </MetricRail>
 
-      <section className="stagger grid gap-2.5 sm:grid-cols-2 xl:grid-cols-6" aria-label="Quick actions">
+      <section className="stagger grid grid-cols-2 gap-2.5 xl:grid-cols-6" aria-label="Quick actions">
         {actionCards.map((card) => (
           <Link key={card.href + card.title} href={card.href} className="group flex items-start gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-[var(--shadow-xs)] transition hover:border-primary/30 hover:shadow-[var(--shadow-premium)]">
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground transition-transform group-hover:scale-105"><card.icon className="h-4 w-4" /></span>

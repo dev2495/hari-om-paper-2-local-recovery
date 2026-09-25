@@ -50,7 +50,7 @@ export function MetricRail({
   testId?: string
 }) {
   return (
-    <section data-testid={testId} className={cn("stagger grid gap-3 sm:grid-cols-2 2xl:grid-cols-4", className)}>
+    <section data-testid={testId} className={cn("stagger grid grid-cols-2 gap-2.5 sm:gap-3 2xl:grid-cols-4", className)}>
       {children}
     </section>
   )
