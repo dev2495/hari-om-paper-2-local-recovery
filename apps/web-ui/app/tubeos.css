@@ -274,6 +274,10 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
   .tube-workspace { margin-left: 0 !important; }
   .tube-content { padding: 0 !important; max-width: none !important; }
   .tube-page { animation: none !important; }
+  .tube-print-expand, .tube-grid-wrap { max-height: none !important; overflow: visible !important; }
+  .tube-grid { font-size: 10px; }
+  .tube-grid th { position: static !important; }
+  .tube-popover, .tube-toast, [data-print-hide] { display: none !important; }
   :root[data-theme="dark"] { --background: 0 0% 100%; --foreground: 0 0% 0%; --card: 0 0% 100%; --muted: 0 0% 95%; --muted-foreground: 0 0% 25%; --border: 0 0% 80%; --surface-2: 0 0% 97%; color-scheme: light; }
 }
 

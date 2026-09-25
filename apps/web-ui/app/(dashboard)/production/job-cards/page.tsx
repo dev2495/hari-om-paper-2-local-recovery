@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dayjs from "dayjs"
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Factory, GitBranch, PackageCheck, Printer, Search, ShieldCheck, ShoppingCart, TimerReset, Truck } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Download, Factory, GitBranch, PackageCheck, Printer, Search, ShieldCheck, ShoppingCart, TimerReset, Truck } from "lucide-react"
 import { HoverCard } from "@/components/common/hover-card"
 import { RowMenu } from "@/components/common/row-menu"
 import { useDeferredValue, useMemo, useState } from "react"
@@ -236,23 +236,21 @@ export default function JobCardsPage() {
                 <button key={value} type="button" aria-pressed={gateFilter === value} onClick={() => setGateFilter(value)}>{label}</button>
               ))}
             </div>
-            <button type="button" onClick={() => exportCards().catch(() => undefined)} className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              Export CSV
-            </button>
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+            <div className="flex h-9 items-center gap-2 rounded-lg border border-input bg-card px-2.5 focus-within:ring-2 focus-within:ring-ring/30">
               <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 aria-label="Search job cards"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search job cards..."
-                className="w-64 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                placeholder="Search card, customer, order…"
+                className="w-44 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground sm:w-56"
               />
             </div>
             <select
+              aria-label="Job card status"
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="rounded-xl border border-border bg-card px-3 py-2 text-sm"
+              className="h-9 rounded-lg border border-input bg-card px-2.5 text-[13px]"
             >
               <option value="ALL">All statuses</option>
               <option value="CREATED">Created</option>
@@ -260,6 +258,12 @@ export default function JobCardsPage() {
               <option value="IN_PROGRESS">In progress</option>
               <option value="COMPLETED">Completed</option>
             </select>
+            <button type="button" onClick={() => exportCards().catch(() => undefined)} className="erp-btn-secondary !h-9 print:hidden">
+              <Download className="h-4 w-4" />Export CSV
+            </button>
+            <button type="button" onClick={() => window.print()} className="erp-btn-secondary !h-9 print:hidden">
+              <Printer className="h-4 w-4" />Print
+            </button>
           </div>
         }
       >
@@ -279,7 +283,7 @@ export default function JobCardsPage() {
             {null}
           </QuerySwitch>
         ) : (
-          <div className="max-h-[calc(100dvh-220px)] overflow-auto rounded-xl border border-border">
+          <div className="tube-print-expand max-h-[calc(100dvh-220px)] overflow-auto rounded-xl border border-border">
             <table className="tube-grid" data-testid="job-cards:table">
               <thead>
                 <tr>

@@ -6,6 +6,8 @@ import {
   ArrowRightLeft,
   CheckCircle2,
   ChevronLeft,
+  Download,
+  Printer,
   ChevronRight,
   ClipboardCheck,
   Eye,
@@ -332,6 +334,35 @@ export default function SalesOrdersPage() {
     }
   }
 
+  const exportRegister = async () => {
+    const ExcelJS = await import("exceljs")
+    const workbook = new ExcelJS.Workbook()
+    const sheet = workbook.addWorksheet("Sales orders")
+    sheet.addRow(["SO No", "Customer", "PO Date", "PO No", "Line", "Size", "Color", "PO Qty", "Released", "Delivered", "Pending", "Hold", "Expiry", "Due", "Status"])
+    for (const order of orders as any[]) {
+      for (const line of order.lines || []) {
+        const pendingQty = Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0)))
+        sheet.addRow([
+          order.order_no, resolveCustomerLabel(order, customerMap), isInternalOrigin(order.origin) ? order.internal_order_date : order.po_date, order.po_number || "Internal",
+          line.line_no, line.size_label || line.product_code || "", line.parchment_required ? line.parchment_color || "" : "",
+          Number(line.qty || 0), Number(line.released_qty || 0), Number(line.fulfilled_qty || 0), pendingQty, Number(line.hold_qty || 0),
+          order.expiry_date || "", line.due_date || "", order.is_held ? "Customer hold" : String(order.status || "").replaceAll("_", " "),
+        ])
+      }
+    }
+    sheet.getRow(1).font = { bold: true }
+    sheet.views = [{ state: "frozen", ySplit: 1 }]
+    sheet.columns.forEach((column) => { column.width = 16 })
+    sheet.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
+    const blob = new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `sales-orders-${statusFilter}-${dayjs().format("YYYY-MM-DD")}.xlsx`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleHold = async () => {
     if (!holdOrder || holdReason.trim().length < 3) return
     try {
@@ -604,6 +635,8 @@ export default function SalesOrdersPage() {
               <option value="partially_dispatched">Partially dispatched</option>
               <option value="closed">Closed</option>
             </select>
+            <button type="button" className="erp-btn-secondary !h-9" onClick={() => void exportRegister()} disabled={!orders.length}><Download className="h-4 w-4" /><span className="hidden sm:inline">Excel</span></button>
+            <button type="button" className="erp-btn-secondary !h-9" onClick={() => window.print()}><Printer className="h-4 w-4" /><span className="hidden sm:inline">Print</span></button>
             <span className="ml-auto text-xs tabular-nums text-muted-foreground" aria-live="polite">
               {ordersQuery.isFetching ? "Refreshing…" : orders.length ? `${offset + 1}–${offset + orders.length}${hasNextPage ? "+" : ""}` : ""}
             </span>
@@ -627,7 +660,7 @@ export default function SalesOrdersPage() {
               </QuerySwitch>
             </div>
           ) : (
-            <div className="max-h-[calc(100dvh-240px)] min-h-[320px] overflow-auto">
+            <div className="tube-print-expand max-h-[calc(100dvh-240px)] min-h-[320px] overflow-auto">
               <table className="tube-grid" data-testid="sales-orders:register">
                 <thead>
                   <tr>
