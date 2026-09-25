@@ -93,10 +93,10 @@ function VarianceBridgePage() {
 
       <ReportFilterBar>
         <FilterField label="Window">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">Last 30 days</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">Last 30 days</span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlantLabel}</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">{activePlantLabel}</span>
         </FilterField>
       </ReportFilterBar>
 
@@ -139,7 +139,7 @@ function VarianceBridgePage() {
         {itemRows.length ? (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <th className="py-2 pr-3">Item</th>
                 <th className="py-2 pr-3 text-right">Theoretical</th>
                 <th className="py-2 pr-3 text-right">Ledger</th>
@@ -155,12 +155,12 @@ function VarianceBridgePage() {
                 const driftPct = Number(row.theoretical || 0) ? (drift / Number(row.theoretical)) * 100 : 0
                 const tone: "ok" | "warn" | "critical" = Math.abs(driftPct) > 5 ? "critical" : Math.abs(driftPct) > 2 ? "warn" : "ok"
                 return (
-                  <tr key={i} className="border-b border-slate-100">
+                  <tr key={i} className="border-b border-border">
                     <td className="py-2 pr-3 font-mono text-xs">{row.item_code || row.name}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(row.theoretical || 0))}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(row.ledger || row.consumed || 0))}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(row.actual || 0))}</td>
-                    <td className={`py-2 pr-3 text-right font-bold ${drift < 0 ? "text-rose-700" : drift > 0 ? "text-emerald-700" : ""}`}>
+                    <td className={`py-2 pr-3 text-right font-bold ${drift < 0 ? "text-signal-rose-ink" : drift > 0 ? "text-signal-emerald-ink" : ""}`}>
                       {drift > 0 ? "+" : ""}{formatNumber(drift)}
                     </td>
                     <td className="py-2 pr-3"><Pill tone={tone}>{tone === "critical" ? "REVIEW" : tone === "warn" ? "WATCH" : "OK"}</Pill></td>

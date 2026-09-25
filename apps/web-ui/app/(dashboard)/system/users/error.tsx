@@ -10,7 +10,7 @@ export default function UsersError({ error, reset }: { error: Error & { digest?:
 
   return (
     <main className="mx-auto max-w-3xl space-y-5 p-6">
-      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-900 shadow-sm">
+      <div className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft p-6 text-signal-rose-ink shadow-sm">
         <h1 className="text-2xl font-semibold">User administration hit a problem</h1>
         <p className="mt-2 text-sm leading-6">
           The page could not finish loading, but nothing was changed by this error. No user was created or edited.
@@ -26,7 +26,7 @@ export default function UsersError({ error, reset }: { error: Error & { digest?:
           </button>
           <Link
             href="/system/users"
-            className="rounded-xl border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="rounded-xl border border-border bg-card px-5 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-muted"
           >
             Back to users
           </Link>

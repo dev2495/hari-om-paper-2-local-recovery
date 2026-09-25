@@ -78,7 +78,7 @@ test("order detail shows persisted delivery schedules and schedule-entire-PO pre
 })
 
 test("planning board has a keyboard scheduling path equivalent to drag", () => {
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/planning/board/page.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "components/planning/planning-workspace.tsx"), "utf8")
   assert.match(page, /KeyboardScheduleForm/)
   assert.match(page, /tabIndex=\{0\}/)
   const form = readFileSync(resolve(process.cwd(), "components/planning/keyboard-schedule-form.tsx"), "utf8")
@@ -89,13 +89,13 @@ test("planning board has a keyboard scheduling path equivalent to drag", () => {
 test("sales release confirm is not a compatibility veto and offers a winder-queue next step", () => {
   const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
   assert.match(page, /authorized_winders/)
-  assert.match(page, /Open this winder queue/)
+  assert.match(page, /Open planning queue/)
   assert.match(page, /planning synchronization pending/)
   assert.doesNotMatch(page, /router\.push\(`\/planning\/board\?section=winder/)
 })
 
 test("planning board uses the same 3-day due-risk predicate", () => {
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/planning/board/page.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "components/planning/planning-workspace.tsx"), "utf8")
   assert.match(page, /classifyDueRisk/)
   assert.match(page, /DUE_RISK_PRIORITY/)
   assert.match(page, /DUE_RISK_OVERDUE/)

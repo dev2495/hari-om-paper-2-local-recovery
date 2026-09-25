@@ -322,7 +322,7 @@ class DispatchIdempotencyTests(unittest.TestCase):
                     raise HTTPException(status_code=502, detail="injected post-inventory timeout")
             return {"ok": True}
 
-        with patch("src.routers.dispatch._post_inventory_dispatch_if_needed", side_effect=inventory_post), patch(
+        with patch("src.routers.dispatch._require_final_qc"), patch("src.routers.dispatch._post_inventory_dispatch_if_needed", side_effect=inventory_post), patch(
             "src.routers.dispatch._post_sales_request", side_effect=sales_post
         ):
             with self.assertRaises(HTTPException):

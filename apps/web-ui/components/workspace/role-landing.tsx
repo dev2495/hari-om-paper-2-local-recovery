@@ -323,12 +323,12 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
         aside={
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">{LANDING_LABELS[landingRole]}</p>
                 <p className="mt-2 text-2xl font-semibold">{formatMetric(commonMetrics.activeJobCards)}</p>
                 <p className="mt-2 text-xs text-slate-200">active cards</p>
               </div>
-              <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">Cross-role alerts</p>
                 <p className="mt-2 text-2xl font-semibold">{notificationItems.length}</p>
                 <p className="mt-2 text-xs text-slate-200">recent notifications</p>
@@ -342,7 +342,7 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
           </div>
         }
         actions={
-          <div className="flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-2 text-sm text-white/90">
+          <div className="flex items-center gap-2 rounded-full border border-border/20 bg-card/10 px-3 py-2 text-sm text-white/90">
             <Icon className="h-4 w-4" />
             {LANDING_LABELS[landingRole]} landing
           </div>
@@ -369,12 +369,12 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
               <Link
                 key={`${action.href}:${action.label}`}
                 href={action.href}
-                className="rounded-[1.15rem] border border-slate-200 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                className="rounded-[1.15rem] border border-border bg-card px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-950">{action.label}</p>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">{action.detail}</p>
+                    <p className="text-sm font-semibold text-foreground">{action.label}</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">{action.detail}</p>
                   </div>
                   <StatusBadge value="ACTIVE" label="Open" />
                 </div>
@@ -392,18 +392,18 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
                 <Link
                   key={item.id}
                   href={item.href || "/dashboard"}
-                  className="block rounded-[1.15rem] border border-slate-200 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                  className="block rounded-[1.15rem] border border-border bg-card px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
                 >
                   <div className="flex items-start gap-3">
-                    <div className="rounded-2xl bg-slate-100 p-2 text-slate-600">
+                    <div className="rounded-2xl bg-muted p-2 text-muted-foreground">
                       <Bell className="h-4 w-4" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-950">{item.title}</p>
+                        <p className="text-sm font-semibold text-foreground">{item.title}</p>
                         {item.role_context ? <StatusBadge value={item.role_context} label={item.role_context} /> : null}
                       </div>
-                      <p className="mt-1 text-sm leading-6 text-slate-600">{item.message}</p>
+                      <p className="mt-1 text-sm leading-6 text-muted-foreground">{item.message}</p>
                     </div>
                   </div>
                 </Link>
@@ -454,33 +454,33 @@ export function RoleLanding({ landingRole }: { landingRole: LandingRole }) {
 
         <Panel title="Deep-link Queues" subtitle="Live counters tied directly to the ERP modules behind this landing.">
           <div className="space-y-3">
-            <Link href="/sales-orders" className="flex items-center justify-between rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300">
+            <Link href="/sales-orders" className="flex items-center justify-between rounded-[1.1rem] border border-border bg-card px-4 py-3 shadow-sm transition hover:border-border">
               <div>
-                <p className="text-sm font-semibold text-slate-950">Sales Orders</p>
-                <p className="text-xs text-slate-500">Demand and release posture</p>
+                <p className="text-sm font-semibold text-foreground">Sales Orders</p>
+                <p className="text-xs text-muted-foreground">Demand and release posture</p>
               </div>
-              <p className="text-lg font-semibold text-slate-950">{formatMetric(orderRows.length)}</p>
+              <p className="text-lg font-semibold text-foreground">{formatMetric(orderRows.length)}</p>
             </Link>
-            <Link href="/planning/board?section=winder" className="flex items-center justify-between rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300">
+            <Link href="/planning/board?section=winder" className="flex items-center justify-between rounded-[1.1rem] border border-border bg-card px-4 py-3 shadow-sm transition hover:border-border">
               <div>
-                <p className="text-sm font-semibold text-slate-950">Planning Board</p>
-                <p className="text-xs text-slate-500">Stage backlog and schedule load</p>
+                <p className="text-sm font-semibold text-foreground">Planning Board</p>
+                <p className="text-xs text-muted-foreground">Stage backlog and schedule load</p>
               </div>
-              <p className="text-lg font-semibold text-slate-950">{formatMetric(stageBacklog)}</p>
+              <p className="text-lg font-semibold text-foreground">{formatMetric(stageBacklog)}</p>
             </Link>
-            <Link href="/production/job-cards" className="flex items-center justify-between rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300">
+            <Link href="/production/job-cards" className="flex items-center justify-between rounded-[1.1rem] border border-border bg-card px-4 py-3 shadow-sm transition hover:border-border">
               <div>
-                <p className="text-sm font-semibold text-slate-950">Job Cards</p>
-                <p className="text-xs text-slate-500">Execution cards currently in play</p>
+                <p className="text-sm font-semibold text-foreground">Job Cards</p>
+                <p className="text-xs text-muted-foreground">Execution cards currently in play</p>
               </div>
-              <p className="text-lg font-semibold text-slate-950">{formatMetric(jobCardRows.length)}</p>
+              <p className="text-lg font-semibold text-foreground">{formatMetric(jobCardRows.length)}</p>
             </Link>
-            <Link href="/inventory" className="flex items-center justify-between rounded-[1.1rem] border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:border-slate-300">
+            <Link href="/inventory" className="flex items-center justify-between rounded-[1.1rem] border border-border bg-card px-4 py-3 shadow-sm transition hover:border-border">
               <div>
-                <p className="text-sm font-semibold text-slate-950">Inventory</p>
-                <p className="text-xs text-slate-500">Low-stock and dispatch-allocation posture</p>
+                <p className="text-sm font-semibold text-foreground">Inventory</p>
+                <p className="text-xs text-muted-foreground">Low-stock and dispatch-allocation posture</p>
               </div>
-              <p className="text-lg font-semibold text-slate-950">{formatMetric(commonMetrics.lowStockCount)}</p>
+              <p className="text-lg font-semibold text-foreground">{formatMetric(commonMetrics.lowStockCount)}</p>
             </Link>
           </div>
         </Panel>

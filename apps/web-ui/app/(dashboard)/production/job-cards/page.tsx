@@ -112,12 +112,12 @@ export default function JobCardsPage() {
         description="Stage and due-risk tiles are server totals for the authorized plant, not a page-sized sample. Click a stage to open that exact set."
         aside={
           <div className="space-y-3">
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Open Cards</p>
               <p className="mt-2 text-3xl font-semibold" data-testid="job-cards:open-count">{Number(aggregates.open_cards ?? visibleCards)}</p>
               <p className="mt-1 text-xs text-emerald-100/80">Server aggregate across all job cards in plant scope</p>
             </div>
-            <Link href="/planning/board?section=winder" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900">
+            <Link href="/planning/board?section=winder" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-semibold text-foreground">
               <Factory className="h-4 w-4" />
               Open planning board
             </Link>
@@ -144,7 +144,7 @@ export default function JobCardsPage() {
         subtitle="Open production is grouped by current stage. Tile counts are a full-scope server aggregate; the list below uses the same stage filter."
         actions={
           <div className="flex flex-wrap gap-2">
-            <Link href="/inventory/production-issue" className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300 hover:text-cyan-900">
+            <Link href="/inventory/production-issue" className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink">
               <PackageCheck className="h-3.5 w-3.5" />
               Issue to WIP
             </Link>
@@ -164,12 +164,12 @@ export default function JobCardsPage() {
                 href={href}
                 data-testid={`job-cards:stage-tile:${row.stage}`}
                 className={`rounded-[1.15rem] border px-4 py-3 transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-600 ${
-                  active ? "border-cyan-400 bg-cyan-50" : "border-slate-200 bg-slate-50"
+                  active ? "border-cyan-400 bg-signal-cyan-soft" : "border-border bg-muted"
                 }`}
               >
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{row.stage.replace(/_/g, " ")}</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{row.count}</p>
-                <p className="mt-1 text-xs text-slate-500">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{row.stage.replace(/_/g, " ")}</p>
+                <p className="mt-2 text-2xl font-semibold text-foreground">{row.count}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
                   {row.stage === "QC" ? "Final gate cards" : row.stage === "DISPATCH" ? "Ready for dispatch check" : "Open cards in this stage"}
                 </p>
               </Link>
@@ -177,7 +177,7 @@ export default function JobCardsPage() {
           })}
         </div>
         {Number(aggregates.blocked || 0) ? (
-          <div className="mt-4 rounded-[1.15rem] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+          <div className="mt-4 rounded-[1.15rem] border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">
             {aggregates.blocked} open card(s) have an active quality hold or final QC stage. Use the quality desk before dispatch.
           </div>
         ) : null}
@@ -189,32 +189,32 @@ export default function JobCardsPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {stageFilter ? (
-              <button type="button" onClick={() => replaceQuery({ stage: null })} className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-cyan-800">
+              <button type="button" onClick={() => replaceQuery({ stage: null })} className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-signal-cyan-ink">
                 Stage {stageFilter} ×
               </button>
             ) : null}
             {dueRiskParam ? (
-              <button type="button" onClick={() => replaceQuery({ due: null })} className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-amber-800">
+              <button type="button" onClick={() => replaceQuery({ due: null })} className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-signal-amber-ink">
                 {dueRiskParam === "PRIORITY" ? "Priority 3-day" : "Overdue"} ×
               </button>
             ) : null}
-            <button type="button" onClick={() => exportCards().catch(() => undefined)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-slate-700">
+            <button type="button" onClick={() => exportCards().catch(() => undefined)} className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Export CSV
             </button>
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <Search className="h-4 w-4 text-slate-400" />
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 aria-label="Search job cards"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search job cards..."
-                className="w-64 bg-transparent text-sm outline-none placeholder:text-slate-400"
+                className="w-64 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+              className="rounded-xl border border-border bg-card px-3 py-2 text-sm"
             >
               <option value="ALL">All statuses</option>
               <option value="CREATED">Created</option>
@@ -241,9 +241,9 @@ export default function JobCardsPage() {
             {null}
           </QuerySwitch>
         ) : (
-          <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
+          <div className="overflow-x-auto rounded-[1.35rem] border border-border">
             <table className="min-w-full">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Job Card</th>
                   <th className="px-4 py-3 text-left">Order / Customer</th>
@@ -254,28 +254,28 @@ export default function JobCardsPage() {
                   <th className="px-4 py-3 text-left">Due / Alerts</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+              <tbody className="divide-y divide-border bg-card">
                 {jobCards.map((job: any) => (
                   <tr key={job.id} data-due-risk={job.due_risk_bucket || ""}>
                     <td className="px-4 py-4">
                       <div className="space-y-2">
-                        <Link href={`/production/job-cards/${job.id}`} className="text-sm font-semibold text-slate-950 hover:text-cyan-700">
+                        <Link href={`/production/job-cards/${job.id}`} className="text-sm font-semibold text-foreground hover:text-signal-cyan-ink">
                           {jobCardRef(job)}
                         </Link>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-muted-foreground">
                           Release lot {job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "-"}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-900">{job.customer_name || String(job.customer_id || "-")}</div>
-                      <div className="mt-1 text-xs text-slate-500">
+                    <td className="px-4 py-4 text-sm text-muted-foreground">
+                      <div className="font-semibold text-foreground">{job.customer_name || String(job.customer_id || "-")}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
                         SO {job.sales_order_ref || (job.sales_order_id ? compactRef(job.sales_order_id, "SO") : "-")} · Spec {job.spec_reference || compactRef(job.spec_id, "SPEC")}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
+                    <td className="px-4 py-4 text-sm text-muted-foreground">
                       <div>{job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "-"}</div>
-                      <div className="mt-1 text-xs text-slate-500">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {job.assigned_winder_machine_id
                           ? machineLabelMap.get(String(job.assigned_winder_machine_id)) || String(job.assigned_winder_machine_id).slice(0, 8)
                           : "No target winder"}
@@ -288,18 +288,18 @@ export default function JobCardsPage() {
                         <StatusBadge value={job.planner_gate_ready ? "READY" : "BLOCKED"} label={job.planner_gate_ready ? "Planner ready" : "Planner gate"} />
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-right text-sm font-semibold text-slate-950">
+                    <td className="px-4 py-4 text-right text-sm font-semibold text-foreground">
                       {Number(job.planned_qty || 0).toFixed(0)}
                     </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
+                    <td className="px-4 py-4 text-sm text-muted-foreground">
                       <div>{job.current_machine_id ? machineLabelMap.get(String(job.current_machine_id)) || compactRef(job.current_machine_id, "MC") : "Unassigned"}</div>
-                      <div className="mt-1 text-xs text-slate-500">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {job.current_shift_code || "No shift"} · {job.current_plan_date ? formatDate(job.current_plan_date) : "No plan date"}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-sm text-slate-700">
+                    <td className="px-4 py-4 text-sm text-muted-foreground">
                       <div>Due {formatDate(job.due_date)}</div>
-                      <div className="mt-1 text-xs text-slate-500">
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {dueBucketLabel(job.due_risk_bucket) || job.blocked_reason || job.planner_gate_reason || `${job.open_segment_count || 0} open segment(s)`}
                       </div>
                     </td>
@@ -309,7 +309,7 @@ export default function JobCardsPage() {
             </table>
           </div>
         )}
-        <p className="mt-3 text-xs text-slate-500">Showing the loaded job-card window (up to 250). Stage tiles use the server aggregate, not this page size.</p>
+        <p className="mt-3 text-xs text-muted-foreground">Showing the loaded job-card window (up to 250). Stage tiles use the server aggregate, not this page size.</p>
       </Panel>
     </div>
   )

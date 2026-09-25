@@ -129,11 +129,11 @@ export default function InventoryReservationsPage() {
 
   if (!concretePlant) {
     return (
-      <section className="mx-auto max-w-2xl rounded-3xl border border-cyan-200 bg-cyan-50 p-6">
-        <LockKeyhole className="h-7 w-7 text-cyan-800" />
-        <h1 className="mt-3 text-2xl font-semibold text-slate-950">Select one plant to manage reservations</h1>
-        <p className="mt-2 text-sm text-slate-700">Reservations change dispatchable stock and therefore cannot be posted in the global reporting scope.</p>
-        <select className="mt-5 h-11 w-full rounded-xl border border-cyan-200 bg-white px-3" value="" onChange={(event) => { if (event.target.value) { setActivePlant(event.target.value); window.location.reload() } }}>
+      <section className="mx-auto max-w-2xl rounded-3xl border border-signal-cyan-line bg-signal-cyan-soft p-6">
+        <LockKeyhole className="h-7 w-7 text-signal-cyan-ink" />
+        <h1 className="mt-3 text-2xl font-semibold text-foreground">Select one plant to manage reservations</h1>
+        <p className="mt-2 text-sm text-muted-foreground">Reservations change dispatchable stock and therefore cannot be posted in the global reporting scope.</p>
+        <select className="mt-5 h-11 w-full rounded-xl border border-signal-cyan-line bg-card px-3" value="" onChange={(event) => { if (event.target.value) { setActivePlant(event.target.value); window.location.reload() } }}>
           <option value="">Select plant</option>
           {plants.filter((plant: any) => plant.is_active !== false).map((plant: any) => <option key={plant.id} value={plant.id}>{plant.code} · {plant.name}</option>)}
         </select>
@@ -152,65 +152,65 @@ export default function InventoryReservationsPage() {
         <h1 className="mt-2 text-2xl font-semibold">Reserve real stock against released customer demand</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-300">Each reservation is tied to a sales-order line, approved specification, finished-good item, and physical lot. Dispatch consumes the matching reservation automatically.</p>
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
-          <span className="rounded-full bg-white/10 px-3 py-1.5">Active reservations: {activeCount}</span>
-          <span className="rounded-full bg-white/10 px-3 py-1.5">Protected quantity: {reservedQty.toLocaleString("en-IN")}</span>
+          <span className="rounded-full bg-card/10 px-3 py-1.5">Active reservations: {activeCount}</span>
+          <span className="rounded-full bg-card/10 px-3 py-1.5">Protected quantity: {reservedQty.toLocaleString("en-IN")}</span>
         </div>
       </section>
 
-      {message ? <div className={`rounded-2xl border px-4 py-3 text-sm ${message.tone === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-800"}`}>{message.text}</div> : null}
+      {message ? <div className={`rounded-2xl border px-4 py-3 text-sm ${message.tone === "success" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"}`}>{message.text}</div> : null}
 
       <section className="grid min-w-0 gap-4 lg:grid-cols-[0.9fr_1.1fr] [&>*]:min-w-0">
-        <form className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5" onSubmit={(event) => { event.preventDefault(); setMessage(null); createReservation.mutate() }}>
+        <form className="space-y-4 rounded-3xl border border-border bg-card p-5" onSubmit={(event) => { event.preventDefault(); setMessage(null); createReservation.mutate() }}>
           <div>
-            <h2 className="font-semibold text-slate-950">Create reservation</h2>
-            <p className="mt-1 text-sm text-slate-500">Only released lines with remaining customer quantity are available.</p>
+            <h2 className="font-semibold text-foreground">Create reservation</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Only released lines with remaining customer quantity are available.</p>
           </div>
           <label className="block space-y-1 text-sm">
             <span className="font-medium">Released sales-order line</span>
-            <select required className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3" value={form.line_key} onChange={(event) => setForm((current) => ({ ...current, line_key: event.target.value }))}>
+            <select required className="h-11 w-full rounded-xl border border-border bg-card px-3" value={form.line_key} onChange={(event) => setForm((current) => ({ ...current, line_key: event.target.value }))}>
               <option value="">Select line</option>
               {lineOptions.map((line: any) => <option key={line.key} value={line.key}>{line.order_no} · line {line.line_no} · {line.product_code || line.spec_id} · remaining {line.remaining_qty}</option>)}
             </select>
           </label>
           <label className="block space-y-1 text-sm">
             <span className="font-medium">Finished-good item</span>
-            <select required disabled={!selectedLine} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:bg-slate-100" value={form.item_id} onChange={(event) => setForm((current) => ({ ...current, item_id: event.target.value, batch_id: "" }))}>
+            <select required disabled={!selectedLine} className="h-11 w-full rounded-xl border border-border bg-card px-3 disabled:bg-muted" value={form.item_id} onChange={(event) => setForm((current) => ({ ...current, item_id: event.target.value, batch_id: "" }))}>
               <option value="">Select item</option>
               {eligibleItems.map((item: any) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}
             </select>
           </label>
           <label className="block space-y-1 text-sm">
             <span className="font-medium">Available physical lot</span>
-            <select required disabled={!form.item_id} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 disabled:bg-slate-100" value={form.batch_id} onChange={(event) => setForm((current) => ({ ...current, batch_id: event.target.value }))}>
+            <select required disabled={!form.item_id} className="h-11 w-full rounded-xl border border-border bg-card px-3 disabled:bg-muted" value={form.batch_id} onChange={(event) => setForm((current) => ({ ...current, batch_id: event.target.value }))}>
               <option value="">Select lot</option>
               {availableLots.map((lot: any) => <option key={lot.batch_id} value={lot.batch_id}>{lot.batch_no} · available {lot.available_qty} · already reserved {lot.reserved_qty}</option>)}
             </select>
           </label>
           <label className="block space-y-1 text-sm">
             <span className="font-medium">Quantity</span>
-            <input required type="number" min="0.001" step="0.001" max={Math.min(selectedLine?.remaining_qty || Number.MAX_SAFE_INTEGER, Number(selectedLot?.available_qty || Number.MAX_SAFE_INTEGER))} className="h-11 w-full rounded-xl border border-slate-200 px-3" value={form.qty} onChange={(event) => setForm((current) => ({ ...current, qty: event.target.value }))} />
+            <input required type="number" min="0.001" step="0.001" max={Math.min(selectedLine?.remaining_qty || Number.MAX_SAFE_INTEGER, Number(selectedLot?.available_qty || Number.MAX_SAFE_INTEGER))} className="h-11 w-full rounded-xl border border-border px-3" value={form.qty} onChange={(event) => setForm((current) => ({ ...current, qty: event.target.value }))} />
           </label>
           <button type="submit" disabled={createReservation.isPending} className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-cyan-700 px-4 font-semibold text-white disabled:opacity-50"><PackageCheck className="h-4 w-4" />{createReservation.isPending ? "Reserving…" : "Reserve stock"}</button>
         </form>
 
-        <div className="min-w-0 rounded-3xl border border-slate-200 bg-white p-5">
+        <div className="min-w-0 rounded-3xl border border-border bg-card p-5">
           <div className="flex items-center justify-between gap-3">
-            <div><h2 className="font-semibold text-slate-950">Reservation ledger</h2><p className="mt-1 text-sm text-slate-500">Active, consumed, and released allocations.</p></div>
-            <CheckCircle2 className="h-5 w-5 text-emerald-600" />
+            <div><h2 className="font-semibold text-foreground">Reservation ledger</h2><p className="mt-1 text-sm text-muted-foreground">Active, consumed, and released allocations.</p></div>
+            <CheckCircle2 className="h-5 w-5 text-signal-emerald-ink" />
           </div>
           <div className="mt-4 space-y-3">
-            {reservationsQuery.isLoading ? <p className="text-sm text-slate-500">Loading reservation ledger…</p> : null}
-            {!reservationsQuery.isLoading && reservations.length === 0 ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">No reservations have been posted for this plant.</p> : null}
+            {reservationsQuery.isLoading ? <p className="text-sm text-muted-foreground">Loading reservation ledger…</p> : null}
+            {!reservationsQuery.isLoading && reservations.length === 0 ? <p className="rounded-2xl bg-muted p-4 text-sm text-muted-foreground">No reservations have been posted for this plant.</p> : null}
             {reservations.map((row: any) => {
               const item = finishedGoods.find((candidate: any) => String(candidate.id) === String(row.item_id))
               return (
-                <article key={row.id} className="min-w-0 rounded-2xl border border-slate-200 p-4">
+                <article key={row.id} className="min-w-0 rounded-2xl border border-border p-4">
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0"><p className="truncate font-semibold text-slate-900">{item ? `${item.item_code} · ${item.name}` : row.item_id}</p><p className="mt-1 break-all text-xs text-slate-500">Sales line {row.sales_order_line_id}</p></div>
-                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${row.status === "ACTIVE" ? "bg-cyan-50 text-cyan-800" : row.status === "CONSUMED" ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>{row.status}</span>
+                    <div className="min-w-0"><p className="truncate font-semibold text-foreground">{item ? `${item.item_code} · ${item.name}` : row.item_id}</p><p className="mt-1 break-all text-xs text-muted-foreground">Sales line {row.sales_order_line_id}</p></div>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${row.status === "ACTIVE" ? "bg-signal-cyan-soft text-signal-cyan-ink" : row.status === "CONSUMED" ? "bg-signal-emerald-soft text-signal-emerald-ink" : "bg-muted text-muted-foreground"}`}>{row.status}</span>
                   </div>
-                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-slate-500">Reserved</p><p className="font-semibold">{row.reserved_qty}</p></div><div><p className="text-slate-500">Consumed</p><p className="font-semibold">{row.consumed_qty}</p></div><div><p className="text-slate-500">Remaining</p><p className="font-semibold">{row.remaining_qty}</p></div></div>
-                  {row.status === "ACTIVE" && Number(row.consumed_qty || 0) === 0 ? <button type="button" onClick={() => releaseReservation.mutate(row.id)} disabled={releaseReservation.isPending} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-rose-700"><RotateCcw className="h-3.5 w-3.5" />Release reservation</button> : null}
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-xs"><div><p className="text-muted-foreground">Reserved</p><p className="font-semibold">{row.reserved_qty}</p></div><div><p className="text-muted-foreground">Consumed</p><p className="font-semibold">{row.consumed_qty}</p></div><div><p className="text-muted-foreground">Remaining</p><p className="font-semibold">{row.remaining_qty}</p></div></div>
+                  {row.status === "ACTIVE" && Number(row.consumed_qty || 0) === 0 ? <button type="button" onClick={() => releaseReservation.mutate(row.id)} disabled={releaseReservation.isPending} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-signal-rose-ink"><RotateCcw className="h-3.5 w-3.5" />Release reservation</button> : null}
                 </article>
               )
             })}

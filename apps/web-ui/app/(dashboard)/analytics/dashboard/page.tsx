@@ -133,7 +133,7 @@ export default function DashboardOverviewPage() {
               </ResponsiveContainer>
             </div>
           ) : (
-            <div className="rounded-[1.3rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-10 text-center text-sm text-slate-500">
+            <div className="rounded-[1.3rem] border border-dashed border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground">
               Top-customer analytics feed is not currently available.
             </div>
           )}
@@ -155,7 +155,7 @@ export default function DashboardOverviewPage() {
           emptyLabel="No drill rows are available for the current window."
         />
         <div className="mt-4">
-          <Link href="/reports" className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
+          <Link href="/reports" className="inline-flex items-center gap-2 text-sm font-semibold text-signal-cyan-ink">
             Open reports suite <ArrowRight className="h-4 w-4" />
           </Link>
         </div>

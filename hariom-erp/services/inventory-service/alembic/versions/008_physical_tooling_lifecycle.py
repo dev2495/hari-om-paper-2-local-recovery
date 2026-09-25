@@ -15,6 +15,20 @@ depends_on = None
 
 
 def upgrade() -> None:
+    # Older installations received inventory_locations through SQLAlchemy
+    # create_all before Alembic became authoritative.  A clean database must be
+    # able to replay the migration chain without that hidden prerequisite.
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS inventory_locations (
+            id UUID PRIMARY KEY, plant_id VARCHAR(50) NOT NULL DEFAULT 'PLANT_A',
+            code VARCHAR(80) NOT NULL, warehouse VARCHAR(120) NOT NULL,
+            zone VARCHAR(120), bin VARCHAR(120), purpose VARCHAR(120),
+            active boolean_enum NOT NULL DEFAULT 'true',
+            created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT now(),
+            CONSTRAINT uq_inventory_locations_plant_code UNIQUE (plant_id, code)
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_inventory_locations_plant_id ON inventory_locations (plant_id)")
     op.execute("""
         CREATE TABLE IF NOT EXISTS tool_receipts (
             id UUID PRIMARY KEY, receipt_no VARCHAR(80) NOT NULL, receipt_date DATE NOT NULL,
@@ -79,3 +93,5 @@ def downgrade() -> None:
     op.execute("DROP TABLE IF EXISTS tool_asset_events")
     op.execute("DROP TABLE IF EXISTS tool_assets")
     op.execute("DROP TABLE IF EXISTS tool_receipts")
+    # inventory_locations may predate this migration (including installations
+    # bootstrapped from the ORM), so a tooling rollback must not remove it.

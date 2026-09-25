@@ -30,7 +30,7 @@ export function DataGrid<T>({
     <div data-testid={testId} className="overflow-x-auto">
       <table className="min-w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
             {columns.map((column) => (
               <th
                 key={column.key}
@@ -55,12 +55,12 @@ export function DataGrid<T>({
             </tr>
           ) : (
             rows.map((row, index) => (
-              <tr key={rowKey(row, index)} className="border-b border-slate-100 align-top last:border-b-0">
+              <tr key={rowKey(row, index)} className="border-b border-border align-top last:border-b-0">
                 {columns.map((column) => (
                   <td
                     key={column.key}
                     className={cn(
-                      "px-3 py-3 text-slate-700",
+                      "px-3 py-3 text-muted-foreground",
                       column.align === "right" && "text-right",
                       column.align === "center" && "text-center",
                       column.className,

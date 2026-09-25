@@ -149,26 +149,26 @@ export default function ReelIssuePage() {
 
   return (
     <div className="space-y-5">
-      <section className="rounded-2xl border border-cyan-200/70 bg-gradient-to-r from-slate-900 via-cyan-900 to-cyan-700 p-5 text-white shadow-xl">
+      <section className="rounded-2xl border border-signal-cyan-line/70 bg-gradient-to-r from-slate-900 via-cyan-900 to-cyan-700 p-5 text-white shadow-xl">
         <h1 className="text-2xl font-semibold">Reel Issue to Winder</h1>
         <p className="mt-1 text-sm text-cyan-100">Scan reel, assign winder + shift, and issue without job-card locking.</p>
       </section>
 
-      <section className="glass rounded-2xl border border-white/60 p-5 shadow-xl">
-        <h2 className="text-lg font-semibold text-slate-900">Create Reel Issue</h2>
+      <section className="glass rounded-2xl border border-border/60 p-5 shadow-xl">
+        <h2 className="text-lg font-semibold text-foreground">Create Reel Issue</h2>
         <div className="mt-3 grid gap-3 md:grid-cols-[1fr_auto]">
           <div className="flex items-center gap-2">
-            <Barcode className="h-4 w-4 text-slate-500" />
+            <Barcode className="h-4 w-4 text-muted-foreground" />
             <input
               value={scanCode}
               onChange={(event) => setScanCode(event.target.value)}
               placeholder="Scan reel QR or enter reel code"
-              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm"
             />
           </div>
           <button
             onClick={resolveReelByCode}
-            className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-semibold text-muted-foreground"
           >
             <PackageCheck className="h-4 w-4" />
             Select Reel
@@ -180,7 +180,7 @@ export default function ReelIssuePage() {
             required
             value={form.reel_id}
             onChange={(event) => setForm((current) => ({ ...current, reel_id: event.target.value }))}
-            className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            className="h-10 rounded-lg border border-border px-3 text-sm"
           >
             <option value="">Select reel</option>
             {reels.map((reel: any) => (
@@ -194,7 +194,7 @@ export default function ReelIssuePage() {
             required
             value={form.winder_machine_id}
             onChange={(event) => setForm((current) => ({ ...current, winder_machine_id: event.target.value }))}
-            className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            className="h-10 rounded-lg border border-border px-3 text-sm"
           >
             <option value="">Select winder machine</option>
             {winderMachines.map((machine: any) => (
@@ -207,7 +207,7 @@ export default function ReelIssuePage() {
           <select
             value={form.shift}
             onChange={(event) => setForm((current) => ({ ...current, shift: event.target.value }))}
-            className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            className="h-10 rounded-lg border border-border px-3 text-sm"
           >
             <option value="A">A</option>
             <option value="B">B</option>
@@ -222,7 +222,7 @@ export default function ReelIssuePage() {
             type="date"
             value={form.issue_date}
             onChange={(event) => setForm((current) => ({ ...current, issue_date: event.target.value }))}
-            className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            className="h-10 rounded-lg border border-border px-3 text-sm"
           />
 
           <input
@@ -233,15 +233,15 @@ export default function ReelIssuePage() {
             placeholder="Issued weight (kg)"
             value={form.issued_weight_kg}
             onChange={(event) => setForm((current) => ({ ...current, issued_weight_kg: event.target.value }))}
-            className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+            className="h-10 rounded-lg border border-border px-3 text-sm"
           />
 
-          <label className="flex items-center gap-2 text-sm text-slate-700">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
             <input
               type="checkbox"
               checked={logScanEvent}
               onChange={(event) => setLogScanEvent(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300"
+              className="h-4 w-4 rounded border-border"
             />
             Log issue scan event
           </label>
@@ -258,12 +258,12 @@ export default function ReelIssuePage() {
         </form>
       </section>
 
-      <section className="glass rounded-2xl border border-white/60 p-5 shadow-xl">
-        <h2 className="text-lg font-semibold text-slate-900">Open Reel Issues</h2>
+      <section className="glass rounded-2xl border border-border/60 p-5 shadow-xl">
+        <h2 className="text-lg font-semibold text-foreground">Open Reel Issues</h2>
         <div className="mt-3 overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-slate-500">
+              <tr className="border-b border-border text-left text-muted-foreground">
                 <th className="py-2">Issue</th>
                 <th className="py-2">Reel</th>
                 <th className="py-2">Shift</th>
@@ -273,7 +273,7 @@ export default function ReelIssuePage() {
             </thead>
             <tbody>
               {openIssues.map((issue: any) => (
-                <tr key={issue.id} className="border-b border-slate-100">
+                <tr key={issue.id} className="border-b border-border">
                   <td className="py-2 text-xs">{issue.id.slice(0, 8)}</td>
                   <td className="py-2 text-xs">{issue.reel_id.slice(0, 8)}</td>
                   <td className="py-2">{issue.shift}</td>
@@ -289,7 +289,7 @@ export default function ReelIssuePage() {
                         placeholder="Consumed kg"
                         value={closeWeights[issue.id] || ""}
                         onChange={(event) => setCloseWeights((current) => ({ ...current, [issue.id]: event.target.value }))}
-                        className="h-8 w-28 rounded border border-slate-200 px-2 text-xs"
+                        className="h-8 w-28 rounded border border-border px-2 text-xs"
                       />
                       <button
                         onClick={() => handleCloseIssue(issue.id)}
@@ -303,7 +303,7 @@ export default function ReelIssuePage() {
               ))}
               {openIssues.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="py-4 text-center text-slate-500">
+                  <td colSpan={5} className="py-4 text-center text-muted-foreground">
                     No open reel issues
                   </td>
                 </tr>

@@ -39,7 +39,7 @@ export default function SalesAnalyticsPage() {
         description="This surface follows the full commercial path from order creation to dispatch close, using the same timeline truth that feeds production and dispatch."
         aside={
           <div className="space-y-3">
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-cyan-100">Release to Dispatch</p>
               <p className="mt-2 text-3xl font-semibold">{formatMetric(summary.release_to_dispatch_days, "days", 1)}</p>
             </div>
@@ -80,20 +80,20 @@ export default function SalesAnalyticsPage() {
 
         <Panel title="Commercial Snapshot" subtitle="Current order-health mix for the selected reporting scope.">
           <div className="space-y-3">
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">OTIF</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{formatMetric(summary.otif_percent, "%", 1)}</p>
-              <p className="mt-2 text-sm text-slate-600">On-time in-full performance for closed orders.</p>
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">OTIF</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{formatMetric(summary.otif_percent, "%", 1)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">On-time in-full performance for closed orders.</p>
             </div>
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Release to Dispatch</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{formatMetric(summary.release_to_dispatch_days, "days", 1)}</p>
-              <p className="mt-2 text-sm text-slate-600">Average time from order creation to final dispatch confirmation.</p>
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release to Dispatch</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{formatMetric(summary.release_to_dispatch_days, "days", 1)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">Average time from order creation to final dispatch confirmation.</p>
             </div>
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Release Backlog</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{formatMetric(summary.backlog_orders)}</p>
-              <p className="mt-2 text-sm text-slate-600">Orders partially released or released into manufacturing but not yet fully dispatched.</p>
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Release Backlog</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{formatMetric(summary.backlog_orders)}</p>
+              <p className="mt-2 text-sm text-muted-foreground">Orders partially released or released into manufacturing but not yet fully dispatched.</p>
             </div>
           </div>
         </Panel>
@@ -114,8 +114,8 @@ export default function SalesAnalyticsPage() {
               label: "Order",
               render: (row: any) => (
                 <div>
-                  <p className="font-semibold text-slate-900">{row.order_no || row.order_id}</p>
-                  <p className="text-xs text-slate-500">{row.customer_name || "-"}</p>
+                  <p className="font-semibold text-foreground">{row.order_no || row.order_id}</p>
+                  <p className="text-xs text-muted-foreground">{row.customer_name || "-"}</p>
                 </div>
               ),
             },

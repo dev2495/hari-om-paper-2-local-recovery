@@ -6,6 +6,7 @@ Thin wrappers around `spec_math.compute_preview`; always delegate math to
 from __future__ import annotations
 
 from collections import defaultdict
+import json
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -60,15 +61,44 @@ def _spec_globals(spec: SpecificationSheet) -> dict[str, Any]:
     }
 
 
+def _spec_dimension(spec: SpecificationSheet, name: str, supplied: float | None = None) -> float:
+    """Use the approved specification as the default, never a sample geometry."""
+    import math
+    if supplied is not None:
+        value = float(supplied)
+    else:
+        # The saved profile may set an approved nominal value different from
+        # the tolerance midpoint. Match the job-card snapshot and recipe editor.
+        profile = getattr(spec, "profile", None)
+        if not isinstance(profile, dict):
+            profile = {}
+            for row in getattr(spec, "dynamic_values", []) or []:
+                if getattr(getattr(row, "field", None), "key", None) == "profile_json":
+                    try:
+                        profile = json.loads(row.value or "{}")
+                    except (TypeError, ValueError):
+                        profile = {}
+                    break
+        dimensions = profile.get("dimensions", {}) if isinstance(profile, dict) else {}
+        band = dimensions.get(f"{name}_mm", {}) if isinstance(dimensions, dict) else {}
+        nominal = band.get("avg") if isinstance(band, dict) else None
+        bounds = [float(v) for v in (getattr(spec, f"{name}_min_mm", None), getattr(spec, f"{name}_max_mm", None)) if v is not None]
+        value = float(nominal) if nominal is not None else (sum(bounds) / len(bounds) if bounds else 0.0)
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"Specification {name} is missing or invalid")
+    return value
+
+
 def calculate_weights(recipe_id: str, db: Session, *, tube_length_mm: float | None = None) -> dict[str, Any]:
     recipe = _get_recipe(recipe_id, db)
     spec = recipe.specification
     papers = _recipe_to_papers(recipe)
     globals_ = _spec_globals(spec)
+    tube_length_mm = _spec_dimension(spec, "length", tube_length_mm)
 
     preview = spec_math.compute_preview(
-        mandrel_od_mm=0.0,
-        tube_length_mm=tube_length_mm or 0.0,
+        mandrel_od_mm=_spec_dimension(spec, "id"),
+        tube_length_mm=tube_length_mm,
         papers=papers,
         target_dry_g=float(spec.target_tube_weight or 0.0),
         **globals_,
@@ -91,15 +121,16 @@ def calculate_weights(recipe_id: str, db: Session, *, tube_length_mm: float | No
     }
 
 
-def calculate_yield(spec_id: str, tube_length_mm: int, db: Session) -> dict[str, Any]:
+def calculate_yield(spec_id: str, tube_length_mm: float | None, db: Session) -> dict[str, Any]:
     spec = _get_spec(spec_id, db)
-    plan = spec_math.build_bamboo_plan(float(tube_length_mm or 0))
+    tube_length_mm = _spec_dimension(spec, "length", tube_length_mm)
+    plan = spec_math.build_bamboo_plan(tube_length_mm)
     return {
         "spec_id": str(spec.id),
         "bamboo_max_length_mm": plan.bamboo_length_mm,
         "cut_loss_mm": spec_math.BAMBOO_CUT_LOSS_MM,
         "usable_length_mm": plan.usable_length_mm,
-        "tube_length_mm": int(tube_length_mm or 0),
+        "tube_length_mm": float(tube_length_mm),
         "tubes_per_bamboo": plan.tubes_per_bamboo,
         "trim_waste_mm": plan.trim_waste_mm,
         "finished_length_mm": plan.finished_length_mm,
@@ -109,9 +140,11 @@ def calculate_yield(spec_id: str, tube_length_mm: int, db: Session) -> dict[str,
     }
 
 
-def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Session) -> dict[str, Any]:
+def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float | None, db: Session) -> dict[str, Any]:
     recipe = _get_recipe(recipe_id, db)
     spec = recipe.specification
+    tube_length_mm = _spec_dimension(spec, "length", tube_length_mm)
+    tube_od_mm = _spec_dimension(spec, "od", tube_od_mm)
 
     grouped_layers: dict[tuple[str, float, float, float], dict[str, Any]] = defaultdict(lambda: {"ply_count": 0})
     for layer in recipe.layers:
@@ -132,7 +165,7 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
     preview_papers = _recipe_to_papers(recipe)
     globals_ = _spec_globals(spec)
     preview = spec_math.compute_preview(
-        mandrel_od_mm=0.0,
+        mandrel_od_mm=_spec_dimension(spec, "id"),
         tube_length_mm=float(tube_length_mm or 0),
         papers=preview_papers,
         target_dry_g=float(spec.target_tube_weight or 0.0),
@@ -222,8 +255,8 @@ def generate_bom(recipe_id: str, tube_length_mm: int, tube_od_mm: int, db: Sessi
     return {
         "recipe_id": str(recipe.id),
         "spec_id": str(spec.id),
-        "tube_length_mm": int(tube_length_mm or 0),
-        "tube_od_mm": int(tube_od_mm or 0),
+        "tube_length_mm": float(tube_length_mm),
+        "tube_od_mm": float(tube_od_mm),
         "paper_layers": list(grouped_layers.values()),
         "adhesive_split": {
             "adhesive_20100_percent": float(spec.adhesive_20100_percent or 0),

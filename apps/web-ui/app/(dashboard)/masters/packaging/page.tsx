@@ -147,12 +147,12 @@ export default function PackagingMasterPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-premium">
+      <section className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Packaging Workspace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">One packing workspace, not three long pages</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Packaging Workspace</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">One packing workspace, not three long pages</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Keep boxes, plastic sheets, and fadda in one compact flow. Switch the active packing master from here instead of scrolling through stacked sections that waste page height.
             </p>
           </div>
@@ -165,7 +165,7 @@ export default function PackagingMasterPage() {
                 className={`rounded-[1.4rem] border px-4 py-4 text-left transition ${
                   activeSection === item.key
                     ? "border-slate-950 bg-slate-950 text-white"
-                    : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
+                    : "border-border bg-muted text-muted-foreground hover:bg-card"
                 }`}
               >
                 <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">{item.label}</p>
@@ -176,12 +176,12 @@ export default function PackagingMasterPage() {
         </div>
       </section>
 
-      <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-premium">
+      <section className="rounded-[2rem] border border-border bg-card/90 p-5 shadow-premium">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Active section</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-950">{section.title}</h2>
-            <p className="mt-2 text-sm text-slate-600">{section.subtitle}</p>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Active section</p>
+            <h2 className="mt-2 text-2xl font-semibold text-foreground">{section.title}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{section.subtitle}</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {PACKING_SECTIONS.map((item) => (
@@ -192,7 +192,7 @@ export default function PackagingMasterPage() {
                 className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
                   activeSection === item.key
                     ? "border-slate-950 bg-slate-950 text-white"
-                    : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
+                    : "border-border bg-muted text-muted-foreground hover:border-border hover:bg-card"
                 }`}
               >
                 {item.label}

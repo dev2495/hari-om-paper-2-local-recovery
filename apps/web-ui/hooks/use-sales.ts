@@ -228,6 +228,20 @@ export function usePatchDeliverySchedule() {
   })
 }
 
+export function useMoveDeliverySchedule() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, data }: { orderId: string; data: any }) => salesApi.moveDeliverySchedule(orderId, data),
+    onSuccess: (_response, variables) => {
+      if (!variables.data.preview_only) {
+        invalidateSalesQueries(queryClient, variables.orderId)
+        queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+        queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
+      }
+    },
+  })
+}
+
 export function useSalesOrder(orderId?: string) {
   return useQuery({
     queryKey: ["sales", "order", orderId],

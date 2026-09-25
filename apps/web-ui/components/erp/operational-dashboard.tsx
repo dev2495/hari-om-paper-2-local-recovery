@@ -12,9 +12,9 @@ import { useSalesOrderAggregates } from "@/hooks/use-sales"
 
 function ActionLink({ href, title, detail }: { href: string; title: string; detail: string }) {
   return (
-    <Link href={href} className="rounded-[1.2rem] border border-slate-200 bg-white px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
-      <p className="font-semibold text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-600">{detail}</p>
+    <Link href={href} className="rounded-[1.2rem] border border-border bg-card px-4 py-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+      <p className="font-semibold text-foreground">{title}</p>
+      <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
     </Link>
   )
 }
@@ -45,14 +45,14 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[1.8rem] border border-white/70 bg-white/90 p-6 shadow-xl">
+      <section className="rounded-[1.8rem] border border-border/70 bg-card/90 p-6 shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Operational Dashboard</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Operational Dashboard</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">
               {plannerView ? "Today’s queues, bottlenecks, and release handoff" : "Role-first action queues and floor visibility"}
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
               This dashboard stays operational. It shows what needs action now instead of repeating the executive reports suite.
             </p>
           </div>
@@ -79,39 +79,39 @@ export function OperationalDashboard({ roles }: { roles: string[] }) {
 
         <Panel title="Operational Exceptions" subtitle="Only exception counts that drive a workflow.">
           <div className="space-y-3">
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Planning</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">Unscheduled or blocked execution</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Planning</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">Unscheduled or blocked execution</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-semibold text-slate-950">{unscheduledJobs + blockedJobs}</p>
-                  <p className="text-xs text-slate-500">cards</p>
+                  <p className="text-2xl font-semibold text-foreground">{unscheduledJobs + blockedJobs}</p>
+                  <p className="text-xs text-muted-foreground">cards</p>
                 </div>
               </div>
             </div>
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Stores</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">Low-stock or dispatch-readiness pressure</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Stores</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">Low-stock or dispatch-readiness pressure</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-semibold text-slate-950">{lowStockItems}</p>
-                  <p className="text-xs text-slate-500">items</p>
+                  <p className="text-2xl font-semibold text-foreground">{lowStockItems}</p>
+                  <p className="text-xs text-muted-foreground">items</p>
                 </div>
               </div>
             </div>
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4">
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Dispatch</p>
-                  <p className="mt-1 text-base font-semibold text-slate-950">Ready for sealing</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Dispatch</p>
+                  <p className="mt-1 text-base font-semibold text-foreground">Ready for sealing</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-2xl font-semibold text-slate-950">{readyDispatchRows.length}</p>
-                  <p className="text-xs text-slate-500">jobs</p>
+                  <p className="text-2xl font-semibold text-foreground">{readyDispatchRows.length}</p>
+                  <p className="text-xs text-muted-foreground">jobs</p>
                 </div>
               </div>
             </div>

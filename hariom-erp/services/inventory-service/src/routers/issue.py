@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from ..concession_use import guard_concession_stock
 from ..database import get_db
 from ..models import (
     ItemMaster,
@@ -44,6 +45,8 @@ class IssueCreate(BaseModel):
     allow_raw_paper_exception: bool = False
     external_ref: Optional[str] = None
     effective_date: Optional[date] = None
+    customer_id: Optional[uuid.UUID] = None
+    sales_order_id: Optional[uuid.UUID] = None
 
 
 class IssueResponse(BaseModel):
@@ -100,8 +103,15 @@ def create_issue(
         ).first()
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found in this plant")
-        if batch.stock_status not in {"UNRESTRICTED", "WIP"}:
-            raise HTTPException(status_code=400, detail=f"Batch is not issuable ({batch.stock_status})")
+        guard_concession_stock(
+            db,
+            plant_id=plant_id,
+            entity=batch,
+            customer_id=issue.customer_id,
+            sales_order_id=issue.sales_order_id,
+            allowed_statuses={"UNRESTRICTED", "WIP"},
+            blocked_detail=f"Batch is not issuable ({batch.stock_status})",
+        )
         if not validate_batch_sufficient_stock(str(selected_batch_id), issue.qty, db):
             raise HTTPException(
                 status_code=400,

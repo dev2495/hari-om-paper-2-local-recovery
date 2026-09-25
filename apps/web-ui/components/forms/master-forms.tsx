@@ -211,7 +211,7 @@ export function ParchmentForm({ initialData, onSubmit, onCancel, vendorOptions =
             ))}
             <option value="__new__">Add new company...</option>
           </select>
-          <p className="text-xs text-slate-500">{vendorHelp}</p>
+          <p className="text-xs text-muted-foreground">{vendorHelp}</p>
         </div>
       ) : null}
       {isCreatingVendor || vendorOptions.length === 0 ? (
@@ -465,14 +465,14 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
 
   return (
     <form onSubmit={handleSubmit(submitMachine)} className="max-h-[78vh] space-y-5 overflow-y-auto px-1 pb-1">
-      <div className="overflow-hidden rounded-3xl border border-slate-200 bg-slate-950 text-white">
+      <div className="overflow-hidden rounded-3xl border border-border bg-slate-950 text-white">
         <div className="grid gap-4 p-5 md:grid-cols-[minmax(0,1fr)_220px]">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-200">{selectedCopy.title}</p>
             <h3 className="mt-2 text-xl font-semibold">Two-shift machine contract</h3>
             <p className="mt-2 text-sm leading-6 text-slate-300">{selectedCopy.help}</p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
+          <div className="rounded-2xl border border-border/10 bg-card/10 p-4">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">Planning rule</p>
             <p className="mt-2 text-2xl font-semibold">2 shifts/day</p>
             <p className="mt-1 text-xs leading-5 text-slate-300">Capacity is entered per shift. Daily visible capacity is calculated, not typed.</p>
@@ -482,18 +482,18 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
 
       <div className="grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">Machine Code</label>
+          <label className="text-sm font-semibold text-foreground">Machine Code</label>
           <Input className="h-12 rounded-2xl" {...register("code", { required: true })} placeholder="W-01" />
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">Machine Name</label>
+          <label className="text-sm font-semibold text-foreground">Machine Name</label>
           <Input className="h-12 rounded-2xl" {...register("name", { required: true })} placeholder="Winder 1" />
         </div>
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">Process</label>
+          <label className="text-sm font-semibold text-foreground">Process</label>
           <select {...register("department", { required: true })} className="flex h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm">
             <option value="SLITTING">Slitting</option>
             <option value="WINDER">Winder</option>
@@ -503,7 +503,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
           </select>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">Machine State</label>
+          <label className="text-sm font-semibold text-foreground">Machine State</label>
           <select {...register("machine_state", { required: true })} className="flex h-12 w-full rounded-2xl border border-input bg-background px-3 py-2 text-sm">
             <option value="UP">Running / available</option>
             <option value="MAINT">Maintenance</option>
@@ -512,77 +512,77 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
           </select>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">Capacity Unit</label>
+          <label className="text-sm font-semibold text-foreground">Capacity Unit</label>
           <input type="hidden" {...register("capacity_type", { required: true })} />
-          <div className="flex h-12 items-center rounded-2xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">
+          <div className="flex h-12 items-center rounded-2xl border border-border bg-muted px-3 text-sm font-semibold text-muted-foreground">
             {selectedCopy.capacity}
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 rounded-3xl border border-cyan-100 bg-cyan-50/70 p-4 md:grid-cols-[minmax(0,1fr)_220px]">
+      <div className="grid gap-4 rounded-3xl border border-signal-cyan-line bg-signal-cyan-soft/70 p-4 md:grid-cols-[minmax(0,1fr)_220px]">
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-cyan-950">{selectedCopy.capacity}</label>
+          <label className="text-sm font-semibold text-signal-cyan-ink">{selectedCopy.capacity}</label>
           <Input
-            className="h-12 rounded-2xl border-cyan-200 bg-white"
+            className="h-12 rounded-2xl border-signal-cyan-line bg-card"
             type="number"
             step="0.01"
             inputMode="decimal"
             placeholder={selectedCopy.placeholder}
             {...register("capacity_value", { required: true, valueAsNumber: true })}
           />
-          <p className="text-xs leading-5 text-cyan-900">
+          <p className="text-xs leading-5 text-signal-cyan-ink">
             This value is one shift only. The planner creates Shift A and Shift B separately every day.
           </p>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl bg-white/85 p-3">
-            <Gauge className="h-4 w-4 text-cyan-700" />
-            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Per shift</p>
-            <p className="mt-1 text-xl font-semibold text-slate-950">
+          <div className="rounded-2xl bg-card/85 p-3">
+            <Gauge className="h-4 w-4 text-signal-cyan-ink" />
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-signal-cyan-ink">Per shift</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">
               {department === "OVEN" ? ovenShiftBamboo.toFixed(0) : capacityValue ? capacityValue.toFixed(0) : "-"}
             </p>
           </div>
-          <div className="rounded-2xl bg-white/85 p-3">
-            <Factory className="h-4 w-4 text-cyan-700" />
-            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-cyan-700">Two shifts</p>
-            <p className="mt-1 text-xl font-semibold text-slate-950">{dailyCapacity ? dailyCapacity.toFixed(0) : "-"}</p>
+          <div className="rounded-2xl bg-card/85 p-3">
+            <Factory className="h-4 w-4 text-signal-cyan-ink" />
+            <p className="mt-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-signal-cyan-ink">Two shifts</p>
+            <p className="mt-1 text-xl font-semibold text-foreground">{dailyCapacity ? dailyCapacity.toFixed(0) : "-"}</p>
           </div>
         </div>
       </div>
 
       {department === "OVEN" ? (
-        <div className="grid gap-4 rounded-3xl border border-amber-100 bg-amber-50/70 p-4 md:grid-cols-3">
+        <div className="grid gap-4 rounded-3xl border border-signal-amber-line bg-signal-amber-soft/70 p-4 md:grid-cols-3">
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-amber-950">Bamboos per batch</label>
-            <Input className="h-12 rounded-2xl bg-white" type="number" step="1" inputMode="numeric" {...register("batch_bamboo_capacity", { required: true, valueAsNumber: true })} />
+            <label className="text-sm font-semibold text-signal-amber-ink">Bamboos per batch</label>
+            <Input className="h-12 rounded-2xl bg-card" type="number" step="1" inputMode="numeric" {...register("batch_bamboo_capacity", { required: true, valueAsNumber: true })} />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-semibold text-amber-950">Cycle hours per batch</label>
-            <Input className="h-12 rounded-2xl bg-white" type="number" step="0.1" inputMode="decimal" {...register("cycle_time_hours", { required: true, valueAsNumber: true })} />
+            <label className="text-sm font-semibold text-signal-amber-ink">Cycle hours per batch</label>
+            <Input className="h-12 rounded-2xl bg-card" type="number" step="0.1" inputMode="decimal" {...register("cycle_time_hours", { required: true, valueAsNumber: true })} />
           </div>
-          <div className="rounded-2xl bg-white/85 p-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-amber-700">Planner capacity</p>
-            <p className="mt-2 text-xl font-semibold text-slate-950">{ovenShiftBamboo.toFixed(0)} bamboo/shift</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">Used to split oven slots by load, not just batch count.</p>
+          <div className="rounded-2xl bg-card/85 p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-signal-amber-ink">Planner capacity</p>
+            <p className="mt-2 text-xl font-semibold text-foreground">{ovenShiftBamboo.toFixed(0)} bamboo/shift</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">Used to split oven slots by load, not just batch count.</p>
           </div>
         </div>
       ) : null}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-4">
+      <div className="rounded-3xl border border-border bg-card p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Capability window</p>
-            <p className="mt-1 text-sm leading-6 text-slate-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Capability window</p>
+            <p className="mt-1 text-sm leading-6 text-muted-foreground">
               Keep ranges tight so wrong-size job cards cannot be scheduled onto this machine.
             </p>
           </div>
           <div className={`rounded-full px-3 py-1 text-xs font-semibold ${
             machineState === "UP"
-              ? "bg-emerald-50 text-emerald-700"
+              ? "bg-signal-emerald-soft text-signal-emerald-ink"
               : machineState === "MAINT"
-                ? "bg-amber-50 text-amber-700"
-                : "bg-slate-100 text-slate-600"
+                ? "bg-signal-amber-soft text-signal-amber-ink"
+                : "bg-muted text-muted-foreground"
           }`}>
             {machineState === "UP" ? "Available" : machineState === "MAINT" ? "Maintenance" : machineState === "DISABLED" ? "Disabled" : "Down"}
           </div>
@@ -590,14 +590,14 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
 
         <div className="mt-4 grid gap-4 md:grid-cols-2">
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">ID Range (mm)</label>
+          <label className="text-sm font-semibold text-foreground">ID Range (mm)</label>
           <div className="flex gap-2">
             <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("id_min_mm", { valueAsNumber: true })} placeholder="Min" />
             <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("id_max_mm", { valueAsNumber: true })} placeholder="Max" />
           </div>
         </div>
         <div className="space-y-2">
-          <label className="text-sm font-semibold text-slate-800">OD Range (mm)</label>
+          <label className="text-sm font-semibold text-foreground">OD Range (mm)</label>
           <div className="flex gap-2">
             <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("od_min_mm", { valueAsNumber: true })} placeholder="Min" />
             <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("od_max_mm", { valueAsNumber: true })} placeholder="Max" />
@@ -605,7 +605,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
         </div>
         </div>
         <div className="mt-4 space-y-2">
-          <label className="text-sm font-semibold text-slate-800">Length Range (mm)</label>
+          <label className="text-sm font-semibold text-foreground">Length Range (mm)</label>
           <div className="flex gap-2">
             <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("length_min_mm", { valueAsNumber: true })} placeholder="Min" />
             <Input className="h-11 rounded-2xl" type="number" step="0.01" {...register("length_max_mm", { valueAsNumber: true })} placeholder="Max" />
@@ -614,7 +614,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
       </div>
 
       {machineState !== "UP" ? (
-        <div className="flex items-start gap-3 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+        <div className="flex items-start gap-3 rounded-3xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm leading-6 text-signal-amber-ink">
           {machineState === "MAINT" ? <Wrench className="mt-0.5 h-4 w-4 shrink-0" /> : <Power className="mt-0.5 h-4 w-4 shrink-0" />}
           <p>
             {machineState === "MAINT"
@@ -623,7 +623,7 @@ export function MachineForm({ initialData, onSubmit, onCancel }: MasterFormProps
           </p>
         </div>
       ) : (
-        <div className="flex items-center gap-3 rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-800">
+        <div className="flex items-center gap-3 rounded-3xl border border-signal-emerald-line bg-signal-emerald-soft p-4 text-sm font-semibold text-signal-emerald-ink">
           <BadgeCheck className="h-4 w-4" />
           Available machines can be selected by sales release, planner, reel issue, and shop-floor handoff.
         </div>
@@ -891,15 +891,15 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="rounded-2xl border border-border bg-muted p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               {TOOL_CATEGORY_LABELS[selectedCategory]} points
             </p>
-            <p className="mt-1 text-xs text-slate-500">These fields create the spec-sheet dropdown value.</p>
+            <p className="mt-1 text-xs text-muted-foreground">These fields create the spec-sheet dropdown value.</p>
           </div>
-          {previewName ? <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">{previewName}</span> : null}
+          {previewName ? <span className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-muted-foreground">{previewName}</span> : null}
         </div>
         <div className="grid gap-3 md:grid-cols-2">
           {pointFields.map((field) => (
@@ -939,7 +939,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
                     ))}
                   </select>
                   {managedField === field.key ? (
-                    <div className="mt-2 rounded-lg border border-cyan-200 bg-white p-3" data-testid={`tool-option-panel-${field.key}`}>
+                    <div className="mt-2 rounded-lg border border-signal-cyan-line bg-card p-3" data-testid={`tool-option-panel-${field.key}`}>
                       <div className="flex gap-2">
                         <Input
                           value={newOptionValue}
@@ -951,14 +951,14 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
                           <Plus className="mr-1 h-4 w-4" /> Add
                         </Button>
                       </div>
-                      {optionError ? <p className="mt-2 text-xs font-medium text-rose-700" role="alert">{optionError}</p> : null}
+                      {optionError ? <p className="mt-2 text-xs font-medium text-signal-rose-ink" role="alert">{optionError}</p> : null}
                       <div className="mt-3 max-h-44 space-y-2 overflow-y-auto pr-1">
                         {managedOptions.map((option) => (
-                          <div key={option.id} className="flex items-center gap-2 rounded-md border border-slate-200 px-2 py-2">
+                          <div key={option.id} className="flex items-center gap-2 rounded-md border border-border px-2 py-2">
                             {editingOptionId === option.id ? (
                               <Input value={editingOptionValue} onChange={(event) => setEditingOptionValue(event.target.value)} className="h-8 min-w-0 flex-1" autoFocus />
                             ) : (
-                              <span className={`min-w-0 flex-1 truncate text-sm font-medium ${option.active === false ? "text-slate-400 line-through" : "text-slate-800"}`}>{option.value}</span>
+                              <span className={`min-w-0 flex-1 truncate text-sm font-medium ${option.active === false ? "text-muted-foreground line-through" : "text-foreground"}`}>{option.value}</span>
                             )}
                             {editingOptionId === option.id ? (
                               <Button type="button" size="sm" className="h-8" onClick={() => saveManagedOption(option)} disabled={!editingOptionValue.trim() || updateOptionMutation.isPending}>Save</Button>
@@ -972,7 +972,7 @@ export function ToolForm({ initialData, onSubmit, onCancel }: MasterFormProps) {
                             </Button>
                           </div>
                         ))}
-                        {!managedOptions.length ? <p className="py-2 text-xs text-slate-500">No values yet. Add the first value above.</p> : null}
+                        {!managedOptions.length ? <p className="py-2 text-xs text-muted-foreground">No values yet. Add the first value above.</p> : null}
                       </div>
                     </div>
                   ) : null}

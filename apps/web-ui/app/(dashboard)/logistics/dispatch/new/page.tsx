@@ -1,5 +1,7 @@
 "use client"
 
+import { businessDate } from "@/lib/business-date"
+
 import { Suspense, useState, useEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useDispatchByJobCard, useCreateOrUpdateDispatch } from "@/hooks/use-dispatch"
@@ -60,7 +62,7 @@ function NewDispatchForm() {
                 gstin: plant.gstin,
             },
             job_card_no: jobCardRef(jobCard),
-            date: new Date().toISOString().split("T")[0],
+            date: businessDate(),
             customer: {
                 id: customer.id,
                 name: customer.name,
@@ -164,28 +166,28 @@ function NewDispatchForm() {
     const isSealed = existingDispatch?.status === "SEALED"
 
     return (
-        <div className="space-y-6 max-w-5xl mx-auto pb-24 border rounded-xl shadow-2xl p-4 bg-slate-50">
-            <div className="flex justify-between items-center bg-white p-4 rounded-lg shadow-sm border border-slate-200">
+        <div className="space-y-5 min-w-0 max-w-5xl mx-auto pb-12">
+            <div className="flex flex-col gap-4 lg:flex-row lg:justify-between lg:items-center bg-card p-4 sm:p-5 rounded-xl border border-border">
                 <div>
                     <h2 className="text-xl font-bold">{isSealed ? "View Dispatch Challan" : "Draft Dispatch Challan"}</h2>
-                    <p className="text-sm text-slate-500">
+                    <p className="text-sm text-muted-foreground">
                         {isSealed ? "This dispatch is sealed and locked." : "Draft data auto-generated from Job Card Snapshot."}
                     </p>
                 </div>
-                <div className="space-x-4">
+                <div className="flex flex-wrap items-center gap-2">
                     <Button variant="outline" onClick={() => router.back()}>Cancel</Button>
                     {!isSealed && (
                         <>
                             <Button variant="secondary" onClick={() => handleSave("DRAFT")} disabled={updateDispatch.isPending}>
                                 Save Draft
                             </Button>
-                            <Button onClick={() => handleSave("SEALED")} disabled={updateDispatch.isPending} className="bg-amber-600 hover:bg-amber-700 text-white">
+                            <Button onClick={() => handleSave("SEALED")} disabled={updateDispatch.isPending} >
                                 Seal & Generate
                             </Button>
                         </>
                     )}
                     {isSealed && (
-                        <Button onClick={() => router.push(`/logistics/dispatch/${jobCardId}/print`)} className="bg-slate-900 border-none outline-none">
+                        <Button onClick={() => router.push(`/logistics/dispatch/${jobCardId}/print`)} >
                             Print Challan
                         </Button>
                     )}

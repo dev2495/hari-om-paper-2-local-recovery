@@ -33,15 +33,15 @@ function formatDate(value: string | null | undefined) {
 function statusTone(status: string) {
   switch (String(status || "").toLowerCase()) {
     case "approved":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700"
+      return "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
     case "review":
-      return "border-amber-200 bg-amber-50 text-amber-700"
+      return "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
     case "obsolete":
-      return "border-rose-200 bg-rose-50 text-rose-700"
+      return "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
     case "trial":
-      return "border-sky-200 bg-sky-50 text-sky-700"
+      return "border-signal-blue-line bg-signal-blue-soft text-signal-blue-ink"
     default:
-      return "border-slate-200 bg-slate-50 text-slate-700"
+      return "border-border bg-muted text-muted-foreground"
   }
 }
 
@@ -194,15 +194,15 @@ export default function SpecificationsIndexPage() {
   return (
     <div className="space-y-6">
       {recipeCascadeIssues.length > 0 ? (
-        <section className="flex flex-wrap items-start gap-3 rounded-[1.6rem] border border-amber-200 bg-amber-50/80 px-5 py-4 shadow-sm">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+        <section className="flex flex-wrap items-start gap-3 rounded-[1.6rem] border border-signal-amber-line bg-signal-amber-soft/80 px-5 py-4 shadow-sm">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-signal-amber-soft text-signal-amber-ink">
             <ScrollText className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-amber-700">
+            <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-signal-amber-ink">
               Recipe cascade bottleneck
             </p>
-            <p className="mt-1 text-sm font-semibold text-amber-900">
+            <p className="mt-1 text-sm font-semibold text-signal-amber-ink">
               {recipeCascadeIssues.length} approved spec
               {recipeCascadeIssues.length === 1 ? "" : "s"} have no approved recipe — release-to-job will
               fail until at least one recipe is promoted from <strong>trial</strong> to <strong>approved</strong>.
@@ -212,14 +212,14 @@ export default function SpecificationsIndexPage() {
                 <Link
                   key={spec.id}
                   href={`/specifications/${spec.id}`}
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-amber-800 hover:bg-amber-100"
+                  className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-card px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-[0.12em] text-signal-amber-ink hover:bg-signal-amber-soft"
                 >
                   {String(spec.product_code || spec.id).slice(0, 14)}
                   <ArrowRight className="h-3 w-3" />
                 </Link>
               ))}
               {recipeCascadeIssues.length > 8 ? (
-                <span className="text-[11px] font-semibold text-amber-700">+ {recipeCascadeIssues.length - 8} more</span>
+                <span className="text-[11px] font-semibold text-signal-amber-ink">+ {recipeCascadeIssues.length - 8} more</span>
               ) : null}
             </div>
           </div>
@@ -251,42 +251,42 @@ export default function SpecificationsIndexPage() {
         }
       />
 
-      <section className="grid gap-3 rounded-[32px] border border-slate-200 bg-white/80 p-5 shadow-premium sm:grid-cols-3">
-            <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Active Specs</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.all}</p>
-              <p className="mt-1 text-sm text-slate-500">All active draft, Owner review, trial, and live records in the current plant.</p>
+      <section className="grid gap-3 rounded-[32px] border border-border bg-card/80 p-5 shadow-premium sm:grid-cols-3">
+            <div className="rounded-[28px] border border-border bg-muted px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Active Specs</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{statusCounts.all}</p>
+              <p className="mt-1 text-sm text-muted-foreground">All active draft, Owner review, trial, and live records in the current plant.</p>
             </div>
-            <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Review Queue</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.review + statusCounts.trial}</p>
-              <p className="mt-1 text-sm text-slate-500">Versions waiting for validation or Owner approval.</p>
+            <div className="rounded-[28px] border border-border bg-muted px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Review Queue</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{statusCounts.review + statusCounts.trial}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Versions waiting for validation or Owner approval.</p>
             </div>
-            <div className="rounded-[28px] border border-slate-200 bg-slate-50 px-4 py-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Approved Live</p>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{statusCounts.approved}</p>
-              <p className="mt-1 text-sm text-slate-500">Approved snapshots that planning and production can rely on.</p>
+            <div className="rounded-[28px] border border-border bg-muted px-4 py-4">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Approved Live</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{statusCounts.approved}</p>
+              <p className="mt-1 text-sm text-muted-foreground">Approved snapshots that planning and production can rely on.</p>
             </div>
       </section>
 
       {canAuthorQc ? (
         <section
           data-testid="spec-assign-panel"
-          className="space-y-4 rounded-[32px] border border-slate-200 bg-white/80 px-5 py-5 shadow-premium"
+          className="space-y-4 rounded-[32px] border border-border bg-card/80 px-5 py-5 shadow-premium"
         >
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Assign profile</p>
-            <h2 className="mt-1 text-lg font-semibold text-slate-950">Assign profile to selected specs</h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Assign profile</p>
+            <h2 className="mt-1 text-lg font-semibold text-foreground">Assign profile to selected specs</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
               Preview per-spec impact first. Apply writes draft QC only — it does not publish and it does not rewrite issued jobs.
             </p>
           </div>
           <div className="flex flex-wrap items-end gap-3">
-            <label className="min-w-[240px] flex-1 text-sm font-medium text-slate-700">
+            <label className="min-w-[240px] flex-1 text-sm font-medium text-muted-foreground">
               Template
               <select
                 data-testid="spec-assign-template"
-                className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                className="mt-1 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm"
                 value={templateSpecId}
                 onChange={(event) => setTemplateSpecId(event.target.value)}
               >
@@ -328,18 +328,18 @@ export default function SpecificationsIndexPage() {
               Apply drafts
             </Button>
           </div>
-          <p className="text-xs text-slate-500" data-testid="spec-assign-selected-count">
+          <p className="text-xs text-muted-foreground" data-testid="spec-assign-selected-count">
             {selectedSpecIds.length} spec{selectedSpecIds.length === 1 ? "" : "s"} selected
           </p>
           {assignError ? (
-            <p className="text-sm font-medium text-rose-700" data-testid="spec-assign-error">
+            <p className="text-sm font-medium text-signal-rose-ink" data-testid="spec-assign-error">
               {typeof assignError === "string" ? assignError : JSON.stringify(assignError)}
             </p>
           ) : null}
           {assignPreview?.results ? (
-            <div className="overflow-x-auto rounded-2xl border border-slate-200" data-testid="spec-assign-results">
+            <div className="overflow-x-auto rounded-2xl border border-border" data-testid="spec-assign-results">
               <table className="min-w-full text-left text-sm">
-                <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                   <tr>
                     <th className="px-3 py-2">Spec</th>
                     <th className="px-3 py-2">Applicable</th>
@@ -352,12 +352,12 @@ export default function SpecificationsIndexPage() {
                 <tbody>
                   {assignPreview.results.map((row: any) => (
                     <tr key={row.spec_id} data-testid={`spec-assign-row-${row.spec_id}`}>
-                      <td className="px-3 py-2 font-medium text-slate-900">{row.customer_name || row.spec_id}</td>
+                      <td className="px-3 py-2 font-medium text-foreground">{row.customer_name || row.spec_id}</td>
                       <td className="px-3 py-2">{row.applicable ? "Yes" : "No"}</td>
-                      <td className="px-3 py-2 text-slate-600">
+                      <td className="px-3 py-2 text-muted-foreground">
                         {row.error?.message || row.action || "—"}
                       </td>
-                      <td className="px-3 py-2 text-slate-600">
+                      <td className="px-3 py-2 text-muted-foreground">
                         {(row.unresolved_fields || []).join(", ") || "—"}
                       </td>
                       <td className="px-3 py-2">{row.published ? "Yes" : "No"}</td>
@@ -371,7 +371,7 @@ export default function SpecificationsIndexPage() {
         </section>
       ) : null}
 
-      <section className="rounded-[32px] border border-slate-200 bg-white/80 px-5 py-5 shadow-premium">
+      <section className="rounded-[32px] border border-border bg-card/80 px-5 py-5 shadow-premium">
         <div className="mb-4 flex flex-wrap gap-2">
           {[
             { key: "active", label: "Active Sheets", count: activeSpecCount },
@@ -388,7 +388,7 @@ export default function SpecificationsIndexPage() {
                 "rounded-full border px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition",
                 versionView === view.key
                   ? "border-slate-900 bg-slate-950 text-white"
-                  : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900",
+                  : "border-border bg-card text-muted-foreground hover:border-border hover:text-foreground",
               )}
             >
               {view.label} {view.count}
@@ -397,7 +397,7 @@ export default function SpecificationsIndexPage() {
         </div>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="relative max-w-xl flex-1">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={searchValue}
               onChange={(event) => {
@@ -405,7 +405,7 @@ export default function SpecificationsIndexPage() {
                 startTransition(() => setSearchValue(nextValue))
               }}
               placeholder="Search customer, tube size, mandrel, or status"
-              className="h-12 rounded-full border-slate-200 bg-slate-50 pl-11"
+              className="h-12 rounded-full border-border bg-muted pl-11"
             />
           </div>
           <div className="flex flex-wrap gap-2">
@@ -417,8 +417,8 @@ export default function SpecificationsIndexPage() {
                 className={cn(
                   "rounded-full border px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] transition",
                   statusFilter === filter
-                    ? "border-cyan-200 bg-cyan-50 text-cyan-800"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-900",
+                    ? "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink"
+                    : "border-border bg-card text-muted-foreground hover:border-border hover:text-foreground",
                 )}
               >
                 {filter} {statusCounts[filter]}
@@ -430,18 +430,18 @@ export default function SpecificationsIndexPage() {
 
       <section className="space-y-4">
         {isLoading ? (
-          <div className="rounded-[32px] border border-slate-200 bg-white/80 px-6 py-10 text-sm text-slate-500 shadow-premium">
+          <div className="rounded-[32px] border border-border bg-card/80 px-6 py-10 text-sm text-muted-foreground shadow-premium">
             Loading specifications...
           </div>
         ) : filteredSpecs.length === 0 ? (
-          <div className="rounded-[32px] border border-dashed border-slate-300 bg-white/70 px-6 py-12 text-center shadow-premium">
-            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+          <div className="rounded-[32px] border border-dashed border-border bg-card/70 px-6 py-12 text-center shadow-premium">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
               <ScrollText className="h-6 w-6" />
             </div>
-            <h2 className="mt-4 text-xl font-semibold text-slate-950">
+            <h2 className="mt-4 text-xl font-semibold text-foreground">
               {searchValue || statusFilter !== "all" ? "No specifications match this filter." : "No specifications yet."}
             </h2>
-            <p className="mx-auto mt-2 max-w-xl text-sm text-slate-500">
+            <p className="mx-auto mt-2 max-w-xl text-sm text-muted-foreground">
               {searchValue || statusFilter !== "all"
                 ? "Adjust the search or status filter to surface the right spec record."
                 : "Create the first spec sheet to rebuild the commercial-to-production flow from the master data."}
@@ -468,13 +468,13 @@ export default function SpecificationsIndexPage() {
             return (
               <article
                 key={String(spec.id)}
-                className="rounded-[32px] border border-slate-200 bg-white/80 px-6 py-6 shadow-premium transition hover:-translate-y-0.5 hover:shadow-premium-hover"
+                className="rounded-[32px] border border-border bg-card/80 px-6 py-6 shadow-premium transition hover:-translate-y-0.5 hover:shadow-premium-hover"
               >
                 <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-3">
                       {canAuthorQc ? (
-                        <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                           <input
                             type="checkbox"
                             data-testid={`spec-assign-select-${spec.id}`}
@@ -484,7 +484,7 @@ export default function SpecificationsIndexPage() {
                           Select
                         </label>
                       ) : null}
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                         Saved {formatDate(spec.created_at)}
                       </p>
                       <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusTone(spec.status)}`}>
@@ -496,31 +496,31 @@ export default function SpecificationsIndexPage() {
                           <span
                             data-testid={`spec-qc-status-${spec.id}`}
                             data-qc-status={qcStatus}
-                            className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800"
+                            className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1 text-xs font-semibold text-signal-amber-ink"
                           >
                             {qcStatus === "draft" ? "Draft / Missing fields" : qcStatus === "missing" ? "Missing setup" : qcStatus}
                           </span>
                         )
                       })()}
                       {spec.active === false ? (
-                        <span className="rounded-full border border-slate-200 bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                        <span className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
                           disabled version
                         </span>
                       ) : null}
                     </div>
-                    <h2 className="mt-3 text-2xl font-semibold text-slate-950">{resolveSpecTitle(spec)}</h2>
-                    <p className="mt-2 max-w-3xl text-sm text-slate-600">
+                    <h2 className="mt-3 text-2xl font-semibold text-foreground">{resolveSpecTitle(spec)}</h2>
+                    <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
                       {(customer?.name || spec.customer_name_snapshot || spec.customer_name || "Customer pending")} ·{" "}
                       {summary.tubeLabel} ·{" "}
                       {(mandrel?.mandrel_code || mandrel?.name || "Mandrel pending")}
                     </p>
                     <div className="mt-4 grid gap-3 md:grid-cols-4">
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Client Dimensions</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">
+                      <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Client Dimensions</p>
+                        <p className="mt-2 text-sm font-medium text-foreground">
                           ID {formatSpecMeasure(summary.idMm)} / OD {formatSpecMeasure(summary.odMm)}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500" data-testid={`spec-summary-height-${spec.id}`}>
+                        <p className="mt-1 text-xs text-muted-foreground" data-testid={`spec-summary-height-${spec.id}`}>
                           Actual height {formatSpecMeasure(summary.actualHeightMm)} mm
                           {summary.actualHeightSource === "entered"
                             ? " · entered"
@@ -529,24 +529,24 @@ export default function SpecificationsIndexPage() {
                               : " · specification default"}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Strength</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">CS {formatSpecMeasure(summary.requiredCs)}</p>
-                        <p className="mt-1 text-xs text-slate-500">Target wt. {formatSpecMeasure(summary.targetWeightG)} g</p>
+                      <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Strength</p>
+                        <p className="mt-2 text-sm font-medium text-foreground">CS {formatSpecMeasure(summary.requiredCs)}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Target wt. {formatSpecMeasure(summary.targetWeightG)} g</p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Recipe</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">{profileRecipeRows.length || 0} saved rows</p>
-                        <p className="mt-1 text-xs text-slate-500">
+                      <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Recipe</p>
+                        <p className="mt-2 text-sm font-medium text-foreground">{profileRecipeRows.length || 0} saved rows</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {spec.adhesive_components_json ? "Adhesive split stored" : "Adhesive split pending"}
                         </p>
                       </div>
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Packing</p>
-                        <p className="mt-2 text-sm font-medium text-slate-900">
+                      <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Packing</p>
+                        <p className="mt-2 text-sm font-medium text-foreground">
                           {spec.profile?.packing?.box_code || spec.profile?.packing_rules?.packing_target?.box_code || "-"}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">Master-backed packing rules and print packet</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Master-backed packing rules and print packet</p>
                       </div>
                     </div>
                   </div>

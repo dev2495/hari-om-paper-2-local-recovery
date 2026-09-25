@@ -39,7 +39,7 @@ export function CockpitShell({
     <div className="space-y-5 px-6 pb-10 pt-2">
       {hero}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-2 xl:grid-cols-4">{kpis}</div>
-      <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-slate-200 bg-white px-4 py-3 shadow-sm">
+      <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-border bg-card px-4 py-3 shadow-sm">
         {filters}
       </div>
       {children}
@@ -71,12 +71,12 @@ export function MasterHero({
   }
   const toneCls = (t?: string) =>
     t === "ok"
-      ? "border-emerald-300/40 bg-emerald-400/15 text-emerald-100"
+      ? "border-signal-emerald-line/40 bg-emerald-400/15 text-emerald-100"
       : t === "warn"
-        ? "border-amber-300/40 bg-amber-400/15 text-amber-100"
+        ? "border-signal-amber-line/40 bg-amber-400/15 text-amber-100"
         : t === "critical"
-          ? "border-rose-300/40 bg-rose-400/15 text-rose-100"
-          : "border-white/30 bg-white/10 text-white/90"
+          ? "border-signal-rose-line/40 bg-rose-400/15 text-rose-100"
+          : "border-border/30 bg-card/10 text-white/90"
   return (
     <section
       className="relative overflow-hidden rounded-[2rem] px-6 py-7 text-white shadow-[0_25px_70px_rgba(15,23,42,0.18)]"
@@ -121,30 +121,30 @@ export function KpiTile({
   delta?: { value: string; direction?: "up" | "down" | "flat"; label?: string }
 }) {
   const toneBg: Record<KpiTileTone, string> = {
-    cyan: "border-cyan-200 bg-cyan-50/80",
-    amber: "border-amber-200 bg-amber-50/80",
-    emerald: "border-emerald-200 bg-emerald-50/80",
-    rose: "border-rose-200 bg-rose-50/80",
-    violet: "border-violet-200 bg-violet-50/80",
-    slate: "border-slate-200 bg-white",
+    cyan: "border-signal-cyan-line bg-signal-cyan-soft/80",
+    amber: "border-signal-amber-line bg-signal-amber-soft/80",
+    emerald: "border-signal-emerald-line bg-signal-emerald-soft/80",
+    rose: "border-signal-rose-line bg-signal-rose-soft/80",
+    violet: "border-signal-violet-line bg-signal-violet-soft/80",
+    slate: "border-border bg-card",
   }
   return (
     <div className={cn("rounded-[1.25rem] border p-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)]", toneBg[tone])}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{value}</p>
-      {detail ? <p className="mt-1 text-[11px] text-slate-500">{detail}</p> : null}
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{value}</p>
+      {detail ? <p className="mt-1 text-[11px] text-muted-foreground">{detail}</p> : null}
       {delta ? (
         <p
           className={cn(
             "mt-2 text-[11px] font-semibold",
-            delta.direction === "up" && "text-emerald-700",
-            delta.direction === "down" && "text-rose-700",
-            (!delta.direction || delta.direction === "flat") && "text-slate-500",
+            delta.direction === "up" && "text-signal-emerald-ink",
+            delta.direction === "down" && "text-signal-rose-ink",
+            (!delta.direction || delta.direction === "flat") && "text-muted-foreground",
           )}
         >
           {delta.direction === "up" ? "▲ " : delta.direction === "down" ? "▼ " : "• "}
           {delta.value}
-          {delta.label ? <span className="ml-1 font-normal text-slate-500">{delta.label}</span> : null}
+          {delta.label ? <span className="ml-1 font-normal text-muted-foreground">{delta.label}</span> : null}
         </p>
       ) : null}
     </div>
@@ -157,9 +157,9 @@ export function KpiTile({
 
 export function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
       <span>{label}</span>
-      <span className="text-slate-900 font-medium tracking-normal normal-case text-sm">{children}</span>
+      <span className="text-foreground font-medium tracking-normal normal-case text-sm">{children}</span>
     </label>
   )
 }
@@ -174,14 +174,14 @@ export function SearchField({
   placeholder?: string
 }) {
   return (
-    <span className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1.5 text-sm">
-      <Search className="h-3.5 w-3.5 text-slate-400" />
+    <span className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-2 py-1.5 text-sm">
+      <Search className="h-3.5 w-3.5 text-muted-foreground" />
       <input
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder || "Search…"}
-        className="w-[200px] bg-transparent outline-none placeholder:text-slate-400"
+        className="w-[200px] bg-transparent outline-none placeholder:text-muted-foreground"
       />
     </span>
   )
@@ -250,11 +250,11 @@ export function DataGrid<T extends { id: string }>({
 
   const allSelected = rows.length > 0 && rows.every((r) => selection.has(r.id))
   return (
-    <div className="overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
+    <div className="overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_8px_24px_rgba(15,23,42,0.05)]">
       <div className="grid grid-cols-[minmax(0,1fr)] overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 bg-slate-50/70 text-left text-[10.5px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+            <tr className="border-b border-border bg-muted/70 text-left text-[10.5px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               <th className="w-10 py-2 pl-3 pr-2 align-middle">
                 <input
                   type="checkbox"
@@ -270,7 +270,7 @@ export function DataGrid<T extends { id: string }>({
                   <th
                     key={c.key}
                     style={{ width: c.width, textAlign: c.align || "left" }}
-                    className={cn("py-2 pr-3 align-middle", c.sortAccessor && "cursor-pointer hover:text-slate-900")}
+                    className={cn("py-2 pr-3 align-middle", c.sortAccessor && "cursor-pointer hover:text-foreground")}
                     onClick={() => c.sortAccessor && setSort(c.key)}
                   >
                     <span className="inline-flex items-center gap-1">
@@ -287,7 +287,7 @@ export function DataGrid<T extends { id: string }>({
           <tbody>
             {sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={columns.length + 1} className="py-10 text-center text-sm text-slate-500">
+                <td colSpan={columns.length + 1} className="py-10 text-center text-sm text-muted-foreground">
                   {emptyHint || "No rows match the current filters."}
                 </td>
               </tr>
@@ -299,8 +299,8 @@ export function DataGrid<T extends { id: string }>({
                     key={row.id}
                     onClick={() => onSelect?.(row)}
                     className={cn(
-                      "border-b border-slate-100 cursor-pointer last:border-b-0",
-                      isSel ? "bg-cyan-50/60 shadow-[inset_3px_0_0_#0e7490]" : "hover:bg-slate-50",
+                      "border-b border-border cursor-pointer last:border-b-0",
+                      isSel ? "bg-signal-cyan-soft/60 shadow-[inset_3px_0_0_#0e7490]" : "hover:bg-muted",
                     )}
                   >
                     <td className="py-2 pl-3 pr-2 align-middle" onClick={(e) => e.stopPropagation()}>
@@ -316,7 +316,7 @@ export function DataGrid<T extends { id: string }>({
                       <td
                         key={c.key}
                         style={{ width: c.width, textAlign: c.align || "left" }}
-                        className="py-2 pr-3 align-middle text-slate-800"
+                        className="py-2 pr-3 align-middle text-foreground"
                       >
                         {c.render(row)}
                       </td>
@@ -370,7 +370,7 @@ export function DetailDrawer({
   }, [tabs, activeKey])
   if (!open) {
     return (
-      <div className="flex h-full min-h-[280px] items-center justify-center rounded-[1.4rem] border border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center text-sm text-slate-500">
+      <div className="flex h-full min-h-[280px] items-center justify-center rounded-[1.4rem] border border-dashed border-border bg-muted px-6 py-10 text-center text-sm text-muted-foreground">
         Select a row from the grid to open its detail panel.
       </div>
     )
@@ -382,7 +382,7 @@ export function DetailDrawer({
       : "linear-gradient(160deg, #0b1220 0%, #0e7490 100%)"
   const tabBorder = accent === "emerald" ? "border-emerald-600" : "border-cyan-700"
   return (
-    <section className="sticky top-6 overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
+    <section className="sticky top-6 overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_18px_50px_rgba(15,23,42,0.08)]">
       <div className="px-5 py-4 text-white" style={{ backgroundImage: headerGradient }}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -394,7 +394,7 @@ export function DetailDrawer({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md p-1.5 text-white/80 transition hover:bg-white/10 hover:text-white"
+              className="rounded-md p-1.5 text-white/80 transition hover:bg-card/10 hover:text-white"
               aria-label="Close drawer"
             >
               <X className="h-4 w-4" />
@@ -409,10 +409,10 @@ export function DetailDrawer({
                 className={cn(
                   "rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
                   c.tone === "critical"
-                    ? "border-rose-300/50 bg-rose-400/20 text-rose-100"
+                    ? "border-signal-rose-line/50 bg-rose-400/20 text-rose-100"
                     : c.tone === "warn"
-                      ? "border-amber-300/50 bg-amber-400/20 text-amber-100"
-                      : "border-emerald-300/50 bg-emerald-400/20 text-emerald-100",
+                      ? "border-signal-amber-line/50 bg-amber-400/20 text-amber-100"
+                      : "border-signal-emerald-line/50 bg-emerald-400/20 text-emerald-100",
                 )}
               >
                 {c.label}
@@ -421,7 +421,7 @@ export function DetailDrawer({
           </div>
         ) : null}
       </div>
-      <div className="flex gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50/70 px-3 pt-2">
+      <div className="flex gap-1 overflow-x-auto border-b border-border bg-muted/70 px-3 pt-2">
         {tabs.map((t) => {
           const isActive = t.key === active.key
           return (
@@ -431,12 +431,12 @@ export function DetailDrawer({
               onClick={() => setActiveKey(t.key)}
               className={cn(
                 "shrink-0 border-b-2 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.1em] transition",
-                isActive ? `${tabBorder} text-slate-900` : "border-transparent text-slate-500 hover:text-slate-800",
+                isActive ? `${tabBorder} text-foreground` : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
               {t.label}
               {typeof t.count === "number" ? (
-                <span className="ml-1 rounded-full bg-slate-200 px-1.5 py-0.5 text-[9px] font-bold text-slate-700">
+                <span className="ml-1 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">
                   {t.count}
                 </span>
               ) : null}
@@ -445,7 +445,7 @@ export function DetailDrawer({
         })}
       </div>
       <div className="max-h-[60vh] overflow-y-auto px-5 py-4">{active?.content}</div>
-      {footer ? <div className="border-t border-slate-200 bg-slate-50/70 px-5 py-3">{footer}</div> : null}
+      {footer ? <div className="border-t border-border bg-muted/70 px-5 py-3">{footer}</div> : null}
     </section>
   )
 }
@@ -485,25 +485,25 @@ export function Modal({
       onClick={onClose}
     >
       <div
-        className={cn("w-full max-h-[88vh] overflow-hidden rounded-[1.4rem] border border-slate-200 bg-white shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
+        className={cn("w-full max-h-[88vh] overflow-hidden rounded-[1.4rem] border border-border bg-card shadow-[0_30px_80px_rgba(15,23,42,0.25)]", sizeCls)}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+        <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
           <div>
-            {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">{eyebrow}</p> : null}
-            <h2 className="mt-0.5 text-base font-semibold tracking-tight text-slate-950">{title}</h2>
+            {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</p> : null}
+            <h2 className="mt-0.5 text-base font-semibold tracking-tight text-foreground">{title}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1.5 text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
+            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-muted hover:text-foreground"
             aria-label="Close modal"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="max-h-[64vh] overflow-y-auto px-5 py-4">{children}</div>
-        {footer ? <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/70 px-5 py-3">{footer}</div> : null}
+        {footer ? <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/70 px-5 py-3">{footer}</div> : null}
       </div>
     </div>
   )
@@ -532,17 +532,17 @@ export function LabeledInput({
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-        {label} {required ? <span className="text-rose-700">*</span> : null}
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {label} {required ? <span className="text-signal-rose-ink">*</span> : null}
       </span>
       <input
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
       />
-      {hint ? <span className="text-[10.5px] text-slate-500">{hint}</span> : null}
+      {hint ? <span className="text-[10.5px] text-muted-foreground">{hint}</span> : null}
     </label>
   )
 }
@@ -564,15 +564,15 @@ export function LabeledTextarea({
 }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-        {label} {required ? <span className="text-rose-700">*</span> : null}
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+        {label} {required ? <span className="text-signal-rose-ink">*</span> : null}
       </span>
       <textarea
         rows={rows}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
       />
     </label>
   )
@@ -591,14 +591,14 @@ export function Pill({
 }) {
   const cls =
     tone === "ok"
-      ? "bg-emerald-100 text-emerald-900 border-emerald-200"
+      ? "bg-signal-emerald-soft text-signal-emerald-ink border-signal-emerald-line"
       : tone === "warn"
-        ? "bg-amber-100 text-amber-900 border-amber-200"
+        ? "bg-signal-amber-soft text-signal-amber-ink border-signal-amber-line"
         : tone === "critical"
-          ? "bg-rose-100 text-rose-900 border-rose-200"
+          ? "bg-signal-rose-soft text-signal-rose-ink border-signal-rose-line"
           : tone === "info"
-            ? "bg-cyan-100 text-cyan-900 border-cyan-200"
-            : "bg-slate-100 text-slate-700 border-slate-200"
+            ? "bg-signal-cyan-soft text-signal-cyan-ink border-signal-cyan-line"
+            : "bg-muted text-muted-foreground border-border"
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider", cls)}>
       {children}
@@ -724,13 +724,13 @@ export function ContactList({
         </div>
       ) : null}
       {!loading && contacts.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-[11px] text-slate-500">
+        <div className="rounded-xl border border-dashed border-border bg-muted px-3 py-4 text-center text-[11px] text-muted-foreground">
           No contacts yet. Add the first contact below — it becomes the primary.
         </div>
       ) : null}
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">+ Add contact</p>
+      <div className="rounded-xl border border-border bg-muted/60 p-3">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">+ Add contact</p>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <LabeledInput
             label="Name"
@@ -757,7 +757,7 @@ export function ContactList({
             placeholder="name@…"
           />
         </div>
-        {error ? <p className="mt-2 text-xs font-medium text-rose-700">{error}</p> : null}
+        {error ? <p className="mt-2 text-xs font-medium text-signal-rose-ink">{error}</p> : null}
         <div className="mt-3 flex items-center justify-end gap-2">
           <button
             type="button"
@@ -802,7 +802,7 @@ function ContactCard({
     <div
       className={cn(
         "rounded-xl border px-3 py-2.5 transition",
-        isPrimary ? "border-emerald-300 bg-emerald-50" : "border-slate-200 bg-white",
+        isPrimary ? "border-signal-emerald-line bg-signal-emerald-soft" : "border-border bg-card",
       )}
     >
       {isEditing ? (
@@ -832,7 +832,7 @@ function ContactCard({
             <button
               type="button"
               onClick={onCancelEdit}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
             >
               Cancel
             </button>
@@ -850,11 +850,11 @@ function ContactCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-semibold text-slate-950">{contact.contact_name || "—"}</span>
+              <span className="text-sm font-semibold text-foreground">{contact.contact_name || "—"}</span>
               {isPrimary ? <Pill tone="ok">Primary</Pill> : null}
-              {contact.designation ? <span className="text-[11px] text-slate-500">{contact.designation}</span> : null}
+              {contact.designation ? <span className="text-[11px] text-muted-foreground">{contact.designation}</span> : null}
             </div>
-            <div className="mt-1 flex flex-wrap gap-3 text-[11.5px] text-slate-600">
+            <div className="mt-1 flex flex-wrap gap-3 text-[11.5px] text-muted-foreground">
               {contact.contact_phone ? (
                 <span className="inline-flex items-center gap-1">
                   <Phone className="h-3 w-3" /> {contact.contact_phone}
@@ -865,7 +865,7 @@ function ContactCard({
                   <Mail className="h-3 w-3" /> {contact.contact_email}
                 </span>
               ) : null}
-              {!contact.contact_phone && !contact.contact_email ? <span className="text-slate-400">— no phone or email —</span> : null}
+              {!contact.contact_phone && !contact.contact_email ? <span className="text-muted-foreground">— no phone or email —</span> : null}
             </div>
           </div>
           <div className="flex shrink-0 gap-1">
@@ -874,7 +874,7 @@ function ContactCard({
                 type="button"
                 onClick={onMakePrimary}
                 title="Make primary"
-                className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:border-signal-emerald-line hover:text-signal-emerald-ink"
               >
                 <Star className="h-3 w-3" /> Primary
               </button>
@@ -882,7 +882,7 @@ function ContactCard({
             <button
               type="button"
               onClick={onStartEdit}
-              className="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-700 hover:border-cyan-300 hover:text-cyan-700"
+              className="rounded-md border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
             >
               Edit
             </button>
@@ -890,7 +890,7 @@ function ContactCard({
               type="button"
               onClick={onDelete}
               title="Delete contact"
-              className="rounded-md border border-slate-200 px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-rose-600 hover:border-rose-300"
+              className="rounded-md border border-border px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-signal-rose-ink hover:border-signal-rose-line"
             >
               <Trash2 className="h-3 w-3" />
             </button>
@@ -935,7 +935,7 @@ export function ConfirmDialog({
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
           >
             Cancel
           </button>
@@ -954,7 +954,7 @@ export function ConfirmDialog({
         </Fragment>
       }
     >
-      <div className="text-sm leading-6 text-slate-700">{body}</div>
+      <div className="text-sm leading-6 text-muted-foreground">{body}</div>
     </Modal>
   )
 }

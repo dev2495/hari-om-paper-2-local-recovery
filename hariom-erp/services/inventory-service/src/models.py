@@ -10,14 +10,15 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Numeric,
     String,
     Enum as SQLEnum,
     Text,
     UniqueConstraint,
     JSON,
 )
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship, synonym
 from .database import Base
 
 
@@ -28,6 +29,10 @@ STOCK_STATUS_VALUES = (
     "BLOCKED",
     "DISPATCH_STAGING",
     "SCRAP",
+    "CONCESSION",
+)
+STOCK_STATUS_CHECK = (
+    "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP','CONCESSION')"
 )
 
 
@@ -283,7 +288,7 @@ class StockBatch(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP')",
+            STOCK_STATUS_CHECK,
             name="ck_stock_batch_stock_status",
         ),
     )
@@ -317,7 +322,7 @@ class StockTransaction(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP')",
+            STOCK_STATUS_CHECK,
             name="ck_stock_transaction_stock_status",
         ),
     )
@@ -393,9 +398,12 @@ class InventoryQualityConcession(Base):
     inspector_id = Column(String(200), nullable=True)
     approved_by = Column(String(200), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
-    released_entity_id = Column(UUID(as_uuid=True), nullable=True)
+    released_entity_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     residual_entity_id = Column(UUID(as_uuid=True), nullable=True)
     operation_id = Column(String(120), nullable=True, index=True)
+    permitted_customer_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    permitted_sales_order_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    expires_at = Column(DateTime, nullable=True, index=True)
 
 
 class InventoryQualityHold(Base):
@@ -497,6 +505,7 @@ class PaperReel(Base):
         default=uuid.UUID("00000000-0000-0000-0000-0000000000a1"),
     )
     reel_code = Column(String(100), nullable=False)
+    purchase_receipt_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipt_lines.id"), nullable=True, index=True)
     paper_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False)
     gsm = Column(Float, nullable=True)
     bf = Column(Float, nullable=True)
@@ -504,7 +513,15 @@ class PaperReel(Base):
     supplier_id = Column(UUID(as_uuid=True), nullable=True)
     supplier_name_snapshot = Column(String(200), nullable=True)
     inward_weight_kg = Column(Float, nullable=False)
+    gross_weight_kg = Column(Float, nullable=True)
+    tare_weight_kg = Column(Float, nullable=True)
+    net_weight_kg = Column(Float, nullable=True)
     current_weight_kg = Column(Float, nullable=False)
+    physical_form = Column(String(20), nullable=False, default="REEL")
+    source_reel_no = Column(String(120), nullable=True)
+    vendor_batch_no = Column(String(120), nullable=True)
+    width_mm = Column(Float, nullable=True)
+    commercial_status = Column(String(30), nullable=False, default="CLEAR")
     unit_cost = Column(Float, nullable=True)
     cost_source = Column(SQLEnum(CostSource), nullable=True)
     status = Column(SQLEnum(ReelStatus), nullable=False, default=ReelStatus.IN_STOCK)
@@ -528,7 +545,7 @@ class PaperReel(Base):
         CheckConstraint("current_weight_kg >= 0", name="ck_paper_reels_current_nonnegative"),
         CheckConstraint("current_weight_kg <= inward_weight_kg", name="ck_paper_reels_current_lte_inward"),
         CheckConstraint(
-            "stock_status IN ('UNRESTRICTED','WIP','QC_HOLD','BLOCKED','DISPATCH_STAGING','SCRAP')",
+            STOCK_STATUS_CHECK,
             name="ck_paper_reels_stock_status",
         ),
     )
@@ -831,6 +848,11 @@ class PurchaseOrder(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
     po_no = Column(String(80), nullable=False)
+    request_id = Column(UUID(as_uuid=True), nullable=True)
+    request_fingerprint = Column(String(64), nullable=True)
+    category = Column(String(20), nullable=False, default="RM_PM")
+    current_revision_no = Column(Integer, nullable=False, default=1)
+    version = Column(Integer, nullable=False, default=1)
     supplier_id = Column(UUID(as_uuid=True), nullable=False, index=True)
     supplier_name_snapshot = Column(String(200), nullable=False)
     expected_date = Column(Date, nullable=True)
@@ -840,6 +862,9 @@ class PurchaseOrder(Base):
     created_by = Column(String(200), nullable=False)
     approved_by = Column(String(200), nullable=True)
     approved_at = Column(DateTime, nullable=True)
+    submitted_by = Column(String(200), nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     lines = relationship("PurchaseOrderLine", back_populates="order", cascade="all, delete-orphan")
@@ -847,8 +872,9 @@ class PurchaseOrder(Base):
 
     __table_args__ = (
         UniqueConstraint("plant_id", "po_no", name="uq_purchase_orders_plant_po"),
+        UniqueConstraint("plant_id", "request_id", name="uq_purchase_orders_plant_request"),
         CheckConstraint(
-            "status IN ('DRAFT','APPROVED','PARTIALLY_RECEIVED','RECEIVED','CANCELLED')",
+            "status IN ('DRAFT','SUBMITTED','APPROVED','REJECTED','REVISION_REQUIRED','PARTIALLY_RECEIVED','RECEIVED','SHORT_CLOSED','CANCELLED')",
             name="ck_purchase_orders_status",
         ),
     )
@@ -860,9 +886,15 @@ class PurchaseOrderLine(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=False, index=True)
     item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    logical_line_id = Column(UUID(as_uuid=True), nullable=False, default=uuid.uuid4, index=True)
+    uom = Column(String(12), nullable=False, default="KG")
+    expected_unit_count = Column(Integer, nullable=True)
+    received_unit_count = Column(Integer, nullable=True)
+    count_basis = Column(String(20), nullable=True)
     qty_ordered = Column(Float, nullable=False)
     qty_received = Column(Float, nullable=False, default=0.0)
     qty_rejected = Column(Float, nullable=False, default=0.0)
+    qty_short_closed = Column(Float, nullable=False, default=0.0)
     unit_cost = Column(Float, nullable=False)
     incoming_qc_required = Column(Boolean, nullable=False, default=True)
     line_status = Column(String(20), nullable=False, default="OPEN")
@@ -888,7 +920,18 @@ class PurchaseReceipt(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     plant_id = Column(String(50), nullable=False, index=True, default="PLANT_A")
-    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=True, index=True)
+    supplier_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    supplier_name_snapshot = Column(String(200), nullable=True)
+    receipt_kind = Column(String(20), nullable=False, default="PO_LINKED", server_default="PO_LINKED")
+    manual_reason = Column(Text, nullable=True)
+    approval_history = Column(JSONB, nullable=False, default=list, server_default="[]")
+    request_id = Column(UUID(as_uuid=True), nullable=True)
+    request_fingerprint = Column(String(64), nullable=True)
+    supplier_invoice_id = Column(UUID(as_uuid=True), ForeignKey("supplier_invoices.id"), nullable=True, index=True)
+    invoice_pending = Column(Boolean, nullable=False, default=False)
+    commercial_status = Column(String(30), nullable=False, default="CLEAR")
+    posting_version = Column(Integer, nullable=False, default=1)
     grn_no = Column(String(80), nullable=False)
     received_date = Column(Date, nullable=False)
     status = Column(String(20), nullable=False, default="POSTED")
@@ -900,6 +943,7 @@ class PurchaseReceipt(Base):
 
     __table_args__ = (
         UniqueConstraint("plant_id", "grn_no", name="uq_purchase_receipts_plant_grn"),
+        UniqueConstraint("plant_id", "request_id", name="uq_purchase_receipts_plant_request"),
     )
 
 
@@ -908,11 +952,16 @@ class PurchaseReceiptLine(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     receipt_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipts.id"), nullable=False, index=True)
-    purchase_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=False, index=True)
+    purchase_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=True, index=True)
+    approved_revision_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_revision_lines.id"), nullable=True, index=True)
     item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
     batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True)
     qty_received = Column(Float, nullable=False)
     unit_cost = Column(Float, nullable=False)
+    po_rate = Column(Numeric(18, 6), nullable=True)
+    invoice_rate = Column(Numeric(18, 6), nullable=True)
+    tracking_mode = Column(String(20), nullable=False, default="BULK")
+    commercial_status = Column(String(30), nullable=False, default="CLEAR")
     qc_status = Column(String(20), nullable=False, default="PENDING")
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -943,6 +992,18 @@ class PurchaseLineSchedule(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     cancelled_at = Column(DateTime, nullable=True)
 
+    revision_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_revision_lines.id"), nullable=True, index=True)
+    source_plan_entry_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    cancelled_qty = Column(Float, nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
+    change_history = Column(JSONB, nullable=False, default=list)
+    delivery_date = synonym("current_date")
+    planned_qty = synonym("scheduled_qty")
+
+    @property
+    def received_qty(self):
+        return sum(float(row.allocated_qty or 0) for row in self.allocations or [])
+
     order_line = relationship("PurchaseOrderLine", back_populates="schedules")
     allocations = relationship("ReceiptScheduleAllocation", back_populates="schedule")
 
@@ -969,7 +1030,6 @@ class ReceiptScheduleAllocation(Base):
     schedule = relationship("PurchaseLineSchedule", back_populates="allocations")
 
     __table_args__ = (
-        UniqueConstraint("receipt_line_id", name="uq_receipt_schedule_alloc_receipt_line"),
         UniqueConstraint("receipt_line_id", "schedule_id", name="uq_receipt_schedule_alloc_pair"),
         CheckConstraint("allocated_qty > 0", name="ck_receipt_schedule_alloc_qty_positive"),
     )
@@ -993,3 +1053,521 @@ class PurchaseWorkbookImport(Base):
     __table_args__ = (
         UniqueConstraint("plant_id", "fingerprint", name="uq_purchase_workbook_plant_fingerprint"),
     )
+
+
+# Procurement V2 keeps commercial revisions, physical receipt identity, planning,
+# alert policy and standard-cost history as typed records.  JSON below is used
+# only for immutable display/source snapshots and heterogeneous specifications.
+class DocumentSeries(Base):
+    __tablename__ = "document_series"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    document_type = Column(String(30), nullable=False)
+    category = Column(String(20), nullable=False)
+    prefix = Column(String(30), nullable=False)
+    next_value = Column(Integer, nullable=False, default=1)
+    version = Column(Integer, nullable=False, default=1)
+    active = Column(Boolean, nullable=False, default=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "document_type", "category", name="uq_document_series_scope"),
+        CheckConstraint("next_value > 0", name="ck_document_series_next_positive"),
+    )
+
+
+class PurchaseOrderRevision(Base):
+    __tablename__ = "purchase_order_revisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=False, index=True)
+    revision_no = Column(Integer, nullable=False)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    approval_state = Column(String(30), nullable=False, default="DRAFT")
+    content_hash = Column(String(64), nullable=False)
+    snapshot_json = Column(JSON, nullable=False, default=dict)
+    change_reason = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_by = Column(String(200), nullable=False)
+    submitted_by = Column(String(200), nullable=True)
+    submitted_at = Column(DateTime, nullable=True)
+    approved_by = Column(String(200), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_by = Column(String(200), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    lines = relationship("PurchaseOrderRevisionLine", back_populates="revision", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("purchase_order_id", "revision_no", name="uq_purchase_order_revision_no"),
+        UniqueConstraint("purchase_order_id", "request_id", name="uq_purchase_order_revision_request"),
+        CheckConstraint(
+            "approval_state IN ('DRAFT','SUBMITTED','APPROVED','REJECTED','WITHDRAWN')",
+            name="ck_purchase_order_revision_state",
+        ),
+    )
+
+
+class PurchaseOrderRevisionLine(Base):
+    __tablename__ = "purchase_order_revision_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    revision_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_revisions.id"), nullable=False, index=True)
+    logical_line_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    source_order_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_lines.id"), nullable=True, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    qty_ordered = Column(Numeric(18, 3), nullable=False)
+    unit_rate = Column(Numeric(18, 6), nullable=False)
+    uom = Column(String(12), nullable=False, default="KG")
+    expected_unit_count = Column(Integer, nullable=True)
+    count_basis = Column(String(20), nullable=True)
+    specification_json = Column(JSON, nullable=False, default=dict)
+    delivery_date = Column(Date, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    revision = relationship("PurchaseOrderRevision", back_populates="lines")
+    item = relationship("ItemMaster")
+
+    __table_args__ = (
+        UniqueConstraint("revision_id", "logical_line_id", name="uq_purchase_revision_logical_line"),
+        CheckConstraint("qty_ordered > 0", name="ck_purchase_revision_line_qty_positive"),
+        CheckConstraint("unit_rate >= 0", name="ck_purchase_revision_line_rate_nonnegative"),
+        CheckConstraint("expected_unit_count IS NULL OR expected_unit_count > 0", name="ck_purchase_revision_expected_count"),
+        CheckConstraint("count_basis IS NULL OR count_basis IN ('ESTIMATED','CONTRACTUAL')", name="ck_purchase_revision_count_basis"),
+    )
+
+
+class PurchaseApprovalDecision(Base):
+    __tablename__ = "purchase_approval_decisions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    revision_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_revisions.id"), nullable=False, index=True)
+    decision = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=True)
+    content_hash = Column(String(64), nullable=False)
+    actor = Column(String(200), nullable=False)
+    actor_role = Column(String(80), nullable=True)
+    decided_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("decision IN ('SUBMITTED','APPROVED','REJECTED','WITHDRAWN')", name="ck_purchase_approval_decision"),
+    )
+
+
+# Compatibility name for the original procurement UI. One supplier calendar owns all commitments.
+PurchaseDeliverySchedule = PurchaseLineSchedule
+
+
+class SupplierInvoice(Base):
+    __tablename__ = "supplier_invoices"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    supplier_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    invoice_no = Column(String(120), nullable=False)
+    normalized_invoice_no = Column(String(120), nullable=False)
+    invoice_date = Column(Date, nullable=False)
+    currency = Column(String(3), nullable=False, default="INR")
+    status = Column(String(30), nullable=False, default="RECORDED")
+    document_ref = Column(String(500), nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    lines = relationship("SupplierInvoiceLine", back_populates="invoice", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "supplier_id", "normalized_invoice_no", name="uq_supplier_invoice_namespace"),
+    )
+
+
+class SupplierInvoiceLine(Base):
+    __tablename__ = "supplier_invoice_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    invoice_id = Column(UUID(as_uuid=True), ForeignKey("supplier_invoices.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    qty = Column(Numeric(18, 3), nullable=False)
+    rate = Column(Numeric(18, 6), nullable=False)
+    uom = Column(String(12), nullable=False, default="KG")
+    tax_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    charge_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    invoice = relationship("SupplierInvoice", back_populates="lines")
+
+    __table_args__ = (
+        CheckConstraint("qty > 0", name="ck_supplier_invoice_line_qty_positive"),
+        CheckConstraint("rate >= 0", name="ck_supplier_invoice_line_rate_nonnegative"),
+    )
+
+
+class ReceiptInvoiceAllocation(Base):
+    __tablename__ = "receipt_invoice_allocations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    receipt_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipt_lines.id"), nullable=False, index=True)
+    invoice_line_id = Column(UUID(as_uuid=True), ForeignKey("supplier_invoice_lines.id"), nullable=False, index=True)
+    revision_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_order_revision_lines.id"), nullable=True, index=True)
+    allocated_qty = Column(Numeric(18, 3), nullable=False)
+    po_rate = Column(Numeric(18, 6), nullable=False)
+    invoice_rate = Column(Numeric(18, 6), nullable=False)
+    rate_delta = Column(Numeric(18, 6), nullable=False)
+    claimable_amount = Column(Numeric(18, 2), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("receipt_line_id", "invoice_line_id", name="uq_receipt_invoice_allocation"),
+        CheckConstraint("allocated_qty > 0", name="ck_receipt_invoice_allocation_qty"),
+    )
+
+
+class ReceiptStockAllocation(Base):
+    __tablename__ = "receipt_stock_allocations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    receipt_line_id = Column(UUID(as_uuid=True), ForeignKey("purchase_receipt_lines.id"), nullable=False, index=True)
+    reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=True, index=True)
+    batch_id = Column(UUID(as_uuid=True), ForeignKey("stock_batch.id"), nullable=True, index=True)
+    allocated_qty = Column(Numeric(18, 3), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        CheckConstraint("(reel_id IS NOT NULL) <> (batch_id IS NOT NULL)", name="ck_receipt_stock_exactly_one_target"),
+        CheckConstraint("allocated_qty > 0", name="ck_receipt_stock_allocation_qty"),
+    )
+
+
+class PurchaseDiscrepancy(Base):
+    __tablename__ = "purchase_discrepancies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    allocation_id = Column(UUID(as_uuid=True), ForeignKey("receipt_invoice_allocations.id"), nullable=False, index=True)
+    discrepancy_type = Column(String(30), nullable=False, default="RATE")
+    quantity = Column(Numeric(18, 3), nullable=False)
+    po_rate = Column(Numeric(18, 6), nullable=False)
+    invoice_rate = Column(Numeric(18, 6), nullable=False)
+    delta = Column(Numeric(18, 6), nullable=False)
+    claimable_amount = Column(Numeric(18, 2), nullable=False)
+    evidence_json = Column(JSON, nullable=False, default=dict)
+    status = Column(String(30), nullable=False, default="OPEN")
+    assignee = Column(String(200), nullable=True)
+    resolution_reason = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("allocation_id", "discrepancy_type", name="uq_purchase_discrepancy_allocation_type"),
+        CheckConstraint("status IN ('OPEN','UNDER_REVIEW','ACCEPTED','CLAIM_DRAFTED','CLAIMED','RESOLVED','REJECTED')", name="ck_purchase_discrepancy_status"),
+    )
+
+
+class PurchaseDebitNote(Base):
+    __tablename__ = "purchase_debit_notes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    debit_note_no = Column(String(80), nullable=False)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    request_fingerprint = Column(String(64), nullable=False)
+    supplier_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    supplier_name_snapshot = Column(String(200), nullable=False)
+    note_date = Column(Date, nullable=False)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), nullable=False, default="DRAFT")
+    total_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    settled_amount = Column(Numeric(18, 2), nullable=False, default=0)
+    version = Column(Integer, nullable=False, default=1)
+    created_by = Column(String(200), nullable=False)
+    approved_by = Column(String(200), nullable=True)
+    issued_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    lines = relationship("PurchaseDebitNoteLine", back_populates="debit_note", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "debit_note_no", name="uq_purchase_debit_note_no"),
+        UniqueConstraint("plant_id", "request_id", name="uq_purchase_debit_note_request"),
+        CheckConstraint("status IN ('DRAFT','SUBMITTED','APPROVED','ISSUED','PARTIALLY_SETTLED','SETTLED','VOID')", name="ck_purchase_debit_note_status"),
+    )
+
+
+class PurchaseDebitNoteLine(Base):
+    __tablename__ = "purchase_debit_note_lines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    debit_note_id = Column(UUID(as_uuid=True), ForeignKey("purchase_debit_notes.id"), nullable=False, index=True)
+    discrepancy_id = Column(UUID(as_uuid=True), ForeignKey("purchase_discrepancies.id"), nullable=False, index=True)
+    claimed_amount = Column(Numeric(18, 2), nullable=False)
+    tax_adjustment = Column(Numeric(18, 2), nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    debit_note = relationship("PurchaseDebitNote", back_populates="lines")
+
+    __table_args__ = (
+        UniqueConstraint("discrepancy_id", name="uq_purchase_debit_note_discrepancy"),
+        CheckConstraint("claimed_amount > 0", name="ck_purchase_debit_note_claim_positive"),
+    )
+
+
+class PurchaseDebitNoteSettlement(Base):
+    __tablename__ = "purchase_debit_note_settlements"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    debit_note_id = Column(UUID(as_uuid=True), ForeignKey("purchase_debit_notes.id"), nullable=False, index=True)
+    amount = Column(Numeric(18, 2), nullable=False)
+    settlement_date = Column(Date, nullable=False)
+    reference = Column(String(160), nullable=False)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (CheckConstraint("amount > 0", name="ck_purchase_debit_note_settlement_positive"),)
+
+
+class LotLabelRecord(Base):
+    __tablename__ = "lot_label_records"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    reel_id = Column(UUID(as_uuid=True), ForeignKey("paper_reels.id"), nullable=False, unique=True, index=True)
+    label_code = Column(String(100), nullable=False)
+    content_snapshot = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("plant_id", "label_code", name="uq_lot_label_code"),)
+
+
+class LabelPrintJob(Base):
+    __tablename__ = "label_print_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    request_fingerprint = Column(String(64), nullable=False)
+    profile = Column(String(40), nullable=False, default="PAPER_LOT_4X2")
+    lot_ids = Column(JSON, nullable=False, default=list)
+    copies = Column(Integer, nullable=False, default=1)
+    status = Column(String(30), nullable=False, default="GENERATED")
+    reprint_reason = Column(Text, nullable=True)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "request_id", name="uq_label_print_job_request"),
+        CheckConstraint("copies > 0", name="ck_label_print_job_copies"),
+    )
+
+
+class ProcurementPlan(Base):
+    __tablename__ = "procurement_plans"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    month = Column(Date, nullable=False, index=True)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    request_fingerprint = Column(String(64), nullable=False)
+    name = Column(String(160), nullable=False)
+    status = Column(String(20), nullable=False, default="DRAFT")
+    target_mode = Column(String(30), nullable=False, default="ARRIVAL")
+    source_hash = Column(String(64), nullable=True)
+    working_calendar = Column(JSON, nullable=False, default=dict)
+    version = Column(Integer, nullable=False, default=1)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    entries = relationship("ProcurementPlanEntry", back_populates="plan", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "month", "name", name="uq_procurement_plan_month_name"),
+        UniqueConstraint("plant_id", "request_id", name="uq_procurement_plan_request"),
+    )
+
+
+class ProcurementPlanEntry(Base):
+    __tablename__ = "procurement_plan_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("procurement_plans.id"), nullable=False, index=True)
+    entry_date = Column(Date, nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    supplier_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    supplier_name_snapshot = Column(String(200), nullable=True)
+    material_form = Column(String(20), nullable=False, default="REEL")
+    qty_kg = Column(Numeric(18, 3), nullable=False)
+    expected_unit_count = Column(Integer, nullable=True)
+    status = Column(String(20), nullable=False, default="PLANNED")
+    notes = Column(Text, nullable=True)
+    converted_qty_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    plan = relationship("ProcurementPlan", back_populates="entries")
+    item = relationship("ItemMaster")
+
+    __table_args__ = (
+        CheckConstraint("qty_kg >= 0", name="ck_procurement_plan_entry_qty"),
+        CheckConstraint("expected_unit_count IS NULL OR expected_unit_count > 0", name="ck_procurement_plan_entry_count"),
+    )
+
+
+class PlanConversion(Base):
+    __tablename__ = "procurement_plan_conversions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    plan_id = Column(UUID(as_uuid=True), ForeignKey("procurement_plans.id"), nullable=False, index=True)
+    entry_ids = Column(JSON, nullable=False, default=list)
+    purchase_order_ids = Column(JSON, nullable=False, default=list)
+    payload_hash = Column(String(64), nullable=False)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("plant_id", "request_id", name="uq_plan_conversion_request"),)
+
+
+class MrpRun(Base):
+    __tablename__ = "mrp_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    as_of_date = Column(Date, nullable=False)
+    horizon_end = Column(Date, nullable=False)
+    status = Column(String(20), nullable=False, default="COMPLETED")
+    source_versions = Column(JSON, nullable=False, default=dict)
+    results_json = Column(JSON, nullable=False, default=list)
+    created_by = Column(String(200), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class StockAlertPolicy(Base):
+    __tablename__ = "stock_alert_policies"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=True, index=True)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    request_fingerprint = Column(String(64), nullable=False)
+    scope_type = Column(String(20), nullable=False, default="ITEM")
+    status = Column(String(20), nullable=False, default="DRAFT")
+    stock_basis = Column(String(30), nullable=False, default="FREE_STOCK")
+    safety_stock_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    reorder_point_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    target_stock_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    recovery_margin_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    lead_time_days = Column(Integer, nullable=False, default=0)
+    minimum_order_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    order_multiple_kg = Column(Numeric(18, 3), nullable=False, default=0)
+    recipients = Column(JSON, nullable=False, default=list)
+    cooldown_hours = Column(Integer, nullable=False, default=24)
+    change_reason = Column(Text, nullable=False)
+    activation_reason = Column(Text, nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_by = Column(String(200), nullable=False)
+    activated_by = Column(String(200), nullable=True)
+    activated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    item = relationship("ItemMaster")
+
+    __table_args__ = (
+        UniqueConstraint("plant_id", "item_id", "version", name="uq_stock_alert_policy_version"),
+        UniqueConstraint("plant_id", "request_id", name="uq_stock_alert_policy_request"),
+        CheckConstraint("safety_stock_kg >= 0 AND reorder_point_kg >= 0 AND target_stock_kg >= 0", name="ck_stock_alert_policy_thresholds"),
+        CheckConstraint("target_stock_kg >= reorder_point_kg AND reorder_point_kg >= safety_stock_kg", name="ck_stock_alert_policy_order"),
+    )
+
+
+class StockAlertEpisode(Base):
+    __tablename__ = "stock_alert_episodes"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    policy_id = Column(UUID(as_uuid=True), ForeignKey("stock_alert_policies.id"), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="OPEN")
+    severity = Column(String(20), nullable=False)
+    stock_qty_kg = Column(Numeric(18, 3), nullable=False)
+    threshold_qty_kg = Column(Numeric(18, 3), nullable=False)
+    assignee = Column(String(200), nullable=True)
+    acknowledged_by = Column(String(200), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    snoozed_until = Column(DateTime, nullable=True)
+    breached_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    recovered_at = Column(DateTime, nullable=True)
+
+    __table_args__ = (CheckConstraint("status IN ('OPEN','ACKNOWLEDGED','SNOOZED','RECOVERED')", name="ck_stock_alert_episode_status"),)
+
+
+class RmCostSheet(Base):
+    __tablename__ = "rm_cost_sheets"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False, index=True)
+    currency = Column(String(3), nullable=False, default="INR")
+    base_uom = Column(String(12), nullable=False, default="KG")
+    current_version_id = Column(UUID(as_uuid=True), nullable=True)
+    version = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    versions = relationship("RmCostVersion", back_populates="sheet", foreign_keys="RmCostVersion.sheet_id", cascade="all, delete-orphan")
+
+    __table_args__ = (UniqueConstraint("plant_id", "item_id", "currency", name="uq_rm_cost_sheet_scope"),)
+
+
+class RmCostVersion(Base):
+    __tablename__ = "rm_cost_versions"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sheet_id = Column(UUID(as_uuid=True), ForeignKey("rm_cost_sheets.id"), nullable=False, index=True)
+    version_no = Column(Integer, nullable=False)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    request_fingerprint = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, default="DRAFT")
+    base_cost = Column(Numeric(18, 6), nullable=False)
+    landed_cost = Column(Numeric(18, 6), nullable=False)
+    effective_from = Column(Date, nullable=False)
+    effective_to = Column(Date, nullable=True)
+    change_reason = Column(Text, nullable=False)
+    activation_reason = Column(Text, nullable=True)
+    source = Column(String(80), nullable=True)
+    content_hash = Column(String(64), nullable=False)
+    created_by = Column(String(200), nullable=False)
+    activated_by = Column(String(200), nullable=True)
+    activated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    sheet = relationship("RmCostSheet", back_populates="versions", foreign_keys=[sheet_id])
+    components = relationship("RmCostComponent", back_populates="version", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("sheet_id", "version_no", name="uq_rm_cost_version_no"),
+        UniqueConstraint("sheet_id", "request_id", name="uq_rm_cost_version_request"),
+        CheckConstraint("base_cost >= 0 AND landed_cost >= 0", name="ck_rm_cost_nonnegative"),
+        CheckConstraint("status IN ('DRAFT','SCHEDULED','ACTIVE','SUPERSEDED','CANCELLED')", name="ck_rm_cost_version_status"),
+    )
+
+
+class RmCostComponent(Base):
+    __tablename__ = "rm_cost_components"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    version_id = Column(UUID(as_uuid=True), ForeignKey("rm_cost_versions.id"), nullable=False, index=True)
+    component_type = Column(String(30), nullable=False)
+    label = Column(String(120), nullable=False)
+    calculation_mode = Column(String(20), nullable=False, default="PER_KG")
+    entered_value = Column(Numeric(18, 6), nullable=False)
+    normalized_per_kg = Column(Numeric(18, 6), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    metadata_json = Column(JSON, nullable=False, default=dict)
+
+    version = relationship("RmCostVersion", back_populates="components")
+
+    __table_args__ = (CheckConstraint("normalized_per_kg >= 0", name="ck_rm_cost_component_nonnegative"),)

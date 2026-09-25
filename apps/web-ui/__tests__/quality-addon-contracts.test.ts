@@ -198,7 +198,7 @@ test("sales release resolves winders through the order plant instead of browser-
   assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
 })
 
-test("print contracts use one specification page and exactly two job-card sides", () => {
+test("print contracts preserve specification and three writable stage QC pages", () => {
   const specPrint = readFileSync(resolve(process.cwd(), "components/specs/print/SpecSheetPrint.tsx"), "utf8")
   const jobCardPrint = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
 
@@ -213,7 +213,10 @@ test("print contracts use one specification page and exactly two job-card sides"
     assert.match(specPrint, new RegExp(label, "i"))
   }
   assert.doesNotMatch(specPrint, /oven/i)
-  assert.equal((jobCardPrint.match(/<section className="job-print-side job-[a-z-]+-side">/g) || []).length, 2)
+  assert.equal((jobCardPrint.match(/<section className="job-print-side job-[a-z-]+-side"/g) || []).length, 3)
+  for (const stage of ["winding", "oven", "process"]) {
+    assert.match(jobCardPrint, new RegExp(`data-testid="print-page-${stage}"`))
+  }
   assert.match(jobCardPrint, /page-break-after: always !important/)
   assert.match(jobCardPrint, /page-break-after: auto !important/)
 })

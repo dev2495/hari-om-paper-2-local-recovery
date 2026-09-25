@@ -98,6 +98,11 @@ class ItemResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @field_validator("plant_id", mode="before")
+    @classmethod
+    def serialize_plant_identity(cls, value):
+        return str(value)
+
 
 class ItemUpdate(BaseModel):
     name: Optional[str] = None

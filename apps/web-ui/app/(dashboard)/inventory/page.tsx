@@ -43,14 +43,14 @@ function normalizeRows(raw: any) {
 
 function Kpi({ label, value, hint, tone = "slate" }: { label: string; value: string; hint: string; tone?: string }) {
   const toneClass: Record<string, string> = {
-    slate: "border-slate-200 bg-white text-slate-950",
-    cyan: "border-cyan-200 bg-cyan-50 text-cyan-950",
-    amber: "border-amber-200 bg-amber-50 text-amber-950",
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
-    rose: "border-rose-200 bg-rose-50 text-rose-950",
+    slate: "border-border bg-card text-foreground",
+    cyan: "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink",
+    amber: "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
+    emerald: "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
+    rose: "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
   }
   return (
-    <div className={`rounded-[1.35rem] border px-4 py-3 shadow-sm ${toneClass[tone] || toneClass.slate}`}>
+    <div className={`rounded-xl border px-4 py-3 shadow-sm ${toneClass[tone] || toneClass.slate}`}>
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-60">{label}</p>
       <p className="mt-2 text-2xl font-semibold leading-none">{value}</p>
       <p className="mt-1 text-xs leading-5 opacity-70">{hint}</p>
@@ -124,8 +124,8 @@ export default function InventoryOverviewPage() {
   ).sort((left: any, right: any) => right.load_kg - left.load_kg)
 
   const actionCards = [
-    { href: "/inventory/raw-material-inward", title: "Raw material inward", copy: "Post paper, adhesive, parchment, packing lots.", icon: Warehouse },
-    { href: "/inventory/reels/inward", title: "Reel inward", copy: "Scan paper reels, vendor, weight, and location.", icon: Boxes },
+    { href: "/purchase/inward", title: "PO-linked inward", copy: "Receive approved paper and bulk PO lines with invoice comparison.", icon: Warehouse },
+    { href: "/purchase/inward", title: "Reel and coil inward", copy: "Record measured kg and create one AT label per physical unit.", icon: Boxes },
     { href: "/inventory/production-issue", title: "Production issue", copy: "Issue RM against job card and lot/reel truth.", icon: PackageCheck },
     { href: "/inventory/stock-control", title: "Stock close control", copy: "Opening load, closing certification, and year carry-forward.", icon: FileCheck2 },
     { href: "/purchase", title: "Purchase and GRN", copy: "Request, PO status, GRN handoff, and incoming QC.", icon: ReceiptText },
@@ -139,8 +139,8 @@ export default function InventoryOverviewPage() {
         variant="hero"
         appearance={MODULE_APPEARANCES.inventory}
         badge="Inventory control"
-        title="Inventory stock, locations, reels, issues, valuation, and MRP readiness."
-        description="Stores gets transaction screens; owner and planner get kg/value/risk views; purchasing gets shortage-to-PO draft signals."
+        title="Stock overview"
+        description="Review material availability, held stock and valuation. Open a receipt, issue or stock record to take action."
         aside={
           <div className="grid gap-2 sm:grid-cols-2">
             <Kpi label="Inventory value" value={formatCurrency(totalValue)} hint="RM + tracked batch valuation" tone="cyan" />
@@ -151,19 +151,19 @@ export default function InventoryOverviewPage() {
         }
       />
 
-      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {actionCards.map((card) => (
-          <Link key={card.href} href={card.href} className="group rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-lg shadow-slate-900/5 transition hover:-translate-y-1 hover:shadow-xl">
+          <Link key={card.href} href={card.href} className="group rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-primary/40">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-sm font-semibold text-slate-950">{card.title}</h2>
-                <p className="mt-1 text-xs leading-5 text-slate-500">{card.copy}</p>
+                <h2 className="text-sm font-semibold text-foreground">{card.title}</h2>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{card.copy}</p>
               </div>
-              <div className="rounded-2xl bg-cyan-950 p-2.5 text-white transition group-hover:bg-amber-700">
+              <div className="rounded-lg bg-secondary p-2.5 text-primary">
                 <card.icon className="h-4 w-4" />
               </div>
             </div>
-            <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-cyan-900">
+            <div className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-signal-cyan-ink">
               Open <ArrowRight className="h-3.5 w-3.5" />
             </div>
           </Link>
@@ -171,13 +171,13 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Material split</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Stock by category and kg</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Material split</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">Stock by category and kg</h2>
             </div>
-            <p className="text-xs text-slate-500">Raw paper, adhesive, parchment, FG, and packing pressure.</p>
+            <p className="text-xs text-muted-foreground">Raw paper, adhesive, parchment, FG, and packing pressure.</p>
           </div>
           <div className="mt-4 h-[310px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -192,9 +192,9 @@ export default function InventoryOverviewPage() {
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Status split</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Usable vs blocked stock</h2>
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Status split</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Usable vs blocked stock</h2>
           <div className="mt-4 grid gap-4 md:grid-cols-[210px_minmax(0,1fr)]">
             <div className="h-[210px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -208,46 +208,46 @@ export default function InventoryOverviewPage() {
             </div>
             <div className="space-y-2">
               {statusRows.map((row: any, index: number) => (
-                <div key={row.stock_status} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+                <div key={row.stock_status} className="rounded-2xl border border-border bg-muted px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                    <span className="flex items-center gap-2 text-sm font-semibold text-foreground">
                       <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: colors[index % colors.length] }} />
                       {row.stock_status}
                     </span>
-                    <span className="text-sm font-semibold text-slate-950">{formatKg(Number(row.weight_kg || row.batch_qty || 0))}</span>
+                    <span className="text-sm font-semibold text-foreground">{formatKg(Number(row.weight_kg || row.batch_qty || 0))}</span>
                   </div>
-                  <p className="mt-1 text-[11px] text-slate-500">{row.reel_count || 0} reels · {row.batch_count || 0} batches</p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">{row.reel_count || 0} reels · {row.batch_count || 0} batches</p>
                 </div>
               ))}
-              {!statusRows.length ? <p className="text-sm text-slate-500">No status rows yet.</p> : null}
+              {!statusRows.length ? <p className="text-sm text-muted-foreground">No status rows yet.</p> : null}
             </div>
           </div>
         </div>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-3">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Paper types</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Top paper load</h2>
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Paper types</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Top paper load</h2>
           <div className="mt-4 space-y-2">
             {paperRows.map((row) => (
-              <div key={row.name} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div key={row.name} className="rounded-2xl border border-border bg-muted px-3 py-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="truncate font-semibold text-slate-800">{row.name}</span>
-                  <span className="font-semibold text-slate-950">{formatKg(row.kg)}</span>
+                  <span className="truncate font-semibold text-foreground">{row.name}</span>
+                  <span className="font-semibold text-foreground">{formatKg(row.kg)}</span>
                 </div>
-                <div className="mt-2 h-2 rounded-full bg-slate-200">
+                <div className="mt-2 h-2 rounded-full bg-muted">
                   <div className="h-2 rounded-full bg-cyan-800" style={{ width: `${Math.min(100, totalKg ? (row.kg / totalKg) * 100 : 0)}%` }} />
                 </div>
               </div>
             ))}
-            {!paperRows.length ? <p className="text-sm text-slate-500">No raw paper balances available yet.</p> : null}
+            {!paperRows.length ? <p className="text-sm text-muted-foreground">No raw paper balances available yet.</p> : null}
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Aging</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Old stock risk</h2>
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Aging</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Old stock risk</h2>
           <div className="mt-4 h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={agingBuckets}>
@@ -259,12 +259,12 @@ export default function InventoryOverviewPage() {
               </BarChart>
             </ResponsiveContainer>
           </div>
-          <p className="mt-2 text-xs text-slate-500">{staleRows.length} stale reel/batch rows above 60 days.</p>
+          <p className="mt-2 text-xs text-muted-foreground">{staleRows.length} stale reel/batch rows above 60 days.</p>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">MRP actions</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Shortage and purchase queue</h2>
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">MRP actions</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Shortage and purchase queue</h2>
           <div className="mt-4 space-y-2">
             <Kpi label="Critical items" value={`${criticalRows.length}`} hint="At/below reorder point where configured" tone={criticalRows.length ? "rose" : "emerald"} />
             <Kpi label="Reels tracked" value={`${reels.length}`} hint="Reel records visible in current scope" tone="cyan" />
@@ -278,21 +278,21 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Location pressure</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Occupied bins and staging</h2>
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Location pressure</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Occupied bins and staging</h2>
           <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
             {locationRows.slice(0, 10).map((row: any) => (
-              <div key={row.location_id || row.code} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
+              <div key={row.location_id || row.code} className="rounded-2xl border border-border bg-muted px-3 py-2">
                 <div className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-semibold text-slate-900">{row.code}</span>
-                  <span className="text-slate-500">{row.purpose}</span>
+                  <span className="font-semibold text-foreground">{row.code}</span>
+                  <span className="text-muted-foreground">{row.purpose}</span>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">{row.warehouse} · {row.zone || "-"} / {row.bin || "-"} · {formatKg(row.weight_kg)} · {formatNumber(row.qty, 2)} qty</p>
+                <p className="mt-1 text-xs text-muted-foreground">{row.warehouse} · {row.zone || "-"} / {row.bin || "-"} · {formatKg(row.weight_kg)} · {formatNumber(row.qty, 2)} qty</p>
                 {Array.isArray(row.items) && row.items.length ? (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {row.items.slice(0, 3).map((item: any) => (
-                      <span key={`${row.location_id}-${item.item_id}`} className="rounded-full border border-cyan-100 bg-white px-2 py-1 text-[10px] font-semibold text-cyan-900">
+                      <span key={`${row.location_id}-${item.item_id}`} className="rounded-full border border-signal-cyan-line bg-card px-2 py-1 text-[10px] font-semibold text-signal-cyan-ink">
                         {item.item_code} · {Number(item.weight_kg || 0) > 0 ? formatKg(item.weight_kg) : `${formatNumber(item.qty, 2)} qty`}
                       </span>
                     ))}
@@ -300,21 +300,21 @@ export default function InventoryOverviewPage() {
                 ) : null}
               </div>
             ))}
-            {!locationRows.length ? <p className="text-sm text-slate-500">Create locations from System to start occupancy tracking.</p> : null}
+            {!locationRows.length ? <p className="text-sm text-muted-foreground">Create locations from System to start occupancy tracking.</p> : null}
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Recent movement</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Latest ledger postings</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Recent movement</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">Latest ledger postings</h2>
             </div>
-            <Link href="/inventory/ledger" className="text-xs font-semibold text-cyan-900">Full ledger</Link>
+            <Link href="/inventory/ledger" className="text-xs font-semibold text-signal-cyan-ink">Full ledger</Link>
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="mt-4 overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-muted text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-3 py-3">Date</th>
                   <th className="px-3 py-3">Type</th>
@@ -322,17 +322,17 @@ export default function InventoryOverviewPage() {
                   <th className="px-3 py-3">Reference</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-border">
                 {recentTransactions.map((txn: any) => (
                   <tr key={txn.transaction_id || txn.id}>
-                    <td className="px-3 py-3 text-slate-600">{txn.date ? new Date(txn.date).toLocaleDateString("en-GB") : "-"}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-900">{txn.type || txn.transaction_type}</td>
+                    <td className="px-3 py-3 text-muted-foreground">{txn.date ? new Date(txn.date).toLocaleDateString("en-GB") : "-"}</td>
+                    <td className="px-3 py-3 font-semibold text-foreground">{txn.type || txn.transaction_type}</td>
                     <td className="px-3 py-3">{formatNumber(txn.qty_change ?? txn.quantity, 2)}</td>
-                    <td className="px-3 py-3 text-slate-600">{txn.reference || txn.external_ref || "-"}</td>
+                    <td className="px-3 py-3 text-muted-foreground">{txn.reference || txn.external_ref || "-"}</td>
                   </tr>
                 ))}
                 {!recentTransactions.length ? (
-                  <tr><td colSpan={4} className="px-3 py-8 text-center text-slate-500">No ledger movement yet.</td></tr>
+                  <tr><td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">No ledger movement yet.</td></tr>
                 ) : null}
               </tbody>
             </table>
@@ -341,15 +341,15 @@ export default function InventoryOverviewPage() {
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1fr_0.8fr]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
+        <div className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Location-wise stock</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">All visible item load by bin</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Location-wise stock</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">All visible item load by bin</h2>
             </div>
-            <Link href="/inventory/ledger" className="text-xs font-semibold text-cyan-900">Open balances</Link>
+            <Link href="/inventory/ledger" className="text-xs font-semibold text-signal-cyan-ink">Open balances</Link>
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="mt-4 overflow-hidden rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-950 text-[10px] uppercase tracking-[0.16em] text-white">
                 <tr>
@@ -360,28 +360,28 @@ export default function InventoryOverviewPage() {
                   <th className="px-3 py-3">Qty</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-border">
                 {locationItemRows.slice(0, 12).map((row: any) => (
                   <tr key={`${row.location_code}-${row.item_id}`}>
-                    <td className="px-3 py-3 font-semibold text-slate-900">{row.location_code}<span className="block text-xs font-normal text-slate-500">{row.warehouse}</span></td>
-                    <td className="px-3 py-3 text-slate-700">{row.item_code}<span className="block text-xs text-slate-500">{row.item_name}</span></td>
-                    <td className="px-3 py-3 text-slate-600">{row.purpose}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-900">{formatKg(row.weight_kg)}</td>
+                    <td className="px-3 py-3 font-semibold text-foreground">{row.location_code}<span className="block text-xs font-normal text-muted-foreground">{row.warehouse}</span></td>
+                    <td className="px-3 py-3 text-muted-foreground">{row.item_code}<span className="block text-xs text-muted-foreground">{row.item_name}</span></td>
+                    <td className="px-3 py-3 text-muted-foreground">{row.purpose}</td>
+                    <td className="px-3 py-3 font-semibold text-foreground">{formatKg(row.weight_kg)}</td>
                     <td className="px-3 py-3">{formatNumber(row.qty, 2)}</td>
                   </tr>
                 ))}
                 {!locationItemRows.length ? (
-                  <tr><td colSpan={5} className="px-3 py-8 text-center text-slate-500">No location-level item load yet. Post inward with a location to populate this view.</td></tr>
+                  <tr><td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">No location-level item load yet. Post inward with a location to populate this view.</td></tr>
                 ) : null}
               </tbody>
             </table>
           </div>
         </div>
 
-        <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-5 shadow-xl shadow-amber-900/5">
-          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-amber-700">Stock close logic</p>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">Opening, alerts, and closing in one audit chain</h2>
-          <div className="mt-4 space-y-3 text-sm leading-6 text-slate-700">
+        <div className="rounded-[2rem] border border-signal-amber-line bg-signal-amber-soft p-5 shadow-xl shadow-amber-900/5">
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-signal-amber-ink">Stock close logic</p>
+          <h2 className="mt-1 text-xl font-semibold text-foreground">Opening, alerts, and closing in one audit chain</h2>
+          <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
             <p><b>Opening load</b> is only for go-live or year carry-forward. It posts an auditable OPENING transaction and should not be used for daily GRN.</p>
             <p><b>Daily GRN / inward</b> creates receipt batches or reels against vendor and location, then issues consume the same ledger.</p>
             <p><b>Close certification</b> freezes book stock for a period, records physical count variance, and carries certified closing into next period opening.</p>

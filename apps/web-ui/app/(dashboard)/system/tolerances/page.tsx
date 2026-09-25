@@ -191,7 +191,7 @@ function TolerancesPage() {
 
   return (
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="system-tolerances-page">
-      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
+      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
         {[
           { href: "/system/users", label: "Users", icon: Users2 },
           { href: "/system/plants", label: "Plants", icon: Building2 },
@@ -203,7 +203,7 @@ function TolerancesPage() {
             key={item.href}
             href={item.href}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              item.href === "/system/tolerances" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+              item.href === "/system/tolerances" ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <item.icon className="h-4 w-4" />
@@ -230,7 +230,7 @@ function TolerancesPage() {
           <select
             value={selectedPlant}
             onChange={(e) => setSelectedPlant(e.target.value)}
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
             data-testid="tolerance-plant-select"
           >
             {plantList.length === 0 ? <option value="">No plants</option> : null}
@@ -242,7 +242,7 @@ function TolerancesPage() {
           </select>
         </FilterField>
         <FilterField label="Editor">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">
             {user?.email || user?.name || "—"}
           </span>
         </FilterField>
@@ -251,7 +251,7 @@ function TolerancesPage() {
           type="button"
           onClick={onReset}
           disabled={!dirty || update.isPending}
-          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-200 disabled:opacity-40"
+          className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-signal-cyan-line disabled:opacity-40"
         >
           Reset
         </button>
@@ -342,7 +342,7 @@ function TolerancesPage() {
       >
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               <th className="py-2 pr-3">Item type</th>
               <th className="py-2 pr-3 text-right">Global</th>
               <th className="py-2 pr-3 text-right">Effective</th>
@@ -364,10 +364,10 @@ function TolerancesPage() {
               ] as string
               const isOverride = overrideRaw.trim() !== ""
               return (
-                <tr key={k} className="border-b border-slate-100">
+                <tr key={k} className="border-b border-border">
                   <td className="py-2 pr-3 font-mono text-xs">{k.replace("_", " ")}</td>
-                  <td className="py-2 pr-3 text-right text-slate-500">{formatNumber(globalVal, 2)} kg</td>
-                  <td className="py-2 pr-3 text-right font-bold text-slate-950">{formatNumber(effVal, 2)} kg</td>
+                  <td className="py-2 pr-3 text-right text-muted-foreground">{formatNumber(globalVal, 2)} kg</td>
+                  <td className="py-2 pr-3 text-right font-bold text-foreground">{formatNumber(effVal, 2)} kg</td>
                   <td className="py-2 pr-3">
                     <Pill tone={isOverride ? "ok" : "neutral"}>{isOverride ? "OVERRIDE" : "GLOBAL"}</Pill>
                   </td>
@@ -376,8 +376,8 @@ function TolerancesPage() {
             })}
             <tr>
               <td className="py-2 pr-3 font-mono text-xs">DEFAULT (fallback)</td>
-              <td className="py-2 pr-3 text-right text-slate-500">{formatNumber(Number(globalDefaults.default_kg || 5), 2)} kg</td>
-              <td className="py-2 pr-3 text-right font-bold text-slate-950">{formatNumber(effective.default_kg, 2)} kg</td>
+              <td className="py-2 pr-3 text-right text-muted-foreground">{formatNumber(Number(globalDefaults.default_kg || 5), 2)} kg</td>
+              <td className="py-2 pr-3 text-right font-bold text-foreground">{formatNumber(effective.default_kg, 2)} kg</td>
               <td className="py-2 pr-3">
                 <Pill tone={form.default_kg.trim() && Number(form.default_kg) !== Number(globalDefaults.default_kg || 5) ? "ok" : "neutral"}>
                   {form.default_kg.trim() && Number(form.default_kg) !== Number(globalDefaults.default_kg || 5) ? "OVERRIDE" : "GLOBAL"}
@@ -392,7 +392,7 @@ function TolerancesPage() {
         eyebrow="How this works"
         title="Notes"
       >
-        <ul className="space-y-1.5 text-sm text-slate-700">
+        <ul className="space-y-1.5 text-sm text-muted-foreground">
           <li><strong>Empty band</strong> means the system falls back to the global default. Saving a row with all bands blank just commits the <code>default_kg</code>.</li>
           <li><strong>Save</strong> commits the plant override row. The next reconciliation refresh uses it; in-flight responses are not retroactively re-classified.</li>
           <li><strong>ALL scope is rejected.</strong> Switch the plant chip before saving — the audit trail records exactly which plant the change applies to.</li>
@@ -420,8 +420,8 @@ function ToleranceField({
 }) {
   return (
     <label className="flex flex-col gap-1.5 text-sm">
-      <span className="font-semibold text-slate-800">
-        {label} {required ? <span className="text-rose-700">*</span> : null}
+      <span className="font-semibold text-foreground">
+        {label} {required ? <span className="text-signal-rose-ink">*</span> : null}
       </span>
       <input
         type="number"
@@ -432,9 +432,9 @@ function ToleranceField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         data-testid={testId}
-        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+        className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
       />
-      {hint ? <span className="text-[11px] text-slate-500">{hint}</span> : null}
+      {hint ? <span className="text-[11px] text-muted-foreground">{hint}</span> : null}
     </label>
   )
 }

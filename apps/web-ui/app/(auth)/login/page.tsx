@@ -51,8 +51,8 @@ function LoginPageContent() {
 
   if (isLoading) {
     return (
-      <main className="min-h-screen bg-slate-950 p-6 text-white">
-        <div className="mx-auto mt-24 max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl">
+      <main className="min-h-screen bg-background p-6 text-foreground">
+        <div className="mx-auto mt-24 max-w-md rounded-xl border border-border bg-card p-8 shadow-sm">
           Checking secure session...
         </div>
       </main>
@@ -60,58 +60,58 @@ function LoginPageContent() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(20,83,107,0.24),_transparent_38%),linear-gradient(180deg,_#edf4f7_0%,_#dce7eb_100%)] text-slate-950">
-      <div className="mx-auto flex min-h-screen max-w-6xl items-center px-6 py-16">
+    <main className="min-h-screen bg-background text-foreground">
+      <div className="mx-auto flex min-h-screen max-w-5xl items-center px-4 py-8 sm:px-8 sm:py-16">
         <div className="grid w-full gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-          <section className="order-2 rounded-[32px] border border-white/50 bg-slate-950 px-8 py-10 text-white shadow-[0_24px_80px_rgba(15,23,42,0.24)] lg:order-none">
-            <div className="inline-flex items-center rounded-full border border-white/15 bg-white/5 px-4 py-1 text-xs font-semibold uppercase tracking-[0.28em] text-teal-200/80">
+          <section className="order-2 flex flex-col justify-center px-2 py-8 lg:order-none lg:pr-12">
+            <div className="inline-flex items-center text-sm font-semibold text-primary">
               Hari Om Paper
             </div>
-            <h1 className="mt-6 max-w-xl text-4xl font-semibold tracking-tight text-white sm:text-5xl">
-              TubeOS control room for paper-tube manufacturing.
+            <h1 className="mt-6 max-w-xl text-3xl font-semibold leading-tight tracking-tight text-foreground sm:text-5xl">
+              Every order. Every stage. One clear workspace.
             </h1>
-            <p className="mt-4 max-w-2xl text-base leading-7 text-slate-300">
+            <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
               Sales, planning, production, reconciliation, and dispatch in one workspace.
             </p>
-            <div className="mt-10 grid gap-4 sm:grid-cols-3">
+            <div className="mt-8 grid gap-4">
               {[
-                ["Scope", "Owner/Admin ALL reads with plant-safe writes"],
-                ["Planning", "Machine and shift driven execution"],
-                ["Accounting", "Recipe theory plus month-end actuals"],
+                ["Plan with clarity", "Customer demand, materials and machine schedules."],
+                ["Keep quality in view", "Inspections, measurements and stock disposition."],
+                ["Follow the handoff", "Production, packing and customer dispatch."],
               ].map(([label, value]) => (
-                <div key={label} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-[0.24em] text-slate-400">{label}</p>
-                  <p className="mt-2 text-sm font-medium leading-6 text-slate-100">{value}</p>
+                <div key={label} className="border-l-2 border-primary/30 pl-4 py-1">
+                  <p className="text-sm font-semibold text-foreground">{label}</p>
+                  <p className="mt-1 text-sm leading-6 text-muted-foreground">{value}</p>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className="order-1 rounded-[28px] border border-slate-200/80 bg-white/90 p-8 shadow-[0_20px_70px_rgba(15,23,42,0.12)] backdrop-blur lg:order-none">
+          <section className="order-1 self-center rounded-2xl border border-border bg-card p-6 shadow-sm sm:p-8 lg:order-none">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-500">Sign in</p>
-              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Access the live ERP</h2>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
+              <p className="text-sm font-semibold text-primary">Sign in</p>
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Welcome to TubeOS</h2>
+              <p className="mt-3 text-sm leading-6 text-muted-foreground">
                 Use the username and password assigned to your ERP account.
               </p>
             </div>
 
             <form className="mt-8 space-y-5" onSubmit={handleSubmit}>
-              {sessionReason === "access_changed" && !error && !submitting ? <p role="status" className="rounded-xl bg-amber-50 p-4 text-amber-900">Your session expired or your access was updated. Please sign in again.</p> : null}
+              {sessionReason === "access_changed" && !error && !submitting ? <p role="status" className="rounded-xl bg-signal-amber-soft p-4 text-signal-amber-ink">Your session expired or your access was updated. Please sign in again.</p> : null}
               {sessionReason === "inactive" && !error && !submitting ? (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" role="status">
+                <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink" role="status">
                   Your secure session ended after 15 minutes without activity. Sign in again to continue.
                 </div>
               ) : null}
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Username</span>
+                <span className="mb-2 block text-sm font-medium text-muted-foreground">Username</span>
                 <input
                   data-testid="login-email"
                   autoComplete="username"
                   autoCapitalize="none"
                   autoFocus
                   spellCheck={false}
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:bg-white"
+                  className="h-12 w-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none transition focus:border-teal-600 focus:bg-card"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   type="text"
@@ -120,11 +120,11 @@ function LoginPageContent() {
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Password</span>
+                <span className="mb-2 block text-sm font-medium text-muted-foreground">Password</span>
                 <PasswordInput
                   data-testid="login-password"
                   autoComplete="current-password"
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base text-slate-950 outline-none transition focus:border-teal-600 focus:bg-white"
+                  className="h-12 w-full rounded-lg border border-border bg-background px-4 text-base text-foreground outline-none transition focus:border-teal-600 focus:bg-card"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   type="password"
@@ -133,12 +133,12 @@ function LoginPageContent() {
               </label>
 
               {error ? (
-                <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{error}</div>
+                <div role="alert" className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">{error}</div>
               ) : null}
 
               <button
                 data-testid="login-submit"
-                className="inline-flex h-12 w-full items-center justify-center rounded-2xl bg-slate-950 px-4 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="inline-flex h-12 w-full items-center justify-center rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
                 type="submit"
                 disabled={submitting || isLoading}
               >
@@ -156,8 +156,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="min-h-screen bg-slate-950 p-6 text-white">
-          <div className="mx-auto mt-24 max-w-md rounded-3xl border border-white/10 bg-white/10 p-8 shadow-2xl">
+        <main className="min-h-screen bg-background p-6 text-foreground">
+          <div className="mx-auto mt-24 max-w-md rounded-xl border border-border bg-card p-8 shadow-sm">
             Loading login...
           </div>
         </main>

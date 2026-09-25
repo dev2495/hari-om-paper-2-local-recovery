@@ -15,7 +15,7 @@ export function BooksLockedChip({ compact }: { compact?: boolean }) {
 
   const booksQuery = useBooksState(activePlant || "", canSee && Boolean(activePlant) && activePlant !== "ALL")
   const data = booksQuery.data
-  if (!data) return null
+  if (!data || (!data.locked_through && !data.current_month_status)) return null
 
   const locked = Boolean(data.locked_through)
   const lockedThrough = locked ? dayjs(data.locked_through as string).format("DD MMM YYYY") : null
@@ -29,15 +29,15 @@ export function BooksLockedChip({ compact }: { compact?: boolean }) {
           : "Current month is open — click to open reconciliation"
       }
       className={cn(
-        "hidden items-center gap-1.5 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.16em] shadow-sm transition lg:inline-flex",
+        "hidden shrink-0 items-center gap-1.5 whitespace-nowrap h-10 rounded-lg border px-3 py-1.5 text-[11px] font-medium transition xl:inline-flex",
         locked
-          ? "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
-          : "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+          ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink hover:bg-signal-emerald-soft"
+          : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink hover:bg-signal-amber-soft",
       )}
     >
       {locked ? <LockKeyhole className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
       {compact ? (
-        <span>{locked ? `Lk ${lockedThrough}` : "Open"}</span>
+        <span>{locked ? `Closed ${dayjs(data.locked_through as string).format("DD MMM")}` : "Open"}</span>
       ) : (
         <span>{locked ? `Books lk ${lockedThrough}` : `Books open · ${data.current_month_status}`}</span>
       )}

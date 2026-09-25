@@ -33,6 +33,12 @@ def _roles(values: Iterable[str] | str | None) -> set[str]:
     return {str(item) for item in values if str(item).strip()}
 
 
+def _validate_waiver_policy(payload: dict[str, Any]) -> None:
+    for row in payload.get("parameters") or []:
+        if isinstance(row, dict) and not isinstance(row.get("non_waivable", False), bool):
+            raise ProfileLifecycleError("non_waivable must be true or false.", code="INVALID_WAIVER_POLICY")
+
+
 def apply_profile_save(
     current: Optional[dict[str, Any]],
     incoming: dict[str, Any],
@@ -42,6 +48,7 @@ def apply_profile_save(
 ) -> dict[str, Any]:
     del actor_roles
     payload = dict(incoming or {})
+    _validate_waiver_policy(payload)
     status = str(requested_status or payload.get("setup_status") or payload.get("status") or "draft").strip().lower()
     if status in {"approved", "exemption", "approved_exemption", "not_required"}:
         raise ProfileLifecycleError(
@@ -52,6 +59,11 @@ def apply_profile_save(
     if status not in WRITABLE_STATUSES:
         status = "draft"
     current = dict(current or {})
+    # Approval provenance belongs to the server. A draft cannot forge or erase
+    # the approved revision used by receipts arriving while review is pending.
+    payload.pop("approved_snapshot", None)
+    if isinstance(current.get("approved_snapshot"), dict):
+        payload["approved_snapshot"] = dict(current["approved_snapshot"])
     current_status = str(current.get("status") or current.get("setup_status") or "").strip().lower()
     revision = int(current.get("revision") or 1)
     if current_status in {"approved", "approved_exemption", "exemption", "not_required"}:
@@ -95,6 +107,7 @@ def apply_profile_approve(
             code="STALE_REVISION",
             status_code=409,
         )
+    _validate_waiver_policy(payload)
     payload["status"] = "approved"
     payload["setup_status"] = "approved"
     payload["inspection_required"] = True

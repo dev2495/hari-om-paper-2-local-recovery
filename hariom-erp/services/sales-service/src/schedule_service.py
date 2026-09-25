@@ -124,7 +124,10 @@ def _as_date(value: Any) -> date:
     if isinstance(value, date) and not isinstance(value, datetime):
         return value
     text = str(value or "").strip()[:10]
-    return date.fromisoformat(text)
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise SchedulePolicyError("A valid delivery date is required.", code="INVALID_DATE", field="delivery_date") from exc
 
 
 def preview_line_schedules(
@@ -573,6 +576,7 @@ def group_move_remainder(
     day_delta: int,
     expected_revision: int,
     actor: str,
+    preview_only: bool = False,
 ) -> dict[str, Any]:
     """Shift only editable remainder dates. Dispatched/started history stays put."""
 
@@ -636,17 +640,31 @@ def group_move_remainder(
                 remaining_started = round(max(0.0, remaining_started - qty), 4)
                 kept.append(serialize_schedule_row(row) | {"reason": "started"})
                 continue
-            row.delivery_date = row.delivery_date + timedelta(days=int(day_delta))
-            row.updated_at = datetime.utcnow()
-            moved.append(serialize_schedule_row(row))
-    locked.schedule_revision = current_revision + 1
-    db.commit()
+            proposed_date = row.delivery_date + timedelta(days=int(day_delta))
+            try:
+                _assert_delivery_date(order, proposed_date)
+            except SchedulePolicyError as exc:
+                db.rollback()
+                raise HTTPException(status_code=400, detail=exc.as_dict()) from exc
+            proposal = serialize_schedule_row(row) | {
+                "previous_date": row.delivery_date.isoformat(),
+                "delivery_date": proposed_date.isoformat(), "revision": current_revision + 1,
+            }
+            moved.append(proposal)
+            if not preview_only:
+                row.delivery_date = proposed_date
+                row.revision = current_revision + 1
+                row.updated_at = datetime.utcnow()
+    if not preview_only:
+        locked.schedule_revision = current_revision + 1
+        db.commit()
     return {
         "order_id": str(order.id),
         "day_delta": int(day_delta),
         "schedule_revision": int(locked.schedule_revision),
         "moved": moved,
         "kept": kept,
+        "preview_only": preview_only,
         "calendar": "customer_delivery",
         "message": "Only editable remainder moved. Fulfilled and started history was not rewritten.",
     }

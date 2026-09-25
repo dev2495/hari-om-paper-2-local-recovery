@@ -12,7 +12,7 @@ async function login(page) {
   await page.evaluate(() => {
     window.localStorage.removeItem("hariom_access_token")
     window.localStorage.removeItem("hariom_active_plant")
-    window.localStorage.removeItem("hariom_sidebar_pinned_v2")
+    window.localStorage.setItem("hariom_sidebar_pinned_v3", "false")
   })
 
   const bffBaseUrl = runtimeManifest.urls.bff
@@ -67,13 +67,17 @@ async function expectPlannerMoveHonorsSelectedPlant(page) {
   const winderStage = (board.stages || []).find((entry) => entry.stage === "WINDER")
   expect(winderStage).toBeTruthy()
   const openLane = (winderStage.lanes || []).find((lane) => !lane.machine_id && !lane.shift_code && (lane.jobs || []).length > 0)
-  const targetLane = (winderStage.lanes || []).find(
-    (lane) => lane.machine_id && lane.shift_code === "SHIFT_A" && String(lane.machine_code || "").includes("WINDER_01"),
-  )
   expect(openLane).toBeTruthy()
+  // QC regression cases deliberately leave incompatible jobs in the queue.
+  // Exercise a server-suggested compatible move, not arbitrary queue ordering.
+  const suggestion = (board.suggestions || []).find((entry) =>
+    entry.stage === "WINDER" && entry.machine_id &&
+    openLane.jobs.some((job) => job.job_card_id === entry.job_card_id),
+  )
+  expect(suggestion, "A compatible unscheduled fixture must have a planning suggestion").toBeTruthy()
+  const targetLane = winderStage.lanes.find((lane) => lane.lane_id === suggestion.lane_id)
   expect(targetLane).toBeTruthy()
-
-  const job = openLane.jobs[0]
+  const job = openLane.jobs.find((entry) => entry.job_card_id === suggestion.job_card_id)
   const moveResponse = await page.request.post(`${bffBaseUrl}/api/production/planning/board/move`, {
     headers,
     data: {
@@ -135,7 +139,7 @@ test("premium sales and planner surfaces load with animated interactive elements
 
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("inventory-control-page")).toBeVisible()
-  await expect(page.getByText(/stock, locations, reels, issues, valuation, and mrp readiness/i)).toBeVisible()
+  await expect(page.getByRole("heading", { name: /^stock overview$/i })).toBeVisible()
   await expect(page.getByRole("link", { name: /open mrp reorder and demand views/i })).toBeVisible()
   await expect(page.getByRole("link", { name: /open stock close control/i }).first()).toBeVisible()
 
@@ -159,20 +163,20 @@ test("premium sales and planner surfaces load with animated interactive elements
 
   await page.goto("/planning/board?section=winder&plan_date=2026-04-19", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("planner-page")).toBeVisible()
-  const shellSidebar = page.locator("aside[data-expanded]").first()
-  await expect(shellSidebar).toHaveAttribute("data-expanded", "false")
+  const shellSidebar = page.locator(".tube-rail")
+  await expect(page.locator(".tube-shell")).toHaveAttribute("data-rail", "compact")
   await shellSidebar.hover()
-  await expect(shellSidebar).toHaveAttribute("data-expanded", "true")
-  await page.getByTestId("planner-page").hover()
-  await expect(shellSidebar).toHaveAttribute("data-expanded", "false")
+  await expect(page.locator(".tube-shell")).toHaveAttribute("data-rail", "compact")
+  await page.getByRole("button", { name: "Expand navigation", exact: true }).click()
+  await expect(page.locator(".tube-shell")).toHaveAttribute("data-rail", "expanded")
   await expect(page.getByText(/machine scheduling across 3 days/i)).toBeVisible()
   await expect(page.getByText(/schedule canvas/i)).toBeVisible()
   await expect(page.getByRole("link", { name: /previous 3 days/i })).toBeVisible()
   await expect(page.getByRole("link", { name: /today window/i })).toBeVisible()
   await expect(page.getByRole("link", { name: /next 3 days/i })).toBeVisible()
   await expect(page.getByRole("link", { name: /print shop-floor plan/i })).toBeVisible()
-  await expect(page.getByRole("link", { name: /summary/i }).first()).toBeVisible()
-  await expect(page.getByText(/released to this winder/i).first()).toBeVisible()
+  await expect(page.getByRole("combobox", { name: "Planning workspace", exact: true })).toContainText("Planning overview")
+  await expect(page.getByText(/release hint.*any available winder/i).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /all ·/i }).first()).toBeVisible()
   await expect(page.getByRole("button", { name: /winder_01 ·/i }).first()).toBeVisible()
   await expect(page.getByRole("heading", { name: /^WINDER_01$/ }).first()).toBeVisible()
@@ -183,8 +187,8 @@ test("premium sales and planner surfaces load with animated interactive elements
   await expect.poll(async () => page.locator("[data-testid='planner-page'] article[draggable='true']").count()).toBeGreaterThan(0)
   await expect(page.getByText(/kg/i).first()).toBeVisible()
   await expect(page.getByText(/\b(m|meters)\b/i).first()).toBeVisible()
-  const firstTab = page.locator("a[href*='/planning/board?section=']").first()
-  await expectTransition(firstTab)
+  const printAction = page.getByRole("link", { name: /print shop-floor plan/i })
+  await expectTransition(printAction)
   await expect(page.getByText(/machine lane/i)).toBeVisible()
   const queueCard = page.locator("[data-testid='planner-page'] article").first()
   if (await queueCard.count()) {

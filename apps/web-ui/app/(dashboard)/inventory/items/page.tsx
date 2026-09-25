@@ -97,7 +97,7 @@ export default function InventoryItemsPage() {
 
   return (
     <div className="space-y-5" data-testid="inventory-items-page">
-      <section className="rounded-[2rem] border border-slate-200 bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl">
+      <section className="rounded-[2rem] border border-border bg-gradient-to-br from-slate-950 via-cyan-950 to-slate-800 p-6 text-white shadow-2xl">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-cyan-100/80">Inventory master</p>
@@ -108,7 +108,7 @@ export default function InventoryItemsPage() {
           </div>
           <div className="grid gap-2 sm:grid-cols-4 xl:w-[560px]">
             {itemTypes.map((type) => (
-              <div key={type} className="rounded-2xl border border-white/15 bg-white/10 px-3 py-2">
+              <div key={type} className="rounded-2xl border border-border/15 bg-card/10 px-3 py-2">
                 <p className="text-[9px] font-bold uppercase tracking-[0.16em] text-cyan-100/70">{type.replace(/_/g, " ")}</p>
                 <p className="mt-1 text-xl font-semibold">{typeCounts[type] || 0}</p>
               </div>
@@ -118,74 +118,74 @@ export default function InventoryItemsPage() {
       </section>
 
       <div className="grid gap-4 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <div className="space-y-4">
-        <form onSubmit={handleSubmit} className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
+        <div className="min-w-0 space-y-4">
+        <form onSubmit={handleSubmit} className="rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Create</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">New item</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Create</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">New item</h2>
             </div>
             <div className="rounded-2xl bg-cyan-950 p-3 text-white">
               <Boxes className="h-5 w-5" />
             </div>
           </div>
           <div className="mt-4 grid gap-3">
-            <label className="space-y-1 text-sm font-semibold text-slate-700">
+            <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Item code
-              <input required value={form.item_code} onChange={(event) => setForm((current) => ({ ...current, item_code: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" placeholder="KRAFT-180-BF18" />
+              <input required value={form.item_code} onChange={(event) => setForm((current) => ({ ...current, item_code: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" placeholder="KRAFT-180-BF18" />
             </label>
-            <label className="space-y-1 text-sm font-semibold text-slate-700">
+            <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Item name
-              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" placeholder="Kraft paper 180 GSM" />
+              <input required value={form.name} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" placeholder="Kraft paper 180 GSM" />
             </label>
             <div className="grid grid-cols-2 gap-3">
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
+              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 Type
-                <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value, tracking_mode: event.target.value === "RAW_PAPER" ? "REEL" : "BULK" }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700">
+                <select value={form.type} onChange={(event) => setForm((current) => ({ ...current, type: event.target.value, tracking_mode: event.target.value === "RAW_PAPER" ? "REEL" : "BULK" }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700">
                   {itemTypes.map((type) => <option key={type} value={type}>{type.replace(/_/g, " ")}</option>)}
                 </select>
               </label>
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
+              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 UOM
-                <select value={form.uom} onChange={(event) => setForm((current) => ({ ...current, uom: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700">
+                <select value={form.uom} onChange={(event) => setForm((current) => ({ ...current, uom: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700">
                   {uoms.map((uom) => <option key={uom} value={uom}>{uom}</option>)}
                 </select>
               </label>
             </div>
-            <label className="space-y-1 text-sm font-semibold text-slate-700">
+            <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Tracking mode
-              <select value={form.tracking_mode} onChange={(event) => setForm((current) => ({ ...current, tracking_mode: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700">
+              <select value={form.tracking_mode} onChange={(event) => setForm((current) => ({ ...current, tracking_mode: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700">
                 {trackingModes.map((mode) => <option key={mode} value={mode} disabled={mode === "REEL" && form.type !== "RAW_PAPER"}>{mode}</option>)}
               </select>
             </label>
             <div className="grid grid-cols-3 gap-3">
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
+              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 Reorder
-                <input type="number" step="0.001" value={form.reorder_level} onChange={(event) => setForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" placeholder="0" />
+                <input type="number" step="0.001" value={form.reorder_level} onChange={(event) => setForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" placeholder="0" />
               </label>
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
+              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 Safety
-                <input type="number" step="0.001" value={form.safety_stock} onChange={(event) => setForm((current) => ({ ...current, safety_stock: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" placeholder="0" />
+                <input type="number" step="0.001" value={form.safety_stock} onChange={(event) => setForm((current) => ({ ...current, safety_stock: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" placeholder="0" />
               </label>
-              <label className="space-y-1 text-sm font-semibold text-slate-700">
+              <label className="space-y-1 text-sm font-semibold text-muted-foreground">
                 Lead days
-                <input type="number" step="0.1" value={form.lead_time_days} onChange={(event) => setForm((current) => ({ ...current, lead_time_days: event.target.value }))} className="h-11 w-full rounded-xl border border-slate-200 px-3 outline-none focus:border-cyan-700" placeholder="0" />
+                <input type="number" step="0.1" value={form.lead_time_days} onChange={(event) => setForm((current) => ({ ...current, lead_time_days: event.target.value }))} className="h-11 w-full rounded-xl border border-border px-3 outline-none focus:border-cyan-700" placeholder="0" />
               </label>
             </div>
           </div>
-          {createItem.isError ? <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">Item save failed. Check duplicate code and plant scope.</div> : null}
+          {createItem.isError ? <div className="mt-4 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">Item save failed. Check duplicate code and plant scope.</div> : null}
           <button disabled={createItem.isPending} className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-slate-950 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50">
             <Plus className="h-4 w-4" />
             Create item
           </button>
         </form>
 
-        <form onSubmit={savePolicy} className="rounded-[2rem] border border-cyan-200 bg-cyan-50/70 p-5 shadow-xl shadow-slate-900/5">
+        <form onSubmit={savePolicy} className="rounded-[2rem] border border-signal-cyan-line bg-signal-cyan-soft/70 p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-800/70">Governance</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">MRP policy</h2>
-              <p className="mt-1 text-xs leading-5 text-slate-600">Select a row to edit reorder, safety stock, and lead time used by MRP and stock-close risk.</p>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-signal-cyan-ink/70">Governance</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">MRP policy</h2>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">Select a row to edit reorder, safety stock, and lead time used by MRP and stock-close risk.</p>
             </div>
             <div className="rounded-2xl bg-cyan-950 p-3 text-white">
               <PencilLine className="h-5 w-5" />
@@ -193,29 +193,29 @@ export default function InventoryItemsPage() {
           </div>
           {selectedItem ? (
             <div className="mt-4 grid gap-3">
-              <div className="rounded-2xl border border-cyan-200 bg-white px-3 py-2">
-                <p className="text-sm font-semibold text-slate-950">{selectedItem.item_code}</p>
-                <p className="text-xs text-slate-500">{selectedItem.name}</p>
+              <div className="rounded-2xl border border-signal-cyan-line bg-card px-3 py-2">
+                <p className="text-sm font-semibold text-foreground">{selectedItem.item_code}</p>
+                <p className="text-xs text-muted-foreground">{selectedItem.name}</p>
               </div>
               <div className="grid grid-cols-3 gap-3">
-                <input type="number" step="0.001" value={policyForm.reorder_level} onChange={(event) => setPolicyForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 rounded-xl border border-cyan-200 px-3 text-sm outline-none focus:border-cyan-700" placeholder="Reorder" />
-                <input type="number" step="0.001" value={policyForm.safety_stock} onChange={(event) => setPolicyForm((current) => ({ ...current, safety_stock: event.target.value }))} className="h-11 rounded-xl border border-cyan-200 px-3 text-sm outline-none focus:border-cyan-700" placeholder="Safety" />
-                <input type="number" step="0.1" value={policyForm.lead_time_days} onChange={(event) => setPolicyForm((current) => ({ ...current, lead_time_days: event.target.value }))} className="h-11 rounded-xl border border-cyan-200 px-3 text-sm outline-none focus:border-cyan-700" placeholder="Lead days" />
+                <input type="number" step="0.001" value={policyForm.reorder_level} onChange={(event) => setPolicyForm((current) => ({ ...current, reorder_level: event.target.value }))} className="h-11 rounded-xl border border-signal-cyan-line px-3 text-sm outline-none focus:border-cyan-700" placeholder="Reorder" />
+                <input type="number" step="0.001" value={policyForm.safety_stock} onChange={(event) => setPolicyForm((current) => ({ ...current, safety_stock: event.target.value }))} className="h-11 rounded-xl border border-signal-cyan-line px-3 text-sm outline-none focus:border-cyan-700" placeholder="Safety" />
+                <input type="number" step="0.1" value={policyForm.lead_time_days} onChange={(event) => setPolicyForm((current) => ({ ...current, lead_time_days: event.target.value }))} className="h-11 rounded-xl border border-signal-cyan-line px-3 text-sm outline-none focus:border-cyan-700" placeholder="Lead days" />
               </div>
               <button disabled={updateItem.isPending} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-cyan-950 text-sm font-semibold text-white transition hover:bg-cyan-900 disabled:opacity-50">
                 <Save className="h-4 w-4" />
                 Save policy
               </button>
-              {policyError ? <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{policyError}</p> : null}
+              {policyError ? <p className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">{policyError}</p> : null}
             </div>
           ) : (
-            <div className="mt-4 rounded-2xl border border-dashed border-cyan-200 bg-white/70 p-5 text-sm text-slate-500">Select an item from the catalog to govern alerts.</div>
+            <div className="mt-4 rounded-2xl border border-dashed border-signal-cyan-line bg-card/70 p-5 text-sm text-muted-foreground">Select an item from the catalog to govern alerts.</div>
           )}
         </form>
         {selectedItem ? (
-          <div className="mt-5 rounded-2xl border border-cyan-100 bg-white p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-800/70">Incoming QC profile</p>
-            <p className="mt-1 text-xs text-slate-600">Owned item rules used by incoming QC. No invented thresholds.</p>
+          <div className="mt-5 rounded-2xl border border-signal-cyan-line bg-card p-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-signal-cyan-ink/70">Incoming QC profile</p>
+            <p className="mt-1 text-xs text-muted-foreground">Owned item rules used by incoming QC. No invented thresholds.</p>
             <div className="mt-3">
               <ItemQualityProfileForm
                 item={selectedItem}
@@ -242,19 +242,19 @@ export default function InventoryItemsPage() {
         ) : null}
         </div>
 
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-xl shadow-slate-900/5">
+        <section className="min-w-0 rounded-[2rem] border border-border bg-card p-5 shadow-xl shadow-slate-900/5">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-400">Catalog</p>
-              <h2 className="mt-1 text-xl font-semibold text-slate-950">Inventory item master</h2>
+              <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">Catalog</p>
+              <h2 className="mt-1 text-xl font-semibold text-foreground">Inventory item master</h2>
             </div>
-            <Link href="/analytics/mrp" className="inline-flex items-center gap-1 text-sm font-semibold text-cyan-900">
+            <Link href="/analytics/mrp" className="inline-flex items-center gap-1 text-sm font-semibold text-signal-cyan-ink">
               MRP <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
-          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-border">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-muted text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3">Item</th>
                   <th className="px-4 py-3">Type</th>
@@ -264,24 +264,24 @@ export default function InventoryItemsPage() {
                   <th className="px-4 py-3">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200">
+              <tbody className="divide-y divide-border">
                 {isLoading ? (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Loading items...</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">Loading items...</td></tr>
                 ) : itemRows.length === 0 ? (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">No items found.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-muted-foreground">No items found.</td></tr>
                 ) : (
                   itemRows.map((item: any) => {
                     const balance = balanceMap.get(String(item.id)) || {}
                     return (
-                      <tr key={item.id} className="transition hover:bg-slate-50">
+                      <tr key={item.id} className="transition hover:bg-muted">
                         <td className="px-4 py-3">
-                          <p className="font-semibold text-slate-950">{item.item_code}</p>
-                          <p className="text-xs text-slate-500">{item.name}</p>
+                          <p className="font-semibold text-foreground">{item.item_code}</p>
+                          <p className="text-xs text-muted-foreground">{item.name}</p>
                         </td>
-                        <td className="px-4 py-3 text-slate-700">{item.type}</td>
-                        <td className="px-4 py-3 text-slate-700">{item.tracking_mode}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-950">{formatNumber(balance.available_qty ?? balance.balance ?? 0)} {item.uom}</td>
-                        <td className="px-4 py-3 text-xs text-slate-600">
+                        <td className="px-4 py-3 text-muted-foreground">{item.type}</td>
+                        <td className="px-4 py-3 text-muted-foreground">{item.tracking_mode}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-foreground">{formatNumber(balance.available_qty ?? balance.balance ?? 0)} {item.uom}</td>
+                        <td className="px-4 py-3 text-xs text-muted-foreground">
                           <p>R {formatNumber(item.reorder_level, 2)} · S {formatNumber(item.safety_stock, 2)}</p>
                           <p>Lead {formatNumber(item.lead_time_days, 1)} d</p>
                         </td>
@@ -290,7 +290,7 @@ export default function InventoryItemsPage() {
                             <button
                               type="button"
                               onClick={() => setSelectedItemId(item.id)}
-                              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900"
+                              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink"
                             >
                               Edit
                             </button>
@@ -302,7 +302,7 @@ export default function InventoryItemsPage() {
                                 }
                               }}
                               disabled={deleteItem.isPending}
-                              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-rose-300 hover:text-rose-700 disabled:opacity-40"
+                              className="rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:border-signal-rose-line hover:text-signal-rose-ink disabled:opacity-40"
                               title="Soft-delete this item"
                             >
                               {deleteItem.isPending && deleteItem.variables === item.id ? "…" : "Delete"}

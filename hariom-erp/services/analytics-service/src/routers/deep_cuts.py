@@ -8,6 +8,8 @@ unavailable.
 from __future__ import annotations
 
 from collections import defaultdict
+import os
+from zoneinfo import ZoneInfo
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
 
@@ -616,7 +618,7 @@ def item_velocity(
         balances = service_get(
             f"{INVENTORY_SERVICE_URL}/all-balances",
             token,
-            plant_id=plant_id,
+            plant_id=plant_id, required=True,
         ) or {}
         items = balances.get("items") if isinstance(balances, dict) else balances
         items = items or []
@@ -638,26 +640,21 @@ def item_velocity(
             existing["available_qty"] += _safe_float(item.get("available_qty"))
             existing["value_inr"] += _safe_float(item.get("value_inr") or item.get("total_value") or 0.0)
 
-        # try to derive 30d issued qty from inventory ledger
-        ledger = service_get(
-            f"{INVENTORY_SERVICE_URL}/ledger",
+        # The stock ledger caps pages at 500 and does not return item codes.
+        # Aggregate at source, so a high-volume plant is not truncated or zeroed
+        # by a rejected oversized ledger request.
+        today = datetime.now(ZoneInfo(os.getenv("PLANT_TIMEZONE", "Asia/Kolkata"))).date()
+        issued_rows = service_get(
+            f"{INVENTORY_SERVICE_URL}/transactions/aggregate-by-item",
             token,
-            params={"limit": 2000},
-            plant_id=plant_id,
-        ) or {}
-        rows = ledger.get("ledger") if isinstance(ledger, dict) else ledger
-        rows = rows or []
-        cutoff = datetime.utcnow() - timedelta(days=horizon_days)
-        for row in rows:
+            params={"start_date": (today - timedelta(days=horizon_days - 1)).isoformat(),
+                    "end_date": today.isoformat(), "transaction_types": "ISSUE_PRODUCTION,DISPATCH"},
+            plant_id=plant_id, required=True,
+        ) or []
+        for row in issued_rows:
             code = row.get("item_code")
-            if not code or code not in items_by_code:
-                continue
-            ts = _parse_dt(row.get("created_at") or row.get("ledger_date"))
-            if ts and ts < cutoff:
-                continue
-            qty_change = _safe_float(row.get("qty_change"))
-            if qty_change < 0:  # issues are negative
-                items_by_code[code]["issued_30d"] += abs(qty_change)
+            if code in items_by_code:
+                items_by_code[code]["issued_30d"] += _safe_float(row.get("issued_kg"))
 
     out: list[dict[str, Any]] = []
     for row in items_by_code.values():

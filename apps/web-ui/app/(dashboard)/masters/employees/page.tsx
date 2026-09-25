@@ -194,8 +194,8 @@ function EmployeesPage() {
       sortAccessor: (r) => r.name || "",
       render: (r) => (
         <div>
-          <div className="text-sm font-semibold text-slate-950">{r.name || "—"}</div>
-          <div className="text-[11px] text-slate-500">{r.phone || r.email || "—"}</div>
+          <div className="text-sm font-semibold text-foreground">{r.name || "—"}</div>
+          <div className="text-[11px] text-muted-foreground">{r.phone || r.email || "—"}</div>
         </div>
       ),
     },
@@ -204,14 +204,14 @@ function EmployeesPage() {
       label: "Role",
       width: "120px",
       sortAccessor: (r) => r.role || "",
-      render: (r) => r.role ? <Pill tone="info">{r.role}</Pill> : <span className="text-slate-400 text-[11px]">—</span>,
+      render: (r) => r.role ? <Pill tone="info">{r.role}</Pill> : <span className="text-muted-foreground text-[11px]">—</span>,
     },
     {
       key: "department",
       label: "Dept",
       width: "100px",
       sortAccessor: (r) => r.department || "",
-      render: (r) => <span className="text-xs text-slate-700">{r.department || "—"}</span>,
+      render: (r) => <span className="text-xs text-muted-foreground">{r.department || "—"}</span>,
     },
     {
       key: "default_shift",
@@ -258,19 +258,19 @@ function EmployeesPage() {
             <SearchField value={search} onChange={setSearch} placeholder="name, code, phone…" />
           </FilterField>
           <FilterField label="Role">
-            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm">
+            <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
               <option value="ALL">All</option>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </FilterField>
           <FilterField label="Dept">
-            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm">
+            <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
               <option value="ALL">All</option>
               {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
           </FilterField>
           <FilterField label="Status">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
               <option value="ALL">All</option>
@@ -307,13 +307,13 @@ function EmployeesPage() {
               label: "Overview",
               content: (
                 <div className="space-y-3 text-sm">
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Code</span><span className="font-mono">{selected.employee_code || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Role</span><span>{selected.role || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Department</span><span>{selected.department || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Phone</span><span>{selected.phone || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Email</span><span>{selected.email || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Skills</span><span>{selected.skills || "—"}</span></div>
-                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Default shift</span><span className="font-mono">{selected.default_shift || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.employee_code || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Role</span><span>{selected.role || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Department</span><span>{selected.department || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Phone</span><span>{selected.phone || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Email</span><span>{selected.email || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Skills</span><span>{selected.skills || "—"}</span></div>
+                  <div className="grid grid-cols-[110px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Default shift</span><span className="font-mono">{selected.default_shift || "—"}</span></div>
                 </div>
               ),
             },
@@ -321,9 +321,9 @@ function EmployeesPage() {
           footer={selected ? (
             <div className="flex justify-end gap-2">
               {selected.is_active === false ? (
-                <button onClick={async () => { await updateEmployee.mutateAsync({ id: selected.id, data: { is_active: true } }); showToast("Reactivated", "success") }} className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">Reactivate</button>
+                <button onClick={async () => { await updateEmployee.mutateAsync({ id: selected.id, data: { is_active: true } }); showToast("Reactivated", "success") }} className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft">Reactivate</button>
               ) : (
-                <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50">Deactivate</button>
+                <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft">Deactivate</button>
               )}
               <button onClick={startEdit} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">Edit</button>
             </div>
@@ -333,7 +333,7 @@ function EmployeesPage() {
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New employee" size="lg" footer={
         <>
-          <button onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+          <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
           <button onClick={submitCreate} disabled={createEmployee.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">
             {createEmployee.isPending ? "Creating…" : "Create"}
           </button>
@@ -343,15 +343,15 @@ function EmployeesPage() {
           <LabeledInput label="Code" required value={createForm.employee_code} onChange={(v) => setCreateForm({ ...createForm, employee_code: v })} placeholder="EMP-001" />
           <LabeledInput label="Name" required value={createForm.name} onChange={(v) => setCreateForm({ ...createForm, name: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Role</span>
-            <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Role</span>
+            <select value={createForm.role} onChange={(e) => setCreateForm({ ...createForm, role: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Department</span>
-            <select value={createForm.department} onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Department</span>
+            <select value={createForm.department} onChange={(e) => setCreateForm({ ...createForm, department: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
@@ -360,19 +360,19 @@ function EmployeesPage() {
           <LabeledInput label="Email" value={createForm.email} onChange={(v) => setCreateForm({ ...createForm, email: v })} />
           <LabeledInput label="Skills (csv)" value={createForm.skills} onChange={(v) => setCreateForm({ ...createForm, skills: v })} placeholder="WINDER, OVEN" />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Default shift</span>
-            <select value={createForm.default_shift} onChange={(e) => setCreateForm({ ...createForm, default_shift: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Default shift</span>
+            <select value={createForm.default_shift} onChange={(e) => setCreateForm({ ...createForm, default_shift: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {shifts.filter((s) => s.is_active !== false).map((s) => <option key={s.id} value={s.code}>{s.code} · {s.name}</option>)}
             </select>
           </label>
         </div>
-        {createError ? <p className="mt-2 text-xs text-rose-700">{createError}</p> : null}
+        {createError ? <p className="mt-2 text-xs text-signal-rose-ink">{createError}</p> : null}
       </Modal>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title={editForm.name || "Employee"} size="lg" footer={
         <>
-          <button onClick={() => setEditOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+          <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
           <button onClick={submitEdit} disabled={updateEmployee.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">
             {updateEmployee.isPending ? "Saving…" : "Save"}
           </button>
@@ -382,15 +382,15 @@ function EmployeesPage() {
           <LabeledInput label="Code" required value={editForm.employee_code || ""} onChange={(v) => setEditForm({ ...editForm, employee_code: v })} />
           <LabeledInput label="Name" required value={editForm.name || ""} onChange={(v) => setEditForm({ ...editForm, name: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Role</span>
-            <select value={editForm.role || ""} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Role</span>
+            <select value={editForm.role || ""} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Department</span>
-            <select value={editForm.department || ""} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Department</span>
+            <select value={editForm.department || ""} onChange={(e) => setEditForm({ ...editForm, department: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {DEPARTMENTS.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
@@ -399,14 +399,14 @@ function EmployeesPage() {
           <LabeledInput label="Email" value={editForm.email || ""} onChange={(v) => setEditForm({ ...editForm, email: v })} />
           <LabeledInput label="Skills (csv)" value={editForm.skills || ""} onChange={(v) => setEditForm({ ...editForm, skills: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Default shift</span>
-            <select value={editForm.default_shift || ""} onChange={(e) => setEditForm({ ...editForm, default_shift: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Default shift</span>
+            <select value={editForm.default_shift || ""} onChange={(e) => setEditForm({ ...editForm, default_shift: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">—</option>
               {shifts.filter((s) => s.is_active !== false).map((s) => <option key={s.id} value={s.code}>{s.code} · {s.name}</option>)}
             </select>
           </label>
         </div>
-        {editError ? <p className="mt-2 text-xs text-rose-700">{editError}</p> : null}
+        {editError ? <p className="mt-2 text-xs text-signal-rose-ink">{editError}</p> : null}
       </Modal>
 
       <ConfirmDialog

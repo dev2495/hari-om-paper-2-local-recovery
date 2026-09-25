@@ -78,8 +78,8 @@ export function AnalyticsFilters() {
                 className={cn(
                   "rounded-full border px-3 py-2 text-sm font-semibold transition",
                   preset === option.value
-                    ? "border-cyan-200 bg-cyan-50 text-cyan-950 shadow-sm"
-                    : "border-slate-200 bg-white/90 text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                    ? "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink shadow-sm"
+                    : "border-border bg-card/90 text-muted-foreground hover:border-border hover:bg-muted",
                 )}
               >
                 {option.label}
@@ -161,8 +161,8 @@ export function AnalyticsFilters() {
               className={cn(
                 "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-sm font-semibold transition",
                 active
-                  ? "border-cyan-200 bg-cyan-50 text-cyan-950 shadow-sm"
-                  : "border-slate-200 bg-white/85 text-slate-600 hover:bg-slate-50",
+                  ? "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink shadow-sm"
+                  : "border-border bg-card/85 text-muted-foreground hover:bg-muted",
               )}
             >
               <Icon className="h-4 w-4" />

@@ -28,6 +28,7 @@ export type QcParameterRule = {
   applicability_label?: string | null
   requires_instrument?: boolean
   required_instrument_id?: string | null
+  non_waivable?: boolean
 }
 
 export const QC_STAGE_PARAMETERS: Record<QcStageKey, QcParameterDef[]> = {

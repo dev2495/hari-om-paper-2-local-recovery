@@ -59,26 +59,26 @@ export default function SalesOrderAuditPage() {
         title="Sales order audit timeline"
         subtitle="Commercial actions and planner sync events stitched into one trace."
         actions={
-          <Link href={`/sales-orders/${order.id}`} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <Link href={`/sales-orders/${order.id}`} className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted">
             <ArrowLeft className="h-4 w-4" />
             Back to tracking
           </Link>
         }
       >
         <div className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Order</p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{order.order_no}</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Order</p>
+            <p className="mt-2 text-sm font-semibold text-foreground">{order.order_no}</p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Status</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Status</p>
             <div className="mt-2">
               <StatusBadge value={order.status} />
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Audit Events</p>
-            <p className="mt-2 text-sm font-semibold text-slate-950">{events.length}</p>
+          <div className="rounded-2xl border border-border bg-muted p-4">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Audit Events</p>
+            <p className="mt-2 text-sm font-semibold text-foreground">{events.length}</p>
           </div>
         </div>
       </Panel>
@@ -91,22 +91,22 @@ export default function SalesOrderAuditPage() {
         ) : (
           <div className="space-y-3">
             {events.map((event: any) => (
-              <div key={event.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div key={event.id} className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="flex items-start gap-3">
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <div className="rounded-2xl border border-border bg-muted p-3">
                       {String(event.event_type || "").includes("JOB_CARD") ? (
-                        <ClipboardCheck className="h-4 w-4 text-emerald-700" />
+                        <ClipboardCheck className="h-4 w-4 text-signal-emerald-ink" />
                       ) : (
-                        <ScrollText className="h-4 w-4 text-slate-700" />
+                        <ScrollText className="h-4 w-4 text-muted-foreground" />
                       )}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-950">{event.title || event.event_type}</p>
-                      <p className="mt-1 text-sm text-slate-600">{event.message || "Event captured."}</p>
+                      <p className="text-sm font-semibold text-foreground">{event.title || event.event_type}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{event.message || "Event captured."}</p>
                     </div>
                   </div>
-                  <div className="text-right text-xs text-slate-500">
+                  <div className="text-right text-xs text-muted-foreground">
                     <div>{formatDateTime(event.created_at)}</div>
                     <div className="mt-1">{event.actor || "system"}</div>
                   </div>

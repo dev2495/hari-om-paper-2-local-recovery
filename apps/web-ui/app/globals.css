@@ -4,36 +4,37 @@
 
 @layer base {
   :root {
-    --font-body: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
-    --font-heading: "DIN Alternate", "Trebuchet MS", "Avenir Next", sans-serif;
-    --background: 43 47% 96%;
-    --foreground: 220 30% 12%;
-    --card: 0 0% 100%;
-    --card-foreground: 220 30% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 220 30% 12%;
-    --primary: 192 76% 31%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 32 56% 90%;
-    --secondary-foreground: 220 25% 20%;
-    --muted: 34 37% 93%;
-    --muted-foreground: 220 12% 40%;
-    --accent: 22 80% 63%;
-    --accent-foreground: 220 30% 12%;
-    --destructive: 0 76% 52%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 36 29% 84%;
-    --input: 36 29% 84%;
-    --ring: 192 76% 31%;
-    --radius: 0.85rem;
-    --shadow-premium:
-      0 28px 80px -42px rgba(15, 23, 42, 0.35),
-      0 10px 24px -18px rgba(15, 23, 42, 0.2),
-      inset 0 1px 0 rgba(255, 255, 255, 0.9);
-    --shadow-premium-hover:
-      0 34px 96px -44px rgba(8, 47, 73, 0.38),
-      0 16px 28px -18px rgba(8, 47, 73, 0.24),
-      inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    --font-body: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+    --font-heading: var(--font-body);
+    --background: 180 16% 96%; --foreground: 204 31% 14%;
+    --card: 0 0% 100%; --card-foreground: 204 31% 14%;
+    --popover: 0 0% 100%; --popover-foreground: 204 31% 14%;
+    --primary: 179 62% 25%; --primary-foreground: 0 0% 100%;
+    --secondary: 175 22% 92%; --secondary-foreground: 181 47% 22%;
+    --muted: 180 12% 93%; --muted-foreground: 202 13% 40%;
+    --accent: 175 28% 91%; --accent-foreground: 181 47% 22%;
+    --destructive: 3 63% 43%; --destructive-foreground: 0 0% 100%;
+    --border: 187 13% 86%; --input: 187 15% 80%; --ring: 179 62% 30%;
+    --radius: .75rem; --brass: 38 62% 39%;
+    --shadow-premium: 0 1px 2px hsl(200 30% 12% / .03), 0 8px 28px -18px hsl(200 30% 12% / .14);
+    --shadow-premium-hover: 0 2px 4px hsl(200 30% 12% / .04), 0 12px 30px -16px hsl(200 30% 12% / .18);
+    --ease-workspace: cubic-bezier(.22,1,.36,1);
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --background: 202 24% 9%; --foreground: 180 15% 92%;
+    --card: 202 21% 12%; --card-foreground: 180 15% 92%;
+    --popover: 202 20% 16%; --popover-foreground: 180 15% 92%;
+    --primary: 174 48% 65%; --primary-foreground: 199 39% 11%;
+    --secondary: 193 21% 20%; --secondary-foreground: 173 43% 79%;
+    --muted: 201 19% 17%; --muted-foreground: 192 12% 68%;
+    --accent: 193 23% 21%; --accent-foreground: 171 44% 82%;
+    --destructive: 5 73% 69%; --destructive-foreground: 204 30% 10%;
+    --border: 200 16% 24%; --input: 200 16% 32%; --ring: 174 48% 65%;
+    --brass: 39 58% 65%;
+    --shadow-premium: 0 1px 0 hsl(0 0% 100% / .025);
+    --shadow-premium-hover: 0 0 0 1px hsl(174 48% 65% / .24);
+    color-scheme: dark;
   }
 
   * {
@@ -43,10 +44,7 @@
   body {
     font-family: var(--font-body), sans-serif;
     @apply text-foreground;
-    background:
-      radial-gradient(circle at 14% 8%, rgba(15, 157, 171, 0.12), transparent 30%),
-      radial-gradient(circle at 84% 0%, rgba(190, 242, 250, 0.38), transparent 22%),
-      linear-gradient(180deg, #f9fbfb 0%, #f6f8f8 46%, #f8fbfb 100%);
+    background: hsl(var(--background));
     min-height: 100vh;
   }
 
@@ -225,15 +223,7 @@
 }
 
 @layer utilities {
-  .bg-dashboard-mesh {
-    background-color: #f7fafb;
-    background-image:
-      radial-gradient(circle at 0% 0%, rgba(8, 145, 178, 0.11) 0, transparent 26%),
-      radial-gradient(circle at 100% 0%, rgba(186, 230, 253, 0.18) 0, transparent 24%),
-      radial-gradient(circle at 100% 100%, rgba(20, 184, 166, 0.08) 0, transparent 22%),
-      linear-gradient(180deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0));
-    background-attachment: fixed;
-  }
+  .bg-dashboard-mesh { background: hsl(var(--background)); }
 
   .shadow-premium {
     box-shadow: var(--shadow-premium);
@@ -243,12 +233,7 @@
     box-shadow: var(--shadow-premium-hover);
   }
 
-  .erp-panel {
-    background: rgba(255, 255, 255, 0.76);
-    border: 1px solid rgba(255, 255, 255, 0.7);
-    backdrop-filter: blur(24px);
-    box-shadow: var(--shadow-premium);
-  }
+  .erp-panel { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); box-shadow: var(--shadow-premium); }
 
   .erp-btn-secondary {
     display: inline-flex;
@@ -313,10 +298,114 @@
 @keyframes enter-up {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
   }
+
+  .no-print {
+    display: none !important;
+  }
+
+  body:has(.po-print) * {
+    visibility: hidden;
+  }
+
+  body:has(.po-print) .po-print,
+  body:has(.po-print) .po-print * {
+    visibility: visible;
+  }
+
+  body:has(.po-print) .po-print {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0 !important;
+    padding: 0 !important;
+  }
+
+  body:has(.po-print) .po-print thead {
+    display: table-header-group;
+  }
+
+  body:has(.po-print) .po-print tr,
+  body:has(.po-print) .po-print p {
+    break-inside: avoid;
+  }
+
+  body:has(.label-print-grid) * {
+    visibility: hidden;
+  }
+
+  body:has(.label-print-grid) .label-print-grid,
+  body:has(.label-print-grid) .label-print-grid * {
+    visibility: visible;
+  }
+
+  body:has(.label-print-grid) .label-print-grid {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  body:has(.label-print-grid) .label-print-grid > article {
+    break-inside: avoid;
+    min-height: 48mm;
+  }
+
+  body:has(.debit-note-print[data-print-selected="true"]) * {
+    visibility: hidden;
+  }
+
+  body:has(.debit-note-print[data-print-selected="true"]) .debit-note-print[data-print-selected="true"],
+  body:has(.debit-note-print[data-print-selected="true"]) .debit-note-print[data-print-selected="true"] * {
+    visibility: visible;
+  }
+
+  body:has(.debit-note-print[data-print-selected="true"]) .debit-note-print[data-print-selected="true"] {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    border: 0 !important;
+    padding: 0 !important;
+  }
+
+  body:has(.register-print) * {
+    visibility: hidden;
+  }
+
+  body:has(.register-print) .register-print,
+  body:has(.register-print) .register-print * {
+    visibility: visible;
+  }
+
+  body:has(.register-print) .register-print {
+    page: procurement-register;
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: max-content;
+    min-width: 100%;
+    border: 0 !important;
+    box-shadow: none !important;
+  }
+
+  body:has(.register-print) .register-print table {
+    font-size: 7pt;
+  }
+
+  body:has(.register-print) .register-print tr {
+    break-inside: avoid;
+  }
+}
+
+@page procurement-register {
+  size: A3 landscape;
+  margin: 8mm;
 }

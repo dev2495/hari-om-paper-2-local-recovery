@@ -1,3 +1,13 @@
+function isolatedDatabaseUrl(service) {
+  const value = process.env[`ERP_TEST_${service.toUpperCase()}_DATABASE_URL`]
+  if (!value) throw new Error(`Explicit ERP_TEST_${service.toUpperCase()}_DATABASE_URL is required for mutating browser fixtures`)
+  const url = new URL(value)
+  if (!['127.0.0.1', 'localhost'].includes(url.hostname) || !/(?:test|verify|integration)/.test(url.pathname)) {
+    throw new Error('Browser fixture writes require a named isolated local test database')
+  }
+  return value
+}
+
 const fs = require("fs")
 const path = require("path")
 const { test, expect } = require("@playwright/test")
@@ -362,7 +372,7 @@ test("QCT-035 list Add quality parameters keeps spec and recipe on approved spec
       encoding: "utf8",
       env: {
         ...process.env,
-        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_specdb",
+        DATABASE_URL: isolatedDatabaseUrl("spec"),
       },
     },
   )
@@ -445,7 +455,7 @@ test("QCT-037 assign profile preview shows per-spec impact and apply stays draft
       encoding: "utf8",
       env: {
         ...process.env,
-        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_specdb",
+        DATABASE_URL: isolatedDatabaseUrl("spec"),
         HARI_OM_LIVE_PG: "1",
         HARI_OM_SPEC_SRC: path.join(workspaceRoot, "hariom-erp", "services", "spec-service"),
       },
@@ -467,7 +477,10 @@ test("QCT-037 assign profile preview shows per-spec impact and apply stays draft
   await expect(page.getByTestId(`spec-assign-row-${ids.legacy}`)).toContainText("Yes")
   await expect(page.getByTestId(`spec-assign-row-${ids.mismatch}`)).toContainText("No")
   await expect(page.getByTestId(`spec-assign-row-${ids.retired}`)).toContainText("No")
+  const applyResponse = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/qc-profile/assign"))
   await page.getByTestId("spec-assign-apply").click()
+  const applied = await applyResponse
+  expect(applied.ok(), await applied.text()).toBeTruthy()
   await expect(page.getByTestId(`spec-assign-row-${ids.legacy}`)).toContainText("Unchanged")
   const saved = await page.request.get(`${runtime.urls.bff}/api/spec/specifications/${ids.legacy}`, {
     headers: { "X-Plant-ID": fixture.plants.plant_a.id },
@@ -545,7 +558,7 @@ test("QCT-041 verified non-notched is NOT APPLICABLE; unknown needs review", asy
   await expect(unknownDialog.getByTestId("spec-qc-notching-review")).toBeVisible()
   await unknownDialog.getByTestId("spec-qc-stage-PROCESS").click()
   await expect(unknownDialog.getByTestId("spec-qc-notching-state")).toHaveValue("unknown")
-  await expect(unknownDialog.getByTestId("spec-qc-frozen-PROCESS-notch_distance")).not.toHaveText("NOT APPLICABLE")
+  await expect(unknownDialog.getByTestId("spec-qc-frozen-PROCESS-notch_distance")).not.toContainText("NOT APPLICABLE")
   await expect(unknownDialog.getByTestId("spec-qc-row-PROCESS-notch_distance").getByRole("spinbutton").first()).toHaveValue("")
   await unknownDialog.getByTestId("spec-qc-save-incomplete").click()
   await page.waitForURL(/\/specifications\/[0-9a-f-]{36}(?:\/)?(?:\?.*)?$/i, { timeout: 30_000 })
@@ -565,8 +578,8 @@ test("QCT-041 verified non-notched is NOT APPLICABLE; unknown needs review", asy
   await naDialog.getByTestId("spec-qc-stage-PROCESS").click()
   await naDialog.getByTestId("spec-qc-notching-state").selectOption("false")
   await expect(naDialog.getByTestId("spec-qc-notching-review")).toHaveCount(0)
-  await expect(naDialog.getByTestId("spec-qc-frozen-PROCESS-notch_distance")).toHaveText("NOT APPLICABLE")
-  await expect(naDialog.getByTestId("spec-qc-frozen-PROCESS-notch_depth")).toHaveText("NOT APPLICABLE")
+  await expect(naDialog.getByTestId("spec-qc-frozen-PROCESS-notch_distance")).toContainText("NOT APPLICABLE")
+  await expect(naDialog.getByTestId("spec-qc-frozen-PROCESS-notch_depth")).toContainText("NOT APPLICABLE")
   await expect(naDialog.getByTestId("spec-qc-row-PROCESS-notch_distance").getByRole("spinbutton").first()).toHaveValue("")
   await naDialog.getByTestId("spec-qc-save-incomplete").click()
   await page.waitForURL(/\/specifications\/[0-9a-f-]{36}(?:\/)?(?:\?.*)?$/i, { timeout: 30_000 })
@@ -644,8 +657,8 @@ test("QCT-043/044 inspected job print stays rev A after rev B and frozen rule si
       env: {
         ...process.env,
         HARI_OM_LIVE_PG: "1",
-        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
-        HARI_OM_PRODUCTION_DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+        DATABASE_URL: isolatedDatabaseUrl("production"),
+        HARI_OM_PRODUCTION_DATABASE_URL: isolatedDatabaseUrl("production"),
       },
     },
   )
@@ -699,8 +712,8 @@ test("QCT-045 keyboard outside value shows readable FAIL, difference, focusable 
       env: {
         ...process.env,
         HARI_OM_LIVE_PG: "1",
-        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
-        HARI_OM_PRODUCTION_DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+        DATABASE_URL: isolatedDatabaseUrl("production"),
+        HARI_OM_PRODUCTION_DATABASE_URL: isolatedDatabaseUrl("production"),
       },
     },
   )
@@ -745,6 +758,32 @@ test("QCT-045 keyboard outside value shows readable FAIL, difference, focusable 
   await assertCritical()
 })
 
+function spawnInventoryPytest(testPath) {
+  const { spawnSync } = require("child_process")
+  const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
+  const result = spawnSync(
+    py,
+    ["-m", "pytest", testPath, "-q", "--tb=short"],
+    {
+      encoding: "utf8",
+      timeout: 120_000,
+      killSignal: "SIGKILL",
+      cwd: path.join(workspaceRoot, "hariom-erp", "services", "inventory-service"),
+      env: {
+        ...process.env,
+        HARI_OM_LIVE_PG: "1",
+        DATABASE_URL: isolatedDatabaseUrl("inventory"),
+        HARI_OM_INVENTORY_DATABASE_URL: isolatedDatabaseUrl("inventory"),
+      },
+    },
+  )
+  if (result.error && result.error.code === "ETIMEDOUT") {
+    result.status = 124
+    result.stderr = `${result.stderr || ""}\npytest timed out after 120s: ${testPath}`
+  }
+  return result
+}
+
 function spawnProductionPytest(testPath) {
   const { spawnSync } = require("child_process")
   const py = path.join(workspaceRoot, "hariom-erp", "venv-verify", "bin", "python")
@@ -759,8 +798,8 @@ function spawnProductionPytest(testPath) {
       env: {
         ...process.env,
         HARI_OM_LIVE_PG: "1",
-        DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
-        HARI_OM_PRODUCTION_DATABASE_URL: "postgresql://devarshthakkar@127.0.0.1:5432/hariom_nverify_productiondb",
+        DATABASE_URL: isolatedDatabaseUrl("production"),
+        HARI_OM_PRODUCTION_DATABASE_URL: isolatedDatabaseUrl("production"),
       },
     },
   )
@@ -1730,3 +1769,76 @@ test("QCT-062 missing and expired instrument cannot PASS until documented calibr
   await assertCritical()
 })
 
+test("QCT-066 limited customer/order concession stays FAIL and blocks other or expired use", async ({ page }) => {
+  test.setTimeout(180_000)
+  const assertCritical = beginCriticalMonitoring(page, {
+    expected: [{ kind: "response", status: 409 }],
+  })
+  const fixture = getBrowserFixture()
+  const seeded = spawnInventoryPytest("tests/test_original_qct066_live.py::test_qct066_ui_seed")
+  expect(seeded.status, seeded.stderr || seeded.stdout).toBe(0)
+  const artifact = JSON.parse(fs.readFileSync(path.join(workspaceRoot, "reports", "qct066-ui.json"), "utf8"))
+  await cookieLogin(page, fixture.auth.admin_email, fixture.auth.admin_password, fixture.plants.plant_a.id)
+  await page.goto("/quality/incoming", { waitUntil: "domcontentloaded" })
+  await expect(page.getByTestId("quality-incoming-page")).toBeVisible()
+  await expect(page.getByTestId("quality-incoming-concessions")).toBeVisible({ timeout: 20_000 })
+  const card = page.locator("[data-testid='quality-incoming-concession']").filter({
+    hasText: artifact.inspection_id,
+  })
+  await expect(card).toBeVisible({ timeout: 20_000 })
+  await expect(card.getByTestId("quality-incoming-concession-separate")).toBeVisible()
+  await expect(card).toContainText(/FAIL/)
+  await expect(card).toContainText(/CONCESSION/)
+  const plantHeaders = { "X-Plant-ID": fixture.plants.plant_a.id }
+  const concessions = await page.request.get(`/api/inventory/quality/concessions?inspection_id=${artifact.inspection_id}`, {
+    headers: plantHeaders,
+  })
+  expect(concessions.ok(), await concessions.text()).toBeTruthy()
+  const rows = await concessions.json()
+  expect(rows.length).toBeGreaterThan(0)
+  expect(String(rows[0].measured_status)).toBe("FAIL")
+  expect(Boolean(rows[0].visibly_separate)).toBe(true)
+  expect(String(rows[0].released_stock_status)).toBe("CONCESSION")
+  expect(String(rows[0].concession_id)).toBe(String(artifact.concession_id))
+  expect(String(rows[0].inspection_id)).not.toBe(String(rows[0].concession_id))
+
+  const otherIssue = await page.request.post("/api/inventory/issue", {
+    headers: plantHeaders,
+    data: {
+      item_id: artifact.item_id,
+      batch_id: artifact.released_entity_id,
+      qty: 10,
+      production_job_id: "00000000-0000-0000-0000-000000000066",
+      reason_code: "DIRECT_CORRECTION",
+      customer_id: artifact.other_customer_id,
+      sales_order_id: artifact.other_sales_order_id,
+    },
+  })
+  expect(otherIssue.status()).toBe(409)
+  const otherBody = await otherIssue.json()
+  expect(otherBody.detail?.code || otherBody.code).toBe("CONCESSION_SCOPE_MISMATCH")
+
+  const matchingIssue = await page.request.post("/api/inventory/issue", {
+    headers: plantHeaders,
+    data: {
+      item_id: artifact.item_id,
+      batch_id: artifact.released_entity_id,
+      qty: 10,
+      production_job_id: "00000000-0000-0000-0000-000000000067",
+      reason_code: "DIRECT_CORRECTION",
+      customer_id: artifact.customer_id,
+      sales_order_id: artifact.sales_order_id,
+    },
+  })
+  expect(matchingIssue.ok(), await matchingIssue.text()).toBeTruthy()
+
+  const inspections = await page.request.get(`/api/inventory/quality/inspections?entity_id=${artifact.residual_entity_id}`, {
+    headers: plantHeaders,
+  })
+  expect(inspections.ok(), await inspections.text()).toBeTruthy()
+  const inspectionRows = await inspections.json()
+  const measured = inspectionRows.find((row) => String(row.id) === String(artifact.inspection_id))
+  expect(measured).toBeTruthy()
+  expect(String(measured.status)).toBe("FAIL")
+  await assertCritical()
+})

@@ -43,7 +43,8 @@ test("sidebar approval card is removed and reconciliation actual rows are live",
 
   await page.goto("/production/reconciliation", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("reconciliation-page")).toBeVisible()
-  await page.getByRole("button", { name: "Actual entry" }).click()
+  await page.getByRole("link", { name: "Actual entry", exact: true }).click()
+  await expect(page).toHaveURL(/reconciliation\/actuals/)
   await expect(page.getByRole("heading", { name: "Monthly material actuals" })).toBeVisible()
   await expect(page.getByText("No material rows found for this month/filter.")).toHaveCount(0)
   const liveRow = page.locator("table tbody tr, [data-testid*='actual'] tbody tr").first()

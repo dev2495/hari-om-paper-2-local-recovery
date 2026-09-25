@@ -2,6 +2,7 @@ import unittest
 import uuid
 from datetime import date
 from types import SimpleNamespace
+from pydantic import ValidationError
 
 from src.routers.inward import InwardCreate
 from src.routers.purchase import PurchaseOrderCreate
@@ -15,7 +16,8 @@ class PurchaseInwardMetadataContractTests(unittest.TestCase):
         item_id = uuid.uuid4()
 
         payload = PurchaseOrderCreate(
-            po_no="45",
+            request_id=uuid.uuid4(),
+            category="RM_PM",
             po_date=date(2026, 2, 15),
             supplier_id=supplier_id,
             supplier_name="URVASHI PAPER & PULP MILLS PVT LTD",
@@ -40,10 +42,18 @@ class PurchaseInwardMetadataContractTests(unittest.TestCase):
             ],
         )
 
-        self.assertEqual(payload.po_no, "45")
+        self.assertIsNone(payload.po_no)
+        self.assertEqual(payload.category, "RM_PM")
         self.assertEqual(payload.supplier_contact, "Mr. Sundeepji")
         self.assertEqual(payload.lines[0].description, "KRAFT BOARD")
         self.assertEqual(payload.lines[0].gsm, 230)
+
+        with self.assertRaises(ValidationError):
+            PurchaseOrderCreate(
+                request_id=uuid.uuid4(), po_no="MANUAL-45", supplier_id=supplier_id,
+                supplier_name="Blocked manual number",
+                lines=[{"item_id": item_id, "qty_ordered": 1, "unit_cost": 1}],
+            )
 
     def test_reel_inward_uses_amigo_no_and_master_snapshot(self):
         payload = ReelInwardCreate(

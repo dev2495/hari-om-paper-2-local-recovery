@@ -306,7 +306,7 @@ export default function VendorsPage() {
       label: "Code",
       width: "140px",
       sortAccessor: (r) => r.supplier_code || "",
-      render: (r) => <span className="font-mono text-xs text-slate-700">{r.supplier_code || "—"}</span>,
+      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.supplier_code || "—"}</span>,
     },
     {
       key: "name",
@@ -314,8 +314,8 @@ export default function VendorsPage() {
       sortAccessor: (r) => r.name || "",
       render: (r) => (
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-slate-950">{r.name || "—"}</div>
-          <div className="truncate text-[11px] text-slate-500">{r.address || "—"}</div>
+          <div className="truncate text-sm font-semibold text-foreground">{r.name || "—"}</div>
+          <div className="truncate text-[11px] text-muted-foreground">{r.address || "—"}</div>
         </div>
       ),
     },
@@ -325,21 +325,21 @@ export default function VendorsPage() {
       width: "120px",
       sortAccessor: vendorCategory,
       render: (r) =>
-        vendorCategory(r) !== "Other" ? <Pill tone="info">{vendorCategory(r)}</Pill> : <span className="text-[11px] text-slate-400">—</span>,
+        vendorCategory(r) !== "Other" ? <Pill tone="info">{vendorCategory(r)}</Pill> : <span className="text-[11px] text-muted-foreground">—</span>,
     },
     {
       key: "gst_no",
       label: "GST",
       width: "150px",
       sortAccessor: (r) => r.gst_no || "",
-      render: (r) => <span className="font-mono text-xs text-slate-700">{r.gst_no || "—"}</span>,
+      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.gst_no || "—"}</span>,
     },
     {
       key: "pan_no",
       label: "PAN",
       width: "120px",
       sortAccessor: (r) => r.pan_no || "",
-      render: (r) => <span className="font-mono text-xs text-slate-700">{r.pan_no || "—"}</span>,
+      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.pan_no || "—"}</span>,
     },
     {
       key: "is_active",
@@ -399,7 +399,7 @@ export default function VendorsPage() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
             >
               <option value="ALL">All</option>
               {VENDOR_CATEGORIES.map((c) => (
@@ -413,7 +413,7 @@ export default function VendorsPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
             >
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
@@ -424,7 +424,7 @@ export default function VendorsPage() {
           <button
             type="button"
             onClick={exportFilteredCsv}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-300 hover:text-cyan-800"
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
           >
             ⇡ Export CSV
           </button>
@@ -460,34 +460,34 @@ export default function VendorsPage() {
             }
           />
           {selection.size ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.2rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-              <span className="font-semibold text-slate-700">{selection.size} selected</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.2rem] border border-border bg-muted px-3 py-2 text-xs">
+              <span className="font-semibold text-muted-foreground">{selection.size} selected</span>
               <span className="flex gap-2">
                 <button
                   type="button"
                   onClick={bulkActivate}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-signal-emerald-line hover:text-signal-emerald-ink"
                 >
                   Activate
                 </button>
                 <button
                   type="button"
                   onClick={bulkDeactivate}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-amber-300 hover:text-amber-700"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-signal-amber-line hover:text-signal-amber-ink"
                 >
                   Deactivate
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelection(new Set())}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-slate-400"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-slate-400"
                 >
                   Clear
                 </button>
               </span>
             </div>
           ) : null}
-          <p className="px-1 text-[11px] text-slate-500">
+          <p className="px-1 text-[11px] text-muted-foreground">
             Showing {filteredVendors.length} of {vendors.length} vendors{selection.size ? ` · ${selection.size} selected` : ""}.
           </p>
         </div>
@@ -567,7 +567,7 @@ export default function VendorsPage() {
                       showToast(errorMessage(err), "error")
                     }
                   }}
-                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                  className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft"
                 >
                   Reactivate
                 </button>
@@ -575,7 +575,7 @@ export default function VendorsPage() {
                 <button
                   type="button"
                   onClick={() => setConfirmKind("deactivate")}
-                  className="rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                  className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft"
                 >
                   Deactivate
                 </button>
@@ -583,7 +583,7 @@ export default function VendorsPage() {
               <button
                 type="button"
                 onClick={() => setConfirmKind("delete")}
-                className="rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                className="rounded-full border border-signal-rose-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-rose-ink hover:bg-signal-rose-soft"
               >
                 Delete
               </button>
@@ -617,7 +617,7 @@ export default function VendorsPage() {
                 setCreateOpen(false)
                 resetCreate()
               }}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
             >
               Cancel
             </button>
@@ -641,11 +641,11 @@ export default function VendorsPage() {
             placeholder="VEND-XXX"
           />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Category</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category</span>
             <select
               value={createForm.category}
               onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
-              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
             >
               <option value="">Choose…</option>
               {VENDOR_CATEGORIES.map((c) => (
@@ -681,8 +681,8 @@ export default function VendorsPage() {
             onChange={(v) => setCreateForm({ ...createForm, address: v })}
           />
         </div>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Primary contact (optional — you can add more later)</p>
+        <div className="mt-4 rounded-xl border border-border bg-muted/60 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Primary contact (optional — you can add more later)</p>
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
             <LabeledInput
               label="Name"
@@ -701,7 +701,7 @@ export default function VendorsPage() {
             />
           </div>
         </div>
-        {createError ? <p className="mt-3 text-xs font-medium text-rose-700">{createError}</p> : null}
+        {createError ? <p className="mt-3 text-xs font-medium text-signal-rose-ink">{createError}</p> : null}
       </Modal>
 
       {/* Edit vendor modal */}
@@ -716,7 +716,7 @@ export default function VendorsPage() {
             <button
               type="button"
               onClick={() => setEditOpen(false)}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
             >
               Cancel
             </button>
@@ -739,11 +739,11 @@ export default function VendorsPage() {
             onChange={(v) => setEditForm({ ...editForm, supplier_code: v })}
           />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Category</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category</span>
             <select
               value={editForm.category || ""}
               onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-cyan-400 focus:outline-none"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-cyan-400 focus:outline-none"
             >
               <option value="">—</option>
               {VENDOR_CATEGORIES.map((c) => (
@@ -779,7 +779,7 @@ export default function VendorsPage() {
             onChange={(v) => setEditForm({ ...editForm, address: v })}
           />
         </div>
-        {editError ? <p className="mt-3 text-xs font-medium text-rose-700">{editError}</p> : null}
+        {editError ? <p className="mt-3 text-xs font-medium text-signal-rose-ink">{editError}</p> : null}
       </Modal>
 
       <ConfirmDialog
@@ -817,8 +817,8 @@ export default function VendorsPage() {
 function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[110px_1fr] gap-3 text-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
-      <span className="text-slate-900">{value}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
+      <span className="text-foreground">{value}</span>
     </div>
   )
 }

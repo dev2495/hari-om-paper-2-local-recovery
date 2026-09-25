@@ -396,17 +396,23 @@ class PlanningValidationTests(unittest.TestCase):
             )
         self.assertEqual(exc.exception.status_code, 400)
 
-    def test_machine_dimension_mismatch_rejected(self):
+    def test_winder_dimension_mismatch_is_advisory(self):
         machine = _machine()
         machine["id_max_mm"] = 52
-        with self.assertRaises(HTTPException) as exc:
-            _validate_machine_compatibility(
-                machine,
-                "WINDER",
-                _snapshot(),
-                "00000000-0000-0000-0000-0000000000a1",
-            )
-        self.assertEqual(exc.exception.status_code, 400)
+        warning = _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
+        self.assertIn("advisory", warning)
+        with self.assertRaises(HTTPException):
+            _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1", strict_winder_capabilities=True)
+        machine["department"] = "PROCESS"
+        with self.assertRaises(HTTPException):
+            _validate_machine_compatibility(machine, "PROCESS", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
+
+    def test_winder_missing_capability_is_advisory_but_inactive_is_blocked(self):
+        machine = _machine()
+        self.assertIn("incomplete", _validate_machine_compatibility(machine, "WINDER", {}, "00000000-0000-0000-0000-0000000000a1"))
+        machine["is_active"] = False
+        with self.assertRaises(HTTPException):
+            _validate_machine_compatibility(machine, "WINDER", {}, "00000000-0000-0000-0000-0000000000a1")
 
     def test_machine_under_maintenance_is_rejected(self):
         machine = _machine()
@@ -426,17 +432,16 @@ class PlanningValidationTests(unittest.TestCase):
         machine["department"] = "PACKING"
         _validate_machine_compatibility(machine, "PACKING", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
 
-    def test_machine_supported_mandrel_rejected_when_snapshot_mandrel_missing(self):
+    def test_winder_mandrel_mismatch_is_advisory(self):
         machine = _machine()
         machine["supported_mandrel_ids"] = ["00000000-0000-0000-0000-000000000111"]
-        with self.assertRaises(HTTPException) as exc:
-            _validate_machine_compatibility(
-                machine,
-                "WINDER",
-                _snapshot(),
-                "00000000-0000-0000-0000-0000000000a1",
-            )
-        self.assertEqual(exc.exception.status_code, 400)
+        warning = _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
+        self.assertIn("advisory", warning)
+        with self.assertRaises(HTTPException):
+            _validate_machine_compatibility(machine, "WINDER", _snapshot(), "00000000-0000-0000-0000-0000000000a1", strict_winder_capabilities=True)
+        machine["department"] = "PROCESS"
+        with self.assertRaises(HTTPException):
+            _validate_machine_compatibility(machine, "PROCESS", _snapshot(), "00000000-0000-0000-0000-0000000000a1")
 
     def test_stage_output_stage_validation(self):
         payload = StageOutputPayload(stage="process", output_qty=10, scrap_qty=1)

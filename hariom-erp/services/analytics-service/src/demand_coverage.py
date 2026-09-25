@@ -208,8 +208,15 @@ def build_coverage(
             if item and str((item or {}).get("uom") or "").strip().upper() not in {"", str(need.get("uom") or "").upper()}:
                 mapping = "UNKNOWN"
                 item = None
-            issued_qty = _safe_float(line.get("issued_qty") or line.get("already_issued_qty") or need.get("already_issued_qty"))
-            allocated_fg = _safe_float(line.get("allocated_accepted_fg_qty"))
+            issue_map = line.get("net_issued_by_material") or {}
+            mapped_id = str((item or {}).get("item_id") or (item or {}).get("id") or "")
+            issue = issue_map.get(mapped_id) or issue_map.get(need["material_key"]) or {}
+            issued_qty = _safe_float(issue.get("qty")) if issue.get("uom") == need["uom"] else 0.0
+            # FG pieces are converted through their own frozen BOM before they
+            # can appear as material coverage. An untyped scalar is not kg.
+            fg_map = line.get("accepted_fg_material_coverage") or {}
+            fg = fg_map.get(mapped_id) or fg_map.get(need["material_key"]) or {}
+            allocated_fg = _safe_float(fg.get("qty")) if fg.get("uom") == need["uom"] else 0.0
             residual_need = max(0.0, need["required_qty"] - issued_qty - allocated_fg)
             material_key = need["material_key"]
             if item:
@@ -323,7 +330,7 @@ def build_coverage(
     completeness = "ESTIMATE"
     notes = [
         "GROSS outstanding-BOM estimate. This is not a net buy recommendation.",
-        "Remaining requirement deducts issued/WIP and allocated accepted FG only when those quantities are supplied on the demand line.",
+        "Deductions require material-specific quantities in the same unit. Generic issue totals and finished-piece counts never reduce material kg.",
         "Shortfall is remaining requirement minus usable (unrestricted) stock. Reorder/safety is a separate measure.",
         "QC-held stock and supplier receipts awaiting QC are reported but not treated as usable coverage of an earlier need.",
         "Customer delivery, production segments, and supplier receipts remain separate calendars.",

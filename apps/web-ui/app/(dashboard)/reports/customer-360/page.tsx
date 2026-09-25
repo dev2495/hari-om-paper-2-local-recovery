@@ -71,13 +71,13 @@ function Customer360Page() {
 
       <ReportFilterBar>
         <FilterField label="Window">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">Last 30 days</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">Last 30 days</span>
         </FilterField>
         <FilterField label="Risk">
           <select
             value={riskFilter}
             onChange={(e) => setRiskFilter(e.target.value as any)}
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
           >
             <option value="all">All</option>
             <option value="watch">Watch + Critical</option>
@@ -85,7 +85,7 @@ function Customer360Page() {
           </select>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlantLabel}</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">{activePlantLabel}</span>
         </FilterField>
       </ReportFilterBar>
 
@@ -109,7 +109,7 @@ function Customer360Page() {
         ) : filtered.length ? (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <th className="py-2 pr-3">Customer</th>
                 <th className="py-2 pr-3 text-right">Open</th>
                 <th className="py-2 pr-3 text-right">Closed</th>
@@ -123,11 +123,11 @@ function Customer360Page() {
             </thead>
             <tbody>
               {filtered.map((c: any) => (
-                <tr key={c.customer_id} className="border-b border-slate-100 hover:bg-slate-50">
-                  <td className="py-2 pr-3 font-medium text-slate-900">{c.customer_name}</td>
+                <tr key={c.customer_id} className="border-b border-border hover:bg-muted">
+                  <td className="py-2 pr-3 font-medium text-foreground">{c.customer_name}</td>
                   <td className="py-2 pr-3 text-right">{formatNumber(Number(c.orders_open || 0))}</td>
                   <td className="py-2 pr-3 text-right">{formatNumber(Number(c.orders_closed || 0))}</td>
-                  <td className="py-2 pr-3 text-right text-rose-700 font-semibold">{formatNumber(Number(c.orders_delayed || 0))}</td>
+                  <td className="py-2 pr-3 text-right text-signal-rose-ink font-semibold">{formatNumber(Number(c.orders_delayed || 0))}</td>
                   <td className="py-2 pr-3 text-right">{formatCurrency(Number(c.open_value || 0))}</td>
                   <td className="py-2 pr-3 text-right">{formatCurrency(Number(c.dispatched_value || 0))}</td>
                   <td className="py-2 pr-3 text-right">{formatPct(Number(c.otif_percent || 0))}</td>

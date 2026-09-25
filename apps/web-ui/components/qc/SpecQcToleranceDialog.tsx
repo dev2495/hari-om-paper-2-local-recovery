@@ -40,6 +40,7 @@ function cloneProfile(profile: any, notching: boolean | null) {
   const base = emptyQcProfile(resolvedNotching ?? null)
   const incoming = profile?.stages || {}
   for (const stage of Object.keys(base.stages) as QcStageKey[]) {
+    base.stages[stage] = { ...incoming[stage], ...base.stages[stage] }
     const defs = QC_STAGE_PARAMETERS[stage] || []
     const incomingRows = Array.isArray(incoming[stage]?.parameters) ? incoming[stage].parameters : []
     const byCode = Object.fromEntries(incomingRows.map((row: any) => [row.code, row]))
@@ -128,6 +129,7 @@ export function SpecQcToleranceDialog({
       stages: {
         ...current.stages,
         [stage]: {
+          ...current.stages[stage],
           parameters: (current.stages[stage]?.parameters || []).map((row: any) =>
             row.code === code ? { ...row, ...patch } : row,
           ),
@@ -145,6 +147,7 @@ export function SpecQcToleranceDialog({
       stages: {
         ...current.stages,
         PROCESS: {
+          ...current.stages.PROCESS,
           parameters: (current.stages.PROCESS?.parameters || []).map((row: any) =>
             row.conditional === "notching"
               ? {
@@ -172,27 +175,27 @@ export function SpecQcToleranceDialog({
       aria-modal="true"
       tabIndex={-1}
     >
-      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-2xl">
-        <div className="border-b border-slate-200 px-6 py-4">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Review quality tolerances</p>
-          <h2 className="mt-1 text-2xl font-semibold text-slate-950">Stage QC setup before save</h2>
-          <p className="mt-2 text-sm text-slate-600">
+      <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-[2rem] border border-border bg-card shadow-2xl">
+        <div className="border-b border-border px-6 py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Review quality tolerances</p>
+          <h2 className="mt-1 text-2xl font-semibold text-foreground">Stage QC setup before save</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
             {context.customer || "Customer pending"} · {context.product || "Product pending"} · {context.plant || "Plant"} · {context.dimensions || "Dimensions pending"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Target weight {context.targetWeight || "pending"} · C.S. {context.cs || "pending"} · Recipe {context.recipe || "pending"} · Ply {context.ply || "pending"} · Parchment {context.parchment || "pending"}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-muted-foreground">
             Final product limits stay on the spec sheet. Winding / oven / process ranges are entered here and frozen onto job cards. No invented ± bands.
           </p>
-          <p className="mt-1 text-xs font-semibold text-slate-700">{summary}</p>
+          <p className="mt-1 text-xs font-semibold text-muted-foreground">{summary}</p>
           {needsNotchingReview ? (
-            <p className="mt-2 text-xs font-semibold text-amber-800" data-testid="spec-qc-notching-review">
+            <p className="mt-2 text-xs font-semibold text-signal-amber-ink" data-testid="spec-qc-notching-review">
               Notching applicability needs review. Do not store zero or skip automatically.
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap gap-2 border-b border-slate-100 px-6 py-3">
+        <div className="flex flex-wrap gap-2 border-b border-border px-6 py-3">
           {STAGES.map((item) => (
             <button
               key={item.key}
@@ -200,7 +203,7 @@ export function SpecQcToleranceDialog({
               data-testid={`spec-qc-stage-${item.key}`}
               onClick={() => setStage(item.key)}
               className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
-                stage === item.key ? "border-cyan-300 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-500"
+                stage === item.key ? "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink" : "border-border bg-card text-muted-foreground"
               }`}
             >
               {item.label}
@@ -209,11 +212,11 @@ export function SpecQcToleranceDialog({
         </div>
         <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
           {stage === "PROCESS" ? (
-            <label className="mb-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notching</span>
+            <label className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Notching</span>
               <select
                 data-testid="spec-qc-notching-state"
-                className="h-10 rounded-xl border border-slate-200 px-2"
+                className="h-10 rounded-xl border border-border px-2"
                 value={notchingState}
                 onChange={(event) => setNotchingState(event.target.value as "unknown" | "true" | "false")}
               >
@@ -225,15 +228,15 @@ export function SpecQcToleranceDialog({
           ) : null}
           <table className="w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 text-left text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                <th className="border border-slate-200 px-2 py-2">Parameter</th>
-                <th className="border border-slate-200 px-2 py-2">Unit</th>
-                <th className="border border-slate-200 px-2 py-2">Method</th>
-                <th className="border border-slate-200 px-2 py-2">Specimen</th>
-                <th className="border border-slate-200 px-2 py-2">Sampling</th>
-                <th className="border border-slate-200 px-2 py-2">Min</th>
-                <th className="border border-slate-200 px-2 py-2">Max</th>
-                <th className="border border-slate-200 px-2 py-2">Frozen rule</th>
+              <tr className="bg-muted text-left text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+                <th className="border border-border px-2 py-2">Parameter</th>
+                <th className="border border-border px-2 py-2">Unit</th>
+                <th className="border border-border px-2 py-2">Method</th>
+                <th className="border border-border px-2 py-2">Specimen</th>
+                <th className="border border-border px-2 py-2">Sampling</th>
+                <th className="border border-border px-2 py-2">Min</th>
+                <th className="border border-border px-2 py-2">Max</th>
+                <th className="border border-border px-2 py-2">Frozen rule</th>
               </tr>
             </thead>
             <tbody>
@@ -241,10 +244,10 @@ export function SpecQcToleranceDialog({
                 const notApplicable = row.applicable === false
                 return (
                 <tr key={row.code} data-testid={`spec-qc-row-${stage}-${row.code}`}>
-                  <td className="border border-slate-200 px-2 py-2 font-semibold text-slate-900" data-testid={`spec-qc-param-label-${stage}-${row.code}`}>
+                  <td className="border border-border px-2 py-2 font-semibold text-foreground" data-testid={`spec-qc-param-label-${stage}-${row.code}`}>
                     {row.label}
                     {row.conditional === "notching" ? (
-                      <label className="mt-1 flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                      <label className="mt-1 flex items-center gap-2 text-[11px] font-medium text-muted-foreground">
                         <input
                           type="checkbox"
                           checked={row.applicable === true}
@@ -254,31 +257,31 @@ export function SpecQcToleranceDialog({
                       </label>
                     ) : null}
                   </td>
-                  <td className="border border-slate-200 px-2 py-2">
-                    <input className="h-10 w-20 rounded-xl border border-slate-200 px-2" value={row.unit || ""} onChange={(event) => updateRow(row.code, { unit: event.target.value })} />
+                  <td className="border border-border px-2 py-2">
+                    <input className="h-10 w-20 rounded-xl border border-border px-2" value={row.unit || ""} onChange={(event) => updateRow(row.code, { unit: event.target.value })} />
                   </td>
-                  <td className="border border-slate-200 px-2 py-2">
-                    <input className="h-10 w-full rounded-xl border border-slate-200 px-2" value={row.method || ""} onChange={(event) => updateRow(row.code, { method: event.target.value })} />
+                  <td className="border border-border px-2 py-2">
+                    <input className="h-10 w-full rounded-xl border border-border px-2" value={row.method || ""} onChange={(event) => updateRow(row.code, { method: event.target.value })} />
                   </td>
-                  <td className="border border-slate-200 px-2 py-2">
+                  <td className="border border-border px-2 py-2">
                     <input
-                      className="h-10 w-full rounded-xl border border-slate-200 px-2"
+                      className="h-10 w-full rounded-xl border border-border px-2"
                       value={row.specimen || ""}
                       placeholder={row.basis_hint || ""}
                       onChange={(event) => updateRow(row.code, { specimen: event.target.value })}
                     />
                     {row.basis_hint ? (
-                      <p className="mt-1 text-[11px] text-slate-500" data-testid={`spec-qc-basis-${stage}-${row.code}`}>
+                      <p className="mt-1 text-[11px] text-muted-foreground" data-testid={`spec-qc-basis-${stage}-${row.code}`}>
                         Stage basis: {row.basis_hint}
                       </p>
                     ) : null}
                   </td>
-                  <td className="border border-slate-200 px-2 py-2">
-                    <input className="h-10 w-full rounded-xl border border-slate-200 px-2" value={row.sampling || ""} onChange={(event) => updateRow(row.code, { sampling: event.target.value })} />
+                  <td className="border border-border px-2 py-2">
+                    <input className="h-10 w-full rounded-xl border border-border px-2" value={row.sampling || ""} onChange={(event) => updateRow(row.code, { sampling: event.target.value })} />
                   </td>
-                  <td className="border border-slate-200 px-2 py-2">
+                  <td className="border border-border px-2 py-2">
                     <input
-                      className="h-10 w-24 rounded-xl border border-slate-200 px-2"
+                      className="h-10 w-24 rounded-xl border border-border px-2"
                       type="number"
                       step="0.001"
                       disabled={notApplicable}
@@ -286,9 +289,9 @@ export function SpecQcToleranceDialog({
                       onChange={(event) => updateRow(row.code, { min: event.target.value === "" ? null : Number(event.target.value) })}
                     />
                   </td>
-                  <td className="border border-slate-200 px-2 py-2">
+                  <td className="border border-border px-2 py-2">
                     <input
-                      className="h-10 w-24 rounded-xl border border-slate-200 px-2"
+                      className="h-10 w-24 rounded-xl border border-border px-2"
                       type="number"
                       step="0.001"
                       disabled={notApplicable}
@@ -296,8 +299,14 @@ export function SpecQcToleranceDialog({
                       onChange={(event) => updateRow(row.code, { max: event.target.value === "" ? null : Number(event.target.value) })}
                     />
                   </td>
-                  <td className="border border-slate-200 px-2 py-2 text-xs font-semibold text-slate-600" data-testid={`spec-qc-frozen-${stage}-${row.code}`}>
+                  <td className="border border-border px-2 py-2 text-xs font-semibold text-muted-foreground" data-testid={`spec-qc-frozen-${stage}-${row.code}`}>
                     {formatAllowedRange(row)}
+                    <label className="mt-2 flex min-h-10 items-center gap-2 font-medium">
+                      <input type="checkbox" checked={row.non_waivable === true}
+                        aria-label={`Critical non-waivable check: ${row.label || row.code || "parameter"}`}
+                        onChange={(event) => updateRow(row.code, { non_waivable: event.target.checked })} />
+                      Critical: cannot be waived
+                    </label>
                   </td>
                 </tr>
                 )
@@ -305,26 +314,26 @@ export function SpecQcToleranceDialog({
             </tbody>
           </table>
           {stage === "OVEN" ? (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-muted-foreground">
               Oven pre/post weight and moisture are paired readings on the same identified sample. Post values are not due until that checkpoint.
             </p>
           ) : null}
           {stage === "WINDER" ? (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-muted-foreground">
               Winding uses Height, not Length, and does not copy finished-product ID/OD/CS bands automatically.
             </p>
           ) : null}
           {stage === "PROCESS" ? (
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-xs text-muted-foreground">
               Process Height/Weight use the finished specimen basis. Those finals are not copied into winding.
             </p>
           ) : null}
         </div>
-        <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 px-6 py-4">
+        <div className="flex flex-wrap justify-end gap-2 border-t border-border px-6 py-4">
           <button
             type="button"
             onClick={() => onBack(profile)}
-            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+            className="rounded-2xl border border-border px-4 py-2 text-sm font-semibold text-muted-foreground"
           >
             Back to specification
           </button>
@@ -336,7 +345,7 @@ export function SpecQcToleranceDialog({
                 onDiscard()
               }
             }}
-            className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800"
+            className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft px-4 py-2 text-sm font-semibold text-signal-rose-ink"
           >
             Discard QC edits
           </button>
@@ -345,7 +354,7 @@ export function SpecQcToleranceDialog({
             data-testid="spec-qc-save-incomplete"
             disabled={saving}
             onClick={() => onSaveDraft({ ...profile, status: "draft" })}
-            className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 disabled:opacity-50"
+            className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft px-4 py-2 text-sm font-semibold text-signal-amber-ink disabled:opacity-50"
           >
             Save draft — QC incomplete
           </button>

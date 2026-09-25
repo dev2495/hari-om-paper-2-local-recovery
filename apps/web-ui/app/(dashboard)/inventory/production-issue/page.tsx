@@ -220,7 +220,7 @@ export default function InventoryProductionIssuePage() {
 
   return (
     <div className="space-y-6" data-testid="inventory-production-issue-form">
-      <section className="rounded-2xl border border-amber-200/70 bg-gradient-to-r from-slate-950 via-cyan-950 to-amber-900 p-6 text-white shadow-xl">
+      <section className="rounded-2xl border border-signal-amber-line/70 bg-gradient-to-r from-slate-950 via-cyan-950 to-amber-900 p-6 text-white shadow-xl">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <p className="text-[11px] font-bold uppercase tracking-[0.28em] text-amber-200">Store to Production</p>
@@ -229,62 +229,62 @@ export default function InventoryProductionIssuePage() {
               Issue material from a selected batch into WIP against a job card. Controlled manual issue remains available for corrections only.
             </p>
           </div>
-          <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-xs uppercase tracking-[0.18em]">
+          <div className="rounded-2xl border border-border/15 bg-card/10 px-4 py-3 text-xs uppercase tracking-[0.18em]">
             FG inward remains auto-posted from job close.
           </div>
         </div>
       </section>
 
-      <form onSubmit={handleSubmit} className="glass grid gap-5 rounded-2xl border border-white/60 p-6 shadow-xl">
+      <form onSubmit={handleSubmit} className="glass grid gap-5 rounded-2xl border border-border/60 p-6 shadow-xl">
         <div className="flex items-center gap-3">
           <div className="rounded-2xl bg-cyan-900 p-3 text-white">
             <PackageCheck className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">Issue Material</h2>
-            <p className="text-sm text-slate-500">Default posting creates Store Out and WIP In ledger rows from the same batch.</p>
+            <h2 className="text-lg font-semibold text-foreground">Issue Material</h2>
+            <p className="text-sm text-muted-foreground">Default posting creates Store Out and WIP In ledger rows from the same batch.</p>
           </div>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="lg:col-span-2">
-            <div className="inline-flex rounded-xl border border-slate-200 bg-white p-1 text-sm font-semibold text-slate-600">
+            <div className="inline-flex rounded-xl border border-border bg-card p-1 text-sm font-semibold text-muted-foreground">
               <button
                 type="button"
                 onClick={() => setFormData((current) => ({ ...current, movement_mode: "WIP" }))}
-                className={`rounded-lg px-4 py-2 transition ${isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-slate-50"}`}
+                className={`rounded-lg px-4 py-2 transition ${isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-muted"}`}
               >
                 Issue to WIP
               </button>
               <button
                 type="button"
                 onClick={() => setFormData((current) => ({ ...current, movement_mode: "MANUAL" }))}
-                className={`rounded-lg px-4 py-2 transition ${!isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-slate-50"}`}
+                className={`rounded-lg px-4 py-2 transition ${!isWipMode ? "bg-cyan-900 text-white shadow" : "hover:bg-muted"}`}
               >
                 Manual exception
               </button>
             </div>
           </div>
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
+          <label className="space-y-2 text-sm font-medium text-muted-foreground">
             Search Materials
-            <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
-              <Search className="h-4 w-4 text-slate-400" />
+            <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
+              <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 value={itemSearch}
                 onChange={(event) => setItemSearch(event.target.value)}
                 placeholder="Paper, adhesive, parchment, code..."
-                className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
             </div>
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
+          <label className="space-y-2 text-sm font-medium text-muted-foreground">
             Material
             <select
               value={formData.item_id}
               onChange={(event) => setFormData((current) => ({ ...current, item_id: event.target.value, batch_id: "" }))}
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
               required
             >
               <option value="">{isLoading ? "Loading items..." : "Select inventory item"}</option>
@@ -298,21 +298,21 @@ export default function InventoryProductionIssuePage() {
 
           {isWipMode ? (
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Batch / Lot</label>
+              <label className="text-sm font-medium text-muted-foreground">Batch / Lot</label>
               <div className="grid gap-2 md:grid-cols-[1fr_auto]">
-                <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
-                  <Barcode className="h-4 w-4 text-slate-400" />
+                <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
+                  <Barcode className="h-4 w-4 text-muted-foreground" />
                   <input
                     value={batchScan}
                     onChange={(event) => setBatchScan(event.target.value)}
                     placeholder="Scan batch QR or enter batch no"
-                    className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                    className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={resolveBatchScan}
-                  className="h-11 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-cyan-300 hover:text-cyan-900"
+                  className="h-11 rounded-xl border border-border bg-card px-4 text-sm font-semibold text-muted-foreground transition hover:border-signal-cyan-line hover:text-signal-cyan-ink"
                 >
                   Select
                 </button>
@@ -320,7 +320,7 @@ export default function InventoryProductionIssuePage() {
               <select
                 value={formData.batch_id}
                 onChange={(event) => setFormData((current) => ({ ...current, batch_id: event.target.value }))}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
                 required
               >
                 <option value="">{itemBalanceQuery.isLoading ? "Loading batches..." : "Select available batch"}</option>
@@ -330,11 +330,11 @@ export default function InventoryProductionIssuePage() {
                   </option>
                 ))}
               </select>
-              {batchScanMessage ? <p className="text-xs font-semibold text-cyan-800">{batchScanMessage}</p> : null}
+              {batchScanMessage ? <p className="text-xs font-semibold text-signal-cyan-ink">{batchScanMessage}</p> : null}
             </div>
           ) : null}
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
+          <label className="space-y-2 text-sm font-medium text-muted-foreground">
             Quantity / Weight
             <input
               type="number"
@@ -342,30 +342,30 @@ export default function InventoryProductionIssuePage() {
               min="0.001"
               value={formData.qty}
               onChange={(event) => setFormData((current) => ({ ...current, qty: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
               required
             />
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
+          <label className="space-y-2 text-sm font-medium text-muted-foreground">
             Search Job Cards
-            <div className="flex h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3">
-              <Search className="h-4 w-4 text-slate-400" />
+            <div className="flex h-11 items-center gap-2 rounded-xl border border-border bg-card px-3">
+              <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 value={jobSearch}
                 onChange={(event) => setJobSearch(event.target.value)}
                 placeholder="Job card, customer, product..."
-                className="w-full bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                className="w-full bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
             </div>
           </label>
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
+          <label className="space-y-2 text-sm font-medium text-muted-foreground">
             Job Card
             <select
               value={formData.production_job_id}
               onChange={(event) => setFormData((current) => ({ ...current, production_job_id: event.target.value }))}
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
               required
             >
               <option value="">{jobCardsQuery.isLoading ? "Loading job cards..." : "Select live job card"}</option>
@@ -381,12 +381,12 @@ export default function InventoryProductionIssuePage() {
 
           {isWipMode ? (
             <>
-              <label className="space-y-2 text-sm font-medium text-slate-700">
+              <label className="space-y-2 text-sm font-medium text-muted-foreground">
                 Production Stage
                 <select
                   value={formData.stage}
                   onChange={(event) => setFormData((current) => ({ ...current, stage: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
                   required
                 >
                   {STAGE_OPTIONS.map((stage) => (
@@ -395,12 +395,12 @@ export default function InventoryProductionIssuePage() {
                 </select>
               </label>
 
-              <label className="space-y-2 text-sm font-medium text-slate-700">
+              <label className="space-y-2 text-sm font-medium text-muted-foreground">
                 WIP Location
                 <select
                   value={formData.wip_location_id}
                   onChange={(event) => setFormData((current) => ({ ...current, wip_location_id: event.target.value }))}
-                  className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
                 >
                   <option value="">System WIP bucket</option>
                   {wipLocations.map((location: any) => (
@@ -412,12 +412,12 @@ export default function InventoryProductionIssuePage() {
               </label>
             </>
           ) : (
-            <label className="space-y-2 text-sm font-medium text-slate-700">
+            <label className="space-y-2 text-sm font-medium text-muted-foreground">
               Reason Code
               <select
                 value={formData.reason_code}
                 onChange={(event) => setFormData((current) => ({ ...current, reason_code: event.target.value }))}
-                className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+                className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
                 required
               >
                 <option value="NON_RECIPE_CONSUMABLE">Non-recipe consumable</option>
@@ -427,24 +427,24 @@ export default function InventoryProductionIssuePage() {
             </label>
           )}
 
-          <label className="space-y-2 text-sm font-medium text-slate-700">
+          <label className="space-y-2 text-sm font-medium text-muted-foreground">
             External Reference
             <input
               value={formData.external_ref}
               onChange={(event) => setFormData((current) => ({ ...current, external_ref: event.target.value }))}
               placeholder={selectedJob ? jobCardRef(selectedJob) : "Optional store slip / issue note"}
-              className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+              className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm text-foreground outline-none transition focus:border-cyan-700"
             />
           </label>
 
           {!isWipMode ? (
-            <label className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm font-medium text-amber-900 lg:col-span-2">
+            <label className="flex items-center gap-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-3 text-sm font-medium text-signal-amber-ink lg:col-span-2">
               <input
                 type="checkbox"
                 checked={formData.allow_raw_paper_exception}
                 onChange={(event) => setFormData((current) => ({ ...current, allow_raw_paper_exception: event.target.checked }))}
                 disabled={selectedItemType !== "RAW_PAPER"}
-                className="h-4 w-4 rounded border-amber-300"
+                className="h-4 w-4 rounded border-signal-amber-line"
               />
               Allow raw-paper manual exception. Normal raw paper must go through RM issue-to-section/reel issue, not this exception screen.
             </label>
@@ -452,37 +452,37 @@ export default function InventoryProductionIssuePage() {
         </div>
 
         {isWipMode && selectedBatch ? (
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm text-signal-emerald-ink">
             Batch <span className="font-semibold">{selectedBatch.batch_no || selectedBatch.batch_id}</span> has{" "}
             {Number(selectedBatch.available_qty ?? 0).toLocaleString("en-IN")} available at {selectedBatch.location || "store"}.
           </div>
         ) : null}
 
         {selectedJob ? (
-          <div className="rounded-2xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-950">
+          <div className="rounded-2xl border border-signal-cyan-line bg-signal-cyan-soft px-4 py-3 text-sm text-signal-cyan-ink">
             <span className="font-semibold">{jobCardRef(selectedJob)}</span> selected for {jobCardSubtitle(selectedJob)}.
             Stage {selectedJob.current_stage || "-"} · Qty {Number(selectedJob.planned_qty || selectedJob.released_qty || 0).toLocaleString("en-IN")} pcs.
           </div>
         ) : null}
 
-        <label className="space-y-2 text-sm font-medium text-slate-700">
+        <label className="space-y-2 text-sm font-medium text-muted-foreground">
           Notes
           <textarea
             value={formData.notes}
             onChange={(event) => setFormData((current) => ({ ...current, notes: event.target.value }))}
             rows={3}
-            className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition focus:border-cyan-700"
+            className="w-full rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none transition focus:border-cyan-700"
           />
         </label>
 
         {actionError ? (
-          <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">
             Issue failed. Check stock balance, item selection, and service logs.
           </div>
         ) : null}
 
         {actionSuccess ? (
-          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <div className="rounded-xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm text-signal-emerald-ink">
             Material issue posted successfully.
           </div>
         ) : null}

@@ -73,24 +73,24 @@ export default function MasterOverviewPage() {
       {workspaceGroups.map((group) => {
         const Icon = group.icon
         return (
-          <section key={group.title} className="rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-premium">
+          <section key={group.title} className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   <Icon className="h-3.5 w-3.5" />
                   {group.eyebrow}
                 </div>
-                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">{group.title}</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">{group.description}</p>
+                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-foreground">{group.title}</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{group.description}</p>
               </div>
             </div>
 
             <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {group.links.map((item) => (
-                <Link key={item.href} href={item.href} className="rounded-[1.5rem] border border-slate-200 bg-slate-50/70 p-5 transition hover:border-slate-300 hover:bg-white">
-                  <h3 className="text-lg font-semibold text-slate-900">{item.title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">{item.description}</p>
-                  <div className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-slate-900">
+                <Link key={item.href} href={item.href} className="rounded-[1.5rem] border border-border bg-muted/70 p-5 transition hover:border-border hover:bg-card">
+                  <h3 className="text-lg font-semibold text-foreground">{item.title}</h3>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                  <div className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
                     Open <ArrowRight className="h-4 w-4" />
                   </div>
                 </Link>

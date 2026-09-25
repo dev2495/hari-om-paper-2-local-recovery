@@ -76,13 +76,13 @@ function formatYesNo(value: any) {
 function statusChipClass(status: string) {
   switch ((status || "").toUpperCase()) {
     case "COMPLETED":
-      return "bg-emerald-100 text-emerald-700 border-emerald-200"
+      return "bg-signal-emerald-soft text-signal-emerald-ink border-signal-emerald-line"
     case "ASSIGNED":
-      return "bg-cyan-100 text-cyan-700 border-cyan-200"
+      return "bg-signal-cyan-soft text-signal-cyan-ink border-signal-cyan-line"
     case "RUNNING":
-      return "bg-amber-100 text-amber-700 border-amber-200"
+      return "bg-signal-amber-soft text-signal-amber-ink border-signal-amber-line"
     default:
-      return "bg-slate-100 text-slate-700 border-slate-200"
+      return "bg-muted text-muted-foreground border-border"
   }
 }
 
@@ -356,9 +356,9 @@ function LabeledValue({
   className?: string
 }) {
   return (
-    <div className={`rounded-xl border border-slate-200 bg-white/90 px-3 py-3 shadow-sm ${className}`}>
-      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</div>
-      <div className="mt-1 min-h-5 text-sm font-semibold text-slate-900">{value || "-"}</div>
+    <div className={`rounded-xl border border-border bg-card/90 px-3 py-3 shadow-sm ${className}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</div>
+      <div className="mt-1 min-h-5 text-sm font-semibold text-foreground">{value || "-"}</div>
     </div>
   )
 }
@@ -378,10 +378,10 @@ function StageMetric({
     tone === "dark"
       ? "border-slate-900 bg-slate-950 text-white"
       : tone === "soft"
-        ? "border-cyan-200 bg-cyan-50 text-slate-950"
-        : "border-slate-200 bg-white text-slate-950"
-  const labelClass = tone === "dark" ? "text-white/70" : "text-slate-500"
-  const detailClass = tone === "dark" ? "text-white/75" : "text-slate-500"
+        ? "border-signal-cyan-line bg-signal-cyan-soft text-foreground"
+        : "border-border bg-card text-foreground"
+  const labelClass = tone === "dark" ? "text-white/70" : "text-muted-foreground"
+  const detailClass = tone === "dark" ? "text-white/75" : "text-muted-foreground"
   return (
     <div className={`rounded-[1.2rem] border px-4 py-3 shadow-sm ${toneClass}`}>
       <div className={`text-[10px] font-semibold uppercase tracking-[0.16em] ${labelClass}`}>{label}</div>
@@ -405,7 +405,7 @@ function TextInput({
       type={type}
       value={value ?? ""}
       onChange={(event) => onChange(event.target.value)}
-      className="h-11 w-full rounded-2xl border border-slate-300 bg-white/95 px-3 text-sm font-medium text-slate-900 shadow-sm"
+      className="h-11 w-full rounded-2xl border border-border bg-card/95 px-3 text-sm font-medium text-foreground shadow-sm"
     />
   )
 }
@@ -429,16 +429,16 @@ function MatrixBlock({
 
   return (
     <section className="border border-slate-800">
-      <div className="border-b border-slate-800 bg-slate-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-900">
+      <div className="border-b border-slate-800 bg-muted px-3 py-2 text-sm font-bold uppercase tracking-wide text-foreground">
         {title}
       </div>
       <table className="w-full border-collapse text-sm">
         <thead>
-          <tr className="bg-slate-50 text-left">
-            <th className="border border-slate-300 px-2 py-2">Parameter</th>
-            <th className="border border-slate-300 px-2 py-2">Avg</th>
-            <th className="border border-slate-300 px-2 py-2">Min</th>
-            <th className="border border-slate-300 px-2 py-2">Max</th>
+          <tr className="bg-muted text-left">
+            <th className="border border-border px-2 py-2">Parameter</th>
+            <th className="border border-border px-2 py-2">Avg</th>
+            <th className="border border-border px-2 py-2">Min</th>
+            <th className="border border-border px-2 py-2">Max</th>
           </tr>
         </thead>
         <tbody>
@@ -446,10 +446,10 @@ function MatrixBlock({
             const current = ranges?.[row.key] || {}
             return (
               <tr key={row.key}>
-                <td className="border border-slate-300 px-2 py-2 font-semibold">{row.label}</td>
-                <td className="border border-slate-300 px-2 py-2">{formatNumber(current.avg)}</td>
-                <td className="border border-slate-300 px-2 py-2">{formatNumber(current.min)}</td>
-                <td className="border border-slate-300 px-2 py-2">{formatNumber(current.max)}</td>
+                <td className="border border-border px-2 py-2 font-semibold">{row.label}</td>
+                <td className="border border-border px-2 py-2">{formatNumber(current.avg)}</td>
+                <td className="border border-border px-2 py-2">{formatNumber(current.min)}</td>
+                <td className="border border-border px-2 py-2">{formatNumber(current.max)}</td>
               </tr>
             )
           })}
@@ -826,14 +826,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       : entry.qc_reasons || {}
     return (
       <div
-        className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/50 p-3"
+        className="mt-3 rounded-xl border border-signal-cyan-line bg-signal-cyan-soft/50 p-3"
         data-testid={options?.print ? `print-qc-${stage.toLowerCase()}` : `stage-qc-${stage.toLowerCase()}`}
         data-profile-revision={revision == null ? "" : String(revision)}
       >
-        <div className="text-xs font-semibold uppercase tracking-wide text-cyan-900">
+        <div className="text-xs font-semibold uppercase tracking-wide text-signal-cyan-ink">
           Stage QC · frozen approved ranges · {checkpoint} · Rev {revision ?? "—"}
         </div>
-        <p className="mt-1 text-[11px] text-slate-600">
+        <p className="mt-1 text-[11px] text-muted-foreground">
           Allowed bands come from the job-card snapshot and signed inspection. Later profile revisions do not relabel this card.
         </p>
         <div className="mt-3">
@@ -1057,7 +1057,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           type="button"
           onClick={() => saveStage(stage, "draft")}
           disabled={disabled}
-          className="inline-flex items-center gap-2 border border-slate-900 px-3 py-2 text-sm font-semibold text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 border border-slate-900 px-3 py-2 text-sm font-semibold text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Save className="h-4 w-4" />
           Save Draft
@@ -1080,9 +1080,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const stageOpenSegments = stageSegments.filter((segment: any) => segment.stage_type === stage && segment.status !== "COMPLETED" && segment.status !== "CANCELLED")
     if (mode !== "supervisor" || stage !== currentStage || stageOpenSegments.length <= 1) return null
     return (
-      <div className="rounded-[1.1rem] border border-amber-200 bg-amber-50 p-4">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-800">Open Segments</div>
-        <p className="mt-2 text-sm text-slate-700">This stage is split across multiple shifts. Pick the live segment before entering actuals.</p>
+      <div className="rounded-[1.1rem] border border-signal-amber-line bg-signal-amber-soft p-4">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-signal-amber-ink">Open Segments</div>
+        <p className="mt-2 text-sm text-muted-foreground">This stage is split across multiple shifts. Pick the live segment before entering actuals.</p>
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {stageOpenSegments.map((segment: any) => {
             const selected = stageForms[stage]?.segment_id === segment.id
@@ -1097,7 +1097,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   }))
                 }
                 className={`rounded-xl border px-3 py-3 text-left transition ${
-                  selected ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-800"
+                  selected ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-card text-foreground"
                 }`}
               >
                 <div className="text-xs font-semibold uppercase tracking-[0.16em]">
@@ -1132,14 +1132,14 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const surviving = late.surviving_stock || evaluation.surviving_stock || []
     const shipments = late.earlier_shipments || evaluation.earlier_shipments || []
     return (
-      <section data-testid="late-quality-exception" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">
+      <section data-testid="late-quality-exception" className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-amber-ink">
           {late.late_exception_label || evaluation.late_exception_label || "Late quality exception"}
         </div>
-        <p className="mt-1 text-sm font-semibold text-amber-950">
+        <p className="mt-1 text-sm font-semibold text-signal-amber-ink">
           Measured and recorded clocks are distinct. Surviving stock is traced. Earlier shipment remains as it occurred.
         </p>
-        <div className="mt-2 grid gap-2 text-sm text-amber-950 md:grid-cols-2">
+        <div className="mt-2 grid gap-2 text-sm text-signal-amber-ink md:grid-cols-2">
           <div data-testid="qc-measured-at">Measured {String(late.measured_at || evaluation.measured_at || "")}</div>
           <div data-testid="qc-recorded-at">Recorded {String(late.recorded_at || evaluation.recorded_at || "")}</div>
         </div>
@@ -1162,15 +1162,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return (
       <section
         data-testid="restricted-physical-output"
-        className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3"
+        className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3"
       >
-        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-800">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-signal-amber-ink">
           Restricted physical output
         </div>
-        <p className="mt-1 text-sm font-semibold text-amber-950">
+        <p className="mt-1 text-sm font-semibold text-signal-amber-ink">
           Actual production is retained. Failed quantity is not unrestricted good stock.
         </p>
-        <div className="mt-2 grid gap-2 text-sm text-amber-950 md:grid-cols-3">
+        <div className="mt-2 grid gap-2 text-sm text-signal-amber-ink md:grid-cols-3">
           <div>Stage {restrictedPhysicalStage.stage_type}</div>
           <div data-testid="restricted-output-qty">Qty {formatNumber(restrictedPhysicalStage.output_qty, 0)}</div>
           <div data-testid="restricted-stock-status">
@@ -1187,13 +1187,13 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       <div className="w-full space-y-4">
         {mode === "view" ? (
           <div className="no-print flex flex-wrap items-center justify-between gap-3">
-            <div className="text-sm text-slate-600">
-              Snapshot Mode: <span className="font-semibold text-slate-900">{card?.snapshot_mode}</span>
+            <div className="text-sm text-muted-foreground">
+              Snapshot Mode: <span className="font-semibold text-foreground">{card?.snapshot_mode}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Link
                 href={`/production/job-cards/${jobCardId}/print`}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-900 px-4 py-2 text-sm font-semibold text-slate-900"
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-900 px-4 py-2 text-sm font-semibold text-foreground"
               >
                 <Printer className="h-4 w-4" />
                 Print
@@ -1208,7 +1208,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 href={qrValue}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700"
+                className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-muted-foreground"
               >
                 <Smartphone className="h-4 w-4" />
                 Open mobile link
@@ -1218,9 +1218,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         ) : null}
         {renderRestrictedPhysicalOutput()}
         {renderLateQualityException()}
-        <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+        <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_24rem]">
-            <div className="border-b border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#1f2937_60%,#334155_100%)] px-6 py-6 text-white lg:border-b-0 lg:border-r">
+            <div className="border-b border-border bg-card px-6 py-6 text-white lg:border-b-0 lg:border-r">
               <div className="text-[11px] font-semibold uppercase tracking-[0.2em] text-cyan-100">Production Execution</div>
               <h1 className="mt-2 text-3xl font-semibold tracking-tight">{card?.job_card_ref || card?.id}</h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200/80">
@@ -1241,20 +1241,20 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <div><div className="text-[11px] uppercase tracking-[0.16em] text-cyan-100/70">Sales Line</div><div className="mt-1 text-sm font-semibold">{card?.sales_order_line_id ? String(card.sales_order_line_id).slice(0, 8) : "-"}</div></div>
               </div>
             </div>
-            <div className="grid gap-3 bg-[linear-gradient(180deg,#f8fafc_0%,#eef2f7_100%)] px-6 py-6">
+            <div className="grid gap-3 bg-card px-6 py-6">
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Target Bamboo</div><div className="mt-1 text-lg font-semibold text-slate-900">{formatNumber(targetBambooCount, 0)}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Open Segments</div><div className="mt-1 text-lg font-semibold text-slate-900">{card?.open_segment_count ?? currentStageSegments.length}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Current Machine</div><div className="mt-1 text-sm font-semibold text-slate-900">{currentMachineLabel}</div></div>
-                <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Shift Slot</div><div className="mt-1 text-sm font-semibold text-slate-900">{currentShiftLabel}</div></div>
+                <div className="rounded-2xl border border-border bg-card px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Target Bamboo</div><div className="mt-1 text-lg font-semibold text-foreground">{formatNumber(targetBambooCount, 0)}</div></div>
+                <div className="rounded-2xl border border-border bg-card px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Open Segments</div><div className="mt-1 text-lg font-semibold text-foreground">{card?.open_segment_count ?? currentStageSegments.length}</div></div>
+                <div className="rounded-2xl border border-border bg-card px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Current Machine</div><div className="mt-1 text-sm font-semibold text-foreground">{currentMachineLabel}</div></div>
+                <div className="rounded-2xl border border-border bg-card px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Shift Slot</div><div className="mt-1 text-sm font-semibold text-foreground">{currentShiftLabel}</div></div>
               </div>
               {PLANNER_GATED_STAGES.includes(currentStage) ? (
-                <div className={`rounded-2xl border px-4 py-3 ${plannerGateReady ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Planner Gate</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                <div className={`rounded-2xl border px-4 py-3 ${plannerGateReady ? "border-signal-emerald-line bg-signal-emerald-soft" : "border-signal-amber-line bg-signal-amber-soft"}`}>
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner Gate</div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">
                     {plannerGateReady ? "Ready for floor entry" : "Blocked until planner slot is valid"}
                   </div>
-                  <div className="mt-1 text-xs text-slate-600">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     {plannerGateReady
                       ? `Scheduled ${card?.active_segment_plan_date || activeSegment?.plan_date || "-"} · ${currentMachineLabel}`
                       : plannerGateReason || "Planner must place this stage in the next 3 days before supervisor entry."}
@@ -1263,24 +1263,24 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               ) : null}
               <div
                 data-testid="dispatch-gate"
-                className={`rounded-2xl border px-4 py-3 ${dispatchGateBlocked ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}
+                className={`rounded-2xl border px-4 py-3 ${dispatchGateBlocked ? "border-signal-rose-line bg-signal-rose-soft" : "border-signal-emerald-line bg-signal-emerald-soft"}`}
               >
-                <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Dispatch Gate</div>
-                <div className="mt-1 text-sm font-semibold text-slate-900">{dispatchGateBlocked ? "Blocked" : "Ready"}</div>
-                <div className="mt-1 text-xs text-slate-600">
+                <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Dispatch Gate</div>
+                <div className="mt-1 text-sm font-semibold text-foreground">{dispatchGateBlocked ? "Blocked" : "Ready"}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
                   {dispatchGateBlocked
                     ? `Pending: ${incompleteUpstreamStages.join(", ")}${activeHoldCount > 0 ? ` | QC holds ${activeHoldCount}` : ""}`
                     : "Packing and QC are complete with no active hold."}
                 </div>
               </div>
-              <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <div className="rounded-2xl border border-border bg-card px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Execution Target</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-900">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Execution Target</div>
+                    <div className="mt-1 text-sm font-semibold text-foreground">
                       {formatNumber(targetBambooCount, 0)} bamboo • {formatNumber(pcsPerBamboo, 0)} pcs/bamboo • {formatNumber(selectedBambooLength, 0)} mm
                     </div>
-                    <div className="mt-1 text-[11px] text-slate-500">
+                    <div className="mt-1 text-[11px] text-muted-foreground">
                       Tube {formatNumber(tubeDryWeightG)} / {formatNumber(tubeWetWeightG)} g • Bamboo {formatNumber(bambooDryWeightG)} / {formatNumber(bambooWetWeightG)} g
                     </div>
                   </div>
@@ -1293,12 +1293,12 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   </span>
                 </div>
               </div>
-              <div className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-4 rounded-2xl border border-border bg-card px-4 py-3">
                 <QRCodeSVG value={qrValue} size={72} />
                 <div className="min-w-0">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Scan Entry</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">Phone scan opens the live stage-entry screen for this exact job card on the running ERP host.</div>
-                  <a href={qrValue} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 break-all text-[11px] text-cyan-700 hover:text-cyan-800">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Scan Entry</div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">Phone scan opens the live stage-entry screen for this exact job card on the running ERP host.</div>
+                  <a href={qrValue} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-1 break-all text-[11px] text-signal-cyan-ink hover:text-signal-cyan-ink">
                     {qrValue}
                     <ExternalLink className="h-3 w-3" />
                   </a>
@@ -1311,105 +1311,105 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_26rem]">
           <div className="space-y-4">
             {renderSegmentSelector(currentStage)}
-            <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm">
+            <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Current stage logging</div>
-                  <h2 className="mt-1 text-lg font-semibold text-slate-950">{currentStage} actual output capture</h2>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Current stage logging</div>
+                  <h2 className="mt-1 text-lg font-semibold text-foreground">{currentStage} actual output capture</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Enter only the live output, rejects, timings, and measured dimensions for the active segment. Manufacturing recipe, bamboo math, and packaging truth stay readonly on the right.
                   </p>
                 </div>
-                <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-600">
+                <div className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] font-semibold text-muted-foreground">
                   {activeSegment?.shift_code || "Open segment"}
                 </div>
               </div>
             </section>
             {renderCurrentStageSection(currentStage)}
-            <section className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm" data-testid="physical-tool-issue">
+            <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm" data-testid="physical-tool-issue">
               {renderToolAssignment(currentStage)}
             </section>
           </div>
           <div className="space-y-4">
-            <section className="rounded-[1.4rem] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Manufacturing Truth</div>
+            <section className="rounded-[1.4rem] border border-border bg-card p-5 shadow-sm">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Manufacturing Truth</div>
               <div className="mt-4 grid gap-3">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Spec + Manufacturing Matrix</div>
-                  <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-muted px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Spec + Manufacturing Matrix</div>
+                  <div className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Spec Ref</div>
-                      <div className="mt-1 font-semibold text-slate-900">{specReference}</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Spec Ref</div>
+                      <div className="mt-1 font-semibold text-foreground">{specReference}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Mandrel</div>
-                      <div className="mt-1 font-semibold text-slate-900">{mandrelLabel}</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Mandrel</div>
+                      <div className="mt-1 font-semibold text-foreground">{mandrelLabel}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">ID Band</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">ID Band</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(clientSpec?.id?.min)} / {formatNumber(clientSpec?.id?.avg)} / {formatNumber(clientSpec?.id?.max)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">OD Band</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">OD Band</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(clientSpec?.od?.min)} / {formatNumber(clientSpec?.od?.avg)} / {formatNumber(clientSpec?.od?.max)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Wall Thickness</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Wall Thickness</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(clientSpec?.thickness?.avg, 4)} mm
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Required CS</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Required CS</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(manufacturingSpec?.final_required_cs)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Notch Direction</div>
-                      <div className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Notch Direction</div>
+                      <div className="mt-1 font-semibold text-foreground">{documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Wet Rule</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Wet Rule</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         Dry ÷ {Number(1 - Number(recipeSummary?.drying_percent || 0) / 100).toFixed(3)}
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Tube Dry / Wet</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Tube Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(tubeDryWeightG)} / {formatNumber(tubeWetWeightG)} g
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Weight / mm</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Weight / mm</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(weightPerMmG, 4)} g
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Paper Recipe to Follow</div>
+                <div className="rounded-xl border border-border bg-muted px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Paper Recipe to Follow</div>
                   {recipeRows.length === 0 ? (
-                    <div className="mt-2 text-sm text-slate-500">Recipe rows were not captured on this snapshot.</div>
+                    <div className="mt-2 text-sm text-muted-foreground">Recipe rows were not captured on this snapshot.</div>
                   ) : (
                     <div className="mt-3 space-y-2">
                       {recipeRows.map((row: any, index: number) => (
-                        <div key={`${row.paper_id || row.code || "recipe"}-${index}`} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+                        <div key={`${row.paper_id || row.code || "recipe"}-${index}`} className="rounded-lg border border-border bg-card px-3 py-2">
                           <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-semibold text-slate-900">
+                            <div className="text-sm font-semibold text-foreground">
                               {row.code || "PAPER"} · {row.variety || row.category || "Paper"}
                             </div>
-                            <div className="text-xs font-medium text-slate-500">
+                            <div className="text-xs font-medium text-muted-foreground">
                               {formatNumber(row.plyCount || row.actualPlyCount, 0)} plies
                             </div>
                           </div>
-                          <div className="mt-1 text-xs text-slate-500">
+                          <div className="mt-1 text-xs text-muted-foreground">
                             {formatNumber(row.gsm, 0)} GSM · BF {formatNumber(row.bfPerPly, 0)} · Thickness {formatNumber(row.thicknessPerPly, 4)} mm · Weight / tube {formatNumber(row.weightAllPly || row.totalWeightG, 2)} g · Positions {row.positionsText || "-"}
                           </div>
                         </div>
@@ -1417,62 +1417,62 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                     </div>
                   )}
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Bamboo to Be Made</div>
-                  <div className="mt-2 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-muted px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Bamboo to Be Made</div>
+                  <div className="mt-2 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Target Bamboo</div>
-                      <div className="mt-1 font-semibold text-slate-900">{formatNumber(targetBambooCount, 0)}</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Target Bamboo</div>
+                      <div className="mt-1 font-semibold text-foreground">{formatNumber(targetBambooCount, 0)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Pcs / Bamboo</div>
-                      <div className="mt-1 font-semibold text-slate-900">{formatNumber(pcsPerBamboo, 0)}</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Pcs / Bamboo</div>
+                      <div className="mt-1 font-semibold text-foreground">{formatNumber(pcsPerBamboo, 0)}</div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Bamboo Length</div>
-                      <div className="mt-1 font-semibold text-slate-900">{formatNumber(selectedBambooLength, 0)} mm</div>
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Bamboo Length</div>
+                      <div className="mt-1 font-semibold text-foreground">{formatNumber(selectedBambooLength, 0)} mm</div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Usable / Trim</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Usable / Trim</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(usableBambooLength, 0)} / {formatNumber(trimLossMm, 0)} mm
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Tube Dry / Wet</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Tube Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(tubeDryWeightG)} / {formatNumber(tubeWetWeightG)} g
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Finished Tubes Dry / Wet</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Finished Tubes Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(bambooDryWeightG)} / {formatNumber(bambooWetWeightG)} g
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Trim Dry / Wet</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Trim Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(bambooTrimDryWeightG)} / {formatNumber(bambooTrimWetWeightG)} g
                       </div>
                     </div>
                     <div>
-                      <div className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Whole Bamboo Dry / Wet</div>
-                      <div className="mt-1 font-semibold text-slate-900">
+                      <div className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Whole Bamboo Dry / Wet</div>
+                      <div className="mt-1 font-semibold text-foreground">
                         {formatNumber(wholeBambooDryWeightG)} / {formatNumber(wholeBambooWetWeightG)} g
                       </div>
                     </div>
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                  <div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Glue + Bridge</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                <div className="rounded-xl border border-border bg-muted px-4 py-3">
+                  <div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Glue + Bridge</div>
+                  <div className="mt-1 text-sm font-semibold text-foreground">
                     Base {formatNumber(recipeSummary?.glue_base_percent)}% · Parchment {formatNumber(recipeSummary?.parchment_percent)}% · Drying {formatNumber(recipeSummary?.drying_percent)}%
                   </div>
-                  <div className="mt-1 text-xs text-slate-500">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     Paper {formatNumber(recipeSummary?.paper_total_g)} g · Glue {formatNumber(recipeSummary?.adhesive_total_g)} g · Parchment {formatNumber(recipeSummary?.parchment_weight_g)} g · Delta {formatNumber(recipeSummary?.weight_match_delta_g)} g
                   </div>
-                  <div className="mt-2 space-y-1 text-xs text-slate-500">
+                  <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                     {adhesiveComponents.length === 0 ? (
                       <div>No adhesive mix was captured on this snapshot.</div>
                     ) : (
@@ -1484,34 +1484,34 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                     )}
                   </div>
                 </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Parchment Pattern</div><div className="mt-1 text-sm font-semibold text-slate-900">{parchmentPattern}</div><div className="mt-1 text-xs text-slate-500">{parchmentFamily} family</div></div>
+                <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Parchment Pattern</div><div className="mt-1 text-sm font-semibold text-foreground">{parchmentPattern}</div><div className="mt-1 text-xs text-muted-foreground">{parchmentFamily} family</div></div>
                 {parchmentResolution === "CONFLICT" ? (
-                  <div data-testid="parchment-conflict-banner" className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3">
-                    <div className="text-[11px] uppercase tracking-[0.16em] text-amber-800">Parchment / spec mismatch</div>
-                    <div className="mt-1 text-sm font-semibold text-amber-950">Controlled conflict — approved recipe parchment was not rewritten.</div>
-                    <div className="mt-1 text-xs text-amber-900">Recipe {String(approvedParchmentColor || "—")} · Ordered {String(parchmentConflict?.ordered_color || documentSnapshot?.header?.ordered_parchment_color || "—")}</div>
+                  <div data-testid="parchment-conflict-banner" className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3">
+                    <div className="text-[11px] uppercase tracking-[0.16em] text-signal-amber-ink">Parchment / spec mismatch</div>
+                    <div className="mt-1 text-sm font-semibold text-signal-amber-ink">Controlled conflict — approved recipe parchment was not rewritten.</div>
+                    <div className="mt-1 text-xs text-signal-amber-ink">Recipe {String(approvedParchmentColor || "—")} · Ordered {String(parchmentConflict?.ordered_color || documentSnapshot?.header?.ordered_parchment_color || "—")}</div>
                   </div>
                 ) : null}
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Notch</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.notch_type || "No notch"}</div><div className="mt-1 text-xs text-slate-500">Distance {documentSnapshot?.setup_tooling?.notch_distance || "-"} · Depth {documentSnapshot?.setup_tooling?.notch_depth || "-"} · Direction {documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div><div className="mt-1 text-xs text-slate-500">Blade {documentSnapshot?.setup_tooling?.blade || "-"} · Holder {documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || "-"} · Punch {documentSnapshot?.setup_tooling?.punch || "-"}</div></div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Packing</div><div className="mt-1 text-sm font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.packing_instructions || "Packed by route stage when required"}</div><div className="mt-1 text-xs text-slate-500">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.box_size || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} / box</div></div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Bamboo Math</div><div className="mt-1 text-sm font-semibold text-slate-900">{formatNumber(documentSnapshot?.header?.target_bamboo_count, 0)} bamboo target · {formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)} pcs/bamboo</div><div className="mt-1 text-xs text-slate-500">{formatNumber(selectedBambooLength, 0)} mm selected · {formatNumber(usableBambooLength, 0)} mm usable · {formatNumber(trimLossMm, 0)} mm trim</div></div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Output Truth</div><div className="mt-1 text-sm font-semibold text-slate-900">{formatNumber(wipQty, 0)} open pcs · {formatNumber(documentSnapshot?.material_truth?.produced_output_qty, 0)} produced · {formatNumber(documentSnapshot?.material_truth?.packed_qty, 0)} packed</div></div>
+                <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Notch</div><div className="mt-1 text-sm font-semibold text-foreground">{documentSnapshot?.setup_tooling?.notch_type || "No notch"}</div><div className="mt-1 text-xs text-muted-foreground">Distance {documentSnapshot?.setup_tooling?.notch_distance || "-"} · Depth {documentSnapshot?.setup_tooling?.notch_depth || "-"} · Direction {documentSnapshot?.setup_tooling?.notch_direction || documentSnapshot?.setup_tooling?.tube_direction || "-"}</div><div className="mt-1 text-xs text-muted-foreground">Blade {documentSnapshot?.setup_tooling?.blade || "-"} · Holder {documentSnapshot?.setup_tooling?.notching_holder || documentSnapshot?.setup_tooling?.holder || "-"} · Punch {documentSnapshot?.setup_tooling?.punch || "-"}</div></div>
+                <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Packing</div><div className="mt-1 text-sm font-semibold text-foreground">{documentSnapshot?.setup_tooling?.packing_instructions || "Packed by route stage when required"}</div><div className="mt-1 text-xs text-muted-foreground">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.box_size || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} / box</div></div>
+                <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Bamboo Math</div><div className="mt-1 text-sm font-semibold text-foreground">{formatNumber(documentSnapshot?.header?.target_bamboo_count, 0)} bamboo target · {formatNumber(documentSnapshot?.header?.pcs_per_bamboo, 0)} pcs/bamboo</div><div className="mt-1 text-xs text-muted-foreground">{formatNumber(selectedBambooLength, 0)} mm selected · {formatNumber(usableBambooLength, 0)} mm usable · {formatNumber(trimLossMm, 0)} mm trim</div></div>
+                <div className="rounded-xl border border-border bg-muted px-4 py-3"><div className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Output Truth</div><div className="mt-1 text-sm font-semibold text-foreground">{formatNumber(wipQty, 0)} open pcs · {formatNumber(documentSnapshot?.material_truth?.produced_output_qty, 0)} produced · {formatNumber(documentSnapshot?.material_truth?.packed_qty, 0)} packed</div></div>
               </div>
             </section>
 
-            <section className="rounded-[1.4rem] border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Previous Stage Actuals</div>
+            <section className="rounded-[1.4rem] border border-border bg-card p-5 shadow-sm">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Previous Stage Actuals</div>
               <div className="mt-4 space-y-3">
                 {previousStageRows.length === 0 ? (
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">No completed upstream stage is recorded yet.</div>
+                  <div className="rounded-xl border border-border bg-muted px-4 py-4 text-sm text-muted-foreground">No completed upstream stage is recorded yet.</div>
                 ) : (
                   previousStageRows.map((row: any) => (
-                    <div key={row.stage_type} className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div key={row.stage_type} className="rounded-xl border border-border bg-muted px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-slate-900">{row.stage_type}</div>
+                        <div className="text-sm font-semibold text-foreground">{row.stage_type}</div>
                         <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${statusChipClass(row.status || "COMPLETED")}`}>{row.status}</span>
                       </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                         <div>Output: {formatNumber(row.output_qty, 0)}</div>
                         <div>Scrap: {formatNumber(row.scrap_qty, 0)}</div>
                         <div>Start: {row.actual_start || "-"}</div>
@@ -1534,7 +1534,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       stage === currentStage && PLANNER_GATED_STAGES.includes(stage) && !plannerGateReady
     if (!assignment.missingRequiredAssignment && !shouldShowPlannerGateWarning) return null
     return (
-      <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-900 no-print">
+      <div className="mt-3 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-3 text-sm text-signal-rose-ink no-print">
         {assignment.missingRequiredAssignment
           ? "Planner assignment is missing for this stage. Assign machine and shift on the planning board before supervisor entry."
           : plannerGateReason || "This stage is not yet scheduled inside the next-three-day planner window."}
@@ -1550,8 +1550,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">Slitting Section</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">Slitting Section</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
@@ -1574,22 +1574,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Slit Output Weight (kg)</th>
-              <th className="border border-slate-300 px-2 py-2">Trim / Wastage (kg)</th>
+            <tr className="bg-muted text-left">
+              <th className="border border-border px-2 py-2">Slit Output Weight (kg)</th>
+              <th className="border border-border px-2 py-2">Trim / Wastage (kg)</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.slit_output_weight_kg} onChange={(next) => updateSnapshotField(stage, "slit_output_weight_kg", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.trim_wastage_weight_kg} onChange={(next) => updateSnapshotField(stage, "trim_wastage_weight_kg", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.slit_output_weight_kg} onChange={(next) => updateSnapshotField(stage, "slit_output_weight_kg", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.trim_wastage_weight_kg} onChange={(next) => updateSnapshotField(stage, "trim_wastage_weight_kg", next)} /></td>
                 </>
               ) : (
                 <>
-                  <td className="border border-slate-300 px-2 py-2">{entry.slit_output_weight_kg || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.trim_wastage_weight_kg || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.slit_output_weight_kg || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.trim_wastage_weight_kg || ""}</td>
                 </>
               )}
             </tr>
@@ -1609,8 +1609,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       return <LabeledValue label={label} value={value} />
     }
     return (
-      <div className="border border-slate-300 px-2 py-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="border border-border px-2 py-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className="mt-1">
           <TextInput type={type} value={value} onChange={(next) => updateSnapshotField(stage, field, next)} />
         </div>
@@ -1644,13 +1644,13 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       }
     }
     return (
-      <div className="border border-slate-300 px-2 py-2 md:col-span-3">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Physical Tool Issue</div>
+      <div className="border border-border px-2 py-2 md:col-span-3">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Physical Tool Issue</div>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <select
             value={selectedId}
             onChange={(event) => setToolSelection((current) => ({ ...current, [stage]: event.target.value }))}
-            className="h-9 min-w-0 flex-1 border border-slate-300 bg-white px-2 text-sm"
+            className="h-9 min-w-0 flex-1 border border-border bg-card px-2 text-sm"
           >
             <option value="">Scan or select an available QR asset</option>
             {available.map((asset: any) => (
@@ -1662,8 +1662,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </button>
         </div>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {assigned.map((asset: any) => <span key={asset.id} className="border border-cyan-200 bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-900">{asset.asset_no} · {asset.definition_name}</span>)}
-          {!assigned.length ? <span className="text-xs text-slate-500">No physical tool issued to this stage.</span> : null}
+          {assigned.map((asset: any) => <span key={asset.id} className="border border-signal-cyan-line bg-signal-cyan-soft px-2 py-1 text-xs font-semibold text-signal-cyan-ink">{asset.asset_no} · {asset.definition_name}</span>)}
+          {!assigned.length ? <span className="text-xs text-muted-foreground">No physical tool issued to this stage.</span> : null}
         </div>
       </div>
     )
@@ -1705,8 +1705,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     // If the saved name isn't a known employee, keep it visible as a free-text legacy value.
     const hasLegacyName = Boolean(value) && !options.some((emp: any) => String(emp.name || "") === String(value))
     return (
-      <div className="border border-slate-300 px-2 py-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="border border-border px-2 py-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className="mt-1">
           <select
             value={selectedId ? String(selectedId) : ""}
@@ -1722,7 +1722,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 },
               }))
             }}
-            className="h-11 w-full rounded-2xl border border-slate-300 bg-white/95 px-3 text-sm font-medium text-slate-900 shadow-sm"
+            className="h-11 w-full rounded-2xl border border-border bg-card/95 px-3 text-sm font-medium text-foreground shadow-sm"
           >
             <option value="">{hasLegacyName ? value : "Select operator…"}</option>
             {options.map((emp: any) => (
@@ -1744,7 +1744,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     if (hoursLate <= LATE_ENTRY_THRESHOLD_HOURS) return null
     const hoursLabel = hoursLate >= 24 ? `${Math.round(hoursLate / 24 * 10) / 10} days` : `${Math.round(hoursLate * 10) / 10} hours`
     return (
-      <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900 no-print">
+      <div className="mt-2 rounded-md border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs font-semibold text-signal-amber-ink no-print">
         Recording {hoursLabel} late — confirm shift selection below.
       </div>
     )
@@ -1760,13 +1760,13 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     }
     const options = shiftOptions
     return (
-      <div className={`border px-2 py-2 ${isRequired && !currentValue ? "border-amber-400 bg-amber-50" : "border-slate-300"}`}>
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`border px-2 py-2 ${isRequired && !currentValue ? "border-amber-400 bg-signal-amber-soft" : "border-border"}`}>
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
         <div className="mt-1">
           <select
             value={currentValue || ""}
             onChange={(event) => updateSnapshotField(stage, "shift_code", event.target.value)}
-            className="h-11 w-full rounded-2xl border border-slate-300 bg-white/95 px-3 text-sm font-medium text-slate-900 shadow-sm"
+            className="h-11 w-full rounded-2xl border border-border bg-card/95 px-3 text-sm font-medium text-foreground shadow-sm"
           >
             <option value="">{isRequired ? "Select shift…" : "Optional"}</option>
             {options.map((opt) => (
@@ -1777,7 +1777,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </select>
         </div>
         {isRequired && !currentValue ? (
-          <div className="mt-1 text-[10px] font-semibold text-amber-700">Shift selection is required for this stage.</div>
+          <div className="mt-1 text-[10px] font-semibold text-signal-amber-ink">Shift selection is required for this stage.</div>
         ) : null}
       </div>
     )
@@ -1789,12 +1789,12 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     if (!value && !overrideReason && !stageEditable(stage)) return null
     if (!stageEditable(stage)) {
       return (
-        <div className="mt-3 border border-slate-300 px-3 py-2 text-sm text-slate-700">
-          <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Notes</div>
+        <div className="mt-3 border border-border px-3 py-2 text-sm text-muted-foreground">
+          <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Notes</div>
           <div className="mt-1 whitespace-pre-wrap">{value || "-"}</div>
           {overrideReason ? (
             <>
-              <div className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Override Reason</div>
+              <div className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Override Reason</div>
               <div className="mt-1 whitespace-pre-wrap">{overrideReason}</div>
             </>
           ) : null}
@@ -1802,17 +1802,17 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       )
     }
     return (
-      <div className="mt-3 border border-slate-300 px-3 py-2">
-        <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Notes</div>
+      <div className="mt-3 border border-border px-3 py-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Notes</div>
         <textarea
           value={value}
           onChange={(event) =>
             updateStageForm(stage, (current) => ({ ...current, remarks: event.target.value }))
           }
           rows={2}
-          className="mt-1 w-full border border-slate-300 px-2 py-2 text-sm"
+          className="mt-1 w-full border border-border px-2 py-2 text-sm"
         />
-        <div className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+        <div className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Override Reason
         </div>
         <textarea
@@ -1821,7 +1821,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             updateStageForm(stage, (current) => ({ ...current, override_reason: event.target.value }))
           }
           rows={2}
-          className="mt-1 w-full border border-slate-300 px-2 py-2 text-sm"
+          className="mt-1 w-full border border-border px-2 py-2 text-sm"
           placeholder="Required only when completing out of sequence or closing WINDER without linked reel issues."
         />
       </div>
@@ -1835,8 +1835,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">Winder Section</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">Winder Section</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
@@ -1858,46 +1858,46 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Meters Produced</th>
-              <th className="border border-slate-300 px-2 py-2">Accepted Meters</th>
-              <th className="border border-slate-300 px-2 py-2">Reject Meters</th>
-              <th className="border border-slate-300 px-2 py-2">Reject Reason Code</th>
+            <tr className="bg-muted text-left">
+              <th className="border border-border px-2 py-2">Meters Produced</th>
+              <th className="border border-border px-2 py-2">Accepted Meters</th>
+              <th className="border border-border px-2 py-2">Reject Meters</th>
+              <th className="border border-border px-2 py-2">Reject Reason Code</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)} onChange={(next) => updateSnapshotField(stage, "winding_meters_produced", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "accepted_winding_meters", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "reject_winding_meters", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput value={entry.reject_reason_code} onChange={(next) => updateSnapshotField(stage, "reject_reason_code", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)} onChange={(next) => updateSnapshotField(stage, "winding_meters_produced", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "accepted_winding_meters", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)} onChange={(next) => updateSnapshotField(stage, "reject_winding_meters", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason_code} onChange={(next) => updateSnapshotField(stage, "reject_reason_code", next)} /></td>
                 </>
               ) : (
                 <>
-                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.reject_reason_code || ""}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderMeters(entry.winding_meters_produced, entry.bamboo_count_produced)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderMeters(entry.accepted_winding_meters, entry.accepted_bamboo_count)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderMeters(entry.reject_winding_meters, entry.reject_bamboo_count)}</td>
+                  <td className="border border-border px-2 py-2">{entry.reject_reason_code || ""}</td>
                 </>
               )}
             </tr>
           </tbody>
         </table>
-        <div className="mt-2 text-xs font-semibold text-slate-600">
+        <div className="mt-2 text-xs font-semibold text-muted-foreground">
           Bamboo equivalent: produced {formatNumber(metersToBamboo(entry.winding_meters_produced, entry.bamboo_count_produced), 2)} · accepted {formatNumber(metersToBamboo(entry.accepted_winding_meters, entry.accepted_bamboo_count), 2)} · reject {formatNumber(metersToBamboo(entry.reject_winding_meters, entry.reject_bamboo_count), 2)}
         </div>
 
-        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Dimension Readings (Height, not Length)</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Dimension Readings (Height, not Length)</div>
         <table className="mt-1 w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Height</th>
-              <th className="border border-slate-300 px-2 py-2">I.D.</th>
-              <th className="border border-slate-300 px-2 py-2">O.D.</th>
-              <th className="border border-slate-300 px-2 py-2">Weight</th>
-              <th className="border border-slate-300 px-2 py-2">C.S.</th>
+            <tr className="bg-muted text-left">
+              <th className="border border-border px-2 py-2">Height</th>
+              <th className="border border-border px-2 py-2">I.D.</th>
+              <th className="border border-border px-2 py-2">O.D.</th>
+              <th className="border border-border px-2 py-2">Weight</th>
+              <th className="border border-border px-2 py-2">C.S.</th>
             </tr>
           </thead>
           <tbody>
@@ -1905,19 +1905,19 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
               <tr key={`winder-row-${index}`}>
                 {stageEditable(stage) ? (
                   <>
-                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.height ?? row.length} onChange={(next) => updateDimensionReading(index, "height", next)} /></td>
-                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.id} onChange={(next) => updateDimensionReading(index, "id", next)} /></td>
-                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.od} onChange={(next) => updateDimensionReading(index, "od", next)} /></td>
-                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.weight} onChange={(next) => updateDimensionReading(index, "weight", next)} /></td>
-                    <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={row.cs} onChange={(next) => updateDimensionReading(index, "cs", next)} /></td>
+                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.height ?? row.length} onChange={(next) => updateDimensionReading(index, "height", next)} /></td>
+                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.id} onChange={(next) => updateDimensionReading(index, "id", next)} /></td>
+                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.od} onChange={(next) => updateDimensionReading(index, "od", next)} /></td>
+                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.weight} onChange={(next) => updateDimensionReading(index, "weight", next)} /></td>
+                    <td className="border border-border px-2 py-2"><TextInput type="number" value={row.cs} onChange={(next) => updateDimensionReading(index, "cs", next)} /></td>
                   </>
                 ) : (
                   <>
-                    <td className="border border-slate-300 px-2 py-2">{row.height || row.length || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.id || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.od || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.weight || ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.cs || ""}</td>
+                    <td className="border border-border px-2 py-2">{row.height || row.length || ""}</td>
+                    <td className="border border-border px-2 py-2">{row.id || ""}</td>
+                    <td className="border border-border px-2 py-2">{row.od || ""}</td>
+                    <td className="border border-border px-2 py-2">{row.weight || ""}</td>
+                    <td className="border border-border px-2 py-2">{row.cs || ""}</td>
                   </>
                 )}
               </tr>
@@ -1927,8 +1927,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         {renderStageQc("WINDER")}
 
         {mode === "supervisor" && (
-          <div className="mt-3 border border-slate-300 px-3 py-2 no-print">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Linked Reel Issues (optional)</div>
+          <div className="mt-3 border border-border px-3 py-2 no-print">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Linked Reel Issues (optional)</div>
             <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
               {availableReelIssues.map((issue: any) => {
                 const checked = (stageForms[stage]?.reel_issue_ids || []).includes(issue.id)
@@ -1950,7 +1950,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   </label>
                 )
               })}
-              {availableReelIssues.length === 0 && <div className="text-sm text-slate-500">No open reel issues.</div>}
+              {availableReelIssues.length === 0 && <div className="text-sm text-muted-foreground">No open reel issues.</div>}
             </div>
           </div>
         )}
@@ -1969,8 +1969,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">Oven Section</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">Oven Section</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
@@ -1992,22 +1992,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Bamboo Count In</th>
-              <th className="border border-slate-300 px-2 py-2">Bamboo Count Out</th>
+            <tr className="bg-muted text-left">
+              <th className="border border-border px-2 py-2">Bamboo Count In</th>
+              <th className="border border-border px-2 py-2">Bamboo Count Out</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.bamboo_count_in} onChange={(next) => updateSnapshotField(stage, "bamboo_count_in", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.bamboo_count_out} onChange={(next) => updateSnapshotField(stage, "bamboo_count_out", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.bamboo_count_in} onChange={(next) => updateSnapshotField(stage, "bamboo_count_in", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.bamboo_count_out} onChange={(next) => updateSnapshotField(stage, "bamboo_count_out", next)} /></td>
                 </>
               ) : (
                 <>
-                  <td className="border border-slate-300 px-2 py-2">{entry.bamboo_count_in || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.bamboo_count_out || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.bamboo_count_in || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.bamboo_count_out || ""}</td>
                 </>
               )}
             </tr>
@@ -2029,8 +2029,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">Process / Finishing Section</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">Process / Finishing Section</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
@@ -2051,32 +2051,32 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
         <table className="mt-3 w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-slate-100 text-left">
-              <th className="border border-slate-300 px-2 py-2">Process Qty</th>
-              <th className="border border-slate-300 px-2 py-2">Reject Qty</th>
-              <th className="border border-slate-300 px-2 py-2">Reject Reason</th>
+            <tr className="bg-muted text-left">
+              <th className="border border-border px-2 py-2">Process Qty</th>
+              <th className="border border-border px-2 py-2">Reject Qty</th>
+              <th className="border border-border px-2 py-2">Reject Reason</th>
             </tr>
           </thead>
           <tbody>
             <tr>
               {stageEditable(stage) ? (
                 <>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.process_qty} onChange={(next) => updateSnapshotField(stage, "process_qty", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput type="number" value={entry.reject_qty} onChange={(next) => updateSnapshotField(stage, "reject_qty", next)} /></td>
-                  <td className="border border-slate-300 px-2 py-2"><TextInput value={entry.reject_reason} onChange={(next) => updateSnapshotField(stage, "reject_reason", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.process_qty} onChange={(next) => updateSnapshotField(stage, "process_qty", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput type="number" value={entry.reject_qty} onChange={(next) => updateSnapshotField(stage, "reject_qty", next)} /></td>
+                  <td className="border border-border px-2 py-2"><TextInput value={entry.reject_reason} onChange={(next) => updateSnapshotField(stage, "reject_reason", next)} /></td>
                 </>
               ) : (
                 <>
-                  <td className="border border-slate-300 px-2 py-2">{entry.process_qty || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.reject_qty || ""}</td>
-                  <td className="border border-slate-300 px-2 py-2">{entry.reject_reason || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.process_qty || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.reject_qty || ""}</td>
+                  <td className="border border-border px-2 py-2">{entry.reject_reason || ""}</td>
                 </>
               )}
             </tr>
           </tbody>
         </table>
 
-        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Process QC measurements</div>
+        <div className="mt-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Process QC measurements</div>
         {renderStageQc("PROCESS")}
 
         <div className="mt-3 grid gap-2 md:grid-cols-3">
@@ -2096,33 +2096,33 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">Packing / Dispatch Section</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">Packing / Dispatch Section</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
         </div>
 
-        <div className="mt-3 grid gap-px overflow-hidden rounded-xl border border-slate-300 bg-slate-300 text-xs md:grid-cols-4">
-          <div className="bg-slate-50 px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Box / Qty</p>
-            <p className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} pcs/box</p>
-            <p className="mt-0.5 text-slate-500">{documentSnapshot?.setup_tooling?.box_size || "Size pending"}</p>
+        <div className="mt-3 grid gap-px overflow-hidden rounded-xl border border-border bg-slate-300 text-xs md:grid-cols-4">
+          <div className="bg-muted px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Box / Qty</p>
+            <p className="mt-1 font-semibold text-foreground">{documentSnapshot?.setup_tooling?.box_code || "-"} · {documentSnapshot?.setup_tooling?.qty_per_box || "-"} pcs/box</p>
+            <p className="mt-0.5 text-muted-foreground">{documentSnapshot?.setup_tooling?.box_size || "Size pending"}</p>
           </div>
-          <div className="bg-white px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Plastic</p>
-            <p className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.plastic_sku || "-"} · {documentSnapshot?.setup_tooling?.plastic_per_box || 0} pcs/box</p>
-            <p className="mt-0.5 text-slate-500">{documentSnapshot?.setup_tooling?.plastic_unit_weight_kg || 0} kg/pc · {documentSnapshot?.setup_tooling?.plastic_weight_per_box_kg || 0} kg/box</p>
+          <div className="bg-card px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Plastic</p>
+            <p className="mt-1 font-semibold text-foreground">{documentSnapshot?.setup_tooling?.plastic_sku || "-"} · {documentSnapshot?.setup_tooling?.plastic_per_box || 0} pcs/box</p>
+            <p className="mt-0.5 text-muted-foreground">{documentSnapshot?.setup_tooling?.plastic_unit_weight_kg || 0} kg/pc · {documentSnapshot?.setup_tooling?.plastic_weight_per_box_kg || 0} kg/box</p>
           </div>
-          <div className="bg-white px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Fadda</p>
-            <p className="mt-1 font-semibold text-slate-900">{documentSnapshot?.setup_tooling?.fadda_sku || "-"} · {documentSnapshot?.setup_tooling?.fadda_per_box || 0} pcs/box</p>
-            <p className="mt-0.5 text-slate-500">{documentSnapshot?.setup_tooling?.fadda_unit_weight_kg || 0} kg/pc · {documentSnapshot?.setup_tooling?.fadda_weight_per_box_kg || 0} kg/box</p>
+          <div className="bg-card px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Fadda</p>
+            <p className="mt-1 font-semibold text-foreground">{documentSnapshot?.setup_tooling?.fadda_sku || "-"} · {documentSnapshot?.setup_tooling?.fadda_per_box || 0} pcs/box</p>
+            <p className="mt-0.5 text-muted-foreground">{documentSnapshot?.setup_tooling?.fadda_unit_weight_kg || 0} kg/pc · {documentSnapshot?.setup_tooling?.fadda_weight_per_box_kg || 0} kg/box</p>
           </div>
-          <div className="bg-slate-50 px-3 py-2">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">BOPP / Units</p>
-            <p className="mt-1 font-semibold text-slate-900">BOPP {documentSnapshot?.setup_tooling?.bopp_required || "No"}</p>
-            <p className="mt-0.5 text-slate-500">Floor consumption: PCS · inward/reconcile: kg</p>
+          <div className="bg-muted px-3 py-2">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">BOPP / Units</p>
+            <p className="mt-1 font-semibold text-foreground">BOPP {documentSnapshot?.setup_tooling?.bopp_required || "No"}</p>
+            <p className="mt-0.5 text-muted-foreground">Floor consumption: PCS · inward/reconcile: kg</p>
           </div>
         </div>
 
@@ -2149,8 +2149,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">QC Gate</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">QC Gate</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
@@ -2178,8 +2178,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     const entry = stageForms[stage]?.entry_snapshot || normalizeStageEntry(stage, {})
     return (
       <section className="border border-slate-800 p-3">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-300 pb-2">
-          <h3 className="text-base font-bold uppercase tracking-wide text-slate-900">Dispatch Seal</h3>
+        <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+          <h3 className="text-base font-bold uppercase tracking-wide text-foreground">Dispatch Seal</h3>
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${statusChipClass(stageData?.status || "PLANNED")}`}>
             {stageData?.status || "PLANNED"}
           </span>
@@ -2194,7 +2194,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           <LabeledValue label="Status" value={stageData?.status || "PLANNED"} />
         </div>
 
-        <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+        <div className="mt-3 rounded-lg border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
           Dispatch completion is sealed from the dispatch module so inventory and sales fulfillment stay synchronized.
         </div>
       </section>
@@ -2237,7 +2237,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return (
       <div className="mx-auto max-w-[1100px] space-y-6 print:max-w-none">
         <div className="no-print flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-600">
+          <div className="text-sm text-muted-foreground">
             Factory print layout aligned to the shop-floor AMIGO card and process continuation sheet.
           </div>
           <button
@@ -2250,12 +2250,12 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </button>
         </div>
 
-        <section className="border-2 border-slate-900 bg-white p-5 print:p-4">
+        <section className="border-2 border-slate-900 bg-card p-5 print:p-4">
           <div className="border-b-2 border-slate-900 pb-3 text-center">
-            <p className="text-2xl font-black uppercase tracking-wide text-slate-900">
+            <p className="text-2xl font-black uppercase tracking-wide text-foreground">
               {documentSnapshot?.header?.company_name || "Hari Om Paper"}
             </p>
-            <p className="mt-1 text-lg font-semibold uppercase tracking-[0.18em] text-slate-700">Job Card</p>
+            <p className="mt-1 text-lg font-semibold uppercase tracking-[0.18em] text-muted-foreground">Job Card</p>
           </div>
 
           <div className="mt-4 grid gap-0 border border-slate-900 text-sm md:grid-cols-4">
@@ -2275,8 +2275,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
           <div className="mt-4 border border-slate-900">
             <div className="grid grid-cols-[1.2fr_180px] border-b border-slate-900">
-              <div className="px-3 py-2 text-center text-sm font-bold uppercase tracking-wide text-slate-900">Winding (W1-W4)</div>
-              <div className="border-l border-slate-900 px-3 py-2 text-sm font-semibold text-slate-700">Shift {winderShiftLabel}</div>
+              <div className="px-3 py-2 text-center text-sm font-bold uppercase tracking-wide text-foreground">Winding (W1-W4)</div>
+              <div className="border-l border-slate-900 px-3 py-2 text-sm font-semibold text-muted-foreground">Shift {winderShiftLabel}</div>
             </div>
             <div className="grid gap-0 text-sm md:grid-cols-4">
               <LabeledValue label="Winder No" value={winderMachineLabel} />
@@ -2286,36 +2286,36 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             </div>
             <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-100 text-left">
-                  <th className="border border-slate-300 px-2 py-2">Output Meters</th>
-                  <th className="border border-slate-300 px-2 py-2">Accepted Meters</th>
-                  <th className="border border-slate-300 px-2 py-2">Reject Meters</th>
-                  <th className="border border-slate-300 px-2 py-2">Rejection Code</th>
-                  <th className="border border-slate-300 px-2 py-2">Start</th>
-                  <th className="border border-slate-300 px-2 py-2">End</th>
-                  <th className="border border-slate-300 px-2 py-2">Cycle Time</th>
+                <tr className="bg-muted text-left">
+                  <th className="border border-border px-2 py-2">Output Meters</th>
+                  <th className="border border-border px-2 py-2">Accepted Meters</th>
+                  <th className="border border-border px-2 py-2">Reject Meters</th>
+                  <th className="border border-border px-2 py-2">Rejection Code</th>
+                  <th className="border border-border px-2 py-2">Start</th>
+                  <th className="border border-border px-2 py-2">End</th>
+                  <th className="border border-border px-2 py-2">Cycle Time</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced || winderPrintStage?.input_qty)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count || winderPrintStage?.output_qty)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count || winderPrintStage?.scrap_qty)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.start_time || "-"}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.end_time || "-"}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.cycle_time || "-"}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderMeters(winderPrintEntry.winding_meters_produced, winderPrintEntry.bamboo_count_produced || winderPrintStage?.input_qty)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderMeters(winderPrintEntry.accepted_winding_meters, winderPrintEntry.accepted_bamboo_count || winderPrintStage?.output_qty)}</td>
+                  <td className="border border-border px-2 py-2">{displayWinderMeters(winderPrintEntry.reject_winding_meters, winderPrintEntry.reject_bamboo_count || winderPrintStage?.scrap_qty)}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.start_time || "-"}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.end_time || "-"}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.cycle_time || "-"}</td>
                 </tr>
               </tbody>
             </table>
             <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-50 text-left">
-                  <th className="border border-slate-300 px-2 py-2">Height</th>
-                  <th className="border border-slate-300 px-2 py-2">I.D</th>
-                  <th className="border border-slate-300 px-2 py-2">O.D</th>
-                  <th className="border border-slate-300 px-2 py-2">Weight</th>
-                  <th className="border border-slate-300 px-2 py-2">C.S</th>
+                <tr className="bg-muted text-left">
+                  <th className="border border-border px-2 py-2">Height</th>
+                  <th className="border border-border px-2 py-2">I.D</th>
+                  <th className="border border-border px-2 py-2">O.D</th>
+                  <th className="border border-border px-2 py-2">Weight</th>
+                  <th className="border border-border px-2 py-2">C.S</th>
                 </tr>
               </thead>
               <tbody>
@@ -2323,11 +2323,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                   .filter((row: any) => Object.values(row || {}).some((value) => value !== null && value !== undefined && String(value).trim() !== ""))
                   .map((row: any, index: number) => (
                   <tr key={`winder-print-${index}`}>
-                    <td className="border border-slate-300 px-2 py-2">{row.height ?? ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.id ?? ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.od ?? ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.weight ?? ""}</td>
-                    <td className="border border-slate-300 px-2 py-2">{row.cs ?? ""}</td>
+                    <td className="border border-border px-2 py-2">{row.height ?? ""}</td>
+                    <td className="border border-border px-2 py-2">{row.id ?? ""}</td>
+                    <td className="border border-border px-2 py-2">{row.od ?? ""}</td>
+                    <td className="border border-border px-2 py-2">{row.weight ?? ""}</td>
+                    <td className="border border-border px-2 py-2">{row.cs ?? ""}</td>
                   </tr>
                 ))}
               </tbody>
@@ -2336,8 +2336,8 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
           <div className="mt-4 border border-slate-900">
             <div className="grid grid-cols-[1.2fr_180px] border-b border-slate-900">
-              <div className="px-3 py-2 text-center text-sm font-bold uppercase tracking-wide text-slate-900">Oven Curing (O1-O6)</div>
-              <div className="border-l border-slate-900 px-3 py-2 text-sm font-semibold text-slate-700">Shift {ovenShiftLabel}</div>
+              <div className="px-3 py-2 text-center text-sm font-bold uppercase tracking-wide text-foreground">Oven Curing (O1-O6)</div>
+              <div className="border-l border-slate-900 px-3 py-2 text-sm font-semibold text-muted-foreground">Shift {ovenShiftLabel}</div>
             </div>
             <div className="grid gap-0 text-sm md:grid-cols-4">
               <LabeledValue label="Oven No" value={ovenMachineLabel} />
@@ -2347,25 +2347,25 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             </div>
             <table className="w-full border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-100 text-left">
-                  <th className="border border-slate-300 px-2 py-2">Winder OK Qty</th>
-                  <th className="border border-slate-300 px-2 py-2">Output Qty</th>
-                  <th className="border border-slate-300 px-2 py-2">Reject Qty</th>
-                  <th className="border border-slate-300 px-2 py-2">Rejection Code</th>
-                  <th className="border border-slate-300 px-2 py-2">Start</th>
-                  <th className="border border-slate-300 px-2 py-2">End</th>
-                  <th className="border border-slate-300 px-2 py-2">Cycle Time</th>
+                <tr className="bg-muted text-left">
+                  <th className="border border-border px-2 py-2">Winder OK Qty</th>
+                  <th className="border border-border px-2 py-2">Output Qty</th>
+                  <th className="border border-border px-2 py-2">Reject Qty</th>
+                  <th className="border border-border px-2 py-2">Rejection Code</th>
+                  <th className="border border-border px-2 py-2">Start</th>
+                  <th className="border border-border px-2 py-2">End</th>
+                  <th className="border border-border px-2 py-2">Cycle Time</th>
                 </tr>
               </thead>
               <tbody>
                 <tr>
-                  <td className="border border-slate-300 px-2 py-2">{ovenPrintEntry.bamboo_count_in || printValue(ovenPrintStage?.input_qty, 0)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{ovenPrintEntry.bamboo_count_out || printValue(ovenPrintStage?.output_qty, 0)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{printValue(ovenPrintStage?.scrap_qty, 0)}</td>
-                  <td className="border border-slate-300 px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
-                  <td className="border border-slate-300 px-2 py-2">{ovenPrintEntry.start_time || "-"}</td>
-                  <td className="border border-slate-300 px-2 py-2">{ovenPrintEntry.end_time || "-"}</td>
-                  <td className="border border-slate-300 px-2 py-2">{ovenPrintEntry.cycle_time || "-"}</td>
+                  <td className="border border-border px-2 py-2">{ovenPrintEntry.bamboo_count_in || printValue(ovenPrintStage?.input_qty, 0)}</td>
+                  <td className="border border-border px-2 py-2">{ovenPrintEntry.bamboo_count_out || printValue(ovenPrintStage?.output_qty, 0)}</td>
+                  <td className="border border-border px-2 py-2">{printValue(ovenPrintStage?.scrap_qty, 0)}</td>
+                  <td className="border border-border px-2 py-2">{winderPrintEntry.reject_reason_code || "-"}</td>
+                  <td className="border border-border px-2 py-2">{ovenPrintEntry.start_time || "-"}</td>
+                  <td className="border border-border px-2 py-2">{ovenPrintEntry.end_time || "-"}</td>
+                  <td className="border border-border px-2 py-2">{ovenPrintEntry.cycle_time || "-"}</td>
                 </tr>
               </tbody>
             </table>
@@ -2380,12 +2380,12 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           </div>
         </section>
 
-        <section className="border-2 border-slate-900 bg-white p-5 print:p-4">
+        <section className="border-2 border-slate-900 bg-card p-5 print:p-4">
           <div className="grid grid-cols-[1fr_160px] border-b border-slate-900 pb-3">
             <div className="text-center">
-              <p className="text-lg font-bold uppercase tracking-wide text-slate-900">Process Line (P1-P11)</p>
+              <p className="text-lg font-bold uppercase tracking-wide text-foreground">Process Line (P1-P11)</p>
             </div>
-            <div className="text-right text-sm font-semibold text-slate-700">Shift {processShiftLabel}</div>
+            <div className="text-right text-sm font-semibold text-muted-foreground">Shift {processShiftLabel}</div>
           </div>
 
           <div className="mt-3 grid gap-0 text-sm md:grid-cols-4">
@@ -2397,48 +2397,48 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
           <table className="mt-3 w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-100 text-left">
-                <th className="border border-slate-300 px-2 py-2">Oven Qty</th>
-                <th className="border border-slate-300 px-2 py-2">Process Qty</th>
-                <th className="border border-slate-300 px-2 py-2">Reject Qty</th>
-                <th className="border border-slate-300 px-2 py-2">Rejection Code</th>
-                <th className="border border-slate-300 px-2 py-2">Start</th>
-                <th className="border border-slate-300 px-2 py-2">End</th>
-                <th className="border border-slate-300 px-2 py-2">Cycle Time</th>
+              <tr className="bg-muted text-left">
+                <th className="border border-border px-2 py-2">Oven Qty</th>
+                <th className="border border-border px-2 py-2">Process Qty</th>
+                <th className="border border-border px-2 py-2">Reject Qty</th>
+                <th className="border border-border px-2 py-2">Rejection Code</th>
+                <th className="border border-border px-2 py-2">Start</th>
+                <th className="border border-border px-2 py-2">End</th>
+                <th className="border border-border px-2 py-2">Cycle Time</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className="border border-slate-300 px-2 py-2">{printValue(ovenPrintStage?.output_qty, 0)}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.process_qty || printValue(processPrintStage?.output_qty, 0)}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.reject_qty || printValue(processPrintStage?.scrap_qty, 0)}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.reject_reason || "-"}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.start_time || "-"}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.end_time || "-"}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.cycle_time || "-"}</td>
+                <td className="border border-border px-2 py-2">{printValue(ovenPrintStage?.output_qty, 0)}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.process_qty || printValue(processPrintStage?.output_qty, 0)}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.reject_qty || printValue(processPrintStage?.scrap_qty, 0)}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.reject_reason || "-"}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.start_time || "-"}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.end_time || "-"}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.cycle_time || "-"}</td>
               </tr>
             </tbody>
           </table>
 
           <table className="mt-3 w-full border-collapse text-sm">
             <thead>
-              <tr className="bg-slate-50 text-left">
-                <th className="border border-slate-300 px-2 py-2">Height</th>
-                <th className="border border-slate-300 px-2 py-2">Weight</th>
-                <th className="border border-slate-300 px-2 py-2">C.S</th>
-                <th className="border border-slate-300 px-2 py-2">Notch Distance</th>
-                <th className="border border-slate-300 px-2 py-2">Notch Depth</th>
-                <th className="border border-slate-300 px-2 py-2">Moisture</th>
+              <tr className="bg-muted text-left">
+                <th className="border border-border px-2 py-2">Height</th>
+                <th className="border border-border px-2 py-2">Weight</th>
+                <th className="border border-border px-2 py-2">C.S</th>
+                <th className="border border-border px-2 py-2">Notch Distance</th>
+                <th className="border border-border px-2 py-2">Notch Depth</th>
+                <th className="border border-border px-2 py-2">Moisture</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.height ?? processPrintEntry.final_measurements?.height ?? ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.weight ?? processPrintEntry.final_measurements?.weight ?? ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.cs ?? processPrintEntry.final_measurements?.cs ?? ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_distance ?? processPrintEntry.final_measurements?.notch_distance ?? ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.notch_depth ?? processPrintEntry.final_measurements?.notch_depth ?? ""}</td>
-                <td className="border border-slate-300 px-2 py-2">{processPrintEntry.qc_readings?.moisture ?? processPrintEntry.final_measurements?.moisture ?? ""}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.qc_readings?.height ?? processPrintEntry.final_measurements?.height ?? ""}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.qc_readings?.weight ?? processPrintEntry.final_measurements?.weight ?? ""}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.qc_readings?.cs ?? processPrintEntry.final_measurements?.cs ?? ""}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.qc_readings?.notch_distance ?? processPrintEntry.final_measurements?.notch_distance ?? ""}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.qc_readings?.notch_depth ?? processPrintEntry.final_measurements?.notch_depth ?? ""}</td>
+                <td className="border border-border px-2 py-2">{processPrintEntry.qc_readings?.moisture ?? processPrintEntry.final_measurements?.moisture ?? ""}</td>
               </tr>
             </tbody>
           </table>
@@ -2450,7 +2450,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <LabeledValue label="Supervisor Sign" value={packingPrintEntry.supervisor_sign || "-"} />
           </div>
 
-          <div className="mt-4 border border-dashed border-slate-400 px-3 py-3 text-xs text-slate-600">
+          <div className="mt-4 border border-dashed border-slate-400 px-3 py-3 text-xs text-muted-foreground">
             Notes: {processPrintStage?.remarks || packingPrintStage?.remarks || qcPrintStage?.remarks || "-"}
           </div>
         </section>
@@ -2619,7 +2619,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     return (
       <div className="job-print-root mx-auto max-w-[210mm] print:max-w-none">
         <div className="no-print mb-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-slate-600">Controlled two-sided job card for the scheduled release.</div>
+          <div className="text-sm text-muted-foreground">Controlled two-sided job card for the scheduled release.</div>
           <button
             type="button"
             onClick={() => window.print()}
@@ -3130,18 +3130,18 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
   if (!jobCardId) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-sm text-slate-600">
+      <div className="rounded-xl border border-dashed border-border bg-card p-8 text-sm text-muted-foreground">
         Select a job card to load the document.
       </div>
     )
   }
 
   if (jobCardQuery.isLoading) {
-    return <div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-600">Loading job card...</div>
+    return <div className="rounded-xl border border-border bg-card p-8 text-sm text-muted-foreground">Loading job card...</div>
   }
 
   if (jobCardQuery.isError || !card) {
-    return <div className="rounded-xl border border-rose-200 bg-rose-50 p-8 text-sm text-rose-700">Unable to load job card.</div>
+    return <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-8 text-sm text-signal-rose-ink">Unable to load job card.</div>
   }
 
   if (mode === "print") {
@@ -3155,15 +3155,15 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   return (
     <div className="mx-auto max-w-6xl space-y-4 print:max-w-none">
       <div className="no-print flex flex-wrap items-center justify-between gap-3">
-        <div className="text-sm text-slate-600">
-          Snapshot Mode: <span className="font-semibold text-slate-900">{card.snapshot_mode}</span>
+        <div className="text-sm text-muted-foreground">
+          Snapshot Mode: <span className="font-semibold text-foreground">{card.snapshot_mode}</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {mode === "view" && (
             <>
               <Link
                 href={`/production/job-cards/${jobCardId}/print`}
-                className="inline-flex items-center gap-2 border border-slate-900 px-4 py-2 text-sm font-semibold text-slate-900"
+                className="inline-flex items-center gap-2 border border-slate-900 px-4 py-2 text-sm font-semibold text-foreground"
               >
                 <Printer className="h-4 w-4" />
                 Print
@@ -3179,25 +3179,25 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </div>
       </div>
 
-      <section className="border-2 border-slate-900 bg-white p-4 print:p-3">
+      <section className="border-2 border-slate-900 bg-card p-4 print:p-3">
         <div className="grid gap-4 border-b border-slate-400 pb-4 md:grid-cols-[1.3fr_220px]">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-slate-500">
+            <div className="text-xs font-semibold uppercase tracking-[0.25em] text-muted-foreground">
               {documentSnapshot?.header?.company_name || "Hari Om Paper"}
             </div>
-            <h1 className="mt-2 text-3xl font-bold uppercase tracking-wide text-slate-900">Job Card</h1>
+            <h1 className="mt-2 text-3xl font-bold uppercase tracking-wide text-foreground">Job Card</h1>
             <div className="mt-3 grid gap-2 md:grid-cols-3">
               <LabeledValue label="Date" value={documentSnapshot?.header?.date || ""} />
               <LabeledValue label="Shift" value={documentSnapshot?.header?.shift || ""} />
               <LabeledValue label="Plant" value={displayPlantScope(documentSnapshot?.header?.plant_id, "")} />
             </div>
           </div>
-          <div className="justify-self-end border border-slate-300 p-3 text-center">
-            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">QR Lookup</div>
+          <div className="justify-self-end border border-border p-3 text-center">
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">QR Lookup</div>
             <div className="mt-2 inline-flex justify-center">
               <QRCodeSVG value={qrValue} size={108} />
             </div>
-            <div className="mt-2 text-[11px] text-slate-600">{qrValue}</div>
+            <div className="mt-2 text-[11px] text-muted-foreground">{qrValue}</div>
           </div>
         </div>
 
@@ -3217,32 +3217,32 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </div>
 
         <section className="mt-4 grid gap-3 md:grid-cols-4">
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Execution Setup</p>
-            <p className="mt-2 text-base font-semibold text-slate-900">{primaryStageAssignment.machineLabel || lineMachineLabel}</p>
-            <p className="mt-1 text-xs text-slate-500">{primaryStageAssignment.shiftLabel || "Planner assignment pending"}</p>
+          <div className="rounded-xl border border-border bg-muted px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Execution Setup</p>
+            <p className="mt-2 text-base font-semibold text-foreground">{primaryStageAssignment.machineLabel || lineMachineLabel}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{primaryStageAssignment.shiftLabel || "Planner assignment pending"}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Mandrel + Size</p>
-            <p className="mt-2 text-base font-semibold text-slate-900">{mandrelLabel}</p>
-            <p className="mt-1 text-xs text-slate-500">{documentSnapshot?.header?.product_size_label || "-"}</p>
+          <div className="rounded-xl border border-border bg-muted px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Mandrel + Size</p>
+            <p className="mt-2 text-base font-semibold text-foreground">{mandrelLabel}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{documentSnapshot?.header?.product_size_label || "-"}</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Parchment</p>
-            <p className="mt-2 text-base font-semibold text-slate-900">{parchmentLabel}</p>
-            <p className="mt-1 text-xs text-slate-500">Chosen on the sales order line</p>
+          <div className="rounded-xl border border-border bg-muted px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Parchment</p>
+            <p className="mt-2 text-base font-semibold text-foreground">{parchmentLabel}</p>
+            <p className="mt-1 text-xs text-muted-foreground">Chosen on the sales order line</p>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Packaging</p>
-            <p className="mt-2 text-base font-semibold text-slate-900">{packagingSummary || "-"}</p>
-            <p className="mt-1 text-xs text-slate-500">{documentSnapshot?.setup_tooling?.packing_instructions || "No extra packing instructions"}</p>
+          <div className="rounded-xl border border-border bg-muted px-4 py-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Packaging</p>
+            <p className="mt-2 text-base font-semibold text-foreground">{packagingSummary || "-"}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{documentSnapshot?.setup_tooling?.packing_instructions || "No extra packing instructions"}</p>
           </div>
         </section>
 
         {renderRestrictedPhysicalOutput()}
         {renderLateQualityException()}
         <section className="mt-4 border border-slate-800">
-          <div className="border-b border-slate-800 bg-slate-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-900">
+          <div className="border-b border-slate-800 bg-muted px-3 py-2 text-sm font-bold uppercase tracking-wide text-foreground">
             Material Truth
           </div>
           <div className="grid gap-2 p-3 md:grid-cols-5">
@@ -3255,22 +3255,22 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </section>
 
         <section className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-cyan-800">WIP</div>
-            <div className="mt-2 text-2xl font-semibold text-slate-900">{formatNumber(wipQty, 0)}</div>
-            <div className="mt-1 text-sm text-slate-600">Open quantity still in process for this job card.</div>
+          <div className="rounded-xl border border-signal-cyan-line bg-signal-cyan-soft p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-signal-cyan-ink">WIP</div>
+            <div className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(wipQty, 0)}</div>
+            <div className="mt-1 text-sm text-muted-foreground">Open quantity still in process for this job card.</div>
           </div>
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Carry Forward</div>
-            <div className="mt-2 text-2xl font-semibold text-slate-900">{formatNumber(carryForward.remaining_qty || 0, 0)}</div>
-            <div className="mt-1 text-sm text-slate-600">
+          <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-signal-amber-ink">Carry Forward</div>
+            <div className="mt-2 text-2xl font-semibold text-foreground">{formatNumber(carryForward.remaining_qty || 0, 0)}</div>
+            <div className="mt-1 text-sm text-muted-foreground">
               {carryForward.suggested ? carryForward.reason : "No remainder suggestion from completed stages yet."}
             </div>
           </div>
-          <div className={`rounded-xl border p-4 ${dispatchGateBlocked ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`} data-testid="dispatch-gate">
-            <div className={`text-xs font-semibold uppercase tracking-wide ${dispatchGateBlocked ? "text-rose-800" : "text-emerald-800"}`}>Dispatch Gate</div>
-            <div className="mt-2 text-2xl font-semibold text-slate-900">{dispatchGateBlocked ? "Blocked" : "Ready"}</div>
-            <div className="mt-1 text-sm text-slate-600">
+          <div className={`rounded-xl border p-4 ${dispatchGateBlocked ? "border-signal-rose-line bg-signal-rose-soft" : "border-signal-emerald-line bg-signal-emerald-soft"}`} data-testid="dispatch-gate">
+            <div className={`text-xs font-semibold uppercase tracking-wide ${dispatchGateBlocked ? "text-signal-rose-ink" : "text-signal-emerald-ink"}`}>Dispatch Gate</div>
+            <div className="mt-2 text-2xl font-semibold text-foreground">{dispatchGateBlocked ? "Blocked" : "Ready"}</div>
+            <div className="mt-1 text-sm text-muted-foreground">
               {dispatchGateBlocked
                 ? `Pending: ${incompleteUpstreamStages.join(", ")}${activeHoldCount > 0 ? ` | QC holds ${activeHoldCount}` : ""}`
                 : "Packing and QC are complete with no active hold."}
@@ -3281,7 +3281,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <MatrixBlock title="Client Specifications" ranges={documentSnapshot?.client_spec} />
           <section className="border border-slate-800">
-            <div className="border-b border-slate-800 bg-slate-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-900">
+            <div className="border-b border-slate-800 bg-muted px-3 py-2 text-sm font-bold uppercase tracking-wide text-foreground">
               Manufacturing Specifications
             </div>
             <div className="grid gap-2 p-3 md:grid-cols-2">
@@ -3295,7 +3295,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </div>
 
         <section className="mt-4 border border-slate-800">
-          <div className="border-b border-slate-800 bg-slate-100 px-3 py-2 text-sm font-bold uppercase tracking-wide text-slate-900">
+          <div className="border-b border-slate-800 bg-muted px-3 py-2 text-sm font-bold uppercase tracking-wide text-foreground">
             Setup / Tooling
           </div>
           <div className="grid gap-2 p-3 md:grid-cols-3">
@@ -3331,7 +3331,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         </div>
 
         {(documentSnapshot?.sections_meta?.legacy_notes?.length > 0 || documentSnapshot?.sections_meta?.missing_fields?.length > 0) && (
-          <section className="mt-4 border border-dashed border-slate-400 px-3 py-3 text-xs text-slate-600">
+          <section className="mt-4 border border-dashed border-slate-400 px-3 py-3 text-xs text-muted-foreground">
             {documentSnapshot?.sections_meta?.legacy_notes?.length > 0 && (
               <div>{documentSnapshot.sections_meta.legacy_notes.join(" ")}</div>
             )}

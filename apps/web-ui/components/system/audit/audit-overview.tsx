@@ -71,18 +71,18 @@ function KpiTile({
   tone?: "cyan" | "emerald" | "amber" | "rose" | "violet" | "slate"
 }) {
   const toneClass: Record<string, string> = {
-    cyan: "border-cyan-200 bg-cyan-50/70",
-    emerald: "border-emerald-200 bg-emerald-50/70",
-    amber: "border-amber-200 bg-amber-50/70",
-    rose: "border-rose-200 bg-rose-50/70",
-    violet: "border-violet-200 bg-violet-50/70",
-    slate: "border-slate-200 bg-white/90",
+    cyan: "border-signal-cyan-line bg-signal-cyan-soft/70",
+    emerald: "border-signal-emerald-line bg-signal-emerald-soft/70",
+    amber: "border-signal-amber-line bg-signal-amber-soft/70",
+    rose: "border-signal-rose-line bg-signal-rose-soft/70",
+    violet: "border-signal-violet-line bg-signal-violet-soft/70",
+    slate: "border-border bg-card/90",
   }
   return (
     <div className={cn("rounded-[1.3rem] border px-4 py-3 shadow-sm", toneClass[tone])}>
-      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{label}</p>
-      <p className="mt-2 text-2xl font-semibold leading-none text-slate-950">{value}</p>
-      {hint ? <p className="mt-1.5 text-xs leading-5 text-slate-600">{hint}</p> : null}
+      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+      <p className="mt-2 text-2xl font-semibold leading-none text-foreground">{value}</p>
+      {hint ? <p className="mt-1.5 text-xs leading-5 text-muted-foreground">{hint}</p> : null}
     </div>
   )
 }
@@ -134,14 +134,14 @@ export function AuditOverview({
             <div className="grid grid-cols-[32px_repeat(24,minmax(0,1fr))] gap-[3px] text-center">
               <span />
               {Array.from({ length: 24 }).map((_, h) => (
-                <span key={h} className="text-[9.5px] font-bold text-slate-400">
+                <span key={h} className="text-[9.5px] font-bold text-muted-foreground">
                   {h % 6 === 0 ? `${h}` : ""}
                 </span>
               ))}
             </div>
             {heatmap.map((row, d) => (
               <div key={d} className="grid grid-cols-[32px_repeat(24,minmax(0,1fr))] gap-[3px] items-center">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.04em]">{DAY_LABELS[d]}</span>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.04em]">{DAY_LABELS[d]}</span>
                 {row.map((count, h) => (
                   <span
                     key={h}
@@ -197,7 +197,7 @@ export function AuditOverview({
       <div className="grid gap-5 xl:grid-cols-3">
         <Panel title="Top actors" subtitle="By total events in this window.">
           {actors.length === 0 ? (
-            <p className="text-sm text-slate-500">No actors yet.</p>
+            <p className="text-sm text-muted-foreground">No actors yet.</p>
           ) : (
             <ul className="space-y-2.5">
               {actors.map((a) => {
@@ -211,13 +211,13 @@ export function AuditOverview({
                           {initials(a.actor)}
                         </span>
                         <span>
-                          <span className="block text-sm font-semibold text-slate-900">{a.actor}</span>
-                          <span className="block text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-400">{a.role || "—"}</span>
+                          <span className="block text-sm font-semibold text-foreground">{a.actor}</span>
+                          <span className="block text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{a.role || "—"}</span>
                         </span>
                       </span>
-                      <span className="text-sm font-bold text-slate-900">{a.count}</span>
+                      <span className="text-sm font-bold text-foreground">{a.count}</span>
                     </div>
-                    <div className="h-1.5 rounded-full bg-slate-100">
+                    <div className="h-1.5 rounded-full bg-muted">
                       <div
                         className="h-1.5 rounded-full bg-gradient-to-r from-cyan-700 via-cyan-600 to-emerald-500"
                         style={{ width: `${pct}%` }}
@@ -232,7 +232,7 @@ export function AuditOverview({
 
         <Panel title="Action mix" subtitle="Most common verbs across the audit signal.">
           {actions.length === 0 ? (
-            <p className="text-sm text-slate-500">No actions yet.</p>
+            <p className="text-sm text-muted-foreground">No actions yet.</p>
           ) : (
             <div className="h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -251,7 +251,7 @@ export function AuditOverview({
             {actions.slice(0, 6).map((a) => (
               <span
                 key={a.action}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10.5px] font-bold text-slate-700"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-[10.5px] font-bold text-muted-foreground"
               >
                 <span className="h-2 w-2 rounded-full" style={{ background: a.color }} />
                 {a.action.replaceAll("_", " ")} · {a.count}
@@ -262,7 +262,7 @@ export function AuditOverview({
 
         <Panel title="Stream lanes" subtitle="Volume across audit channels.">
           {streams.every((s) => s.count === 0) ? (
-            <p className="text-sm text-slate-500">No stream activity yet.</p>
+            <p className="text-sm text-muted-foreground">No stream activity yet.</p>
           ) : (
             <div className="h-[240px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -289,7 +289,7 @@ export function AuditOverview({
         subtitle="Highest-severity events in the current window — click any to drill into payload."
       >
         {recentCritical.length === 0 ? (
-          <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
+          <div className="flex items-center gap-3 rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-4 text-sm text-signal-emerald-ink">
             <CheckCircle2 className="h-4 w-4" />
             <span className="font-semibold">All clear — no critical or high events in this window.</span>
           </div>
@@ -302,7 +302,7 @@ export function AuditOverview({
                 <li
                   key={ev.id}
                   onClick={() => onSelect(ev)}
-                  className="group flex cursor-pointer items-start gap-3 rounded-[1.15rem] border border-slate-200 bg-white px-4 py-3 transition hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-md"
+                  className="group flex cursor-pointer items-start gap-3 rounded-[1.15rem] border border-border bg-card px-4 py-3 transition hover:-translate-y-0.5 hover:border-signal-cyan-line hover:shadow-md"
                   role="button"
                   tabIndex={0}
                   onKeyDown={(e) => e.key === "Enter" && onSelect(ev)}
@@ -323,13 +323,13 @@ export function AuditOverview({
                       <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", severityClass(ev.severity))}>
                         {ev.severity}
                       </span>
-                      <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                      <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
                         {timestampText(ev.timestamp, true)} · {relativeTime(ev.timestamp)}
                       </span>
                     </div>
-                    <p className="mt-1.5 text-sm font-semibold text-slate-900">{ev.action.replaceAll("_", " ")}</p>
-                    <p className="mt-0.5 text-[12.5px] text-slate-600">
-                      <span className="font-semibold text-slate-700">{ev.actor}</span> — {ev.summary}
+                    <p className="mt-1.5 text-sm font-semibold text-foreground">{ev.action.replaceAll("_", " ")}</p>
+                    <p className="mt-0.5 text-[12.5px] text-muted-foreground">
+                      <span className="font-semibold text-muted-foreground">{ev.actor}</span> — {ev.summary}
                     </p>
                   </div>
                 </li>

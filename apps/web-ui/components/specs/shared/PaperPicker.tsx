@@ -86,10 +86,10 @@ export function PaperPicker({ value, papers, disabled, onChange, className = "" 
         type="button"
         onClick={() => !disabled && setOpen((current) => !current)}
         disabled={disabled}
-        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-[#cfd9e6] bg-white px-3 py-2 text-left text-xs text-slate-900 shadow-sm transition hover:border-slate-400 disabled:bg-slate-100 disabled:text-slate-500"
+        className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-[#cfd9e6] bg-card px-3 py-2 text-left text-xs text-foreground shadow-sm transition hover:border-slate-400 disabled:bg-muted disabled:text-muted-foreground"
       >
         <span className="line-clamp-2">{selected ? labelForPaper(selected) : "Select paper master"}</span>
-        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-slate-400 transition ${open ? "rotate-180" : ""}`} />
+        <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-muted-foreground transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && !disabled && typeof document !== "undefined" ? createPortal(
         <div
@@ -97,18 +97,18 @@ export function PaperPicker({ value, papers, disabled, onChange, className = "" 
           role="listbox"
           aria-label="Paper masters"
           style={menuStyle}
-          className="fixed z-[1000] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.22)]"
+          className="fixed z-[1000] overflow-hidden rounded-2xl border border-border bg-card shadow-[0_24px_70px_rgba(15,23,42,0.22)]"
         >
-          <div className="border-b border-slate-100 p-3">
+          <div className="border-b border-border p-3">
             <div className="mb-2 flex items-center justify-between gap-3 px-1">
               <div>
-                <p className="text-xs font-bold text-slate-900">Select paper master</p>
-                <p className="text-[11px] text-slate-500">Search by code, variety, category, or GSM</p>
+                <p className="text-xs font-bold text-foreground">Select paper master</p>
+                <p className="text-[11px] text-muted-foreground">Search by code, variety, category, or GSM</p>
               </div>
-              <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">{filteredPapers.length} active</span>
+              <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-bold text-muted-foreground">{filteredPapers.length} active</span>
             </div>
             <div className="relative">
-              <Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <Search aria-hidden="true" className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <input
               autoFocus
               type="search"
@@ -118,13 +118,13 @@ export function PaperPicker({ value, papers, disabled, onChange, className = "" 
                 if (event.key === "Escape") setOpen(false)
               }}
               placeholder="Search paper masters"
-              className="h-10 w-full rounded-xl border border-[#cfd9e6] bg-slate-50 pl-9 pr-3 text-sm outline-none focus:border-cyan-400 focus:bg-white"
+              className="h-10 w-full rounded-xl border border-[#cfd9e6] bg-muted pl-9 pr-3 text-sm outline-none focus:border-cyan-400 focus:bg-card"
             />
             </div>
           </div>
           <div className="max-h-80 overflow-y-auto p-1.5">
             {filteredPapers.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-slate-500">No active paper matches this search.</div>
+              <div className="px-3 py-4 text-sm text-muted-foreground">No active paper matches this search.</div>
             ) : (
               filteredPapers.map((paper) => (
                 <button
@@ -137,13 +137,13 @@ export function PaperPicker({ value, papers, disabled, onChange, className = "" 
                   }}
                   role="option"
                   aria-selected={String(paper.id) === String(value)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-slate-800 hover:bg-cyan-50 hover:text-cyan-900"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left text-sm text-foreground hover:bg-signal-cyan-soft hover:text-signal-cyan-ink"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate font-semibold text-slate-900">{paper.code || "NO-CODE"}</span>
-                    <span className="mt-0.5 block truncate text-xs text-slate-500">{paper.variety || paper.category || "Paper"} · {paper.gsm ? `${paper.gsm} GSM` : "GSM pending"}</span>
+                    <span className="block truncate font-semibold text-foreground">{paper.code || "NO-CODE"}</span>
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">{paper.variety || paper.category || "Paper"} · {paper.gsm ? `${paper.gsm} GSM` : "GSM pending"}</span>
                   </span>
-                  {String(paper.id) === String(value) ? <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-emerald-600" /> : null}
+                  {String(paper.id) === String(value) ? <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-signal-emerald-ink" /> : null}
                 </button>
               ))
             )}

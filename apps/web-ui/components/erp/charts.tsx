@@ -24,8 +24,8 @@ export function ChartPanel({
     <section className={cn("erp-chart-panel", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-slate-950">{title}</h3>
-          {subtitle ? <p className="mt-1 text-sm text-slate-600">{subtitle}</p> : null}
+          <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+          {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
         </div>
         {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
       </div>
@@ -84,7 +84,7 @@ export function ChartBox({
       {chartElement ? (
         chartElement
       ) : (
-        <div className="h-full w-full rounded-[1.4rem] border border-dashed border-slate-200 bg-slate-50/80" />
+        <div className="h-full w-full rounded-[1.4rem] border border-dashed border-border bg-muted/80" />
       )}
     </div>
   )
@@ -95,15 +95,15 @@ export function ChartTooltip({ active, payload, label }: any) {
 
   return (
     <div className={ERP_CHART_THEME.tooltipClassName}>
-      {label ? <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">{String(label)}</p> : null}
+      {label ? <p className="mb-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{String(label)}</p> : null}
       <div className="space-y-1">
         {payload.map((entry: any, index: number) => (
           <div key={`${entry.name}-${index}`} className="flex items-center justify-between gap-3 text-xs">
             <span className="inline-flex items-center gap-2">
               <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: entry.color || ERP_CHART_THEME.palette[index % ERP_CHART_THEME.palette.length] }} />
-              <span className="text-slate-600">{String(entry.name || entry.dataKey)}</span>
+              <span className="text-muted-foreground">{String(entry.name || entry.dataKey)}</span>
             </span>
-            <span className="font-semibold text-slate-900">{Number(entry.value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+            <span className="font-semibold text-foreground">{Number(entry.value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
           </div>
         ))}
       </div>
@@ -113,7 +113,7 @@ export function ChartTooltip({ active, payload, label }: any) {
 
 export function ChartEmptyState({ label }: { label: string }) {
   return (
-    <div className="flex h-full items-center justify-center rounded-[1.4rem] border border-dashed border-slate-200 bg-slate-50/80 text-sm text-slate-500">
+    <div className="flex h-full items-center justify-center rounded-[1.4rem] border border-dashed border-border bg-muted/80 text-sm text-muted-foreground">
       {label}
     </div>
   )

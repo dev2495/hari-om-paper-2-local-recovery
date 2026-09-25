@@ -50,16 +50,16 @@ export function RoleGate({
 
   return (
     <div className="max-w-2xl space-y-6 animate-enter-up" data-testid="role-gate-denied" role="alert">
-      <section className="rounded-[2rem] border border-amber-200 bg-amber-50 p-8 shadow-premium">
-        <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+      <section className="rounded-[2rem] border border-signal-amber-line bg-signal-amber-soft p-8 shadow-premium">
+        <div className="inline-flex items-center gap-2 rounded-full border border-signal-amber-line bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-signal-amber-ink">
           <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" />
           Restricted
         </div>
-        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">{fallbackTitle}</h1>
-        <p className="mt-3 text-sm font-semibold leading-6 text-slate-700">{fallbackMessage}</p>
-        <p className="mt-3 text-[12.5px] text-slate-600">
+        <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground">{fallbackTitle}</h1>
+        <p className="mt-3 text-sm font-semibold leading-6 text-muted-foreground">{fallbackMessage}</p>
+        <p className="mt-3 text-[12.5px] text-muted-foreground">
           Required roles:{" "}
-          <strong className="font-mono text-slate-800">
+          <strong className="font-mono text-foreground">
             {(omitOwnerAdmin ? allow : ["Owner", "Admin", ...allow]).join(", ")}
           </strong>
         </p>

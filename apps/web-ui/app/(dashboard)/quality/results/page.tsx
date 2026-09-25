@@ -151,12 +151,12 @@ export default function QualityResultsPage() {
               <EmptyState label="No inspections recorded." />
             ) : (
               inspections.slice(0, 12).map((row: any) => (
-                <article key={row.id} className="mb-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                <article key={row.id} className="mb-2 rounded-2xl border border-border bg-card px-4 py-3">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-950">{row.stage_type || row.source || "Inspection"}</p>
+                    <p className="text-sm font-semibold text-foreground">{row.stage_type || row.source || "Inspection"}</p>
                     <StatusBadge value={row.status} />
                   </div>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-muted-foreground">
                     {(row.evaluation?.frozen_rules || row.frozen_rules || []).map((rule: any) => rule.allowed_display).filter(Boolean).slice(0, 3).join(" · ") || "No frozen range displayed"}
                   </p>
                 </article>
@@ -165,30 +165,30 @@ export default function QualityResultsPage() {
           </Panel>
           <Panel title="Active holds" subtitle="Holds open from FAIL measurements or a manual QC hold.">
             <form className="mb-4 grid gap-2 md:grid-cols-[1fr_8rem_1fr_auto]" onSubmit={handleManualHoldSubmit}>
-              <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 text-sm">
+              <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)} className="h-11 rounded-xl border border-border px-3 text-sm">
                 <option value="">Job card</option>
                 {jobs.slice(0, 80).map((job: any) => (
                   <option key={job.id} value={job.id}>{jobLabel(job)}</option>
                 ))}
               </select>
-              <select value={stageType} onChange={(event) => setStageType(event.target.value)} className="h-11 rounded-xl border border-slate-200 px-3 text-sm">
+              <select value={stageType} onChange={(event) => setStageType(event.target.value)} className="h-11 rounded-xl border border-border px-3 text-sm">
                 {["WINDER", "OVEN", "PROCESS", "QC"].map((stage) => (
                   <option key={stage} value={stage}>{stage}</option>
                 ))}
               </select>
-              <input value={manualHoldReason} onChange={(event) => setManualHoldReason(event.target.value)} placeholder="Hold reason" className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
+              <input value={manualHoldReason} onChange={(event) => setManualHoldReason(event.target.value)} placeholder="Hold reason" className="h-11 rounded-xl border border-border px-3 text-sm" />
               <button type="submit" className="rounded-xl bg-slate-950 px-3 text-sm font-semibold text-white">Hold</button>
             </form>
             {activeHolds.length === 0 ? (
               <EmptyState label="No active holds." />
             ) : (
               activeHolds.map((hold: any) => (
-                <article key={hold.id} className="mb-2 flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
+                <article key={hold.id} className="mb-2 flex items-center justify-between gap-3 rounded-2xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-950">{hold.stage_type}</p>
-                    <p className="text-xs text-slate-600">{hold.reason}</p>
+                    <p className="text-sm font-semibold text-foreground">{hold.stage_type}</p>
+                    <p className="text-xs text-muted-foreground">{hold.reason}</p>
                   </div>
-                  <button type="button" onClick={() => handleReleaseHold(hold)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold">
+                  <button type="button" onClick={() => handleReleaseHold(hold)} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-semibold">
                     Release
                   </button>
                 </article>
@@ -221,15 +221,15 @@ export default function QualityResultsPage() {
               }
             }}
           >
-            <select required value={customerReturn.item_id} onChange={(event) => setCustomerReturn((current) => ({ ...current, item_id: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm">
+            <select required value={customerReturn.item_id} onChange={(event) => setCustomerReturn((current) => ({ ...current, item_id: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm">
               <option value="">Finished good</option>
               {finishedGoods.map((item: any) => (
                 <option key={item.id} value={item.id}>{item.item_code} - {item.name}</option>
               ))}
             </select>
-            <input required type="number" min="0.001" step="0.001" placeholder="Rejected qty" value={customerReturn.rejected_qty} onChange={(event) => setCustomerReturn((current) => ({ ...current, rejected_qty: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
-            <input required placeholder="Customer name" value={customerReturn.customer_name} onChange={(event) => setCustomerReturn((current) => ({ ...current, customer_name: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
-            <select value={customerReturn.location_id} onChange={(event) => setCustomerReturn((current) => ({ ...current, location_id: event.target.value }))} className="h-11 rounded-xl border border-slate-200 px-3 text-sm">
+            <input required type="number" min="0.001" step="0.001" placeholder="Rejected qty" value={customerReturn.rejected_qty} onChange={(event) => setCustomerReturn((current) => ({ ...current, rejected_qty: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm" />
+            <input required placeholder="Customer name" value={customerReturn.customer_name} onChange={(event) => setCustomerReturn((current) => ({ ...current, customer_name: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm" />
+            <select value={customerReturn.location_id} onChange={(event) => setCustomerReturn((current) => ({ ...current, location_id: event.target.value }))} className="h-11 rounded-xl border border-border px-3 text-sm">
               <option value="">Location</option>
               {locations.map((row: any) => (
                 <option key={row.id} value={row.id}>{row.code || row.name}</option>
@@ -241,10 +241,10 @@ export default function QualityResultsPage() {
             <EmptyState label="No customer rejections recorded." />
           ) : (
             customerRejections.slice(0, 8).map((row: any) => (
-              <article key={row.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <article key={row.id} className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">{row.customer_name} · qty {row.rejected_qty}</p>
-                  <p className="text-xs text-slate-500">{row.reason_code}</p>
+                  <p className="text-sm font-semibold text-foreground">{row.customer_name} · qty {row.rejected_qty}</p>
+                  <p className="text-xs text-muted-foreground">{row.reason_code}</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   <StatusBadge value={row.status} />
@@ -253,7 +253,7 @@ export default function QualityResultsPage() {
                       key={action}
                       type="button"
                       onClick={() => disposeCustomerRejection.mutateAsync({ id: row.id, data: { disposition: action } })}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold"
+                      className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold"
                     >
                       {action}
                     </button>

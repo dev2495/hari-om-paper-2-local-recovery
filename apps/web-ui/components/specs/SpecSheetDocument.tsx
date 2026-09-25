@@ -294,7 +294,7 @@ function SectionLabel({ title, subtitle }: { title: string; subtitle?: string })
   return (
     <div className="mb-3 flex flex-wrap items-end justify-between gap-2 border-b border-[#dfe7e4] pb-2">
       <h2 className="text-[11px] font-extrabold uppercase tracking-[0.18em] text-[#173b47]">{title}</h2>
-      {subtitle ? <p className="text-[11px] text-slate-500">{subtitle}</p> : null}
+      {subtitle ? <p className="text-[11px] text-muted-foreground">{subtitle}</p> : null}
     </div>
   )
 }
@@ -306,7 +306,7 @@ function MasterLinkRow({ links }: { links: Array<{ href: string; label: string }
         <Link
           key={link.href}
           href={link.href}
-          className="rounded-md border border-[#d6dfdc] bg-[#f8faf9] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-slate-600 transition hover:border-[#9db7b0] hover:bg-white"
+          className="rounded-md border border-[#d6dfdc] bg-[#f8faf9] px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground transition hover:border-[#9db7b0] hover:bg-card"
         >
           {link.label}
         </Link>
@@ -316,7 +316,7 @@ function MasterLinkRow({ links }: { links: Array<{ href: string; label: string }
 }
 
 function FieldLabel({ children }: { children: React.ReactNode }) {
-  return <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{children}</label>
+  return <label className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">{children}</label>
 }
 
 type SmartSelectOption = {
@@ -361,14 +361,14 @@ function SmartSelect({
         type="button"
         disabled={disabled}
         onClick={() => !disabled && setOpen((current) => !current)}
-        className="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-[#ccd8d5] bg-white px-3 text-left text-sm font-medium text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:border-[#8eaaa3] disabled:cursor-not-allowed disabled:bg-[#f2f5f4] disabled:text-slate-500"
+        className="flex h-10 w-full items-center justify-between gap-3 rounded-lg border border-[#ccd8d5] bg-card px-3 text-left text-sm font-medium text-foreground shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition hover:border-[#8eaaa3] disabled:cursor-not-allowed disabled:bg-[#f2f5f4] disabled:text-muted-foreground"
       >
         <span className="min-w-0 truncate">{selected?.label || placeholder}</span>
-        <span className="shrink-0 text-xs font-semibold text-slate-400">v</span>
+        <span className="shrink-0 text-xs font-semibold text-muted-foreground">v</span>
       </button>
       {open && !disabled ? (
-        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[min(460px,92vw)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-          <div className="border-b border-slate-100 p-2">
+        <div className="absolute left-0 top-[calc(100%+0.4rem)] z-50 w-[min(460px,92vw)] overflow-hidden rounded-xl border border-border bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+          <div className="border-b border-border p-2">
             <input
               autoFocus
               type="search"
@@ -378,12 +378,12 @@ function SmartSelect({
                 if (event.key === "Escape") setOpen(false)
               }}
               placeholder={`Search ${placeholder.toLowerCase()}`}
-              className="h-10 w-full rounded-lg border border-[#cfd9e6] bg-slate-50 px-3 text-sm outline-none focus:border-emerald-500 focus:bg-white"
+              className="h-10 w-full rounded-lg border border-[#cfd9e6] bg-muted px-3 text-sm outline-none focus:border-emerald-500 focus:bg-card"
             />
           </div>
           <div className="max-h-72 overflow-y-auto p-1">
             {filteredOptions.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-slate-500">{emptyLabel}</div>
+              <div className="px-3 py-4 text-sm text-muted-foreground">{emptyLabel}</div>
             ) : (
               filteredOptions.map((option) => (
                 <button
@@ -395,10 +395,10 @@ function SmartSelect({
                     setQuery("")
                     setOpen(false)
                   }}
-                  className="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-800 hover:bg-emerald-50 hover:text-emerald-900"
+                  className="block w-full rounded-lg px-3 py-2 text-left text-sm text-foreground hover:bg-signal-emerald-soft hover:text-signal-emerald-ink"
                 >
                   <span className="block font-semibold">{option.label}</span>
-                  {option.meta ? <span className="block text-xs text-slate-500">{option.meta}</span> : null}
+                  {option.meta ? <span className="block text-xs text-muted-foreground">{option.meta}</span> : null}
                 </button>
               ))
             )}
@@ -425,13 +425,13 @@ function SummaryMetric({
       ? "border-[#ead39b] bg-[#fbf1d9]"
       : tone === "success"
         ? "border-[#b9e4d1] bg-[#e4f6ed]"
-        : "border-[#dce4e1] bg-white"
+        : "border-[#dce4e1] bg-card"
 
   return (
     <div className={`min-w-0 rounded-xl border px-3 py-3 ${toneClass}`}>
-      <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-slate-500">{label}</p>
+      <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-muted-foreground">{label}</p>
       <p className="mt-1.5 break-words text-xl font-black tracking-[-0.035em] text-[#102832]">{value}</p>
-      {detail ? <p className="mt-1 text-[11px] leading-4 text-slate-500">{detail}</p> : null}
+      {detail ? <p className="mt-1 text-[11px] leading-4 text-muted-foreground">{detail}</p> : null}
     </div>
   )
 }
@@ -542,56 +542,56 @@ function SpecMatrixTable({
   rightPanel?: React.ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-slate-300 bg-white">
+    <div className="rounded-2xl border border-border bg-card">
       <div className="grid gap-0 lg:grid-cols-[1fr_auto]">
         <div>
-          <div className="border-b border-slate-300 bg-slate-100 px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-slate-700">
+          <div className="border-b border-border bg-muted px-4 py-2 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">
             {title}
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full text-sm">
               <thead>
-                <tr className="bg-slate-50 text-[11px] uppercase tracking-[0.12em] text-slate-500">
-                  <th className="border-b border-r border-slate-300 px-3 py-2 text-left">Parameters</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">ID</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">OD</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">Thick</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">LT / L</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">WGHT / W</th>
-                  <th className="border-b border-r border-slate-300 px-3 py-2">CS</th>
-                  <th className="border-b border-slate-300 px-3 py-2">Moist</th>
+                <tr className="bg-muted text-[11px] uppercase tracking-[0.12em] text-muted-foreground">
+                  <th className="border-b border-r border-border px-3 py-2 text-left">Parameters</th>
+                  <th className="border-b border-r border-border px-3 py-2">ID</th>
+                  <th className="border-b border-r border-border px-3 py-2">OD</th>
+                  <th className="border-b border-r border-border px-3 py-2">Thick</th>
+                  <th className="border-b border-r border-border px-3 py-2">LT / L</th>
+                  <th className="border-b border-r border-border px-3 py-2">WGHT / W</th>
+                  <th className="border-b border-r border-border px-3 py-2">CS</th>
+                  <th className="border-b border-border px-3 py-2">Moist</th>
                 </tr>
-                <tr className="bg-slate-50 text-[10px] uppercase tracking-[0.12em] text-slate-400">
-                  <th className="border-b border-r border-slate-200 px-3 py-1 text-left">Units</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-1">MM</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-1">MM</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-1">MM</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-1">MM</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-1">GMS</th>
-                  <th className="border-b border-r border-slate-200 px-3 py-1">KGF</th>
-                  <th className="border-b border-slate-200 px-3 py-1">%</th>
+                <tr className="bg-muted text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                  <th className="border-b border-r border-border px-3 py-1 text-left">Units</th>
+                  <th className="border-b border-r border-border px-3 py-1">MM</th>
+                  <th className="border-b border-r border-border px-3 py-1">MM</th>
+                  <th className="border-b border-r border-border px-3 py-1">MM</th>
+                  <th className="border-b border-r border-border px-3 py-1">MM</th>
+                  <th className="border-b border-r border-border px-3 py-1">GMS</th>
+                  <th className="border-b border-r border-border px-3 py-1">KGF</th>
+                  <th className="border-b border-border px-3 py-1">%</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={String(row.label)} className="text-center text-slate-700">
-                    <td className="border-r border-t border-slate-200 px-3 py-2 text-left font-semibold">{row.label}</td>
-                    <td className="border-r border-t border-slate-200 px-3 py-2">{Number(row.id).toFixed(2)}</td>
-                    <td className="border-r border-t border-slate-200 px-3 py-2">{Number(row.od).toFixed(2)}</td>
-                    <td className="border-r border-t border-slate-200 px-3 py-2">{Number(row.thick).toFixed(2)}</td>
-                    <td className="border-r border-t border-slate-200 px-3 py-2">{Number(row.length).toFixed(2)}</td>
-                    <td className={`border-r border-t border-slate-200 px-3 py-2 ${emphasizeWeight ? "bg-emerald-50 font-semibold" : ""}`}>
+                  <tr key={String(row.label)} className="text-center text-muted-foreground">
+                    <td className="border-r border-t border-border px-3 py-2 text-left font-semibold">{row.label}</td>
+                    <td className="border-r border-t border-border px-3 py-2">{Number(row.id).toFixed(2)}</td>
+                    <td className="border-r border-t border-border px-3 py-2">{Number(row.od).toFixed(2)}</td>
+                    <td className="border-r border-t border-border px-3 py-2">{Number(row.thick).toFixed(2)}</td>
+                    <td className="border-r border-t border-border px-3 py-2">{Number(row.length).toFixed(2)}</td>
+                    <td className={`border-r border-t border-border px-3 py-2 ${emphasizeWeight ? "bg-signal-emerald-soft font-semibold" : ""}`}>
                       {Number(row.weight).toFixed(2)}
                     </td>
-                    <td className="border-r border-t border-slate-200 px-3 py-2">{Number(row.cs).toFixed(2)}</td>
-                    <td className="border-t border-slate-200 px-3 py-2">{Number(row.moisture).toFixed(2)}</td>
+                    <td className="border-r border-t border-border px-3 py-2">{Number(row.cs).toFixed(2)}</td>
+                    <td className="border-t border-border px-3 py-2">{Number(row.moisture).toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         </div>
-        {rightPanel ? <div className="border-t border-slate-300 bg-slate-50 p-3 lg:border-l lg:border-t-0">{rightPanel}</div> : null}
+        {rightPanel ? <div className="border-t border-border bg-muted p-3 lg:border-l lg:border-t-0">{rightPanel}</div> : null}
       </div>
     </div>
   )
@@ -609,14 +609,14 @@ function ParameterTableCard({
   rows: Array<{ label: string; values: Array<string | number> }>
 }) {
   return (
-    <div className="overflow-hidden rounded-[30px] border border-[#d9e2ef] bg-white shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
+    <div className="overflow-hidden rounded-[30px] border border-[#d9e2ef] bg-card shadow-[0_18px_50px_rgba(15,23,42,0.06)]">
       <div className="border-b border-[#d9e2ef] px-6 py-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500">{title}</p>
-        {subtitle ? <p className="mt-2 text-sm text-slate-600">{subtitle}</p> : null}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-muted-foreground">{title}</p>
+        {subtitle ? <p className="mt-2 text-sm text-muted-foreground">{subtitle}</p> : null}
       </div>
       <div className="overflow-x-auto">
         <table className="min-w-full text-sm">
-          <thead className="bg-[#d8dde6] text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+          <thead className="bg-[#d8dde6] text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             <tr>
               <th className="border-b border-[#d9e2ef] px-6 py-4 text-left">Parameter</th>
               {columns.map((column) => (
@@ -629,11 +629,11 @@ function ParameterTableCard({
           <tbody>
             {rows.map((row) => (
               <tr key={row.label} className="border-b border-[#edf2f7] last:border-b-0">
-                <td className="px-6 py-4 font-semibold text-slate-900">{row.label}</td>
+                <td className="px-6 py-4 font-semibold text-foreground">{row.label}</td>
                 {row.values.map((value, index) => (
                   <td
                     key={`${row.label}-${index}`}
-                    className={`px-6 py-4 text-right text-slate-700 ${index === 1 ? "font-black text-slate-950" : ""}`}
+                    className={`px-6 py-4 text-right text-muted-foreground ${index === 1 ? "font-black text-foreground" : ""}`}
                   >
                     {value}
                   </td>
@@ -2394,7 +2394,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             readOnly
             disabled
             placeholder="Auto-filled from selected box"
-            className="h-10 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 text-sm text-slate-600"
+            className="h-10 w-full rounded-lg border border-border bg-muted px-3 text-sm text-muted-foreground"
           />
         </div>
       )
@@ -2447,7 +2447,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           onChange={(event) => updateDynamicValue(key, event.target.value)}
           disabled={!isEditable}
           placeholder={resolvedPlaceholder}
-          className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+          className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm disabled:bg-muted"
         />
       </div>
     )
@@ -2455,7 +2455,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
   if (!isCreate && isLoadingDocument) {
     return (
-      <div className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-500 shadow-sm">
+      <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-sm">
         Loading specification sheet...
       </div>
     )
@@ -2646,7 +2646,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <h2 className="mt-1 truncate text-2xl font-black tracking-[-0.04em] text-[#102832] sm:text-[2rem]">
                 {selectedCustomer?.name || specDocument?.spec?.customer_name || "New tube specification"}
               </h2>
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-muted-foreground">
                 {sheetReference} {selectedTube ? `· ${selectedTube.inner_diameter_mm} × ${selectedTube.outer_diameter_mm} × ${selectedTube.length_mm} mm` : "· select client, mandrel and tube"}
               </p>
               <div className="mt-2 flex flex-wrap gap-1.5">
@@ -2672,7 +2672,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${
                           qcStatus === "approved" || qcStatus === "complete"
                             ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]"
-                            : "border-amber-200 bg-amber-50 text-amber-800"
+                            : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
                         }`}
                       >
                         {label}
@@ -2680,7 +2680,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       {qcStatus === "draft" && missing.length ? (
                         <span
                           data-testid="spec-qc-missing-fields"
-                          className="rounded-full border border-amber-200 bg-white px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-amber-800"
+                          className="rounded-full border border-signal-amber-line bg-card px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-signal-amber-ink"
                         >
                           Missing fields: {missing.join(", ")}
                         </span>
@@ -2688,13 +2688,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </>
                   )
                 })()}
-                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${effectiveBalance.withinBand ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-rose-200 bg-rose-50 text-rose-700"}`}>
+                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${effectiveBalance.withinBand ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"}`}>
                   {effectiveBalance.withinBand ? "Weight within target band" : "Weight outside target band"}
                 </span>
-                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${reviewChecksPass ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-slate-200 bg-white text-slate-600"}`}>
+                <span className={`rounded-full border px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] ${reviewChecksPass ? "border-[#b9e4d1] bg-[#e4f6ed] text-[#166b51]" : "border-border bg-card text-muted-foreground"}`}>
                   {reviewChecksPass ? "All checks pass" : "Review pending"}
                 </span>
-                <span className="rounded-full border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-slate-600">
+                <span className="rounded-full border border-[#d7dfdc] bg-card px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.11em] text-muted-foreground">
                   {targetDryTube.toFixed(2)} g dry target
                 </span>
               </div>
@@ -2712,7 +2712,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </button>
               ) : null}
               {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && !isEditable ? (
-                <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:border-[#9db7b0]">
+                <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm transition hover:border-[#9db7b0]">
                   {currentStatus === "draft" ? "Edit Draft" : "Create New Version"}
                 </Link>
               ) : null}
@@ -2741,7 +2741,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   onClick={handleObsolete}
                   disabled={obsoleteSpec.isPending}
-                  className="rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2 text-sm font-bold text-rose-700 disabled:opacity-50"
+                  className="rounded-lg border border-signal-rose-line bg-signal-rose-soft px-3.5 py-2 text-sm font-bold text-signal-rose-ink disabled:opacity-50"
                 >
                   Mark Obsolete
                 </button>
@@ -2751,13 +2751,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   type="button"
                   onClick={handleClone}
                   disabled={cloneSpec.isPending}
-                  className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm disabled:opacity-50"
+                  className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm disabled:opacity-50"
                 >
                   Clone Draft
                 </button>
               ) : null}
               {!isPrint && specId ? (
-                <Link href={`/specifications/${specId}/print`} className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm">
+                <Link href={`/specifications/${specId}/print`} className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm">
                   Print View
                 </Link>
               ) : null}
@@ -2765,7 +2765,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 <button
                   type="button"
                   onClick={() => window.print()}
-                  className="rounded-lg border border-[#d7dfdc] bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm"
+                  className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm"
                 >
                   Print / Save PDF
                 </button>
@@ -2773,19 +2773,19 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
             </div>
           </div>
 
-          <nav className="sticky top-[5.15rem] z-20 mt-3 flex min-h-11 items-center gap-1 overflow-x-auto rounded-xl border border-[#d7dfdc] bg-white/95 p-1 shadow-[0_8px_24px_rgba(28,54,60,0.05)] backdrop-blur" aria-label="Specification sections">
+          <nav className="sticky top-[5.15rem] z-20 mt-3 flex min-h-11 items-center gap-1 overflow-x-auto rounded-xl border border-[#d7dfdc] bg-card/95 p-1 shadow-[0_8px_24px_rgba(28,54,60,0.05)] backdrop-blur" aria-label="Specification sections">
             <a href="#sheet-client" className="whitespace-nowrap rounded-lg bg-[#e8f2f4] px-3 py-2 text-[10px] font-extrabold uppercase tracking-[0.08em] text-[#102832]">01 Requirement</a>
-            <a href="#sheet-recipe" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">02 Recipe</a>
-            <a href="#sheet-manufacturing" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">03 Manufacturing</a>
-            {!isCreate ? <a href="#review-approve" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-slate-500 hover:bg-[#eef4f3] hover:text-[#102832]">04 Review</a> : null}
-            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-slate-500 lg:block">Total additions {Number(form.dynamicValues.glue_base_percent || 12.5).toFixed(1)}% · includes parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
+            <a href="#sheet-recipe" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">02 Recipe</a>
+            <a href="#sheet-manufacturing" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">03 Manufacturing</a>
+            {!isCreate ? <a href="#review-approve" className="whitespace-nowrap rounded-lg px-3 py-2 text-[10px] font-bold uppercase tracking-[0.08em] text-muted-foreground hover:bg-[#eef4f3] hover:text-[#102832]">04 Review</a> : null}
+            <span className="ml-auto hidden whitespace-nowrap px-3 text-[10px] text-muted-foreground lg:block">Total additions {Number(form.dynamicValues.glue_base_percent || 12.5).toFixed(1)}% · includes parchment {form.parchmentAllowed ? `${Number(form.parchmentPercent || 1.5).toFixed(1)}%` : "off"}</span>
           </nav>
 
           {editBlockReason ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-900">{editBlockReason}</div>
+            <div className="mt-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2.5 text-sm text-signal-amber-ink">{editBlockReason}</div>
           ) : null}
           {previewDegraded ? (
-            <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm text-rose-900">Preview service degraded: {previewDegradedReason}</div>
+            <div className="mt-3 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2.5 text-sm text-signal-rose-ink">Preview service degraded: {previewDegradedReason}</div>
           ) : null}
 
         </section>
@@ -2798,7 +2798,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   <div>
                     <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">01 · Client requirement</p>
                     <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Lock the commercial inputs first</h3>
-                    <p className="mt-1 text-xs text-slate-500">Everything below derives from these client-controlled fields.</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Everything below derives from these client-controlled fields.</p>
                   </div>
                   <MasterLinkRow
                     links={[
@@ -2822,7 +2822,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         onChange={(nextValue) => setForm((current) => ({ ...current, customerId: nextValue }))}
                       />
                     ) : (
-                      <div className="flex h-10 items-center rounded-lg border border-[#ccd8d5] bg-[#f2f5f4] px-3 text-sm font-semibold text-slate-800">
+                      <div className="flex h-10 items-center rounded-lg border border-[#ccd8d5] bg-[#f2f5f4] px-3 text-sm font-semibold text-foreground">
                         {selectedCustomer?.name || specDocument?.spec?.customer_name || "-"}
                       </div>
                     )}
@@ -2871,7 +2871,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       emptyLabel="No active tube size is within +/- 1 mm of this mandrel."
                       onChange={(nextValue) => setForm((current) => ({ ...current, tubeSizeId: nextValue }))}
                     />
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-muted-foreground">
                       {form.mandrelId
                         ? "Only tube IDs within +/- 1 mm of the selected mandrel are shown."
                         : "Pick mandrel first to narrow tube sizes."}
@@ -2889,7 +2889,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       onChange={(event) => updateDynamicValue("actual_tube_height_mm", event.target.value)}
                       className="h-10 rounded-lg"
                     />
-                    <p className="text-[10px] leading-4 text-slate-500">Job-card display only; blank uses the tube master.</p>
+                    <p className="text-[10px] leading-4 text-muted-foreground">Job-card display only; blank uses the tube master.</p>
                   </div>
                   <div className="space-y-1">
                     <FieldLabel>Target Dry Weight</FieldLabel>
@@ -2957,17 +2957,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               >
                 <summary className="flex cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 [&::-webkit-details-marker]:hidden">
                   <div>
-                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Fixed material assumptions</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">Fixed material assumptions</p>
                     <p className="mt-1 text-sm font-bold text-[#102832]">{targetTotalAdditionsWeight.toFixed(2)} g total additions · {targetAdhesiveWeight.toFixed(2)} g adhesive · {targetParchmentWeight.toFixed(2)} g parchment</p>
                   </div>
-                  <span className="rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:hidden">Show material split</span>
-                  <span className="hidden rounded-md border border-[#d7dfdc] bg-white px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:inline-flex">Hide material split</span>
+                  <span className="rounded-md border border-[#d7dfdc] bg-card px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:hidden">Show material split</span>
+                  <span className="hidden rounded-md border border-[#d7dfdc] bg-card px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] text-[#1e765e] group-open:inline-flex">Hide material split</span>
                 </summary>
                 <div className="space-y-4 border-t border-[#e4ebe8] p-4">
                 <div className="border-b border-[#e4ebe8] pb-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-slate-500">Material rule sheet</p>
+                      <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-muted-foreground">Material rule sheet</p>
                       <h3 className="mt-1 text-base font-bold text-[#102832]">One formula, one parchment gate, one adhesive split.</h3>
                     </div>
                     <MasterLinkRow
@@ -2977,7 +2977,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       ]}
                     />
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
                     Wet target = dry target ÷ {(1 - Number(form.shrinkPercent || 9.0) / 100).toFixed(3)}. The {totalMaterialPercent.toFixed(1)}% allowance covers parchment and adhesive together; it is never added twice.
                     {form.parchmentAllowed ? ` Parchment uses ${Number(form.parchmentPercent || 1.5).toFixed(1)}% and adhesive receives the remaining ${Math.max(totalMaterialPercent - Number(form.parchmentPercent || 1.5), 0).toFixed(1)}%.` : ` Parchment is off, so adhesive receives the full ${totalMaterialPercent.toFixed(1)}%.`}
                   </p>
@@ -3025,7 +3025,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       onChange={(event) => updateDynamicValue("measured_finished_dry_g", event.target.value)}
                     />
                   </div>
-                  <div className="text-xs leading-5 text-slate-600">
+                  <div className="text-xs leading-5 text-muted-foreground">
                     {measuredDryTube > 0 ? (
                       <>
                         Plant measurement {measuredDryTube.toFixed(2)} g is {measuredDryGap > 0 ? "+" : ""}{measuredDryGap.toFixed(2)} g versus the configured 9% model. It implies {effectiveDryingLossPercent.toFixed(2)}% effective total loss, or {inferredPaperAtConfiguredDivisor.toFixed(2)} g paper at the configured divisor ({inferredPaperAtConfiguredDivisor - livePaperTotal > 0 ? "+" : ""}{(inferredPaperAtConfiguredDivisor - livePaperTotal).toFixed(2)} g versus geometry).
@@ -3036,21 +3036,21 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-[#dfe7e3] bg-white p-3">
+                <div className="rounded-xl border border-[#dfe7e3] bg-card p-3">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Allowed parchment families</p>
-                      <p className="mt-1 text-sm text-slate-600">Choose the family pool once. Vendor and color stay downstream.</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Allowed parchment families</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Choose the family pool once. Vendor and color stay downstream.</p>
                     </div>
-                    <span className="rounded-full border border-[#dfe7f1] bg-[#f8fafc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    <span className="rounded-full border border-[#dfe7f1] bg-[#f8fafc] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {form.parchmentAllowed ? `${selectedParchmentGroups.length || 0} selected` : "Disabled"}
                     </span>
                   </div>
                   <div className="mt-4 flex flex-wrap gap-2">
                     {!form.parchmentAllowed ? (
-                      <p className="text-sm text-slate-500">Parchment is off for this sheet, so no family is applied.</p>
+                      <p className="text-sm text-muted-foreground">Parchment is off for this sheet, so no family is applied.</p>
                     ) : parchmentFamilies.length === 0 ? (
-                      <p className="text-sm text-slate-500">No parchment families found in master data.</p>
+                      <p className="text-sm text-muted-foreground">No parchment families found in master data.</p>
                     ) : (
                       parchmentFamilies.map((group) => {
                         const active = selectedParchmentGroups.includes(group)
@@ -3063,7 +3063,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             className={`rounded-full border px-3 py-2 text-sm font-semibold transition ${
                               active
                                 ? "border-[#f0ca74] bg-[#f8ebc7] text-[#83512d]"
-                                : "border-[#d6dfeb] bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"
+                                : "border-[#d6dfeb] bg-muted text-muted-foreground hover:border-border hover:bg-card"
                             }`}
                           >
                             {group}
@@ -3074,17 +3074,17 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-[#dfe7e3] bg-white p-3">
+                <div className="rounded-xl border border-[#dfe7e3] bg-card p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Adhesive breakdown</p>
-                      <p className="mt-1 text-sm text-slate-600">Use up to 6 adhesive masters. Their split must total exactly 100% of the fixed adhesive weight.</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Adhesive breakdown</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Use up to 6 adhesive masters. Their split must total exactly 100% of the fixed adhesive weight.</p>
                     </div>
                     <span
                       className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${
                         adhesiveRatioBalanced
-                          ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                          : "border border-amber-200 bg-amber-50 text-amber-700"
+                          ? "border border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+                          : "border border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
                       }`}
                     >
                       Ratio {adhesiveRatioTotalValue.toFixed(0)}%
@@ -3131,13 +3131,13 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                             value={optionValue(component.ratio_percent)}
                             disabled={!isEditable}
                             onChange={(event) => updateAdhesiveComponent(index, { ratio_percent: Number(event.target.value || 0) })}
-                            className="h-10 rounded-lg border border-[#ccd8d5] bg-white px-3 text-sm disabled:bg-[#f2f5f4]"
+                            className="h-10 rounded-lg border border-[#ccd8d5] bg-card px-3 text-sm disabled:bg-[#f2f5f4]"
                           />
-                          <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-[#ccd8d5] bg-white px-3 py-2 text-sm font-semibold text-slate-950">
-                            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-slate-400">Applied live</span>
+                          <div className="flex min-h-10 items-center justify-between gap-3 rounded-lg border border-[#ccd8d5] bg-card px-3 py-2 text-sm font-semibold text-foreground">
+                            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-muted-foreground">Applied live</span>
                             <span className="text-right">
                               {Number(targetComponent?.weight_g || 0).toFixed(2)} g
-                              <span className="block text-[9px] font-medium text-slate-400">Master solid {component.solid_content_percent ?? "—"}%</span>
+                              <span className="block text-[9px] font-medium text-muted-foreground">Master solid {component.solid_content_percent ?? "—"}%</span>
                             </span>
                           </div>
                           <div className="flex items-center justify-end">
@@ -3146,7 +3146,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 type="button"
                                 onClick={() => removeAdhesiveComponent(index)}
                                 disabled={form.adhesiveComponents.length <= 1}
-                                className="rounded-full border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50"
+                                className="rounded-full border border-signal-rose-line px-3 py-2 text-xs font-semibold text-signal-rose-ink disabled:opacity-50"
                               >
                                 Remove
                               </button>
@@ -3158,12 +3158,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                   </div>
                   {isEditable ? (
                     <div className="mt-4 flex items-center justify-between gap-3">
-                      <p className="text-xs text-slate-500">Combined additions stay {targetTotalAdditionsWeight.toFixed(2)} g: {targetAdhesiveWeight.toFixed(2)} g adhesive + {targetParchmentWeight.toFixed(2)} g parchment. Every adhesive component updates live from its split.</p>
+                      <p className="text-xs text-muted-foreground">Combined additions stay {targetTotalAdditionsWeight.toFixed(2)} g: {targetAdhesiveWeight.toFixed(2)} g adhesive + {targetParchmentWeight.toFixed(2)} g parchment. Every adhesive component updates live from its split.</p>
                       <button
                         type="button"
                         onClick={addAdhesiveComponent}
                         disabled={form.adhesiveComponents.length >= 6}
-                        className="rounded-full border border-[#d6dfeb] bg-white px-4 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                        className="rounded-full border border-[#d6dfeb] bg-card px-4 py-2 text-sm font-semibold text-muted-foreground disabled:opacity-50"
                       >
                         Add Component
                       </button>
@@ -3181,7 +3181,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <div>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">02 · Recipe mix</p>
                 <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Paper selection, ply order and actual mass</h3>
-                <p className="mt-1 text-xs text-slate-500">Master GSM and geometry stay unchanged; compare the selected recipe directly with the client target.</p>
+                <p className="mt-1 text-xs text-muted-foreground">Master GSM and geometry stay unchanged; compare the selected recipe directly with the client target.</p>
               </div>
               <MasterLinkRow links={[{ href: "/masters/papers", label: "Papers" }]} />
             </div>
@@ -3196,10 +3196,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <p className="mt-1.5 text-base font-black leading-snug tracking-[-0.02em] sm:text-lg">{comboRuleTitle}</p>
                     </div>
                     <div className="flex flex-wrap justify-end gap-1.5">
-                      <span className={`rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${recipePaperCountValid ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-200" : "border-amber-300/20 bg-amber-300/10 text-amber-200"}`}>
+                      <span className={`rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${recipePaperCountValid ? "border-signal-emerald-line/20 bg-emerald-300/10 text-emerald-200" : "border-signal-amber-line/20 bg-amber-300/10 text-amber-200"}`}>
                         {recipeDistinctPaperCount} papers
                       </span>
-                      <span className={`rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${recipePlyCountValid ? "border-emerald-300/20 bg-emerald-300/10 text-emerald-200" : "border-rose-300/20 bg-rose-300/10 text-rose-200"}`}>
+                      <span className={`rounded-md border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.12em] ${recipePlyCountValid ? "border-signal-emerald-line/20 bg-emerald-300/10 text-emerald-200" : "border-signal-rose-line/20 bg-rose-300/10 text-rose-200"}`}>
                         {recipeTotalPlyCount} / {RECIPE_MAX_PLIES} plies
                       </span>
                     </div>
@@ -3211,46 +3211,46 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     Each paper weight comes directly from its master GSM, bulk, tube geometry, and ply count. The client wet target is a benchmark only; selected papers are never scaled to force a match.
                   </p>
                   </div>
-                  <div className="grid border-t border-white/10 sm:grid-cols-2 xl:grid-cols-6" data-testid="spec-sheet-preview-rail">
-                    <div className="border-white/10 px-4 py-3 xl:border-r">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Paper total</p>
+                  <div className="grid border-t border-border/10 sm:grid-cols-2 xl:grid-cols-6" data-testid="spec-sheet-preview-rail">
+                    <div className="border-border/10 px-4 py-3 xl:border-r">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Paper total</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{livePaperTotal.toFixed(2)} g</p>
-                      <p className="mt-1 text-[10px] text-slate-400">Actual selected papers</p>
+                      <p className="mt-1 text-[10px] text-muted-foreground">Actual selected papers</p>
                     </div>
-                    <div className="border-t border-white/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">ID / OD delta</p>
+                    <div className="border-t border-border/10 px-4 py-3 sm:border-l sm:border-t-0 xl:border-l-0 xl:border-r">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-muted-foreground">ID / OD delta</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">
                         {liveIdDeltaMm >= 0 ? "+" : ""}{liveIdDeltaMm.toFixed(2)} / {liveOdDeltaMm >= 0 ? "+" : ""}{liveOdDeltaMm.toFixed(2)} mm
                       </p>
                       <p className="mt-1 text-[10px] text-emerald-300">Modeled geometry vs client ID / OD</p>
                     </div>
-                    <div className="border-t border-white/10 px-4 py-3 xl:border-r xl:border-t-0">
-                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-slate-400">Main paper GSM helper</p>
+                    <div className="border-t border-border/10 px-4 py-3 xl:border-r xl:border-t-0">
+                      <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-muted-foreground">Main paper GSM helper</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-white">{mainPaperGsmGuide.toFixed(0)} GSM <span className="text-sm text-[#86d2bb]">±50</span></p>
-                      <p className="mt-1 text-[10px] leading-4 text-slate-400">{wetBambooThicknessMm.toFixed(3)} mm ÷ 0.142 · display guide only</p>
+                      <p className="mt-1 text-[10px] leading-4 text-muted-foreground">{wetBambooThicknessMm.toFixed(3)} mm ÷ 0.142 · display guide only</p>
                     </div>
-                    <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
+                    <div className="border-t border-border/10 bg-[#173b47] px-4 py-3 sm:border-l xl:border-l-0 xl:border-r xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">{measuredDryTube > 0 ? "Measured dry" : "Dry model variance"}</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{measuredDryTube > 0 ? measuredDryTube.toFixed(2) : `${liveDryDelta > 0 ? "+" : ""}${liveDryDelta.toFixed(2)}`} g</p>
                       <p className="mt-1 text-[10px] text-cyan-100/70">{measuredDryTube > 0 ? `Model gap ${measuredDryGap > 0 ? "+" : ""}${measuredDryGap.toFixed(2)} g` : `Target ${targetDryTube.toFixed(2)} g · model ${liveDryTube.toFixed(2)} g`}</p>
                     </div>
-                    <div className="border-t border-white/10 bg-[#173b47] px-4 py-3 xl:border-r xl:border-t-0">
+                    <div className="border-t border-border/10 bg-[#173b47] px-4 py-3 xl:border-r xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">Wet / dry model</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</p>
                       <p className="mt-1 text-[10px] text-cyan-100/70">Winding mass / modeled finished dry</p>
                     </div>
-                    <div className="border-t border-white/10 bg-[#102832] px-4 py-3 xl:border-t-0">
+                    <div className="border-t border-border/10 bg-[#102832] px-4 py-3 xl:border-t-0">
                       <p className="text-[9px] font-bold uppercase tracking-[0.13em] text-cyan-100/70">One bamboo yield</p>
                       <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-cyan-100">{tubesPerBamboo} pcs</p>
                       <p className="mt-1 text-[10px] text-cyan-100/70">{selectedBambooLengthMm.toFixed(0)} mm bamboo · {usableBambooLengthMm.toFixed(0)} mm usable</p>
                     </div>
                   </div>
-                  {hasRecipeSelection ? <p className="border-t border-white/10 px-4 py-2.5 text-[10px] leading-4 text-slate-400">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
+                  {hasRecipeSelection ? <p className="border-t border-border/10 px-4 py-2.5 text-[10px] leading-4 text-muted-foreground">Wet target {targetWetTube.toFixed(2)} g − combined additions {targetTotalAdditionsWeight.toFixed(2)} g = wet paper target {targetPaperWeight.toFixed(2)} g. Current geometric paper is {livePaperTotal.toFixed(2)} g; weights are never auto-scaled.</p> : null}
                 </div>
 
                 <div className="overflow-x-auto rounded-xl border border-[#d7dfdc]">
                   <table className="min-w-full text-sm">
-                    <thead className="bg-[#e8efed] text-[9px] uppercase tracking-[0.13em] text-slate-600">
+                    <thead className="bg-[#e8efed] text-[9px] uppercase tracking-[0.13em] text-muted-foreground">
                       <tr>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3 text-left">Code</th>
                         <th className="border-b border-r border-[#d9e2ef] px-3 py-3 text-left">Variety</th>
@@ -3270,7 +3270,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                           : null
                         return (
                           <tr key={row.id} className="border-b border-[#edf2f7] last:border-b-0">
-                            <td className="border-r border-[#edf2f7] px-3 py-3 text-xs font-semibold text-slate-900">{row.code || "-"}</td>
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-xs font-semibold text-foreground">{row.code || "-"}</td>
                             <td className="min-w-64 border-r border-[#edf2f7] px-3 py-3">
                               <PaperPicker
                                 value={row.paper_id}
@@ -3279,22 +3279,22 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 onChange={(paperId) => updateRecipeRow(row.id, { paper_id: paperId })}
                               />
                             </td>
-                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-slate-800">
+                            <td className="border-r border-[#edf2f7] px-3 py-3 text-center font-semibold text-foreground">
                               {Number(previewRow?.gsm || row.gsm || 0).toFixed(0)}
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <div className="font-semibold text-slate-800">{Number(row.bfPerPly || 0).toFixed(2)}</div>
-                              <div className="text-[10px] uppercase tracking-[0.12em] text-slate-400">Locked</div>
+                              <div className="font-semibold text-foreground">{Number(row.bfPerPly || 0).toFixed(2)}</div>
+                              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Locked</div>
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <div className="font-semibold text-slate-800">{Number(row.thicknessPerPly || 0).toFixed(4)} mm</div>
-                              <div className="text-[10px] text-slate-400">
+                              <div className="font-semibold text-foreground">{Number(row.thicknessPerPly || 0).toFixed(4)} mm</div>
+                              <div className="text-[10px] text-muted-foreground">
                                 Bulk {Number(row.bulkFactor || 0).toFixed(2)} - Ply bond {Number(row.plyBond || 0).toFixed(2)}
                               </div>
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
-                              <div className="font-semibold text-slate-950">{Number(previewRow?.weightG || 0).toFixed(2)} g</div>
-                              <div className="mt-1 text-[10px] text-slate-400">From master + geometry</div>
+                              <div className="font-semibold text-foreground">{Number(previewRow?.weightG || 0).toFixed(2)} g</div>
+                              <div className="mt-1 text-[10px] text-muted-foreground">From master + geometry</div>
                             </td>
                             <td className="border-r border-[#edf2f7] px-3 py-3 text-center">
                               <NumericInput
@@ -3315,7 +3315,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 onChange={(event) => updateRecipeRow(row.id, { positionsText: event.target.value })}
                                 disabled={!isEditable}
                                 placeholder={encodePlyPositions(parsePlyPositions(row.positionsText, row.plyCount))}
-                                className="h-10 w-24 rounded-lg border border-[#ccd8d5] bg-white px-2 text-xs disabled:bg-[#f2f5f4]"
+                                className="h-10 w-24 rounded-lg border border-[#ccd8d5] bg-card px-2 text-xs disabled:bg-[#f2f5f4]"
                               />
                             </td>
                             {isEditable ? (
@@ -3323,7 +3323,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                                 <button
                                   type="button"
                                   onClick={() => removeRecipeRow(row.id)}
-                                  className="rounded-lg border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-700"
+                                  className="rounded-lg border border-signal-rose-line px-3 py-2 text-xs font-semibold text-signal-rose-ink"
                                 >
                                   Remove
                                 </button>
@@ -3332,7 +3332,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                           </tr>
                         )
                       })}
-                      <tr className="bg-[#f8fafc] font-semibold text-slate-800">
+                      <tr className="bg-[#f8fafc] font-semibold text-foreground">
                         <td className="px-3 py-3" colSpan={2}>
                           TOTAL-ALL-PLY
                         </td>
@@ -3347,7 +3347,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     </tbody>
                   </table>
                 </div>
-                <div className="grid overflow-hidden rounded-xl border border-[#d7dfdc] bg-white sm:grid-cols-2 xl:grid-cols-5" aria-label="Selected recipe total compared with client target">
+                <div className="grid overflow-hidden rounded-xl border border-[#d7dfdc] bg-card sm:grid-cols-2 xl:grid-cols-5" aria-label="Selected recipe total compared with client target">
                   <SummaryMetric label="Selected paper" value={`${livePaperTotal.toFixed(2)} g`} detail="Actual master + geometry total" />
                   <SummaryMetric label="Combined additions" value={`${targetTotalAdditionsWeight.toFixed(2)} g`} detail={`${targetAdhesiveWeight.toFixed(2)} adhesive + ${targetParchmentWeight.toFixed(2)} parchment`} />
                   <SummaryMetric label="Winding mass" value={`${liveWetTube.toFixed(2)} g`} detail={`Paper + combined ${totalMaterialPercent.toFixed(1)}% allowance`} />
@@ -3356,12 +3356,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </div>
                 {isEditable ? (
                   <div className="flex justify-between gap-3">
-                    <p className="text-sm text-slate-500">Paper rows drive wall thickness, tube paper weight, and the manufacturing output.</p>
+                    <p className="text-sm text-muted-foreground">Paper rows drive wall thickness, tube paper weight, and the manufacturing output.</p>
                     <button
                       type="button"
                       onClick={addRecipeRow}
                       disabled={recipeTotalPlyCount >= RECIPE_MAX_PLIES || form.recipeRows.length >= RECIPE_MAX_PAPERS}
-                      className="rounded-lg border border-[#d7dfdc] bg-white px-4 py-2 text-sm font-bold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-lg border border-[#d7dfdc] bg-card px-4 py-2 text-sm font-bold text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       Add recipe row
                     </button>
@@ -3370,7 +3370,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               </div>
 
               {isSpecMathUpdating ? (
-                <div className="rounded-xl border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm font-semibold text-cyan-800">
+                <div className="rounded-xl border border-signal-cyan-line bg-signal-cyan-soft px-4 py-3 text-sm font-semibold text-signal-cyan-ink">
                   Recalculating recipe math after input settles. You can keep typing.
                 </div>
               ) : null}
@@ -3382,7 +3382,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <div>
                 <p className="text-[10px] font-extrabold uppercase tracking-[0.2em] text-[#1e765e]">03 · Manufacturing handoff</p>
                 <h3 className="mt-1 text-lg font-bold tracking-[-0.02em] text-[#102832]">Finished goods and process consumption stay separate</h3>
-                <p className="mt-1 text-xs text-slate-500">ID comes from the mandrel, OD comes from the wall, and bamboo output follows the live recipe.</p>
+                <p className="mt-1 text-xs text-muted-foreground">ID comes from the mandrel, OD comes from the wall, and bamboo output follows the live recipe.</p>
               </div>
               <span className="rounded-md border border-[#b9e4d1] bg-[#e4f6ed] px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-[0.12em] text-[#166b51]">Ready for job card</span>
             </div>
@@ -3416,28 +3416,28 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     <p className="text-[9px] font-extrabold uppercase tracking-[0.18em] text-[#1e765e]">Bamboo weight bridge</p>
                     <h4 className="mt-1 text-sm font-bold text-[#102832]">Finished tubes + trim / offcut = whole bamboo</h4>
                   </div>
-                  <p className="text-xs text-slate-500">All values show wet / dry weight.</p>
+                  <p className="text-xs text-muted-foreground">All values show wet / dry weight.</p>
                 </div>
                 <div className="mt-3 grid gap-2 lg:grid-cols-[1fr_auto_0.72fr_auto_1fr] lg:items-stretch">
                   <div className="rounded-xl border border-[#b9e4d1] bg-[#e4f6ed] p-3">
                     <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#166b51]">Finished goods only</p>
                     <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-[#102832]">{bambooWetWeightG.toFixed(2)} / {bambooDryWeightG.toFixed(2)} g</p>
-                    <p className="mt-1 text-xs text-slate-500">{tubesPerBamboo} × {Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm = {finishedBambooLengthMm.toFixed(0)} mm</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{tubesPerBamboo} × {Number(selectedTube?.length_mm || form.averages.length || 0).toFixed(0)} mm = {finishedBambooLengthMm.toFixed(0)} mm</p>
                   </div>
-                  <div className="flex items-center justify-center text-2xl font-light text-slate-400">+</div>
+                  <div className="flex items-center justify-center text-2xl font-light text-muted-foreground">+</div>
                   <div className="rounded-xl border border-[#ead39b] bg-[#fbf1d9] p-3">
                     <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#805a09]">Trim / offcut · not FG</p>
                     <p className="mt-1.5 text-xl font-black tracking-[-0.035em] text-[#102832]">{bambooTrimWetWeightG.toFixed(2)} / {bambooTrimDryWeightG.toFixed(2)} g</p>
-                    <p className="mt-1 text-xs text-slate-500">{fixedEndTrimMm.toFixed(0)} mm end trim{residualOffcutMm > 0 ? ` + ${residualOffcutMm.toFixed(0)} mm residual` : ""}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{fixedEndTrimMm.toFixed(0)} mm end trim{residualOffcutMm > 0 ? ` + ${residualOffcutMm.toFixed(0)} mm residual` : ""}</p>
                   </div>
-                  <div className="flex items-center justify-center text-2xl font-light text-slate-400">=</div>
+                  <div className="flex items-center justify-center text-2xl font-light text-muted-foreground">=</div>
                   <div className="rounded-xl border border-[#102832] bg-[#102832] p-3 text-white">
                     <p className="text-[9px] font-extrabold uppercase tracking-[0.14em] text-[#afc4c8]">Whole wound bamboo</p>
                     <p className="mt-1.5 text-xl font-black tracking-[-0.035em]">{wholeBambooWetWeightG.toFixed(2)} / {wholeBambooDryWeightG.toFixed(2)} g</p>
                     <p className="mt-1 text-xs text-cyan-100/70">Full {selectedBambooLengthMm.toFixed(0)} mm before trim removal</p>
                   </div>
                 </div>
-                <p className="mt-3 text-xs leading-5 text-slate-600">
+                <p className="mt-3 text-xs leading-5 text-muted-foreground">
                   Finished tube weight never includes trim. Whole bamboo weight is used only for total wound material and consumption planning, so stock and finished-goods weights no longer mix.
                 </p>
               </div>
@@ -3445,12 +3445,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               <div className="grid gap-3 xl:grid-cols-[1fr_340px]">
                 <div className="overflow-hidden rounded-xl border border-[#dfe7e3] bg-[#fbfcfb]">
                   <div className="border-b border-[#e4ebe8] px-4 py-3">
-                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-slate-500">Manufacturing specification</p>
-                    <p className="mt-1 text-xs text-slate-600">Average is the live working size. Min/max stay tied to mandrel tolerance and recipe wall.</p>
+                    <p className="text-[10px] font-extrabold uppercase tracking-[0.16em] text-muted-foreground">Manufacturing specification</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Average is the live working size. Min/max stay tied to mandrel tolerance and recipe wall.</p>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-sm">
-                      <thead className="bg-[#e8efed] text-[9px] uppercase tracking-[0.13em] text-slate-500">
+                      <thead className="bg-[#e8efed] text-[9px] uppercase tracking-[0.13em] text-muted-foreground">
                         <tr>
                           <th className="px-4 py-3 text-left">Parameter</th>
                           <th className="px-4 py-3 text-right">Min</th>
@@ -3461,10 +3461,10 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                       <tbody>
                         {manufacturingSpecRows.map((row) => (
                           <tr key={row.label} className="border-t border-[#e4ebf3]">
-                            <td className="px-4 py-3 font-semibold text-slate-700">{row.label}</td>
-                            <td className="px-4 py-3 text-right text-slate-700">{row.values[0]}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-slate-950">{row.values[1]}</td>
-                            <td className="px-4 py-3 text-right text-slate-700">{row.values[2]}</td>
+                            <td className="px-4 py-3 font-semibold text-muted-foreground">{row.label}</td>
+                            <td className="px-4 py-3 text-right text-muted-foreground">{row.values[0]}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-foreground">{row.values[1]}</td>
+                            <td className="px-4 py-3 text-right text-muted-foreground">{row.values[2]}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -3486,7 +3486,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
       <NotchingCard forceOpen={isPrint}>
         <div className="grid gap-4 xl:grid-cols-[1.35fr_1fr]">
-          <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
+          <div className="space-y-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
             <SectionLabel title="Notch + Tooling + Setup" subtitle="Master-linked tooling and measured geometry that carry into the job card and print sheet." />
             <MasterLinkRow links={[{ href: "/masters/tools", label: "Open tools" }, { href: "/masters/mandrels", label: "Mandrel setup" }]} />
             <div className="grid gap-2 sm:grid-cols-3">
@@ -3510,7 +3510,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               />
             </div>
             {notchSetupRequested && (!notchGeometryValid || !notchToolsLinked) ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+              <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-xs font-semibold text-signal-amber-ink">
                 Complete master-linked tools, direction, distance and depth. Distance must be greater than zero and no longer than the finished tube.
               </div>
             ) : null}
@@ -3525,7 +3525,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               {renderScalarField("notch_depth_mm", "Notch Depth", "number", "Depth")}
             </div>
           </div>
-          <div className="space-y-4 rounded-3xl border border-slate-300 bg-white p-5 shadow-sm">
+          <div className="space-y-4 rounded-3xl border border-border bg-card p-5 shadow-sm">
             <NotchDiagramPanel
               data={computedNotchDiagram}
               editable={isEditable}
@@ -3545,21 +3545,21 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                         notchDiagram: { ...current.notchDiagram, title: event.target.value },
                       }))
                     }
-                    className="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                    className="h-10 w-full rounded-lg border border-border px-3 text-sm"
                   />
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Tube Length</p>
-                    <p className="mt-1 font-semibold text-slate-900">{tubeLengthMm.toFixed(2)} mm</p>
+                  <div className="rounded-2xl border border-border bg-muted px-3 py-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Tube Length</p>
+                    <p className="mt-1 font-semibold text-foreground">{tubeLengthMm.toFixed(2)} mm</p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Distance</p>
-                    <p className="mt-1 font-semibold text-slate-900">{computedNotchDiagram.notchDistanceMm.toFixed(2)} mm</p>
+                  <div className="rounded-2xl border border-border bg-muted px-3 py-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Notch Distance</p>
+                    <p className="mt-1 font-semibold text-foreground">{computedNotchDiagram.notchDistanceMm.toFixed(2)} mm</p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Depth</p>
-                    <p className="mt-1 font-semibold text-slate-900">{computedNotchDiagram.notchDepthMm.toFixed(2)} mm</p>
+                  <div className="rounded-2xl border border-border bg-muted px-3 py-3 text-sm">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Notch Depth</p>
+                    <p className="mt-1 font-semibold text-foreground">{computedNotchDiagram.notchDepthMm.toFixed(2)} mm</p>
                   </div>
                 </div>
               </div>
@@ -3589,7 +3589,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               />
             </div>
             <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingBox?.size_label || "Select a box to see its size"}</p>
-            <p className="mt-0.5 text-[10px] text-slate-500">
+            <p className="mt-0.5 text-[10px] text-muted-foreground">
               {selectedPackagingBox
                 ? `${Number(selectedPackagingBox.length_mm || 0)} × ${Number(selectedPackagingBox.width_mm || 0)} × ${Number(selectedPackagingBox.height_mm || 0)} mm · ${Number(selectedPackagingBox.weight_kg || 0).toFixed(4)} kg/pc`
                 : "Dimensions and unit weight come from Packaging Master."}
@@ -3612,7 +3612,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               />
             </div>
             <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingPlastic?.size_label || "Select plastic to see its detail"}</p>
-            <p className="mt-0.5 text-[10px] text-slate-500">{selectedPackagingPlastic ? `${Number(selectedPackagingPlastic.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">{selectedPackagingPlastic ? `${Number(selectedPackagingPlastic.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
           </div>
           <div className="rounded-xl border border-[#d7dfdc] bg-[#f8faf9] p-3">
             <FieldLabel>Fadda SKU</FieldLabel>
@@ -3631,7 +3631,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               />
             </div>
             <p className="mt-2 text-xs font-bold text-[#102832]">{selectedPackagingFadda?.sku || "Select fadda to see its detail"}</p>
-            <p className="mt-0.5 text-[10px] text-slate-500">{selectedPackagingFadda ? `${Number(selectedPackagingFadda.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">{selectedPackagingFadda ? `${Number(selectedPackagingFadda.weight_kg || 0).toFixed(4)} kg per pc · floor issue in PCS` : "Per-piece weight converts PCS use back to inward kg."}</p>
           </div>
         </div>
         <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -3648,16 +3648,16 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               onChange={(event) => updateDynamicValue("special_instructions", event.target.value)}
               disabled={!isEditable}
               rows={2}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
+              className="w-full rounded-xl border border-border px-3 py-2 text-sm disabled:bg-muted"
             />
           </div>
-          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-[#d7dfdc] bg-white text-xs">
+          <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-[#d7dfdc] bg-card text-xs">
             <div className="border-r border-[#d7dfdc] px-3 py-2">
-              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">Plastic / box</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Plastic / box</p>
               <p className="mt-1 font-black text-[#102832]">{Number(form.dynamicValues.plastic_per_box || 0)} pcs · {Number(form.dynamicValues.plastic_weight_per_box_kg || 0).toFixed(4)} kg</p>
             </div>
             <div className="px-3 py-2">
-              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">Fadda / box</p>
+              <p className="text-[9px] font-bold uppercase tracking-[0.12em] text-muted-foreground">Fadda / box</p>
               <p className="mt-1 font-black text-[#102832]">{Number(form.dynamicValues.fadda_per_box || 0)} pcs · {Number(form.dynamicValues.fadda_weight_per_box_kg || 0).toFixed(4)} kg</p>
             </div>
           </div>
@@ -3672,29 +3672,29 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
         >
           <SectionLabel title="04 · Review & Approve" subtitle="One final release gate for the selected plant." />
           <div className="grid gap-px overflow-hidden rounded-xl border border-[#b9e4d1] bg-[#b9e4d1] lg:grid-cols-[0.85fr_1.3fr_0.95fr_0.85fr]">
-            <div className={`min-h-32 p-3.5 ${draftSaved ? "bg-white text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+            <div className={`min-h-32 p-3.5 ${draftSaved ? "bg-card text-signal-emerald-ink" : "bg-signal-amber-soft text-signal-amber-ink"}`}>
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 1 · {draftSaved ? "Complete" : "Pending"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Draft saved</h3>
-              <p className="mt-1 text-[11px] leading-4 text-slate-600">
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 {draftSaved ? `Spec v${specDocument?.spec?.version || 1} is stored as a draft/revision record.` : "Save the sheet first to create a draft record."}
               </p>
             </div>
-            <div className={`min-h-32 p-3.5 ${reviewChecksPass ? "bg-white text-emerald-800" : "bg-amber-50 text-amber-800"}`}>
+            <div className={`min-h-32 p-3.5 ${reviewChecksPass ? "bg-card text-signal-emerald-ink" : "bg-signal-amber-soft text-signal-amber-ink"}`}>
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 2 · {reviewChecksPass ? "Complete" : "Check"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Business checks</h3>
               <div className="mt-2 grid gap-1 text-[10px] sm:grid-cols-2">
-                <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{adhesiveRatioBalanced ? "Pass" : "Fix"}</span>Adhesive {adhesiveRatioTotalValue.toFixed(0)}%</p>
-                <p className={materialSplitValid ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{materialSplitValid ? "Pass" : "Fix"}</span>Additions include parchment</p>
-                <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{selectedTubeMatchesMandrel ? "Pass" : "Fix"}</span>Mandrel band</p>
-                <p className={hasRecipeSelection ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{hasRecipeSelection ? "Pass" : "Fix"}</span>Recipe selected</p>
-                <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{footerComplete ? "Pass" : "Fix"}</span>Footer</p>
-                <p className={effectiveBalance.withinBand ? "text-emerald-700" : "text-rose-700"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{effectiveBalance.withinBand ? "Pass" : "Fix"}</span>Weight band</p>
+                <p className={adhesiveRatioBalanced ? "text-signal-emerald-ink" : "text-signal-rose-ink"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{adhesiveRatioBalanced ? "Pass" : "Fix"}</span>Adhesive {adhesiveRatioTotalValue.toFixed(0)}%</p>
+                <p className={materialSplitValid ? "text-signal-emerald-ink" : "text-signal-rose-ink"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{materialSplitValid ? "Pass" : "Fix"}</span>Additions include parchment</p>
+                <p className={selectedTubeMatchesMandrel ? "text-signal-emerald-ink" : "text-signal-rose-ink"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{selectedTubeMatchesMandrel ? "Pass" : "Fix"}</span>Mandrel band</p>
+                <p className={hasRecipeSelection ? "text-signal-emerald-ink" : "text-signal-rose-ink"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{hasRecipeSelection ? "Pass" : "Fix"}</span>Recipe selected</p>
+                <p className={footerComplete ? "text-signal-emerald-ink" : "text-signal-amber-ink"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{footerComplete ? "Pass" : "Fix"}</span>Footer</p>
+                <p className={effectiveBalance.withinBand ? "text-signal-emerald-ink" : "text-signal-rose-ink"}><span className="mr-1 rounded bg-[#1e765e] px-1 py-0.5 text-[8px] font-bold uppercase text-white">{effectiveBalance.withinBand ? "Pass" : "Fix"}</span>Weight band</p>
               </div>
             </div>
-            <div className="min-h-32 bg-white p-3.5 text-slate-700">
+            <div className="min-h-32 bg-card p-3.5 text-muted-foreground">
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em] text-[#805a09]">Step 3 · {currentStatus === "review" ? "With Owner" : approvalComplete ? "Complete" : reviewChecksPass ? "Ready" : "Pending"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Owner / Admin review</h3>
-              <p className="mt-1 text-[11px] leading-4 text-slate-600">
+              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
                 {approvalComplete
                   ? "Owner approval is complete."
                   : currentStatus === "review"
@@ -3722,12 +3722,12 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 </button>
               ) : null}
               {specDocument?.spec?.active === false || currentStatus === "obsolete" ? (
-                <p className="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
+                <p className="mt-2 rounded-lg border border-border bg-muted px-3 py-2 text-[10px] text-muted-foreground">
                   This version is disabled/read-only. Edit creates a new active version instead of overwriting history.
                 </p>
               ) : null}
             </div>
-            <div className={`min-h-32 p-3.5 ${approvalComplete ? "bg-[#e4f6ed] text-[#166b51]" : "bg-white text-slate-600"}`}>
+            <div className={`min-h-32 p-3.5 ${approvalComplete ? "bg-[#e4f6ed] text-[#166b51]" : "bg-card text-muted-foreground"}`}>
               <p className="text-[9px] font-extrabold uppercase tracking-[0.15em]">Step 4 · {approvalComplete ? "Live" : "Pending"}</p>
               <h3 className="mt-1 text-sm font-bold text-[#102832]">Production release</h3>
               <p className="mt-1 text-[11px] leading-4">
@@ -3740,7 +3740,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
 
       <ValidationFooter forceOpen={isPrint}>
         <SectionLabel title="Validation" subtitle="Footer block for print and controlled release." />
-        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
+        <div className="grid gap-3 rounded-3xl border border-border bg-muted p-4 md:grid-cols-[1fr_1fr_1fr_auto]">
           <div className="space-y-1">
             <FieldLabel>Total additions %</FieldLabel>
             <input
@@ -3759,7 +3759,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                 }))
               }
               disabled={!isEditable}
-              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm disabled:bg-muted"
             />
           </div>
           <div className="space-y-1">
@@ -3770,7 +3770,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               value={optionValue(form.parchmentPercent || "1.5")}
               onChange={(event) => setForm((current) => ({ ...current, parchmentPercent: event.target.value }))}
               disabled={!isEditable}
-              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm disabled:bg-muted"
             />
           </div>
           <div className="space-y-1">
@@ -3781,7 +3781,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
               value={form.shrinkPercent}
               onChange={(event) => setForm((current) => ({ ...current, shrinkPercent: event.target.value }))}
               disabled={!isEditable}
-              className="h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+              className="h-10 w-full rounded-xl border border-border bg-card px-3 text-sm disabled:bg-muted"
             />
           </div>
           <div className="flex items-end">
@@ -3800,7 +3800,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
                     })),
                   }))
                 }
-                className="h-10 rounded-full border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"
+                className="h-10 rounded-full border border-border bg-card px-4 text-sm font-semibold text-muted-foreground"
               >
                 Reset Defaults
               </button>
@@ -3813,38 +3813,38 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           {renderScalarField("prepared_date", "Prepared Date")}
           <div className="space-y-1">
             <FieldLabel>Version</FieldLabel>
-            <div className="h-10 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+            <div className="h-10 rounded-lg border border-border bg-muted px-3 py-2 text-sm font-semibold text-foreground">
               v{specDocument?.spec?.version || 1}
             </div>
           </div>
           {renderScalarField("sign_off_note", "Sign")}
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-            <p className="font-semibold text-slate-900">Release checks</p>
-            <p className={effectiveBalance.withinBand ? "mt-2 text-emerald-700" : "mt-2 text-rose-700"}>
+          <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+            <p className="font-semibold text-foreground">Release checks</p>
+            <p className={effectiveBalance.withinBand ? "mt-2 text-signal-emerald-ink" : "mt-2 text-signal-rose-ink"}>
               Weight: {weightStatusMessage}
             </p>
-            <p className={csGateFailed ? "text-rose-700" : "text-emerald-700"}>
+            <p className={csGateFailed ? "text-signal-rose-ink" : "text-signal-emerald-ink"}>
               CS: {csGateFailed ? "latest approved trial is below required CS" : "pass"}
             </p>
-            <p className={adhesiveRatioBalanced ? "text-emerald-700" : "text-rose-700"}>
+            <p className={adhesiveRatioBalanced ? "text-signal-emerald-ink" : "text-signal-rose-ink"}>
               Adhesive: {adhesiveRatioBalanced ? "100% split" : `${adhesiveRatioTotalValue.toFixed(0)}% split`}
             </p>
-            <p className={selectedTubeMatchesMandrel ? "text-emerald-700" : "text-rose-700"}>
+            <p className={selectedTubeMatchesMandrel ? "text-signal-emerald-ink" : "text-signal-rose-ink"}>
               Mandrel/tube: {selectedTubeMatchesMandrel ? "pass" : "outside +/- 1 mm"}
             </p>
-            <p className={footerComplete ? "text-emerald-700" : "text-amber-700"}>
+            <p className={footerComplete ? "text-signal-emerald-ink" : "text-signal-amber-ink"}>
               Footer: {footerComplete ? "complete" : "incomplete"}
             </p>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm md:col-span-2">
-            <p className="font-semibold text-slate-900">Footer completeness</p>
+          <div className="rounded-2xl border border-border bg-card p-4 text-sm md:col-span-2">
+            <p className="font-semibold text-foreground">Footer completeness</p>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
               {footerValidation.map((field) => (
-                <div key={field.key} className="flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2">
-                  <span className="text-slate-700">{field.label}</span>
-                  <span className={field.filled ? "font-semibold text-emerald-700" : "font-semibold text-amber-700"}>
+                <div key={field.key} className="flex items-center justify-between rounded-xl border border-border px-3 py-2">
+                  <span className="text-muted-foreground">{field.label}</span>
+                  <span className={field.filled ? "font-semibold text-signal-emerald-ink" : "font-semibold text-signal-amber-ink"}>
                     {field.filled ? "Filled" : "Required"}
                   </span>
                 </div>
@@ -3861,11 +3861,11 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
           <p className="min-w-[180px] flex-1 truncate text-[10px] text-slate-300">
             {releaseBlockers.length ? releaseBlockers.join(" · ") : currentStatus === "approved" ? "Owner approved · live for production" : "All business checks pass"}
           </p>
-          <div className="flex shrink-0 items-center gap-3 border-l border-white/10 pl-3 text-[10px]">
-            <span><span className="text-slate-400">Paper</span> <strong>{livePaperTotal.toFixed(2)} g</strong></span>
-            <span><span className="text-slate-400">Wet / dry</span> <strong>{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</strong></span>
-            <span className={Math.abs(liveDryDelta) <= DELTA_ABS_G ? "text-emerald-300" : "text-rose-300"}><span className="text-slate-400">Variance</span> <strong>{liveDryDelta >= 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g</strong></span>
-            <span className="rounded bg-white/10 px-2 py-1 font-bold">±{DELTA_ABS_G} g</span>
+          <div className="flex shrink-0 items-center gap-3 border-l border-border/10 pl-3 text-[10px]">
+            <span><span className="text-muted-foreground">Paper</span> <strong>{livePaperTotal.toFixed(2)} g</strong></span>
+            <span><span className="text-muted-foreground">Wet / dry</span> <strong>{liveWetTube.toFixed(2)} / {liveDryTube.toFixed(2)} g</strong></span>
+            <span className={Math.abs(liveDryDelta) <= DELTA_ABS_G ? "text-emerald-300" : "text-rose-300"}><span className="text-muted-foreground">Variance</span> <strong>{liveDryDelta >= 0 ? "+" : ""}{liveDryDelta.toFixed(2)} g</strong></span>
+            <span className="rounded bg-card/10 px-2 py-1 font-bold">±{DELTA_ABS_G} g</span>
           </div>
         </div>
       ) : null}

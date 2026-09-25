@@ -77,11 +77,11 @@ function KpiCard({
   icon: any
 }) {
   const toneClass = {
-    slate: "border-slate-200 bg-white text-slate-950",
-    cyan: "border-cyan-200 bg-cyan-50 text-cyan-950",
-    amber: "border-amber-200 bg-amber-50 text-amber-950",
-    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
-    rose: "border-rose-200 bg-rose-50 text-rose-950",
+    slate: "border-border bg-card text-foreground",
+    cyan: "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink",
+    amber: "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
+    emerald: "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
+    rose: "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
   }[tone]
   return (
     <div className={cn("rounded-[1.6rem] border px-5 py-4 shadow-[0_16px_45px_rgba(15,23,42,0.06)]", toneClass)}>
@@ -107,9 +107,9 @@ function SectionShell({
   className?: string
 }) {
   return (
-    <section className={cn("rounded-[2rem] border border-slate-200 bg-white p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]", className)}>
-      <p className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">{eyebrow}</p>
-      <h2 className="mt-2 text-xl font-black tracking-tight text-slate-950">{title}</h2>
+    <section className={cn("rounded-[2rem] border border-border bg-card p-5 shadow-[0_18px_60px_rgba(15,23,42,0.06)]", className)}>
+      <p className="text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground">{eyebrow}</p>
+      <h2 className="mt-2 text-xl font-black tracking-tight text-foreground">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
   )
@@ -156,8 +156,8 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
 
   return (
     <div className={cn("space-y-5", className)} data-testid="owner-intelligence-suite">
-      <section className="relative overflow-hidden rounded-[2.1rem] border border-slate-200 bg-[#07111f] px-6 py-6 text-white shadow-[0_24px_90px_rgba(15,23,42,0.20)]">
-        <div className="absolute inset-y-0 right-0 hidden w-1/2 bg-[radial-gradient(circle_at_70%_20%,rgba(34,211,238,0.28),transparent_34%),radial-gradient(circle_at_90%_80%,rgba(251,191,36,0.18),transparent_30%)] lg:block" />
+      <section className="relative overflow-hidden rounded-[2.1rem] border border-border bg-[#07111f] px-6 py-6 text-white shadow-[0_24px_90px_rgba(15,23,42,0.20)]">
+        <div className="absolute inset-y-0 right-0 hidden w-1/2 bg-card lg:block" />
         <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <p className="text-[11px] font-black uppercase tracking-[0.28em] text-cyan-200">Owner Intelligence</p>
@@ -169,16 +169,16 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+            <label className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">
               From
-              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm text-white outline-none" />
+              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
-            <label className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">
+            <label className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">
               To
-              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-white/15 bg-white/10 px-3 text-sm text-white outline-none" />
+              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 rounded-2xl border border-border/15 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
-            <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">Scope</p>
+            <div className="rounded-2xl border border-border/10 bg-card/10 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-muted-foreground">Scope</p>
               <p className="mt-2 text-sm font-black">{plantScopeLabel}</p>
               <p className="mt-1 text-xs text-slate-300">{canUseGlobal ? "Owner/Admin can use Global Analytics" : "Plant-isolated view"}</p>
             </div>
@@ -187,9 +187,9 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
       </section>
 
       {query.isLoading ? (
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-8 text-sm font-semibold text-slate-500">Loading owner intelligence...</div>
+        <div className="rounded-[2rem] border border-border bg-card p-8 text-sm font-semibold text-muted-foreground">Loading owner intelligence...</div>
       ) : query.isError ? (
-        <div className="rounded-[2rem] border border-rose-200 bg-rose-50 p-8 text-sm font-semibold text-rose-700">Unable to load analytics owner pack. Check analytics-service and BFF health.</div>
+        <div className="rounded-[2rem] border border-signal-rose-line bg-signal-rose-soft p-8 text-sm font-semibold text-signal-rose-ink">Unable to load analytics owner pack. Check analytics-service and BFF health.</div>
       ) : (
         <>
           <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -225,16 +225,16 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             <SectionShell title="Live WIP by stage" eyebrow="Tracker">
               <div className="space-y-3">
                 {stageRows.length ? stageRows.map((row) => (
-                  <div key={row.stage} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                  <div key={row.stage} className="rounded-2xl border border-border bg-muted px-4 py-3">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="text-sm font-black text-slate-700">{row.stage}</span>
-                      <span className="text-xl font-black text-slate-950">{formatNumber(row.count)}</span>
+                      <span className="text-sm font-black text-muted-foreground">{row.stage}</span>
+                      <span className="text-xl font-black text-foreground">{formatNumber(row.count)}</span>
                     </div>
-                    <div className="mt-2 h-2 rounded-full bg-slate-200">
+                    <div className="mt-2 h-2 rounded-full bg-muted">
                       <div className="h-2 rounded-full bg-slate-950" style={{ width: `${Math.min(100, row.count * 8)}%` }} />
                     </div>
                   </div>
-                )) : <p className="text-sm text-slate-500">No active WIP rows in the selected window.</p>}
+                )) : <p className="text-sm text-muted-foreground">No active WIP rows in the selected window.</p>}
               </div>
             </SectionShell>
           </section>
@@ -248,9 +248,9 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
                   ["Low-stock items", inventory.summary?.low_stock_count, "/reports/inventory"],
                   ["QC holds", quality.summary?.active_holds, "/reports/quality"],
                 ].map(([label, value, href]) => (
-                  <Link key={String(label)} href={String(href)} className="flex items-center justify-between rounded-2xl border border-slate-200 px-4 py-3 font-semibold text-slate-700 hover:bg-slate-50">
+                  <Link key={String(label)} href={String(href)} className="flex items-center justify-between rounded-2xl border border-border px-4 py-3 font-semibold text-muted-foreground hover:bg-muted">
                     <span>{label}</span>
-                    <span className={numberValue(value) ? "text-rose-700" : "text-emerald-700"}>{formatNumber(value)}</span>
+                    <span className={numberValue(value) ? "text-signal-rose-ink" : "text-signal-emerald-ink"}>{formatNumber(value)}</span>
                   </Link>
                 ))}
               </div>
@@ -259,30 +259,30 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
             <SectionShell title="Commercial pressure" eyebrow="Sales">
               <div className="space-y-3">
                 {delayedRows.slice(0, 5).map((row: any) => (
-                  <div key={row.order_id || row.order_no} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-sm font-black text-slate-900">{row.order_no || String(row.order_id).slice(0, 8)}</p>
-                    <p className="mt-1 text-xs text-slate-500">{row.customer_name || "-"} · due {row.due_date || "-"}</p>
+                  <div key={row.order_id || row.order_no} className="rounded-2xl border border-border bg-muted px-4 py-3">
+                    <p className="text-sm font-black text-foreground">{row.order_no || String(row.order_id).slice(0, 8)}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{row.customer_name || "-"} · due {row.due_date || "-"}</p>
                   </div>
                 ))}
-                {!delayedRows.length ? <p className="text-sm text-slate-500">No delayed orders in the selected window.</p> : null}
+                {!delayedRows.length ? <p className="text-sm text-muted-foreground">No delayed orders in the selected window.</p> : null}
               </div>
             </SectionShell>
 
             <SectionShell title="Rejection and variance trail" eyebrow="Quality">
-              <div className="space-y-3 text-sm text-slate-600">
+              <div className="space-y-3 text-sm text-muted-foreground">
                 <p>Rejections are tracked at stage entry as reject quantity plus reason; month close explains remaining variance against actual stock.</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Checked</p>
-                    <p className="mt-2 text-2xl font-black text-slate-950">{formatNumber(quality.summary?.checked)}</p>
+                  <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">Checked</p>
+                    <p className="mt-2 text-2xl font-black text-foreground">{formatNumber(quality.summary?.checked)}</p>
                   </div>
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">Compliance</p>
-                    <p className="mt-2 text-2xl font-black text-slate-950">{formatPct(quality.summary?.compliance_percent)}</p>
+                  <div className="rounded-2xl border border-border bg-muted px-4 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-muted-foreground">Compliance</p>
+                    <p className="mt-2 text-2xl font-black text-foreground">{formatPct(quality.summary?.compliance_percent)}</p>
                   </div>
                 </div>
                 {holdRows.slice(0, 3).map((row: any) => (
-                  <div key={row.id || row.job_card_id} className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-rose-900">
+                  <div key={row.id || row.job_card_id} className="rounded-2xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-signal-rose-ink">
                     Hold: {jobCardRef(row)} · {row.reason || row.status || "-"}
                   </div>
                 ))}
@@ -293,7 +293,7 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
           {mode === "report" ? (
             <section className="grid gap-4 xl:grid-cols-2">
               <SectionShell title="Inventory risk list" eyebrow="Stock">
-                <div className="overflow-hidden rounded-2xl border border-slate-200">
+                <div className="overflow-hidden rounded-2xl border border-border">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-slate-950 text-white">
                       <tr>
@@ -303,12 +303,12 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
                     </thead>
                     <tbody>
                       {lowStock.slice(0, 8).map((row: any) => (
-                        <tr key={row.id || row.item_code} className="border-t border-slate-200">
+                        <tr key={row.id || row.item_code} className="border-t border-border">
                           <td className="px-3 py-3 font-semibold">{row.name || row.item_name || row.item_code}</td>
                           <td className="px-3 py-3 text-right">{formatKg(row.available_qty ?? row.current_stock)}</td>
                         </tr>
                       ))}
-                      {!lowStock.length ? <tr><td colSpan={2} className="px-3 py-6 text-center text-slate-500">No low-stock risks.</td></tr> : null}
+                      {!lowStock.length ? <tr><td colSpan={2} className="px-3 py-6 text-center text-muted-foreground">No low-stock risks.</td></tr> : null}
                     </tbody>
                   </table>
                 </div>
@@ -317,15 +317,15 @@ export function OwnerIntelligenceSuite({ mode = "dashboard", className }: OwnerI
               <SectionShell title="Plant comparison" eyebrow="Owner">
                 <div className="space-y-3">
                   {plantCompare.map((row: any) => (
-                    <div key={row.plant_id} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+                    <div key={row.plant_id} className="rounded-2xl border border-border bg-muted px-4 py-3">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-black text-slate-900">{row.plant_name || row.plant_code}</p>
-                        <p className="text-sm font-black text-slate-600">{formatNumber(row.job_cards)} cards</p>
+                        <p className="font-black text-foreground">{row.plant_name || row.plant_code}</p>
+                        <p className="text-sm font-black text-muted-foreground">{formatNumber(row.job_cards)} cards</p>
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">Ready jobs {formatNumber(row.ready_job_count)} · delayed orders {formatNumber(row.delayed_orders)} · blocked qty {formatKg(row.blocked_qty)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">Ready jobs {formatNumber(row.ready_job_count)} · delayed orders {formatNumber(row.delayed_orders)} · blocked qty {formatKg(row.blocked_qty)}</p>
                     </div>
                   ))}
-                  {!plantCompare.length ? <p className="text-sm text-slate-500">Plant comparison needs Global Analytics scope.</p> : null}
+                  {!plantCompare.length ? <p className="text-sm text-muted-foreground">Plant comparison needs Global Analytics scope.</p> : null}
                 </div>
               </SectionShell>
             </section>

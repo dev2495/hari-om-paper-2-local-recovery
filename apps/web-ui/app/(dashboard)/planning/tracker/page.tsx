@@ -98,10 +98,10 @@ export default function PlanningTrackerPage() {
         description="Counts come from the pending-orders server workspace and a server job-card grouping. This page no longer joins hundreds of job cards in the browser."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/sales-orders/pending" className="rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900">
+            <Link href="/sales-orders/pending" className="rounded-xl bg-card px-4 py-2.5 text-sm font-semibold text-foreground">
               Pending workspace
             </Link>
-            <Link href={`/planning/board?section=${section}`} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <Link href={`/planning/board?section=${section}`} className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted">
               Planning board
             </Link>
             <Link href="/production/job-cards" className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
@@ -131,11 +131,11 @@ export default function PlanningTrackerPage() {
               replaceQuery({ search: searchDraft.trim() || null })
             }}
           >
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <Search className="h-4 w-4 text-slate-400" />
-              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search SO, customer, product..." className="w-80 bg-transparent text-sm outline-none placeholder:text-slate-400" />
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
+              <input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search SO, customer, product..." className="w-80 bg-transparent text-sm outline-none placeholder:text-muted-foreground" />
             </div>
-            <select value={flow} onChange={(event) => replaceQuery({ status: event.target.value === "ALL" ? null : event.target.value })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            <select value={flow} onChange={(event) => replaceQuery({ status: event.target.value === "ALL" ? null : event.target.value })} className="rounded-xl border border-border bg-card px-3 py-2 text-sm font-semibold text-muted-foreground">
               <option value="ALL">All flow states</option>
               <option value="Commercial open">Commercial open</option>
               <option value="In production">In production</option>
@@ -162,9 +162,9 @@ export default function PlanningTrackerPage() {
             {null}
           </QuerySwitch>
         ) : (
-          <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
+          <div className="overflow-x-auto rounded-[1.35rem] border border-border">
             <table className="min-w-full">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Sales Order</th>
                   <th className="px-4 py-3 text-left">Customer / PO</th>
@@ -176,62 +176,62 @@ export default function PlanningTrackerPage() {
                   <th className="px-4 py-3 text-left">Due / Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+              <tbody className="divide-y divide-border bg-card">
                 {rows.map((row: any) => {
                   const order = row.order
                   const production = row.production
                   return (
-                    <tr key={order.id} className="transition hover:bg-cyan-50/40">
+                    <tr key={order.id} className="transition hover:bg-signal-cyan-soft/40">
                       <td className="px-4 py-4">
-                        <Link href={`/sales-orders/${order.id}`} className="text-sm font-black text-slate-950 hover:text-cyan-700">
+                        <Link href={`/sales-orders/${order.id}`} className="text-sm font-black text-foreground hover:text-signal-cyan-ink">
                           {order.order_no}
                         </Link>
-                        <div className="mt-1 text-xs text-slate-500">Internal {compactRef(order.id, "SO")}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">Internal {compactRef(order.id, "SO")}</div>
                       </td>
-                      <td className="px-4 py-4 text-sm text-slate-700">
-                        <div className="font-semibold text-slate-900">{customerMap.get(String(order.customer_id)) || "Customer"}</div>
-                        <div className="mt-1 text-xs text-slate-500">PO {order.po_number || "not entered"} · {order.line_count || 0} line(s)</div>
+                      <td className="px-4 py-4 text-sm text-muted-foreground">
+                        <div className="font-semibold text-foreground">{customerMap.get(String(order.customer_id)) || "Customer"}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">PO {order.po_number || "not entered"} · {order.line_count || 0} line(s)</div>
                       </td>
-                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-foreground">
                         {Number(order.outstanding_qty || 0).toLocaleString("en-IN")}
-                        <div className="mt-1 text-xs text-slate-500">open</div>
+                        <div className="mt-1 text-xs text-muted-foreground">open</div>
                       </td>
-                      <td className="px-4 py-4 text-right text-sm font-semibold text-slate-900">
+                      <td className="px-4 py-4 text-right text-sm font-semibold text-foreground">
                         {Number((order.outstanding_qty || 0) - (order.unreleased_qty || 0)).toLocaleString("en-IN")}
-                        <div className="mt-1 text-xs text-slate-500">{Number(order.unreleased_qty || 0).toLocaleString("en-IN")} unreleased</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{Number(order.unreleased_qty || 0).toLocaleString("en-IN")} unreleased</div>
                       </td>
                       <td className="px-4 py-4">
                         <StatusBadge value={row.flowStatus} />
-                        <div className="mt-2 text-xs text-slate-500">{production?.job_count ? "Production card(s) linked" : "Release from sales order required"}</div>
+                        <div className="mt-2 text-xs text-muted-foreground">{production?.job_count ? "Production card(s) linked" : "Release from sales order required"}</div>
                       </td>
-                      <td className="px-4 py-4 text-sm text-slate-700">
+                      <td className="px-4 py-4 text-sm text-muted-foreground">
                         {stageLabel(production?.stage_counts)}
-                        {production?.blocked_job_count ? <div className="mt-1 text-xs font-semibold text-rose-700">{production.blocked_job_count} blocked job(s)</div> : null}
+                        {production?.blocked_job_count ? <div className="mt-1 text-xs font-semibold text-signal-rose-ink">{production.blocked_job_count} blocked job(s)</div> : null}
                       </td>
-                      <td className="px-4 py-4 text-sm text-slate-700">
+                      <td className="px-4 py-4 text-sm text-muted-foreground">
                         {!production?.job_card_ids?.length ? (
-                          <span className="text-slate-400">No cards yet</span>
+                          <span className="text-muted-foreground">No cards yet</span>
                         ) : (
                           <div className="flex max-w-[260px] flex-wrap gap-1.5">
                             {production.job_card_ids.slice(0, 4).map((jobId: string) => (
-                              <Link key={jobId} href={`/production/job-cards/${jobId}`} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700 hover:border-cyan-200 hover:bg-cyan-50">
+                              <Link key={jobId} href={`/production/job-cards/${jobId}`} className="rounded-full border border-border bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground hover:border-signal-cyan-line hover:bg-signal-cyan-soft">
                                 {jobCardRef({ id: jobId })}
                               </Link>
                             ))}
                             {production.job_card_ids.length > 4 ? (
-                              <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-500">+{production.job_card_ids.length - 4}</span>
+                              <span className="rounded-full bg-muted px-2 py-1 text-xs font-semibold text-muted-foreground">+{production.job_card_ids.length - 4}</span>
                             ) : null}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-4 text-sm text-slate-700">
-                        <div className={order.due_risk === "OVERDUE" ? "font-semibold text-rose-700" : order.due_risk === "PRIORITY" ? "font-semibold text-amber-700" : ""}>
+                      <td className="px-4 py-4 text-sm text-muted-foreground">
+                        <div className={order.due_risk === "OVERDUE" ? "font-semibold text-signal-rose-ink" : order.due_risk === "PRIORITY" ? "font-semibold text-signal-amber-ink" : ""}>
                           Due {formatDate(order.earliest_due)}
                           {order.due_risk === "OVERDUE" ? " · Overdue" : order.due_risk === "PRIORITY" ? " · Priority" : ""}
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <Link href={`/sales-orders/${order.id}`} className="text-xs font-black text-cyan-800 hover:text-cyan-950">View SO</Link>
-                          <Link href={`/planning/board?section=${section}`} className="text-xs font-black text-slate-800 hover:text-slate-950">Plan</Link>
+                          <Link href={`/sales-orders/${order.id}`} className="text-xs font-black text-signal-cyan-ink hover:text-signal-cyan-ink">View SO</Link>
+                          <Link href={`/planning/board?section=${section}`} className="text-xs font-black text-foreground hover:text-foreground">Plan</Link>
                         </div>
                       </td>
                     </tr>

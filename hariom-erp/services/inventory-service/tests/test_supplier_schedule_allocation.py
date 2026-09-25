@@ -27,6 +27,12 @@ class _FakeQuery:
         self._rows = remaining
         return self
 
+    def with_for_update(self):
+        return self
+
+    def one(self):
+        return self.first()
+
     def first(self):
         return self._rows[0] if self._rows else None
 
@@ -51,11 +57,11 @@ class _FakeSession:
 
     def flush(self):
         if self.fail_flush:
-            raise IntegrityError("INSERT", {}, Exception("uq_receipt_schedule_alloc_receipt_line"))
+            raise IntegrityError("INSERT", {}, Exception("uq_receipt_schedule_alloc_pair"))
 
 
 def _receipt_line(line_id, po_line_id, qty=100.0):
-    return SimpleNamespace(id=line_id, purchase_order_line_id=po_line_id, qty_received=qty)
+    return SimpleNamespace(id=line_id, purchase_order_line_id=po_line_id, qty_received=qty, receipt=SimpleNamespace(plant_id="PLANT_A"))
 
 
 def _schedule(schedule_id, po_line_id, qty=80.0, status="CONFIRMED"):
@@ -63,6 +69,10 @@ def _schedule(schedule_id, po_line_id, qty=80.0, status="CONFIRMED"):
         id=schedule_id,
         purchase_order_line_id=po_line_id,
         scheduled_qty=qty,
+        plant_id="PLANT_A",
+        cancelled_qty=0,
+        version=1,
+        change_history=[],
         confirmation_status=status,
         promised_date=date(2026, 9, 20),
         current_date=date(2026, 9, 22),
@@ -182,6 +192,6 @@ def test_cannot_over_allocate_schedule_or_receipt():
     assert "scheduled quantity" in str(exc.value.detail).lower()
 
 
-def test_receipt_line_unique_constraint_is_on_the_model():
+def test_receipt_schedule_pair_is_unique_and_allows_one_receipt_to_span_dates():
     names = {constraint.name for constraint in ReceiptScheduleAllocation.__table__.constraints}
-    assert "uq_receipt_schedule_alloc_receipt_line" in names
+    assert "uq_receipt_schedule_alloc_pair" in names

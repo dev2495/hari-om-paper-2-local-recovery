@@ -638,10 +638,10 @@ export function severityTrend(events: AuditEvent[]) {
 }
 
 export function severityClass(severity: Severity) {
-  if (severity === "CRITICAL") return "border-rose-200 bg-rose-50 text-rose-700"
-  if (severity === "HIGH") return "border-orange-200 bg-orange-50 text-orange-700"
-  if (severity === "MEDIUM") return "border-amber-200 bg-amber-50 text-amber-700"
-  return "border-emerald-200 bg-emerald-50 text-emerald-700"
+  if (severity === "CRITICAL") return "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+  if (severity === "HIGH") return "border-signal-orange-line bg-signal-orange-soft text-signal-orange-ink"
+  if (severity === "MEDIUM") return "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
+  return "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
 }
 
 export function downloadCsv(filename: string, rows: AuditEvent[]) {

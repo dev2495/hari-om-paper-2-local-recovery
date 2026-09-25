@@ -644,6 +644,16 @@ export function useInventoryQualityInspections(params?: any) {
   })
 }
 
+export function useInventoryQualityConcessions(params?: any) {
+  return useQuery({
+    queryKey: ["inventory-quality-concessions", params || {}],
+    queryFn: async () => {
+      const { data } = await inventoryApi.getInventoryQualityConcessions(params)
+      return Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
+    },
+  })
+}
+
 export function useCreateInventoryQualityInspection() {
   const queryClient = useQueryClient()
   return useMutation({

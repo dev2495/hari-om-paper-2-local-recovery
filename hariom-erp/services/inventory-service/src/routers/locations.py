@@ -33,7 +33,7 @@ class LocationResponse(BaseModel):
     warehouse: str
     zone: str | None = None
     bin: str | None = None
-    purpose: str
+    purpose: str | None = None
     active: str
     created_at: datetime
 

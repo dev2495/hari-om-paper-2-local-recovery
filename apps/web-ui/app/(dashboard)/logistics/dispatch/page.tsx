@@ -20,7 +20,7 @@ export default function DispatchSelectionPage() {
     const [filterStatus, setFilterStatus] = useState("")
 
     if (isLoading) {
-        return <div className="p-6 text-slate-500">Loading ready dispatches...</div>
+        return <div className="p-6 text-muted-foreground">Loading ready dispatches...</div>
     }
 
     const jobs = readyJobs || []
@@ -62,31 +62,31 @@ export default function DispatchSelectionPage() {
                 }
             />
 
-            <div className="erp-panel grid gap-4 rounded-[1.25rem] border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
+            <div className="erp-panel grid gap-4 rounded-[1.25rem] border border-border bg-card p-4 shadow-sm md:grid-cols-[1fr_1fr_1fr_auto] md:items-end">
                 <div className="flex-1 space-y-1">
-                    <label className="text-xs font-semibold text-slate-600">Customer</label>
+                    <label className="text-xs font-semibold text-muted-foreground">Customer</label>
                     <input
                         type="text"
-                        className="w-full h-9 rounded-md border border-slate-300 px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
                         placeholder="Filter by customer..."
                         value={filterCustomer}
                         onChange={(e) => setFilterCustomer(e.target.value)}
                     />
                 </div>
                 <div className="flex-1 space-y-1">
-                    <label className="text-xs font-semibold text-slate-600">Job Card No / ID</label>
+                    <label className="text-xs font-semibold text-muted-foreground">Job Card No / ID</label>
                     <input
                         type="text"
-                        className="w-full h-9 rounded-md border border-slate-300 px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
                         placeholder="Search Job Card..."
                         value={filterJobNo}
                         onChange={(e) => setFilterJobNo(e.target.value)}
                     />
                 </div>
                 <div className="flex-1 space-y-1">
-                    <label className="text-xs font-semibold text-slate-600">Dispatch Status</label>
+                    <label className="text-xs font-semibold text-muted-foreground">Dispatch Status</label>
                     <select
-                        className="w-full h-9 rounded-md border border-slate-300 px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500 bg-white"
+                        className="w-full h-9 rounded-md border border-border px-3 text-sm focus:border-amber-500 focus:ring-1 focus:ring-amber-500 bg-card"
                         value={filterStatus}
                         onChange={(e) => setFilterStatus(e.target.value)}
                     >
@@ -99,10 +99,10 @@ export default function DispatchSelectionPage() {
                 <Button variant="outline" className="h-9" onClick={() => { setFilterCustomer(""); setFilterJobNo(""); setFilterStatus(""); }}>Clear</Button>
             </div>
 
-            <div className="erp-panel bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden">
+            <div className="erp-panel bg-card rounded-lg border border-border shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                     <table className="w-full text-sm text-left">
-                        <thead className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                        <thead className="bg-muted text-muted-foreground border-b border-border">
                             <tr>
                                 <th className="px-4 py-3 font-semibold">Job Card No</th>
                                 <th className="px-4 py-3 font-semibold">Customer</th>
@@ -113,18 +113,18 @@ export default function DispatchSelectionPage() {
                                 <th className="px-4 py-3 font-semibold text-right">Action</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody className="divide-y divide-border">
                             {filteredJobs.length === 0 ? (
                                 <tr>
                                     <td colSpan={7} className="p-0">
-                                        <div className="flex min-h-[260px] flex-col items-center justify-center bg-gradient-to-b from-white to-slate-50/80 px-6 py-10 text-center">
-                                            <span className="grid h-14 w-14 place-items-center rounded-2xl border border-emerald-100 bg-emerald-50 text-emerald-700 shadow-sm">
+                                        <div className="flex min-h-[260px] flex-col items-center justify-center bg-gradient-to-b from-card to-muted/80 px-6 py-10 text-center">
+                                            <span className="grid h-14 w-14 place-items-center rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink shadow-sm">
                                                 {jobs.length === 0 ? <ClipboardCheck className="h-7 w-7" /> : <Truck className="h-7 w-7" />}
                                             </span>
-                                            <h2 className="mt-4 text-lg font-semibold text-slate-950">
+                                            <h2 className="mt-4 text-lg font-semibold text-foreground">
                                                 {jobs.length === 0 ? "No packed handoffs are waiting" : "No dispatches match these filters"}
                                             </h2>
-                                            <p className="mt-2 max-w-xl text-sm leading-6 text-slate-600">
+                                            <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
                                                 {jobs.length === 0
                                                     ? "Jobs appear here after packing posts finished-goods inventory. Sealed challans remain visible for review and printing."
                                                     : "Clear or adjust the customer, job-card, and status filters to restore the matching handoffs."}
@@ -149,29 +149,29 @@ export default function DispatchSelectionPage() {
                                     const specDisplay = spec.name || `${spec.dimensions?.tube_od_mm || '?'}x${spec.dimensions?.tube_thickness_mm || '?'} mm`
 
                                     return (
-                                        <tr key={job.id} className="hover:bg-slate-50 transition-colors">
-                                            <td className="px-4 py-3 font-medium text-slate-900 border-l-[3px] border-l-transparent hover:border-l-amber-500">
+                                        <tr key={job.id} className="hover:bg-muted transition-colors">
+                                            <td className="px-4 py-3 font-medium text-foreground border-l-[3px] border-l-transparent hover:border-l-amber-500">
                                                 {jobCardRef(job)}
                                             </td>
-                                            <td className="px-4 py-3 text-slate-700">{customerName}</td>
-                                            <td className="px-4 py-3 text-slate-600">{specDisplay}</td>
-                                            <td className="px-4 py-3 text-slate-700">{job.planned_qty}</td>
+                                            <td className="px-4 py-3 text-muted-foreground">{customerName}</td>
+                                            <td className="px-4 py-3 text-muted-foreground">{specDisplay}</td>
+                                            <td className="px-4 py-3 text-muted-foreground">{job.planned_qty}</td>
                                             <td className="px-4 py-3">
-                                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs transition-colors bg-slate-100 text-slate-700 font-normal">
+                                                <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs transition-colors bg-muted text-muted-foreground font-normal">
                                                     {job.current_stage}
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3">
                                                 {job.dispatch_status === "SEALED" ? (
-                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-emerald-100 text-emerald-800 hover:bg-emerald-200">SEALED</span>
+                                                    <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors border-none bg-signal-emerald-soft text-signal-emerald-ink hover:bg-emerald-200">SEALED</span>
                                                 ) : job.dispatch_status === "DRAFT" ? (
-                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-amber-700 border-amber-300 bg-amber-50">DRAFT</span>
+                                                    <span className="inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors text-signal-amber-ink border-signal-amber-line bg-signal-amber-soft">DRAFT</span>
                                                 ) : (
-                                                    <span className="text-slate-400 italic text-xs">Ready</span>
+                                                    <span className="text-muted-foreground italic text-xs">Ready</span>
                                                 )}
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-teal-800 underline">Shipment {index + 1}: {shipment.qty} pcs</Link>)}
+                                                {(job.shipments || []).map((shipment: any, index: number) => <Link key={shipment.id} href={`/logistics/dispatch/${job.id}/print?dispatch_id=${shipment.id}`} className="mr-3 block text-xs text-signal-teal-ink underline">Shipment {index + 1}: {shipment.qty} pcs</Link>)}
                                                 <Button asChild size="sm" variant={job.dispatch_status === "SEALED" ? "outline" : "default"}>
                                                     <Link href={job.dispatch_status === "SEALED" ? `/logistics/dispatch/${job.id}/print?dispatch_id=${job.dispatch_id}` : `/logistics/dispatch/new?job_card_id=${job.id}&remaining_qty=${job.remaining_qty ?? job.planned_qty}`}>
                                                         {job.dispatch_status === "SEALED" ? "View Challan" : job.dispatch_status === "DRAFT" ? "Edit Draft" : "Create Dispatch"}

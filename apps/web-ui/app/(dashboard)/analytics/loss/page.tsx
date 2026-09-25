@@ -10,7 +10,7 @@ export default function LossAnalyticsPage() {
     const { data: supplierLoss, isLoading: load1 } = useSupplierLoss(startDate, endDate, plantId)
     const { data: gsmBfLoss, isLoading: load2 } = useGsmBfLoss(startDate, endDate, plantId)
 
-    if (load1 || load2) return <div className="p-8 text-slate-500">Loading intelligence models...</div>
+    if (load1 || load2) return <div className="p-8 text-muted-foreground">Loading intelligence models...</div>
 
     // Take top 10
     const topSuppliers = (supplierLoss || []).slice(0, 10)
@@ -21,9 +21,9 @@ export default function LossAnalyticsPage() {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
                 {/* Supplier Loss Chart */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-96 flex flex-col">
-                    <h3 className="font-semibold text-slate-800 mb-2">Material Loss % by Reel Supplier</h3>
-                    <p className="text-xs text-slate-500 mb-6">Aggregated based on theoretical yield vs winder recon output.</p>
+                <div className="bg-card p-6 rounded-xl border border-border shadow-sm h-96 flex flex-col">
+                    <h3 className="font-semibold text-foreground mb-2">Material Loss % by Reel Supplier</h3>
+                    <p className="text-xs text-muted-foreground mb-6">Aggregated based on theoretical yield vs winder recon output.</p>
                     <div className="flex-1">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={topSuppliers} layout="vertical" margin={{ left: 20 }}>
@@ -42,9 +42,9 @@ export default function LossAnalyticsPage() {
                 </div>
 
                 {/* GSM/BF Loss Chart */}
-                <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm h-96 flex flex-col">
-                    <h3 className="font-semibold text-slate-800 mb-2">Loss % by GSM/BF Specification</h3>
-                    <p className="text-xs text-slate-500 mb-6">Identifies which paper properties are causing tears or yield issues.</p>
+                <div className="bg-card p-6 rounded-xl border border-border shadow-sm h-96 flex flex-col">
+                    <h3 className="font-semibold text-foreground mb-2">Loss % by GSM/BF Specification</h3>
+                    <p className="text-xs text-muted-foreground mb-6">Identifies which paper properties are causing tears or yield issues.</p>
                     <div className="flex-1">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={topGsmBf} layout="vertical" margin={{ left: 20 }}>

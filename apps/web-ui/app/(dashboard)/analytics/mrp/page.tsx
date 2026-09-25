@@ -83,7 +83,7 @@ function ViewSwitcher({ view }: { view: "reorder" | "demand" }) {
       <Link
         href="/analytics/mrp?view=reorder"
         className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-          view === "reorder" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-600"
+          view === "reorder" ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-card text-muted-foreground"
         }`}
       >
         Reorder policy
@@ -91,7 +91,7 @@ function ViewSwitcher({ view }: { view: "reorder" | "demand" }) {
       <Link
         href="/analytics/mrp?view=demand"
         className={`rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] ${
-          view === "demand" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white text-slate-600"
+          view === "demand" ? "border-slate-950 bg-slate-950 text-white" : "border-border bg-card text-muted-foreground"
         }`}
       >
         Demand / BOM coverage
@@ -138,7 +138,7 @@ function ReorderPolicyView() {
 
   return (
     <div className="space-y-5" data-testid="mrp-reorder-policy-view">
-      {(balancesQuery.isError || valuationQuery.isError || agingQuery.isError) && <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">Some inventory data could not be loaded. Values marked unavailable must not be treated as zero. Refresh to retry.</p>}
+      {(balancesQuery.isError || valuationQuery.isError || agingQuery.isError) && <p role="alert" className="rounded-xl bg-signal-rose-soft p-4 text-signal-rose-ink">Some inventory data could not be loaded. Values marked unavailable must not be treated as zero. Refresh to retry.</p>}
       <PageIntro
         eyebrow="MRP · Reorder policy"
         title="Reorder policy review"
@@ -151,11 +151,11 @@ function ReorderPolicyView() {
         }
         aside={
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 px-4 py-3">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Selected PO value</p>
               <p className="mt-2 text-2xl font-semibold">{formatCompactCurrency(poValue)}</p>
             </div>
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 px-4 py-3">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Urgent lines</p>
               <p className="mt-2 text-2xl font-semibold">{formatCompactNumber(urgentRows.length)}</p>
             </div>
@@ -191,14 +191,14 @@ function ReorderPolicyView() {
 
         <ChartCard eyebrow="Purchase orders" title="Create a saved purchase order" description="Select a supplier and review quantities in the purchasing workspace. Saved orders are shared with the team and follow approval controls.">
           <Link href="/purchase" className="inline-flex rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white">Open purchasing →</Link>
-          <p className="mt-4 text-sm text-slate-600">Reorder suggestions are not committed orders and are not demand-driven shortages. Missing policy means a recommendation cannot be calculated.</p>
+          <p className="mt-4 text-sm text-muted-foreground">Reorder suggestions are not committed orders and are not demand-driven shortages. Missing policy means a recommendation cannot be calculated.</p>
         </ChartCard>
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
         <ChartCard eyebrow="Planning coverage" title="This view does not compute sales-order demand" description="Reorder policy compared with current balances. Demand/BOM coverage is a separate view.">
-          <p className="text-sm leading-6 text-slate-600">Pending-order material requirements are expanded from canonical recipes in the Demand / BOM coverage view. They are not mixed into these reorder numbers.</p>
-          <Link href="/analytics/mrp?view=demand" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
+          <p className="text-sm leading-6 text-muted-foreground">Pending-order material requirements are expanded from canonical recipes in the Demand / BOM coverage view. They are not mixed into these reorder numbers.</p>
+          <Link href="/analytics/mrp?view=demand" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-signal-cyan-ink">
             Open demand / BOM coverage <ArrowRight className="h-4 w-4" />
           </Link>
         </ChartCard>
@@ -206,14 +206,14 @@ function ReorderPolicyView() {
         <ChartCard eyebrow="Slow-moving Inventory" title="Inventory offsets before new purchase" description="Rows that should be checked before accepting fresh stock.">
           <div className="space-y-3">
             {staleRows.length ? staleRows.slice(0, 8).map((row: any, index: number) => (
-              <div key={row.item_id || row.id || index} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-                <p className="text-sm font-semibold text-slate-900">{row.item_code || row.item_name || row.name || "Inventory item"}</p>
-                <p className="mt-1 text-xs leading-5 text-slate-500">
+              <div key={row.item_id || row.id || index} className="rounded-2xl border border-border bg-muted px-4 py-3">
+                <p className="text-sm font-semibold text-foreground">{row.item_code || row.item_name || row.name || "Inventory item"}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
                   {`${formatNumber(row.qty_on_hand || row.available_qty || 0, 2)} ${row.uom || "units"}`} sitting for {row.days_since_movement || row.age_days || 0} days.
                 </p>
               </div>
             )) : (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
+              <div className="rounded-2xl border border-dashed border-border bg-muted p-6 text-center text-sm text-muted-foreground">
                 No stale inventory rows were returned.
               </div>
             )}
@@ -259,7 +259,7 @@ function DemandCoverageView() {
   return (
     <div className="space-y-5" data-testid="mrp-demand-coverage-view">
       {coverageQuery.isError ? (
-        <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">
+        <p role="alert" className="rounded-xl bg-signal-rose-soft p-4 text-signal-rose-ink">
           Demand/BOM coverage could not be loaded. Missing coverage is not a zero shortfall.
         </p>
       ) : null}
@@ -275,11 +275,11 @@ function DemandCoverageView() {
         }
         aside={
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 px-4 py-3">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Open sales lines</p>
               <p className="mt-2 text-2xl font-semibold">{formatCompactNumber(demandSource.total_open_lines || 0)}</p>
             </div>
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 px-4 py-3">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 px-4 py-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100/70">Coverage state</p>
               <p className="mt-2 text-2xl font-semibold">{completeness}</p>
             </div>
@@ -293,10 +293,10 @@ function DemandCoverageView() {
         <KpiCard label="Unknown / unmapped lines" value={formatCompactNumber(unknownCount)} detail="Incomplete recipe or identity mapping — not treated as zero" icon={ShieldAlert} tone={unknownCount ? "amber" : "emerald"} />
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+      <section className="rounded-2xl border border-border bg-muted px-4 py-3 text-sm text-muted-foreground">
         {(coverage.notes || []).join(" ")}
         {coverage.measure_set ? (
-          <span className="mt-2 block text-xs uppercase tracking-[0.12em] text-slate-500">
+          <span className="mt-2 block text-xs uppercase tracking-[0.12em] text-muted-foreground">
             Demand: {coverage.measure_set.demand}. Available: {coverage.measure_set.available}. Reorder policy is a separate measure.
           </span>
         ) : null}
@@ -320,7 +320,7 @@ function DemandCoverageView() {
         </ChartCard>
         <ChartCard eyebrow="Purchase" title="Supplier commitments stay on Purchase" description="A calendar entry is a commitment, not a stock transaction. Create or receive POs in Purchase.">
           <Link href="/purchase" className="inline-flex rounded-xl bg-slate-950 px-4 py-3 font-semibold text-white">Open purchasing →</Link>
-          <p className="mt-4 text-sm text-slate-600">Open PO remainder is shown as supply due on each material row. It is not added into usable stock.</p>
+          <p className="mt-4 text-sm text-muted-foreground">Open PO remainder is shown as supply due on each material row. It is not added into usable stock.</p>
         </ChartCard>
       </section>
 
@@ -372,7 +372,7 @@ function MrpAnalyticsPageInner() {
 
 export default function MrpAnalyticsPage() {
   return (
-    <Suspense fallback={<div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-500">Loading MRP views…</div>}>
+    <Suspense fallback={<div className="rounded-2xl border border-border bg-card p-6 text-sm text-muted-foreground">Loading MRP views…</div>}>
       <MrpAnalyticsPageInner />
     </Suspense>
   )

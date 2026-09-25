@@ -1,6 +1,8 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
+import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useMemo } from "react"
 import {
   AlertTriangle,
@@ -46,11 +48,12 @@ function safeSeries(raw: any[]) {
 
 export function OwnerLandingPage() {
   const { activePlant } = useAuth()
-  const { data: ownerPack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
-  const { data: salesAggregates } = useSalesOrderAggregates()
+  const router = useRouter()
+  const { data: ownerPack, isLoading: packLoading, error: packError, refetch: retryPack } = useOwnerPack(activePlant ? { plant: activePlant } : undefined, { enabled: true })
+  const { data: salesAggregates, isLoading: salesLoading, error: salesError, refetch: retrySales } = useSalesOrderAggregates()
   const { data: customers } = useCustomers()
   const { data: inventoryHealth } = useInventoryHealthSummary()
-  const { data: planningBoard } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, true)
+  const { data: planningBoard, isLoading: planningLoading, error: planningError } = usePlanningBoard(undefined, undefined, true, activePlant || undefined, true)
 
   const customerById = useMemo(() => {
     const rows = Array.isArray(customers) ? customers : []
@@ -63,7 +66,7 @@ export function OwnerLandingPage() {
   const orderBookValue = Number(salesAggregates?.open_order_book_value || 0)
   const releasedOpenValue = Number(salesAggregates?.released_open_value || 0)
   const dispatchedValue = Number(salesAggregates?.dispatched_value ?? headline.dispatch_value ?? 0)
-  const recentSeries = series.slice(-10).map((row) => ({ ...row, otifTarget: 92 }))
+  const recentSeries = series.slice(-10)
   const topCustomers = useMemo(() => {
     return (Array.isArray(salesAggregates?.open_value_by_customer) ? salesAggregates.open_value_by_customer : []).map((row: any) => ({
       label: customerById.get(String(row.customer_id)) || String(row.customer_id || "Customer"),
@@ -88,9 +91,10 @@ export function OwnerLandingPage() {
     { label: "Dispatched", value: dispatchedValue },
   ]
   const plantMix = (Array.isArray(pack.plant_compare) ? pack.plant_compare : [])
+    .filter((row: any) => row.inventory_value != null)
     .map((row: any) => ({
       label: row.plant_name || row.plant_code || row.plant_id || "Plant",
-      value: Number(row.inventory_value || row.job_cards || 0),
+      value: Number(row.inventory_value || 0),
     }))
     .slice(0, 4)
   const insights = [
@@ -105,12 +109,15 @@ export function OwnerLandingPage() {
       : null,
   ].filter(Boolean) as Array<{ id: string; tone?: "good" | "warn" | "critical"; title: string; action?: string }>
 
+  if (packLoading || salesLoading) return <LoadingState label="Loading the manufacturing overview…" />
+  if (packError || salesError) return <ErrorState title="Overview data is unavailable" message="The order book or manufacturing summary could not be refreshed. Metrics are not shown as zero when a source fails." onRetry={() => { void retryPack(); void retrySales() }} />
+  const metric = (value: unknown, format: (value: number) => string) => value === null || value === undefined || !Number.isFinite(Number(value)) ? "Not reported" : format(Number(value))
   return (
     <div className="space-y-5" data-testid="landing-owner-page">
       <PageIntro
         eyebrow="Owner Landing"
-        title="Board-level manufacturing pulse with revenue posture, WIP stress, and dispatch risk in one read."
-        description="This landing is tuned for the owner’s daily scan: what is moving, what is blocked, where money is sitting, and which issues need intervention now."
+        title="Manufacturing overview"
+        description="Review customer commitments, production holds and the next dispatch handoff. Open a metric to act on its source records."
         actions={
           <>
             <FilterChip active>MTD</FilterChip>
@@ -122,8 +129,8 @@ export function OwnerLandingPage() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-cyan-200">Morning brief</p>
             <p className="text-2xl font-semibold tracking-tight">
               {delayedOrders.length
-                ? `OTIF has slipped and ${delayedOrders.length} commitments need eyes today.`
-                : "No red-flag commercial slips detected in the current window."}
+                ? `${delayedOrders.length} customer commitments need review.`
+                : "No delayed commitments reported in this summary."}
             </p>
             <p className="text-sm leading-6 text-slate-300">
               Open order book {formatCompactCurrency(orderBookValue)}. Dispatch posture {formatCompactNumber(Number(headline.dispatch_qty || 0))} kg in the selected window.
@@ -132,15 +139,15 @@ export function OwnerLandingPage() {
         }
       />
 
-      <InsightStrip items={insights} />
+      <InsightStrip items={insights.map(item => ({ ...item, onClick: () => router.push(item.id === "delayed" ? "/sales-orders/pending" : item.id === "blocked" ? "/planning/tracker" : "/analytics/mrp") }))} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <KpiCard label="Dispatched Value" value={formatCompactCurrency(dispatchedValue)} detail="Server sum of fulfilled quantity × sales-line rate" icon={BarChart3} tone="cyan" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.dispatch)) : undefined} />
-        <KpiCard label="Open Order Book" value={formatCompactCurrency(orderBookValue)} detail={`${openOrderCount} sales orders with quantity remaining`} icon={Workflow} tone="amber" />
-        <KpiCard label="Inventory Value" value={formatCompactCurrency(Number(headline.inventory_value ?? inventoryHealth?.summary?.total_value ?? 0))} detail={`${formatCompactNumber(Number(headline.active_job_cards || 0))} active job cards across the route`} icon={Factory} tone="violet" sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.winder + row.oven + row.process)) : undefined} />
-        <KpiCard label="OTIF" value={formatPercent(Number(headline.otif_percent || 0))} detail="Closed orders on-time and in-full" icon={Gauge} tone={Number(headline.otif_percent || 0) >= 92 ? "emerald" : "rose"} delta={{ value: Math.abs(92 - Number(headline.otif_percent || 0)), suffix: "pp", positive: Number(headline.otif_percent || 0) >= 92, label: "vs 92% target" }} sparkline={recentSeries.length ? buildSparkline(recentSeries.map((row) => row.otif)) : undefined} />
-        <KpiCard label="Blocked Jobs" value={formatCompactNumber(blockedRows.length || Number(headline.blocked_jobs || 0))} detail="Job cards waiting on floor or approval intervention" icon={AlertTriangle} tone={(blockedRows.length || Number(headline.blocked_jobs || 0)) > 0 ? "rose" : "emerald"} />
-        <KpiCard label="Consumption Variance" value={formatCompactCurrency(Number(pack.reconciliation?.summary?.variance_value || 0))} detail="Actual material variance from reconciliation" icon={Layers3} tone="slate" />
+        <KpiCard label="Dispatched value" value={metric(salesAggregates?.dispatched_value ?? headline.dispatch_value, formatCompactCurrency)} detail="Fulfilled quantity × sales-line rate" icon={BarChart3} onClick={() => router.push("/reports/dispatch")} hrefLabel="View dispatch report" />
+        <KpiCard label="Open order book" value={metric(salesAggregates?.open_order_book_value, formatCompactCurrency)} detail={`${openOrderCount} orders with quantity remaining`} icon={Workflow} onClick={() => router.push("/sales-orders/pending")} hrefLabel="Review commitments" />
+        <KpiCard label="Inventory value" value={metric(headline.inventory_value ?? inventoryHealth?.summary?.total_value, formatCompactCurrency)} detail="Stock value in the selected plant scope" icon={Factory} onClick={() => router.push("/inventory")} hrefLabel="Open stock overview" />
+        <KpiCard label="On time, in full" value={metric(headline.otif_percent, formatPercent)} detail="Closed orders delivered on time and in full" icon={Gauge} sparkline={recentSeries.length ? buildSparkline(recentSeries.map(row => row.otif)) : undefined} onClick={() => router.push("/reports/dispatch")} />
+        <KpiCard label="Blocked jobs" value={metric(headline.blocked_jobs ?? (pack.production?.blocked_rows ? blockedRows.length : undefined), formatCompactNumber)} detail="Review the source hold before releasing work" icon={AlertTriangle} onClick={() => router.push("/planning/tracker")} hrefLabel="Review blocked work" />
+        <KpiCard label="Material variance" value={metric(pack.reconciliation?.summary?.variance_value, formatCompactCurrency)} detail="Actual consumption variance from reconciliation" icon={Layers3} onClick={() => router.push("/production/reconciliation")} hrefLabel="Open reconciliation" />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -150,7 +157,7 @@ export function OwnerLandingPage() {
         <ChartCard eyebrow="Top Customers" title="Customer share of the current order book" description="Commercial concentration by open order value.">
           <MiniBarList rows={topCustomers} formatter={(value) => formatCompactCurrency(value)} />
           <div className="mt-4">
-            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
+            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 text-sm font-semibold text-signal-cyan-ink">
               Open pending workspace <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -159,9 +166,9 @@ export function OwnerLandingPage() {
 
       <section className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
         <ChartCard eyebrow="Operations" title="Live stage load" description="Planner board load grouped by stage from the current board snapshot.">
-          <MiniBarList rows={stageRows} formatter={(value) => `${formatCompactNumber(value)} JCs`} />
+          {planningLoading ? <p className="text-sm text-muted-foreground">Loading stage queues…</p> : planningError ? <p role="status" className="text-sm text-muted-foreground">Stage queues are unavailable. Open the planner to retry.</p> : <MiniBarList rows={stageRows} formatter={(value) => `${formatCompactNumber(value)} JCs`} />}
         </ChartCard>
-        <ChartCard eyebrow="OTIF Trend" title="Daily execution confidence" description="Recent OTIF movement against the target threshold.">
+        <ChartCard eyebrow="OTIF Trend" title="Daily execution confidence" description="Reported OTIF over recent production and dispatch periods. No unconfigured target is assumed.">
           {recentSeries.length ? <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={recentSeries}>
@@ -170,10 +177,9 @@ export function OwnerLandingPage() {
                 <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
                 <Tooltip formatter={(value: number) => [formatPercent(value), "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid #e2e8f0" }} />
                 <Line type="monotone" dataKey="otif" stroke="#be123c" strokeWidth={2.5} dot={false} />
-                <Line type="monotone" dataKey="otifTarget" stroke="#0f172a" strokeDasharray="6 6" dot={false} />
               </LineChart>
             </ResponsiveContainer>
-          </div> : <p className="rounded-2xl bg-slate-50 p-5 text-sm text-slate-600">No production or dispatch events exist in the selected period.</p>}
+          </div> : <p className="rounded-2xl bg-muted p-5 text-sm text-muted-foreground">No production or dispatch events exist in the selected period.</p>}
         </ChartCard>
       </section>
 
@@ -210,13 +216,13 @@ export function OwnerLandingPage() {
             emptyLabel="No owner-level exceptions are currently raised."
           />
         </ChartCard>
-        <ChartCard eyebrow="Dispatch & Plant Mix" title="Next handoff and plant contribution" description="Short-range dispatch view and plant contribution mix.">
-          {plantMix.length ? <MiniBarList rows={plantMix} formatter={(value) => formatCompactCurrency(value)} /> : <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">No plant-comparison records exist in the selected period.</p>}
-          <div className="mt-5 rounded-[1.35rem] border border-slate-200 bg-slate-50 p-4">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">Dispatch next 7 days</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">{formatCompactNumber(Number(pack.dispatch?.summary?.ready_job_count || 0))} ready jobs</p>
-            <p className="mt-1 text-sm text-slate-500">Use the dispatch desk for sequence and challan generation.</p>
-            <Link href="/logistics/dispatch" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-cyan-900">
+        <ChartCard eyebrow="Dispatch & Plant Mix" title="Inventory by plant & next handoff" description="Reported inventory values by plant, followed by the dispatch queue.">
+          {plantMix.length ? <MiniBarList rows={plantMix} formatter={(value) => formatCompactCurrency(value)} /> : <p className="rounded-2xl bg-muted p-4 text-sm text-muted-foreground">No plant-comparison records exist in the selected period.</p>}
+          <div className="mt-5 rounded-[1.35rem] border border-border bg-muted p-4">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Dispatch handoff</p>
+            <p className="mt-2 text-2xl font-semibold text-foreground">{metric(pack.dispatch?.summary?.ready_job_count, formatCompactNumber)} ready jobs</p>
+            <p className="mt-1 text-sm text-muted-foreground">Use the dispatch desk for sequence and challan generation.</p>
+            <Link href="/logistics/dispatch" className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-signal-cyan-ink">
               Open dispatch <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
@@ -310,7 +316,7 @@ export function AdminLandingPage() {
           />
         </ChartCard>
         <ChartCard eyebrow="Infrastructure" title="Host and workload health" description="Foundational platform checks and integrity signals.">
-          {infrastructureRows.length ? <MiniBarList rows={infrastructureRows} formatter={(value) => formatCompactNumber(value)} /> : <p className="text-sm text-slate-600">Runtime metrics are unavailable.</p>}
+          {infrastructureRows.length ? <MiniBarList rows={infrastructureRows} formatter={(value) => formatCompactNumber(value)} /> : <p className="text-sm text-muted-foreground">Runtime metrics are unavailable.</p>}
         </ChartCard>
       </section>
 
@@ -340,11 +346,11 @@ export function AdminLandingPage() {
 
       <section className="grid gap-4 xl:grid-cols-3">
         <ChartCard eyebrow="Background Jobs" title="Job schedule posture" description="Operational jobs and platform recomputes.">
-          {schedulerJobs.length ? <MiniBarList rows={schedulerJobs} formatter={(value) => `${formatCompactNumber(value)}%`} /> : <p className="text-sm text-slate-600">No scheduler job status was returned.</p>}
+          {schedulerJobs.length ? <MiniBarList rows={schedulerJobs} formatter={(value) => `${formatCompactNumber(value)}%`} /> : <p className="text-sm text-muted-foreground">No scheduler job status was returned.</p>}
         </ChartCard>
         <ChartCard eyebrow="Accounts" title="Access visibility" description="Account data is measured separately from sessions.">
-          <p className="text-3xl font-semibold text-slate-950">{summary.active_accounts == null ? "Unknown" : formatCompactNumber(Number(summary.active_accounts))}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Enabled accounts reported by auth-service. The stack does not fabricate a current session count.</p>
+          <p className="text-3xl font-semibold text-foreground">{summary.active_accounts == null ? "Unknown" : formatCompactNumber(Number(summary.active_accounts))}</p>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">Enabled accounts reported by auth-service. The stack does not fabricate a current session count.</p>
         </ChartCard>
         <ChartCard eyebrow="Quick Actions" title="Admin control points" description="Navigate to the highest-value admin actions already present in the ERP.">
           <div className="space-y-3">
@@ -361,12 +367,12 @@ export function AdminLandingPage() {
               { href: "/analytics", label: "Analytics", icon: BarChart3 },
               { href: "/planning/tracker", label: "Tracker", icon: Wrench },
             ].map((item) => (
-              <Link key={item.href} href={item.href} className="flex items-center justify-between rounded-[1.2rem] border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+              <Link key={item.href} href={item.href} className="flex items-center justify-between rounded-[1.2rem] border border-border px-4 py-3 text-sm font-semibold text-muted-foreground hover:bg-muted">
                 <span className="inline-flex items-center gap-2">
-                  <item.icon className="h-4 w-4 text-cyan-800" />
+                  <item.icon className="h-4 w-4 text-signal-cyan-ink" />
                   {item.label}
                 </span>
-                <ArrowRight className="h-4 w-4 text-slate-400" />
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </Link>
             ))}
           </div>

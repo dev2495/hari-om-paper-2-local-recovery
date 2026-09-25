@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
+from ..concession_use import guard_concession_stock
 from ..database import get_db
 from ..models import (
     InventoryLocation,
@@ -27,7 +28,7 @@ from ..utils.auth import get_current_plant, require_role
 router = APIRouter(prefix="/inventory/stock-moves", tags=["inventory-stock-moves"])
 
 STOCK_STATUSES = {"UNRESTRICTED", "WIP", "QC_HOLD", "BLOCKED", "DISPATCH_STAGING", "SCRAP"}
-HELD_STOCK_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP"}
+HELD_STOCK_STATUSES = {"QC_HOLD", "BLOCKED", "SCRAP", "CONCESSION"}
 
 
 def _reject_held_status_escape(current: str | None, requested: str | None, entity: str) -> None:
@@ -90,6 +91,8 @@ class WipIssueCreate(BaseModel):
     stage: str = Field(default="WINDER", max_length=40)
     wip_location_id: uuid.UUID | None = None
     external_ref: str | None = Field(default=None, max_length=100)
+    customer_id: uuid.UUID | None = None
+    sales_order_id: uuid.UUID | None = None
 
     @field_validator("stage")
     @classmethod
@@ -127,8 +130,15 @@ def issue_batch_to_wip(
     ).first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    if batch.stock_status not in {"UNRESTRICTED", "WIP"}:
-        raise HTTPException(status_code=400, detail=f"Batch is not issuable to WIP ({batch.stock_status})")
+    guard_concession_stock(
+        db,
+        plant_id=plant_id,
+        entity=batch,
+        customer_id=payload.customer_id,
+        sales_order_id=payload.sales_order_id,
+        allowed_statuses={"UNRESTRICTED", "WIP"},
+        blocked_detail=f"Batch is not issuable to WIP ({batch.stock_status})",
+    )
     if not validate_batch_sufficient_stock(str(batch.id), payload.qty, db):
         raise HTTPException(status_code=400, detail="Insufficient batch stock for WIP issue")
 

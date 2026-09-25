@@ -22,7 +22,7 @@ export function InwardForm({ onSubmit }: FormProps) {
     }
 
     return (
-        <form onSubmit={handleSubmit(submitHandler)} className="space-y-4 max-w-md bg-white p-6 rounded shadow">
+        <form onSubmit={handleSubmit(submitHandler)} className="space-y-4 max-w-md bg-card p-6 rounded shadow">
             <h3 className="text-lg font-medium">Inward / GRN</h3>
             <div className="space-y-2">
                 <label className="text-sm font-medium">Material</label>
@@ -64,7 +64,7 @@ export function IssueForm({ onSubmit }: FormProps) {
     // User requirement: "Select batch -> issue to job"
 
     return (
-        <form onSubmit={handleSubmit(submitHandler)} className="space-y-4 max-w-md bg-white p-6 rounded shadow">
+        <form onSubmit={handleSubmit(submitHandler)} className="space-y-4 max-w-md bg-card p-6 rounded shadow">
             <h3 className="text-lg font-medium">Issue Material</h3>
             <div className="space-y-2">
                 <label className="text-sm font-medium">Batch Number</label>

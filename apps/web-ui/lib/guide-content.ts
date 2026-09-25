@@ -38,7 +38,7 @@ const guides: GuideContent[] = [
       "Critical alerts should be cleared by completing the source workflow, not by hiding the alert.",
     ],
     primaryActions: [
-      "Use search to jump to a flow by name.",
+      "Use Jump to workspace or Command/Ctrl + K to find a workflow by name. Open Appearance settings for Light, Dark or System and table density.",
       "Open the notification center for recent operational messages.",
       "Use the guide button in the header to understand the page you are on.",
     ],
@@ -59,7 +59,7 @@ const guides: GuideContent[] = [
     steps: [
       { label: "Create order", detail: "Select customer, product specification, parchment, quantity, and due date." },
       { label: "Approve", detail: "Approver validates demand, customer terms, and any exception notes." },
-      { label: "Release", detail: "Released demand becomes planner-ready and gets assigned to a winder route." },
+      { label: "Release", detail: "Select a winder number or name as a release hint. The released job enters the planning queue; the planner may use another available winder." },
       { label: "Track", detail: "Tracking page follows the order through job card, FG, QC, and dispatch." },
     ],
     fieldRules: [
@@ -116,31 +116,136 @@ const guides: GuideContent[] = [
     route: "/purchase",
     title: "Purchase and Vendor Guide",
     eyebrow: "Procurement control",
-    summary: "Use purchase planning to turn shortage signals into vendor-facing procurement work, then receive material through inward batches.",
-    flowTitle: "Shortage to inward flow",
+    summary: "Create a numbered PO draft, submit its immutable revision for maker-checker approval, and revise any vendor-agreed change before stores receive it.",
+    flowTitle: "Controlled PO flow",
     steps: [
-      { label: "Read shortage", detail: "MRP and inventory show what material is required and when." },
-      { label: "Pick vendor", detail: "Use the vendor master for actual suppliers; parchment companies stay separate." },
-      { label: "Receive batch", detail: "Inward captures vendor, quantity, price, and batch details." },
-      { label: "Use stock", detail: "Approved batches become available for issue and valuation." },
+      { label: "Create draft", detail: "Select RM/PM or OT. The server reserves RP-PM/nn or OT/nn; users never type the PO number." },
+      { label: "Submit revision", detail: "The complete vendor, lines, rates, specifications and dates become a review snapshot." },
+      { label: "Approve", detail: "A different authorized user approves or rejects that exact revision." },
+      { label: "Revise changes", detail: "Any later vendor, quantity, rate, specification or delivery change creates a new revision and needs approval again." },
     ],
     fieldRules: [
-      "Every inward transaction must tag an actual vendor.",
-      "Batch price belongs to inward stock, not to the master record.",
-      "Vendor master contacts feed the contact directory.",
+      "Paper ordered and fulfilled quantity is kg; expected reel or coil count is a separate planning field.",
+      "An approved rate is immutable evidence and cannot be overwritten during inward.",
+      "Batch price belongs to inward stock. Planning standard costs never overwrite PO rates, invoice rates or historical batch valuation.",
+      "Draft edits require a reason and version check after the first approval.",
     ],
     primaryActions: [
-      "Open MRP before buying if the purchase is stock-driven.",
-      "Create or update vendor details before inward.",
-      "Use raw material inward to record batch-level price and quantity.",
+      "Search all matching orders on the server; use the page-size selector and numbered pagination. Search and page state are kept in the URL.",
+      "Create one or more PO lines.",
+      "Submit a complete draft for approval.",
+      "Print the saved PO or open its revision history.",
+      "Open Purchase registers for full Excel exports or A3/A4 PDFs. Wide registers repeat document identity across column sections so every field stays readable.",
     ],
     controlChecks: [
-      "Match vendor invoice quantity with inward quantity.",
-      "Confirm tax and contact details in vendor master when onboarding.",
-      "Review purchase shortages before releasing urgent production orders.",
+      "Confirm the supplier, category and plant before submission.",
+      "Confirm each line’s saved unit, rate per unit and physical count. KG and PCS totals are separate; cancelled and rejected orders do not add to open requirement.",
+      "Verify the current revision is approved before asking stores to receive it.",
     ],
-    outputs: ["Purchase requirement", "Vendor-tagged inward", "Batch valuation"],
-    relatedRoutes: ["/analytics/mrp", "/inventory/raw-material-inward", "/masters/vendors", "/inventory"],
+    outputs: ["Automatic PO number", "Approved revision", "Printable saved PO"],
+    relatedRoutes: ["/purchase/new", "/purchase/approvals", "/purchase/inward", "/purchase/scheduler"],
+  },
+  {
+    id: "purchase-inward",
+    route: "/purchase/inward",
+    title: "Manual and PO-Linked Inward Guide",
+    eyebrow: "Measured kg and physical identity",
+    summary: "Open Stores → Goods inward. Choose vendor and either an approved system PO or Manual GRN without PO. Enter multiple materials with one measured and labelled lot per physical reel or coil.",
+    flowTitle: "Receipt to usable stock",
+    steps: [
+      { label: "Choose receipt source", detail: "Select vendor, then approved PO and material lines. For a manual GRN, select materials directly and explain why no PO exists; a separate checker must approve it." },
+      { label: "Record invoice", detail: "Enter invoice number, date, quantity and rate, or mark invoice pending to save held physical stock." },
+      { label: "Weigh every lot", detail: "Enter or paste vendor reel number, net kg, measured width and optional gross/tare for every physical reel or coil, then review the staged rows." },
+      { label: "Post once", detail: "The server rechecks balance and creates one GRN, one stock identity and one immutable label record per physical unit." },
+    ],
+    fieldRules: [
+      "Sum of individual net weights is the received quantity in kg. Add another material for mixed loads.",
+      "Tab moves between lot fields. Enter advances through inputs; Enter at the last lot field appends a new row. Paste columns: vendor number, net kg, width mm, form, gross kg, tare kg, vendor batch.",
+      "One reel or coil equals one lot, one AT number and one saved label; label reprints never create stock.",
+      "Invoice-pending and any rate or quantity difference stay commercially held until an authorized decision.",
+      "Measured width outside the approved PO width tolerance opens a separate specification case with lot-level evidence.",
+      "Gross minus tare must equal entered net kg within weighing precision when all three are supplied.",
+    ],
+    primaryActions: ["Preview controls before posting.", "Validate the entered receipt, review every result and use Post goods inward once. Changing a field invalidates the old preview and requires validation again.", "Prepare the saved AT label batch, then open the 4 × 2 inch PDF and print at actual size. Set copies and enter a reason for a reprint; reprinting never creates stock.", "Open Stores → GRN register and labels to attach invoices, pass or hold QC, approve manual receipts or reprint labels."],
+    controlChecks: ["Verify total kg does not exceed the open PO line.", "Verify each vendor reel number is unique for that supplier.", "Resolve QC and commercial holds independently."],
+    outputs: ["Manual or PO-linked GRN", "Physical lot identities", "Saved labels", "Invoice comparison cases"],
+    relatedRoutes: ["/purchase", "/purchase/discrepancies", "/purchase/registers", "/inventory/genealogy"],
+  },
+  {
+    id: "purchase-commercial",
+    route: "/purchase/discrepancies",
+    title: "Invoice Difference and Debit Note Guide",
+    eyebrow: "Commercial exception control",
+    summary: "Track each invoice rate, quantity or specification difference without changing the approved PO, hiding favorable variances, or mixing a stock decision with a financial claim.",
+    flowTitle: "Difference to settlement",
+    steps: [
+      { label: "Review case", detail: "Compare the receipt, invoice and approved revision at the saved allocation quantity." },
+      { label: "Decide stock", detail: "Accept the difference or explicitly release material while the claim remains open; QC is still independent." },
+      { label: "Open claim", detail: "Select positive rate differences for one vendor and create a numbered debit-note draft." },
+      { label: "Approve and settle", detail: "Submit, approve, issue and record corrected invoice, credit note, adjustment or write-off references." },
+    ],
+    fieldRules: ["Positive and favorable differences remain separate.", "Quantity differences are visible but do not become a fabricated rate claim.", "A receipt maker cannot approve their own commercial exception.", "Partial settlement leaves the remaining claim open."],
+    primaryActions: ["Record an audit reason for every decision.", "Create one debit note per vendor.", "Print or export the saved claim record."],
+    controlChecks: ["Do not clear QC by accepting a price.", "Do not change PO or invoice evidence to force a match.", "Confirm settlement amount never exceeds open claim value."],
+    outputs: ["Difference history", "Stock release decision", "Debit-note register", "Settlement balance"],
+    relatedRoutes: ["/purchase/inward", "/purchase/debit-notes", "/purchase/registers", "/system/audit"],
+  },
+  {
+    id: "purchase-scheduler",
+    route: "/purchase/scheduler",
+    title: "Monthly RM Scheduler Guide",
+    eyebrow: "Calendar planning",
+    summary: "Build a date-by-material kg plan from live stock, demand and open PO supply; review spreadsheet imports before they become plan entries or PO drafts.",
+    flowTitle: "Target to PO draft",
+    steps: [
+      { label: "Review open sales demand", detail: "Refresh material requirements from approved open sales orders and the existing BOM calculator. Unreleased units are reduced by accepted allocated finished goods before BOM calculation. Active jobs use frozen BOMs less item-specific net issues. Missing recipes, material mappings or shared consumption attribution block automatic MRP." },
+      { label: "Review MRP", detail: "The server shows usable opening stock, committed PO supply, net need, rounding and data gaps." },
+      { label: "Place entries", detail: "Choose a date on the monthly calendar, enter arrival kg and assign a vendor. Stage suggested shortages, distribute a monthly target, or switch to the workbook grid. Export Excel or print the month." },
+      { label: "Approve and convert", detail: "Submit the plan, approve its version, review vendor assignments, then create traceable PO drafts." },
+    ],
+    fieldRules: ["Choose the worksheet and KG or MT unit. Only the first daily RM block imports; lower finished-goods tables are excluded. Map each material header or explicitly exclude a helper column. Duplicate material/date cells are summed before staging.", "Unknown item/vendor codes remain blocked rows; no fuzzy master creation.", "Physical count never calculates actual kg.", "Only approved plan entries convert, and retries cannot duplicate POs."],
+    primaryActions: ["Import the supplied workbook or canonical template.", "Enter kg directly in calendar cells.", "Run explainable MRP.", "Generate PO drafts grouped by vendor and series."],
+    controlChecks: ["Do not double count opening stock and live stock.", "Keep held stock outside usable supply.", "Review MOQ and order-multiple overage before conversion."],
+    outputs: ["Versioned month plan", "MRP explanation", "Vendor grouping", "Linked PO drafts"],
+    relatedRoutes: ["/analytics/mrp", "/purchase/new", "/purchase", "/inventory/stock-alert-policies"],
+  },
+  {
+    id: "stock-alerts",
+    route: "/inventory/stock-alert-policies",
+    title: "Stock Alert Policy Guide",
+    eyebrow: "Versioned stock thresholds",
+    summary: "Define the single effective safety, reorder and target stock policy used by alerts, MRP and procurement planning for each material and plant.",
+    flowTitle: "Policy to alert episode",
+    steps: [
+      { label: "Create draft", detail: "Select a material and enter safety, reorder, target, recovery, lead time, MOQ and order multiple in kg." },
+      { label: "Validate order", detail: "Target must be at least reorder, and reorder at least safety." },
+      { label: "Activate", detail: "An authorized activation supersedes the previous policy version while preserving history." },
+      { label: "Work alerts", detail: "Evaluate usable stock, then acknowledge, assign, snooze or follow the source shortage to a PO draft." },
+    ],
+    fieldRules: ["Policies are plant and item scoped.", "QC-held, blocked and commercial-held stock is excluded from usable stock.", "Acknowledging an alert never changes stock.", "Recovery uses the saved recovery margin to prevent repeated alert noise."],
+    primaryActions: ["Save policy draft.", "Activate a reviewed version.", "Evaluate alerts.", "Open the alert inbox."],
+    controlChecks: ["Confirm units are kg.", "Confirm recipients and cooldown.", "Review existing open PO coverage before buying again."],
+    outputs: ["Effective policy version", "Deduplicated alert episode", "MRP threshold input"],
+    relatedRoutes: ["/inventory/stock-alerts", "/analytics/mrp", "/purchase/scheduler", "/purchase"],
+  },
+  {
+    id: "rm-costing",
+    route: "/inventory/rm-costing",
+    title: "RM Costing Sheet Guide",
+    eyebrow: "Owner / Admin planning cost",
+    summary: "Maintain a separate, versioned standard costing sheet for each raw material without changing PO rates, invoice rates or historical stock valuation.",
+    flowTitle: "Cost draft to active version",
+    steps: [
+      { label: "Choose material", detail: "Open the current base and landed planning cost for one raw material." },
+      { label: "Build cost", detail: "Enter base cost and typed freight, duty, handling, discount or other components with explicit bases." },
+      { label: "Review impact", detail: "Check normalized currency/kg, effective date, change reason and version history." },
+      { label: "Activate", detail: "An actual Owner or Admin activates the immutable version; restore creates a new draft instead of rewriting history." },
+    ],
+    fieldRules: ["Only an actual Owner or Admin in an administrative role may create, activate or restore costing versions.", "Percent, per-kg and fixed-per-lot components use explicit calculation modes.", "Active standard cost is for estimates and planning; it never overwrites receipt or issued-stock cost."],
+    primaryActions: ["Create a cost draft.", "Activate an effective version.", "Inspect complete history.", "Restore an old version as a new draft."],
+    controlChecks: ["Record a clear change reason.", "Use a positive reference kg for fixed-per-lot charges.", "Verify the landed cost and effective date before activation."],
+    outputs: ["Active RM cost version", "Component calculation", "Complete immutable history"],
+    relatedRoutes: ["/purchase/scheduler", "/analytics/mrp", "/purchase/new", "/system/audit"],
   },
   {
     id: "inventory",
@@ -245,23 +350,24 @@ const guides: GuideContent[] = [
     steps: [
       { label: "Load demand", detail: "Released sales orders appear in the planner queue." },
       { label: "Check meters", detail: "Winder capacity is shown in meters per shift." },
-      { label: "Schedule", detail: "Assign order segments to machine and shift slots." },
-      { label: "Create job", detail: "Scheduled work becomes job cards for execution." },
+      { label: "Schedule", detail: "Choose a winder and shift, then schedule. Demand larger than a slot is split across capacity slots; piece totals stay equal to the released quantity." },
+      { label: "Open job", detail: "Open the existing released job card and confirm its saved schedule before execution." },
     ],
     fieldRules: [
       "Winder capacity is measured in meters made per shift.",
-      "Planner should not schedule over available machine capacity.",
+      "The release winder is a hint. Any available winder in the selected plant can be planned; geometry and mandrel mismatches appear as setup warnings. Capacity, unavailable machines, plant permissions and QC holds remain enforced.",
       "Plant scope must be selected for write actions when role requires it.",
     ],
     primaryActions: [
-      "Use section controls to move between winder, cutting, and dispatch views.",
+      "Open Planning overview, Winder, Oven, Process or Slitting from the sidebar. The Planning workspace selector changes stage while preserving the selected date and focused order. Saved board URLs remain supported.",
+      "Use the stage workspaces for winder, oven, process or slitting; open dispatch from its separate workspace.",
       "Drag or release demand into the correct machine window.",
       "Open generated job card link before handing to production.",
     ],
     controlChecks: [
       "Capacity shown on cards should match machine settings.",
       "Review material availability before scheduling urgent orders.",
-      "Do not ignore QC or stock holds while planning.",
+      "Do not ignore QC or stock holds while planning. Packing measurements do not replace final QC. Dispatch requires a current passing final inspection.",
     ],
     outputs: ["Shift schedule", "Machine queue", "Job card handoff"],
     relatedRoutes: ["/sales-orders", "/production/job-cards", "/production/supervisor-entry", "/reports/production"],
@@ -314,6 +420,8 @@ const guides: GuideContent[] = [
       "QC decisions should reference job card, batch, or FG lot.",
       "Hold and reject reasons must be clear enough for audit.",
       "Final QC should compare against the saved specification, not memory.",
+      "Mark an item or stage criterion Critical: cannot be waived before approval when required by the client. Failed critical checks cannot be released by a reason, administrator concession or stage override. Existing lots and jobs keep their frozen rules.",
+      "Editing an approved item profile opens a new draft. Save it for review and approve separately; receipts continue using the prior approved revision until then.",
     ],
     primaryActions: [
       "Create stage QC checks during supervisor completion.",
@@ -337,14 +445,15 @@ const guides: GuideContent[] = [
     flowTitle: "Dispatch handoff flow",
     steps: [
       { label: "Pick FG", detail: "Select finished goods lot or job card output ready for dispatch." },
-      { label: "Verify QC", detail: "Confirm no active hold remains." },
-      { label: "Prepare shipment", detail: "Enter packing, challan, vehicle, and customer dispatch details." },
-      { label: "Post dispatch", detail: "Stock moves out and reports update." },
+      { label: "Verify QC", detail: "Confirm no active hold remains and a current complete final QC inspection has passed. Packing measurements alone do not release the job." },
+      { label: "Prepare shipment", detail: "Select the remaining quantity to ship, review packing and customer details, then enter vehicle, transporter and LR information. Phone screens show the same fields in stacked sections." },
+      { label: "Post dispatch", detail: "Seal once. Only this shipment's quantity moves out; sales fulfillment and remaining FG update. Open the sealed shipment to print its challan. A retry of the same request does not post stock twice." },
     ],
     fieldRules: [
       "Dispatch should reference customer order and FG lot.",
       "Blocked or QC-held stock must not ship.",
       "Packing box color label comes from the packing master color field.",
+      "The challan and inventory movement use the same India business date, frozen when the shipment is sealed.",
     ],
     primaryActions: [
       "Create dispatch from ready FG.",
@@ -578,15 +687,230 @@ const guides: GuideContent[] = [
     outputs: ["Exception FG balance", "Audit reason", "QC-aware dispatch stock"],
     relatedRoutes: ["/inventory", "/quality", "/logistics/dispatch", "/inventory/lifecycle"],
   },
+
+  {
+    id: "appearance",
+    route: "/help/appearance",
+    title: "Workspace and Appearance Guide",
+    eyebrow: "Find the right page, choose your plant and make the workspace comfortable on your device",
+    summary: "Find the right page, choose your plant and make the workspace comfortable on your device.",
+    flowTitle: "Working sequence",
+    steps: [
+      {
+        label: "Choose a workspace",
+        detail: "Open a named group in the left navigation. The active module shows its detailed pages underneath. On a phone, open the menu button; Escape or Close returns focus to it."
+      },
+      {
+        label: "Find a task",
+        detail: "Use Jump to workspace or Command/Ctrl + K. Search for a workflow, then press Enter or move into the results with Arrow Down. The search opens pages; it does not create or submit records."
+      },
+      {
+        label: "Set appearance",
+        detail: "Open Appearance settings in the top bar. Choose Light, Dark or System. System follows your device preference. Density changes table spacing on supported pages."
+      },
+      {
+        label: "Keep your context",
+        detail: "Use the plant and role selectors deliberately. Collapse the sidebar when you need more calendar space. Hovering over it does not move the work area."
+      }
+    ],
+    fieldRules: [
+      "Preferences are stored on this browser and device, separately from your login.",
+      "All plants is a read scope; select one plant before entering purchases or receipts.",
+      "Dense calendars and wide tables scroll inside their own panels. Reduced-motion system preferences suppress transitions."
+    ],
+    primaryActions: [
+      "Open the book icon for help about the current page.",
+      "Share the purchase-register URL to retain search, status and page size.",
+      "Use keyboard Tab and visible focus to move between actions."
+    ],
+    controlChecks: [
+      "Check the current plant before each transaction.",
+      "Unavailable data is not a zero balance or an all-clear.",
+      "Theme and density do not alter business permissions or records."
+    ],
+    outputs: [
+      "Device appearance preference",
+      "Named workspace navigation"
+    ],
+    relatedRoutes: [
+      "/dashboard",
+      "/purchase",
+      "/help"
+    ]
+  },
+  {
+    id: "customer-calendar",
+    route: "/sales-orders/pending",
+    title: "Customer PO Calendar Guide",
+    eyebrow: "Review pending customer commitments and schedule every line of a PO without losing existing releases",
+    summary: "Review pending customer commitments and schedule every line of a PO without losing existing releases.",
+    flowTitle: "Working sequence",
+    steps: [
+      {
+        label: "Find the PO",
+        detail: "Use Pending Orders to review in-scope demand and the earliest commitment. Open the saved customer order to work on its calendar."
+      },
+      {
+        label: "Plan the lines",
+        detail: "Use the whole-order calendar to place quantity and date splits for each line. Keep the line unit visible; one line cannot borrow another line’s unfulfilled quantity."
+      },
+      {
+        label: "Review changes",
+        detail: "Preview before saving. Read the dates, quantities and any locked or already-started work. A group date shift previews affected commitments and the work that stays fixed."
+      },
+      {
+        label: "Commit and release",
+        detail: "Save the reviewed version. If another user changed the order, reload and review again. Release only the intended quantity to the selected winder queue, then follow job cards and production. The selected winder is a hint and can be changed by the planner; capability mismatches are warnings."
+      }
+    ],
+    fieldRules: [
+      "Scheduled demand and released jobs are related records, not interchangeable quantities.",
+      "Partial releases remain allocated when other dates are rescheduled.",
+      "Started or locked work is not silently shifted by a group move.",
+      "Calendar placement is not proof of available machine capacity or QC clearance."
+    ],
+    primaryActions: [
+      "Open all lines of the saved order in the calendar.",
+      "Preview a date or quantity change.",
+      "Use the tracker to inspect released jobs and the dispatch desk for completed stock."
+    ],
+    controlChecks: [
+      "Compare scheduled totals with the remaining line quantity.",
+      "Read conflicts instead of overwriting a newer version.",
+      "Verify the order’s actual production and quality records before promising dispatch."
+    ],
+    outputs: [
+      "Saved customer commitments",
+      "Versioned calendar changes",
+      "Preserved release allocations"
+    ],
+    relatedRoutes: [
+      "/sales-orders",
+      "/planning/board",
+      "/planning/tracker",
+      "/logistics/dispatch"
+    ]
+  },
+  {
+    id: "supplier-promises",
+    route: "/purchase/supplier-deliveries",
+    title: "Supplier Delivery Schedule Guide",
+    eyebrow: "Track vendor promises, confirmed arrivals and partial receipt allocation against approved PO lines",
+    summary: "Track vendor promises, confirmed arrivals and partial receipt allocation against approved PO lines.",
+    flowTitle: "Working sequence",
+    steps: [
+      {
+        label: "Select the order",
+        detail: "Open the supplier delivery workspace for one plant and select the approved PO line."
+      },
+      {
+        label: "Record the promise",
+        detail: "Record the promised arrival date, quantity and confirmation state. Keep original promises available in the history when the vendor revises a date."
+      },
+      {
+        label: "Review revisions",
+        detail: "Provide a reason for date or quantity changes. Refresh before retrying a stale version. Cancel only eligible unreceived commitments."
+      },
+      {
+        label: "Receive and reconcile",
+        detail: "Post physical receipts through Goods inward. Receipt allocations drive received quantities; partial GRNs leave a visible open balance on the schedule."
+      }
+    ],
+    fieldRules: [
+      "Only confirmed future supply is counted on its arrival date in MRP.",
+      "Tentative, undated or overdue arrivals are not treated as guaranteed usable future stock.",
+      "Schedule received quantity comes from receipt allocations; do not enter it independently."
+    ],
+    primaryActions: [
+      "Confirm an arrival.",
+      "Revise a promise with a reason.",
+      "Open the linked receipt or PO history."
+    ],
+    controlChecks: [
+      "Avoid scheduling more than the open PO balance.",
+      "Keep late supply distinct from stock already on hand.",
+      "Do not clear commercial or QC holds through a delivery promise."
+    ],
+    outputs: [
+      "Canonical supply calendar",
+      "Original promise history",
+      "Partial receipt balances"
+    ],
+    relatedRoutes: [
+      "/purchase",
+      "/purchase/inward",
+      "/purchase/scheduler"
+    ]
+  },
+  {
+    id: "reconciliation",
+    route: "/production/reconciliation",
+    title: "Monthly Reconciliation Guide",
+    eyebrow: "Compare actual material consumption with the recorded production evidence before closing a period",
+    summary: "Compare actual material consumption with the recorded production evidence before closing a period.",
+    flowTitle: "Working sequence",
+    steps: [
+      {
+        label: "Review the month",
+        detail: "Select the plant and month on Monthly close. Review open issues and the period state before entering corrections."
+      },
+      {
+        label: "Enter actuals",
+        detail: "Open Actual entry from the sidebar under Reconciliation. Review material rows, enter supported actual quantities and costs, and explain differences."
+      },
+      {
+        label: "Investigate drift",
+        detail: "Open Weekly drift for the selected week. Use the source records to understand the variance instead of adjusting a number simply to eliminate it."
+      },
+      {
+        label: "Close and review",
+        detail: "Complete the established close checks using the authorized role. Use Close history to inspect earlier decisions; a closed period cannot be bypassed by changing the page."
+      }
+    ],
+    fieldRules: [
+      "Monthly close, Actual entry, Weekly drift and Close history are separate pages with their own URLs.",
+      "Actual consumption and theoretical recipe consumption remain separate measures.",
+      "Locked books constrain historical stock mutations."
+    ],
+    primaryActions: [
+      "Open material actuals.",
+      "Record a reason and submit eligible corrections.",
+      "Review close history and lock posture."
+    ],
+    controlChecks: [
+      "Do not change a historical rate to hide a variance.",
+      "Resolve outstanding exceptions before requesting close.",
+      "Confirm the plant and period on each entry."
+    ],
+    outputs: [
+      "Actual consumption evidence",
+      "Variance explanation",
+      "Audited close history"
+    ],
+    relatedRoutes: [
+      "/production/reconciliation/actuals",
+      "/production/reconciliation/drift",
+      "/production/reconciliation/history",
+      "/inventory/lifecycle"
+    ]
+  }
+,
+
 ]
 
 const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
+  { pattern: /^\/help\/appearance(?:\/.*)?$/, guideId: "appearance" },
+  { pattern: /^\/sales-orders\/pending(?:\/.*)?$/, guideId: "customer-calendar" },
+  { pattern: /^\/purchase\/supplier-deliveries(?:\/.*)?$/, guideId: "supplier-promises" },
   { pattern: /^\/dashboard(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/control-tower(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/landing(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/help(?:\/.*)?$/, guideId: "dashboard" },
   { pattern: /^\/sales-orders(?:\/.*)?$/, guideId: "sales" },
   { pattern: /^\/(?:specs|specifications)(?:\/.*)?$/, guideId: "specifications" },
+  { pattern: /^\/purchase\/scheduler(?:\/.*)?$/, guideId: "purchase-scheduler" },
+  { pattern: /^\/purchase\/(?:inward|receipts)(?:\/.*)?$/, guideId: "purchase-inward" },
+  { pattern: /^\/purchase\/(?:discrepancies|debit-notes)(?:\/.*)?$/, guideId: "purchase-commercial" },
   { pattern: /^\/purchase(?:\/.*)?$/, guideId: "purchase" },
   { pattern: /^\/analytics\/mrp(?:\/.*)?$/, guideId: "mrp" },
   { pattern: /^\/analytics(?:-|\/|$)/, guideId: "reports" },
@@ -594,8 +918,9 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/inventory-reels-issue(?:\/.*)?$/, guideId: "production-issue" },
   { pattern: /^\/inventory-reel-trace(?:\/.*)?$/, guideId: "genealogy" },
   { pattern: /^\/inventory-valuation(?:\/.*)?$/, guideId: "inventory" },
-  { pattern: /^\/inventory\/raw-material-inward(?:\/.*)?$/, guideId: "raw-inward" },
-  { pattern: /^\/inventory\/reels\/inward(?:\/.*)?$/, guideId: "raw-inward" },
+  { pattern: /^\/inventory\/(?:raw-material-inward|reels\/inward)(?:\/.*)?$/, guideId: "purchase-inward" },
+  { pattern: /^\/inventory\/stock-alert(?:-policies|s)(?:\/.*)?$/, guideId: "stock-alerts" },
+  { pattern: /^\/inventory\/rm-costing(?:\/.*)?$/, guideId: "rm-costing" },
   { pattern: /^\/inventory\/reels\/issue(?:\/.*)?$/, guideId: "production-issue" },
   { pattern: /^\/inventory\/production-issue(?:\/.*)?$/, guideId: "production-issue" },
   { pattern: /^\/inventory\/lifecycle(?:\/.*)?$/, guideId: "stock-lifecycle" },
@@ -611,7 +936,7 @@ const routeGuideMap: Array<{ pattern: RegExp; guideId: string }> = [
   { pattern: /^\/production\/eod-entry(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/production\/supervisor-entry(?:\/.*)?$/, guideId: "job-cards" },
   { pattern: /^\/operations(?:\/.*)?$/, guideId: "job-cards" },
-  { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "stock-lifecycle" },
+  { pattern: /^\/production\/reconciliation(?:\/.*)?$/, guideId: "reconciliation" },
   { pattern: /^\/quality(?:\/.*)?$/, guideId: "quality" },
   { pattern: /^\/(?:dispatch|logistics\/dispatch)(?:\/.*)?$/, guideId: "dispatch" },
   { pattern: /^\/reports(?:\/.*)?$/, guideId: "reports" },

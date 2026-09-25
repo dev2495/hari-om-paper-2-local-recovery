@@ -420,13 +420,13 @@ export default function StageQualityPage() {
           <form className="space-y-4" onSubmit={handleSubmit}>
             <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1 md:col-span-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Job card</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Job card</span>
                 <input
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   placeholder="Search job card"
                   data-testid="quality-stage-job-search"
-                  className="mb-2 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm"
+                  className="mb-2 h-10 w-full rounded-xl border border-border px-3 text-sm"
                 />
                 <select
                   value={selectedJobId}
@@ -443,7 +443,7 @@ export default function StageQualityPage() {
                     setLastCorrectionRevision("")
                   }}
                   data-testid="quality-stage-job"
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+                  className="h-12 w-full rounded-2xl border border-border bg-card px-3 text-sm"
                 >
                   <option value="">Select job card</option>
                   {filteredJobs.map((job: any) => (
@@ -452,7 +452,7 @@ export default function StageQualityPage() {
                 </select>
               </label>
               <label className="space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Stage</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Stage</span>
                 <select
                   value={stageType}
                   onChange={(event) => {
@@ -460,7 +460,7 @@ export default function StageQualityPage() {
                     setLastVerdict("")
                   }}
                   data-testid="quality-stage-type"
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm"
+                  className="h-12 w-full rounded-2xl border border-border bg-card px-3 text-sm"
                 >
                   {STAGES.map((stage) => (
                     <option key={stage.value} value={stage.value}>{stage.label}</option>
@@ -480,7 +480,7 @@ export default function StageQualityPage() {
                     setLastVerdict("")
                   }}
                   className={`rounded-xl px-4 py-2 text-sm font-semibold ${
-                    stageType === stage.value ? "bg-slate-950 text-white" : "border border-slate-200 bg-white text-slate-800"
+                    stageType === stage.value ? "bg-slate-950 text-white" : "border border-border bg-card text-foreground"
                   }`}
                 >
                   {stage.label}
@@ -489,7 +489,7 @@ export default function StageQualityPage() {
             </div>
             {stageType === "OVEN" ? (
               <label className="block space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Oven checkpoint</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Oven checkpoint</span>
                 <select
                   value={draft.ovenCheckpoint}
                   onChange={(event) => {
@@ -505,12 +505,12 @@ export default function StageQualityPage() {
                     })
                   }}
                   data-testid="quality-stage-checkpoint"
-                  className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 text-sm md:max-w-sm"
+                  className="h-12 w-full rounded-2xl border border-border bg-card px-3 text-sm md:max-w-sm"
                 >
                   <option value="PRE">Before oven — pre-weight / pre-moisture</option>
                   <option value="POST">After oven — post-weight / post-moisture</option>
                 </select>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-muted-foreground">
                   Post fields are not due at the pre checkpoint. The later post checkpoint requires the same sample / pair ID.
                 </p>
               </label>
@@ -518,15 +518,15 @@ export default function StageQualityPage() {
             {selectedJobId ? (
               <>
                 <label className="block space-y-1">
-                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Measured at</span>
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Measured at</span>
                   <input
                     type="datetime-local"
                     data-testid="quality-stage-measured-at"
                     value={draft.measuredAt}
                     onChange={(event) => updateDraft(stageType, { measuredAt: event.target.value })}
-                    className="h-11 w-full rounded-2xl border border-slate-300 bg-white px-3 text-sm md:max-w-sm"
+                    className="h-11 w-full rounded-2xl border border-border bg-card px-3 text-sm md:max-w-sm"
                   />
-                  <p className="text-xs text-slate-500">
+                  <p className="text-xs text-muted-foreground">
                     Physical measurement time. Recorded time is stored separately when this is saved after later work or dispatch.
                   </p>
                 </label>
@@ -555,138 +555,138 @@ export default function StageQualityPage() {
               <EmptyState label="Select a job card to load frozen Allowed ranges." />
             )}
             {selectedJobId && failCodes.length >= 2 ? (
-              <div className="space-y-2 rounded-2xl border border-slate-900 bg-white p-4" data-testid="quality-stage-common-cause">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Common cause for related failures</div>
-                <p className="text-xs text-slate-600">One explanation can cover {failCodes.join(", ")}. Each failed parameter stays listed.</p>
+              <div className="space-y-2 rounded-2xl border border-slate-900 bg-card p-4" data-testid="quality-stage-common-cause">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Common cause for related failures</div>
+                <p className="text-xs text-muted-foreground">One explanation can cover {failCodes.join(", ")}. Each failed parameter stays listed.</p>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Common-cause explanation</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Common-cause explanation</span>
                   <input
                     data-testid="stage-qc-common-explanation"
                     value={draft.commonExplanation}
                     onChange={(event) => updateDraft(stageType, { commonExplanation: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                     placeholder="Link one cause to all related failing fields"
                   />
                 </label>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Containment</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Containment</span>
                   <input
                     data-testid="stage-qc-common-containment"
                     value={draft.commonContainment}
                     onChange={(event) => updateDraft(stageType, { commonContainment: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                     placeholder="Immediate containment / affected scope"
                   />
                 </label>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Assignee</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Assignee</span>
                   <input
                     data-testid="stage-qc-common-assignee"
                     value={draft.commonAssignee}
                     onChange={(event) => updateDraft(stageType, { commonAssignee: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                     placeholder="Responsible person"
                   />
                 </label>
               </div>
             ) : null}
             {originalInspection && String(originalInspection.status).toUpperCase() === "FAIL" ? (
-              <div className="space-y-2 rounded-2xl border border-slate-900 bg-white p-4" data-testid="quality-stage-correction">
-                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Correction of a recorded FAIL</div>
-                <p className="text-xs text-slate-600">
+              <div className="space-y-2 rounded-2xl border border-slate-900 bg-card p-4" data-testid="quality-stage-correction">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Correction of a recorded FAIL</div>
+                <p className="text-xs text-muted-foreground">
                   Original value stays on the FAIL record. Changing a failing number to a passing one needs a reason, actor, time, and revision. The hold is not cleared.
                 </p>
-                <div className="text-sm text-slate-800" data-testid="quality-stage-original-status">
+                <div className="text-sm text-foreground" data-testid="quality-stage-original-status">
                   {originalInspection.status}
                 </div>
-                <div className="text-sm text-slate-800" data-testid="quality-stage-original-height">
+                <div className="text-sm text-foreground" data-testid="quality-stage-original-height">
                   {String(originalInspection.readings?.height ?? "")}
                 </div>
                 <label className="block space-y-1">
-                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400">Correction reason</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Correction reason</span>
                   <input
                     data-testid="quality-stage-correction-reason"
                     value={correctionReason}
                     onChange={(event) => setCorrectionReason(event.target.value)}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                     placeholder="Why the previously recorded number is being corrected"
                   />
                 </label>
               </div>
             ) : null}
             {draftContext ? (
-              <div className="text-xs text-slate-600" data-testid="quality-stage-draft-context-version">
+              <div className="text-xs text-muted-foreground" data-testid="quality-stage-draft-context-version">
                 {String(draftContext.quality_context_version)}
               </div>
             ) : null}
             {missingSetup ? (
-              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-missing-setup">
+              <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="quality-stage-missing-setup">
                 Missing QC setup. Queue admission succeeded with a missing-setup flag. This checkpoint requires an approved resolution. Empty setup is not measured PASS.
               </div>
             ) : null}
             {requiresInstrument ? (
-              <div className="space-y-3 rounded-2xl border border-slate-900 bg-white p-4" data-testid="quality-stage-instrument-required">
-                <div className="text-sm text-slate-900">
+              <div className="space-y-3 rounded-2xl border border-slate-900 bg-card p-4" data-testid="quality-stage-instrument-required">
+                <div className="text-sm text-foreground">
                   Required instrument evidence controls readiness. Missing or expired instrument is not measured PASS, and calibration is not invented.
                 </div>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Instrument ID</span>
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Instrument ID</span>
                   <input
                     data-testid="quality-stage-instrument-id"
                     value={draft.instrumentId}
                     onChange={(event) => updateDraft(stageType, { instrumentId: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Calibration due</span>
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Calibration due</span>
                   <input
                     type="date"
                     data-testid="quality-stage-calibration-due"
                     value={draft.calibrationDue}
                     onChange={(event) => updateDraft(stageType, { calibrationDue: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Instrument status</span>
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Instrument status</span>
                   <input
                     data-testid="quality-stage-calibration-status"
                     value={draft.calibrationStatus}
                     onChange={(event) => updateDraft(stageType, { calibrationStatus: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                     placeholder="valid / expired / missing"
                   />
                 </label>
                 <label className="block text-sm">
-                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600">Calibration evidence</span>
+                  <span className="mb-1 block text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Calibration evidence</span>
                   <input
                     data-testid="quality-stage-instrument-evidence"
                     value={draft.instrumentEvidence}
                     onChange={(event) => updateDraft(stageType, { instrumentEvidence: event.target.value })}
-                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-slate-900"
+                    className="h-10 w-full rounded-xl border border-slate-900 px-3 text-sm text-foreground"
                     placeholder="Certificate or documented evidence ref"
                   />
                 </label>
               </div>
             ) : null}
             {staleConflict?.code === "MISSING_QC_SETUP" ? (
-              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-missing-setup-conflict">
+              <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="quality-stage-missing-setup-conflict">
                 {staleConflict.message}
               </div>
             ) : null}
             {staleConflict?.code === "INVALID_INSTRUMENT" ? (
-              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-instrument-conflict">
+              <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="quality-stage-instrument-conflict">
                 {staleConflict.message} Status: {String(staleConflict.instrument_status || "")}. Invented calibration: no.
               </div>
             ) : null}
             {offlineDraftKept ? (
-              <div className="rounded-2xl border border-slate-300 bg-slate-50 p-4 text-sm text-slate-900" data-testid="quality-stage-offline-draft">
+              <div className="rounded-2xl border border-border bg-muted p-4 text-sm text-foreground" data-testid="quality-stage-offline-draft">
                 Paper/offline draft kept locally. This is not a quality release.
               </div>
             ) : null}
             {staleConflict && staleConflict.code !== "MISSING_QC_SETUP" && staleConflict.code !== "INVALID_INSTRUMENT" ? (
-              <div className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="quality-stage-stale-conflict">
+              <div className="space-y-2 rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="quality-stage-stale-conflict">
                 <div className="font-semibold">{staleConflict.message}</div>
                 <div data-testid="quality-stage-retained-height">
                   Height {String(staleConflict.observations?.readings?.height ?? draft.readings.height ?? "")}
@@ -698,22 +698,22 @@ export default function StageQualityPage() {
               </div>
             ) : null}
             {lastVerdict ? (
-              <div className="text-sm font-semibold text-slate-900" data-testid="quality-stage-verdict">
+              <div className="text-sm font-semibold text-foreground" data-testid="quality-stage-verdict">
                 {lastVerdict}
               </div>
             ) : null}
             {lastGatingPolicy ? (
-              <div className="text-sm text-slate-800" data-testid="quality-stage-gating-policy">
+              <div className="text-sm text-foreground" data-testid="quality-stage-gating-policy">
                 {lastGatingPolicy}
               </div>
             ) : null}
             {lastMovementGate ? (
-              <div className="text-sm text-slate-800" data-testid="quality-stage-movement-gate">
+              <div className="text-sm text-foreground" data-testid="quality-stage-movement-gate">
                 {lastMovementGate}
               </div>
             ) : null}
             {lastLateException ? (
-              <div className="space-y-2 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950" data-testid="late-quality-exception">
+              <div className="space-y-2 rounded-2xl border border-signal-amber-line bg-signal-amber-soft p-4 text-sm text-signal-amber-ink" data-testid="late-quality-exception">
                 <div className="font-semibold">{lastLateException.late_exception_label || "Late quality exception"}</div>
                 <p>
                   Measured and recorded clocks are stored separately. Surviving stock is traced. Earlier shipment remains as it occurred.
@@ -733,27 +733,27 @@ export default function StageQualityPage() {
               </div>
             ) : null}
             {lastOriginalStatus ? (
-              <div className="text-sm text-slate-800" data-testid="quality-stage-retained-status">
+              <div className="text-sm text-foreground" data-testid="quality-stage-retained-status">
                 {lastOriginalStatus}
               </div>
             ) : null}
             {lastCorrectionRevision ? (
-              <div className="text-sm text-slate-800" data-testid="quality-stage-correction-revision">
+              <div className="text-sm text-foreground" data-testid="quality-stage-correction-revision">
                 {lastCorrectionRevision}
               </div>
             ) : null}
             {investigationStatus ? (
-              <div className="text-sm text-slate-800" data-testid="quality-stage-investigation">
+              <div className="text-sm text-foreground" data-testid="quality-stage-investigation">
                 {investigationStatus}
               </div>
             ) : null}
             {groupedCaseId ? (
-              <div className="text-sm text-slate-800" data-testid="quality-stage-grouped-case">
+              <div className="text-sm text-foreground" data-testid="quality-stage-grouped-case">
                 {groupedCaseId}
               </div>
             ) : null}
             {cardIssues.length ? (
-              <ul className="space-y-2 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-800" data-testid="quality-card-issues">
+              <ul className="space-y-2 rounded-2xl border border-border bg-card p-4 text-sm text-foreground" data-testid="quality-card-issues">
                 {cardIssues.map((issue, index) => (
                   <li
                     key={`${issue.stage}-${issue.parameter}-${issue.sample || ""}-${index}`}
@@ -776,7 +776,7 @@ export default function StageQualityPage() {
                   setStaleConflict(null)
                   showToast("Paper/offline draft kept. Not a quality release.", "success")
                 }}
-                className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-800 disabled:opacity-60"
+                className="rounded-xl border border-border px-4 py-3 text-sm font-semibold text-foreground disabled:opacity-60"
               >
                 Keep paper/offline draft
               </button>
@@ -795,7 +795,7 @@ export default function StageQualityPage() {
                 onClick={() => {
                   void handleCompleteCard()
                 }}
-                className="rounded-xl border border-slate-900 px-4 py-3 text-sm font-semibold text-slate-900 disabled:opacity-60"
+                className="rounded-xl border border-slate-900 px-4 py-3 text-sm font-semibold text-foreground disabled:opacity-60"
               >
                 Submit complete job card
               </button>

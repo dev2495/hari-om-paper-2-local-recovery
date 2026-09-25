@@ -325,3 +325,21 @@ def test_incomplete_draft_save_is_not_approved_or_qc_ready():
     assert profile_status(profile) not in {"approved", "complete"}
     empty = normalize_qc_profile({"status": "complete", "stages": {}})
     assert profile_status(empty) != "complete"
+
+
+def test_non_waivable_criterion_is_frozen_and_forces_blocking_policy():
+    profile = normalize_qc_profile({'stages': {'WINDER': {'gating': 'advisory', 'parameters': [
+        {'code': 'height', 'min': 118, 'max': 122, 'non_waivable': True, 'gating': 'advisory'},
+    ]}}})
+    height = next(row for row in profile['stages']['WINDER']['parameters'] if row['code'] == 'height')
+    assert height['non_waivable'] is True
+    assert height['gating'] == 'blocking'
+
+
+def test_non_waivable_criterion_rejects_ambiguous_boolean():
+    from src.qc_profile import QcProfileError
+    with pytest.raises(QcProfileError) as exc:
+        normalize_qc_profile({'stages': {'WINDER': {'parameters': [
+            {'code': 'height', 'min': 118, 'max': 122, 'non_waivable': 'false'},
+        ]}}})
+    assert exc.value.code == 'INVALID_WAIVER_POLICY'

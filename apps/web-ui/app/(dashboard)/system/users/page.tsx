@@ -115,14 +115,14 @@ export default function UsersPage() {
           { label: "Current scope", value: scopeLabel, note: "Top plant switcher governs this list" },
         ].map((item) => (
           <div key={item.label} className="erp-panel rounded-[1.4rem] p-4">
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-slate-500">{item.label}</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">{item.value}</p>
-            <p className="mt-1 text-xs text-slate-500">{item.note}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-muted-foreground">{item.label}</p>
+            <p className="mt-2 text-lg font-semibold text-foreground">{item.value}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{item.note}</p>
           </div>
         ))}
       </div>
 
-      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
+      <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
         {[
           { href: "/system/users", label: "Users", icon: Users2, active: true },
           { href: "/system/plants", label: "Plants", icon: Building2, active: false },
@@ -134,7 +134,7 @@ export default function UsersPage() {
             key={item.href}
             href={item.href}
             className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-              item.active ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+              item.active ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
             }`}
           >
             <item.icon className="h-4 w-4" />
@@ -143,27 +143,27 @@ export default function UsersPage() {
         ))}
       </section>
 
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white/92 shadow-xl shadow-slate-900/5">
-        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+      <section className="overflow-hidden rounded-[2rem] border border-border bg-card/92 shadow-xl shadow-slate-900/5">
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">User management</h2>
-            <p className="text-sm text-slate-500">Roles are rendered from the real auth-service payload and plant IDs are resolved back to plant names.</p>
+            <h2 className="text-lg font-semibold text-foreground">User management</h2>
+            <p className="text-sm text-muted-foreground">Roles are rendered from the real auth-service payload and plant IDs are resolved back to plant names.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex h-11 items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3">
-              <Search className="h-4 w-4 text-slate-400" />
+            <div className="flex h-11 items-center gap-2 rounded-2xl border border-border bg-card px-3">
+              <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 aria-label="Search users"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search users, email, role..."
-                className="w-56 bg-transparent text-sm outline-none placeholder:text-slate-400"
+                className="w-56 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
               />
             </div>
             <select
               value={roleFilter}
               onChange={(event) => setRoleFilter(event.target.value)}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+              className="h-11 rounded-2xl border border-border bg-card px-3 text-sm font-semibold text-muted-foreground"
             >
               <option value="ALL">All roles</option>
               {roleOptions.map((role) => (
@@ -173,13 +173,13 @@ export default function UsersPage() {
             <select
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+              className="h-11 rounded-2xl border border-border bg-card px-3 text-sm font-semibold text-muted-foreground"
             >
               <option value="ALL">All status</option>
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
             </select>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <span className="rounded-full border border-border bg-muted px-3 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               {visibleUsers.length}/{scopedUsers.length}
             </span>
           </div>
@@ -187,7 +187,7 @@ export default function UsersPage() {
 
         <div className="overflow-x-auto">
           <table className="min-w-full text-left">
-            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <thead className="bg-muted text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               <tr>
                 <th className="px-6 py-4">User</th>
                 <th className="px-6 py-4">Roles</th>
@@ -196,7 +196,7 @@ export default function UsersPage() {
                 <th className="px-6 py-4">Created</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200">
+            <tbody className="divide-y divide-border">
               {usersLoading ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-6">
@@ -222,15 +222,15 @@ export default function UsersPage() {
                           : ["Global"]
 
                   return (
-                    <tr key={entry.id} className="transition hover:bg-slate-50/80">
+                    <tr key={entry.id} className="transition hover:bg-muted/80">
                       <td className="px-6 py-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-900">
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-signal-cyan-soft text-signal-cyan-ink">
                             <UserIcon className="h-5 w-5" />
                           </div>
                           <div>
-                            <p className="text-sm font-semibold text-slate-950"><Link href={`/system/users/${entry.id}`} className="underline decoration-teal-600 underline-offset-4">{entry.name || entry.email} · Edit</Link></p>
-                            <p className="text-xs text-slate-500">{entry.email}</p>
+                            <p className="text-sm font-semibold text-foreground"><Link href={`/system/users/${entry.id}`} className="underline decoration-teal-600 underline-offset-4">{entry.name || entry.email} · Edit</Link></p>
+                            <p className="text-xs text-muted-foreground">{entry.email}</p>
                           </div>
                         </div>
                       </td>
@@ -240,14 +240,14 @@ export default function UsersPage() {
                             roles.map((role: string) => (
                               <span
                                 key={`${entry.id}-${role}`}
-                                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-700"
+                                className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground"
                               >
                                 <Shield className="h-3 w-3" />
                                 {role}
                               </span>
                             ))
                           ) : (
-                            <span className="text-sm text-slate-400">No role mapped</span>
+                            <span className="text-sm text-muted-foreground">No role mapped</span>
                           )}
                         </div>
                       </td>
@@ -256,7 +256,7 @@ export default function UsersPage() {
                           {scopeItems.map((scope: string) => (
                             <span
                               key={`${entry.id}-${scope}`}
-                              className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-900"
+                              className="inline-flex items-center gap-1 rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2.5 py-1 text-[11px] font-semibold text-signal-cyan-ink"
                             >
                               <ChevronRight className="h-3 w-3" />
                               {scope}
@@ -267,13 +267,13 @@ export default function UsersPage() {
                       <td className="px-6 py-4">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] ${
-                            entry?.is_active === false ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                            entry?.is_active === false ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-emerald-soft text-signal-emerald-ink"
                           }`}
                         >
                           {entry?.is_active === false ? "Inactive" : "Active"}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-xs text-slate-500">{formatCreated(entry?.created_at)}</td>
+                      <td className="px-6 py-4 text-xs text-muted-foreground">{formatCreated(entry?.created_at)}</td>
                     </tr>
                   )
                 })

@@ -4,24 +4,36 @@ import json
 
 import logging
 from datetime import date, datetime
+from decimal import Decimal
+from io import BytesIO
 from typing import Any, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import get_db
+from ..config import get_settings
 from ..models import (
+    DocumentSeries,
     InventoryLocation,
     ItemMaster,
     PurchaseLineSchedule,
     PurchaseOrder,
+    PurchaseApprovalDecision,
     PurchaseOrderLine,
+    PurchaseOrderRevision,
+    PurchaseOrderRevisionLine,
+    PurchaseDeliverySchedule,
     PurchaseReceipt,
     PurchaseReceiptLine,
+    ReceiptStockAllocation,
+    PaperReel,
     ReferenceType,
     StockBatch,
     StockTransaction,
@@ -41,6 +53,8 @@ from ..services.supplier_schedule import (
     allocate_receipt_to_schedule,
     serialize_schedule,
 )
+from ..services.procurement import canonical_hash, po_number
+from ..services.procurement_documents import render_purchase_order_pdf
 from ..utils.audit_client import emit_audit_event
 from ..utils.auth import get_current_plant, get_current_user, require_role
 
@@ -95,7 +109,8 @@ def _next_doc_no(db: Session, model, plant_id: str, field_name: str, prefix: str
     # Transaction-scoped lock avoids count/check races across orders in a plant.
     from sqlalchemy import text
     db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"document:{plant_id}:{prefix}"})
-    date_part = datetime.utcnow().strftime("%y%m%d")
+    from zoneinfo import ZoneInfo
+    date_part = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%y%m%d")
     base = f"{prefix}-{date_part}"
     for seq in range(1, 10000):
         candidate = f"{base}-{seq:03d}"
@@ -108,16 +123,142 @@ def _next_doc_no(db: Session, model, plant_id: str, field_name: str, prefix: str
     raise HTTPException(status_code=500, detail=f"Unable to generate {prefix} number")
 
 
+def _next_purchase_order_no(db: Session, plant_id: str, category: str) -> str:
+    from sqlalchemy import text
+
+    normalized = category.strip().upper()
+    prefix = "RP-PM" if normalized == "RM_PM" else "OT"
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"purchase-series:{plant_id}:{normalized}"},
+    )
+    series = (
+        db.query(DocumentSeries)
+        .filter(
+            DocumentSeries.plant_id == plant_id,
+            DocumentSeries.document_type == "PURCHASE_ORDER",
+            DocumentSeries.category == normalized,
+            DocumentSeries.active.is_(True),
+        )
+        .with_for_update()
+        .first()
+    )
+    if not series:
+        series = DocumentSeries(
+            plant_id=plant_id,
+            document_type="PURCHASE_ORDER",
+            category=normalized,
+            prefix=prefix,
+            next_value=1,
+        )
+        db.add(series)
+        db.flush()
+    candidate = po_number(series.prefix, int(series.next_value))
+    series.next_value = int(series.next_value) + 1
+    series.version = int(series.version or 1) + 1
+    return candidate
+
+
+def _revision_snapshot(order: PurchaseOrder, lines: list[PurchaseOrderLine]) -> dict[str, Any]:
+    metadata = dict(order.metadata_json or {})
+    return {
+        "po_no": order.po_no,
+        "category": order.category,
+        "supplier_id": str(order.supplier_id),
+        "supplier_name": order.supplier_name_snapshot,
+        "expected_date": order.expected_date.isoformat() if order.expected_date else None,
+        "notes": order.notes,
+        "metadata": metadata,
+        "lines": [
+            {
+                "logical_line_id": str(line.logical_line_id),
+                "source_order_line_id": str(line.id),
+                "item_id": str(line.item_id),
+                "qty_ordered": str(line.qty_ordered),
+                "unit_rate": str(line.unit_cost),
+                "uom": line.uom,
+                "expected_unit_count": line.expected_unit_count,
+                "received_unit_count": line.received_unit_count,
+                "count_basis": line.count_basis,
+                "specification": dict(line.metadata_json or {}),
+            }
+            for line in lines
+        ],
+    }
+
+
+def _persist_revision(
+    db: Session,
+    order: PurchaseOrder,
+    lines: list[PurchaseOrderLine],
+    *,
+    revision_no: int,
+    request_id: uuid.UUID,
+    actor: str,
+    change_reason: Optional[str] = None,
+) -> PurchaseOrderRevision:
+    snapshot = _revision_snapshot(order, lines)
+    revision = PurchaseOrderRevision(
+        purchase_order_id=order.id,
+        revision_no=revision_no,
+        request_id=request_id,
+        approval_state="DRAFT",
+        content_hash=canonical_hash(snapshot),
+        snapshot_json=snapshot,
+        change_reason=change_reason,
+        created_by=actor,
+    )
+    db.add(revision)
+    db.flush()
+    for line in lines:
+        db.add(
+            PurchaseOrderRevisionLine(
+                revision_id=revision.id,
+                logical_line_id=line.logical_line_id,
+                source_order_line_id=line.id,
+                item_id=line.item_id,
+                qty_ordered=line.qty_ordered,
+                unit_rate=line.unit_cost,
+                uom=line.uom,
+                expected_unit_count=line.expected_unit_count,
+                count_basis=line.count_basis,
+                specification_json=dict(line.metadata_json or {}),
+                delivery_date=order.expected_date,
+            )
+        )
+    return revision
+
+
+def _current_revision(db: Session, order: PurchaseOrder, *, lock: bool = False) -> PurchaseOrderRevision:
+    query = db.query(PurchaseOrderRevision).filter(
+        PurchaseOrderRevision.purchase_order_id == order.id,
+        PurchaseOrderRevision.revision_no == order.current_revision_no,
+    )
+    if lock:
+        query = query.with_for_update()
+    revision = query.first()
+    if not revision:
+        # Existing historical POs remain readable, but cannot pass a new
+        # decision without a migrated evidence snapshot.
+        raise HTTPException(status_code=409, detail="Purchase order revision history is unavailable; run the procurement backfill")
+    return revision
+
+
 class PurchaseOrderLineCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     item_id: uuid.UUID
+    logical_line_id: Optional[uuid.UUID] = None
     qty_ordered: float = Field(gt=0)
     unit_cost: float = Field(ge=0)
+    uom: str = Field(default="KG", pattern="^(KG|PCS)$")
+    expected_unit_count: Optional[int] = Field(default=None, gt=0)
+    count_basis: Optional[str] = Field(default=None, pattern="^(ESTIMATED|CONTRACTUAL)$")
     incoming_qc_required: bool = True
     notes: Optional[str] = Field(default=None, max_length=500)
     description: Optional[str] = Field(default=None, max_length=500)
     width_mm: Optional[float] = Field(default=None, ge=0)
+    width_tolerance_mm: Optional[float] = Field(default=None, ge=0)
     gsm: Optional[float] = Field(default=None, ge=0)
     plybond: Optional[float] = Field(default=None, ge=0)
     bulk: Optional[float] = Field(default=None, ge=0)
@@ -130,6 +271,8 @@ class PurchaseOrderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     po_no: Optional[str] = Field(default=None, max_length=80)
+    request_id: uuid.UUID
+    category: str = Field(default="RM_PM", pattern="^(RM_PM|OT)$")
     po_date: Optional[date] = None
     supplier_id: uuid.UUID
     supplier_name: str = Field(min_length=1, max_length=200)
@@ -156,10 +299,20 @@ class PurchaseOrderCreate(BaseModel):
             raise ValueError("vendor is required")
         return cleaned
 
+    @field_validator("po_no")
+    @classmethod
+    def reject_manual_po_number(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None and value.strip():
+            raise ValueError("PO number is assigned automatically by the server")
+        return None
+
 
 class PurchaseOrderResponse(BaseModel):
     id: uuid.UUID
     po_no: str
+    category: str
+    current_revision_no: int
+    version: int
     po_date: Optional[str] = None
     supplier_id: uuid.UUID
     supplier_name: str
@@ -177,6 +330,32 @@ class PurchaseOrderResponse(BaseModel):
     special_instruction: Optional[str] = None
     metadata_json: dict[str, Any] = Field(default_factory=dict)
     lines: list[dict[str, Any]]
+
+
+class RevisionActionPayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(gt=0)
+    content_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+class ShortCloseLine(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    po_line_id: uuid.UUID
+    qty: Optional[float] = Field(default=None, gt=0)
+
+
+class ShortClosePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    expected_version: int = Field(gt=0)
+    reason: str = Field(min_length=3, max_length=1000)
+    lines: list[ShortCloseLine] = Field(default_factory=list)
+
+
+class PurchaseRevisionCreate(PurchaseOrderCreate):
+    change_reason: str = Field(min_length=3, max_length=1000)
+    expected_version: int = Field(gt=0)
 
 
 class GrnLineCreate(BaseModel):
@@ -296,6 +475,9 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
     return {
         "id": order.id,
         "po_no": order.po_no,
+        "category": order.category or "RM_PM",
+        "current_revision_no": int(order.current_revision_no or 1),
+        "version": int(order.version or 1),
         "po_date": metadata.get("po_date"),
         "supplier_id": order.supplier_id,
         "supplier_name": order.supplier_name_snapshot,
@@ -316,6 +498,7 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
         "lines": [
             {
                 "id": str(line.id),
+                "logical_line_id": str(line.logical_line_id),
                 "item_id": str(line.item_id),
                 "item_code": line.item.item_code if line.item else None,
                 "item_name": line.item.name if line.item else None,
@@ -333,12 +516,18 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
                     ),
                     6,
                 ),
+                "qty_short_closed": float(line.qty_short_closed or 0.0),
+                "uom": line.uom or "KG",
+                "expected_unit_count": line.expected_unit_count,
+                "received_unit_count": line.received_unit_count,
+                "count_basis": line.count_basis,
                 "unit_cost": float(line.unit_cost or 0.0),
                 "incoming_qc_required": bool(line.incoming_qc_required),
                 "line_status": line.line_status,
                 "notes": line.notes,
                 "description": (line.metadata_json or {}).get("description"),
                 "width_mm": (line.metadata_json or {}).get("width_mm"),
+                "width_tolerance_mm": (line.metadata_json or {}).get("width_tolerance_mm"),
                 "gsm": (line.metadata_json or {}).get("gsm"),
                 "plybond": (line.metadata_json or {}).get("plybond"),
                 "bulk": (line.metadata_json or {}).get("bulk"),
@@ -369,6 +558,7 @@ def _serialize_order(order: PurchaseOrder) -> dict[str, Any]:
 @router.get("/orders")
 def list_purchase_orders(
     status: Optional[str] = Query(default=None),
+    q: Optional[str] = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -378,8 +568,104 @@ def list_purchase_orders(
     query = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == plant_id)
     if status:
         query = query.filter(PurchaseOrder.status == status.strip().upper())
-    rows = query.order_by(PurchaseOrder.created_at.desc()).offset(offset).limit(limit).all()
-    return {"items": [_serialize_order(row) for row in rows], "limit": limit, "offset": offset}
+    if q and q.strip():
+        needle = "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        query = query.filter(or_(
+            PurchaseOrder.po_no.ilike(needle, escape="\\"),
+            PurchaseOrder.supplier_name_snapshot.ilike(needle, escape="\\"),
+            PurchaseOrder.lines.any(PurchaseOrderLine.item.has(or_(
+                ItemMaster.item_code.ilike(needle, escape="\\"),
+                ItemMaster.name.ilike(needle, escape="\\"),
+            ))),
+        ))
+    total = query.count()
+    counts = dict(query.with_entities(PurchaseOrder.status, func.count(PurchaseOrder.id)).group_by(PurchaseOrder.status).all())
+    matching_ids = query.with_entities(PurchaseOrder.id).filter(PurchaseOrder.status.notin_(["CANCELLED", "REJECTED"]))
+    balances = db.query(
+        PurchaseOrderLine.uom,
+        func.sum(func.greatest(0, PurchaseOrderLine.qty_ordered - func.coalesce(PurchaseOrderLine.qty_received, 0) - func.coalesce(PurchaseOrderLine.qty_short_closed, 0))),
+    ).filter(PurchaseOrderLine.purchase_order_id.in_(matching_ids)).group_by(PurchaseOrderLine.uom).all()
+    rows = query.options(
+        selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.item),
+        selectinload(PurchaseOrder.lines).selectinload(PurchaseOrderLine.schedules).selectinload(PurchaseLineSchedule.allocations),
+    ).order_by(PurchaseOrder.created_at.desc(), PurchaseOrder.id.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [_serialize_order(row) for row in rows], "limit": limit, "offset": offset, "total": total,
+        "summary": {
+            "awaiting_approval": counts.get("SUBMITTED", 0),
+            "receivable": counts.get("APPROVED", 0) + counts.get("PARTIALLY_RECEIVED", 0),
+            "open_by_uom": {uom or "KG": round(float(qty or 0), 6) for uom, qty in balances},
+        },
+    }
+
+
+
+@router.get("/orders/{po_id}", response_model=PurchaseOrderResponse)
+def get_purchase_order(
+    po_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """Load one saved PO directly so deep links never depend on list pagination."""
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == po_id,
+        PurchaseOrder.plant_id == plant_id,
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    return _serialize_order(order)
+
+
+@router.get("/orders/{po_id}/pdf")
+def purchase_order_pdf(
+    po_id: uuid.UUID,
+    revision_no: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == po_id,
+        PurchaseOrder.plant_id == plant_id,
+    ).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    selected_revision = revision_no or int(order.current_revision_no or 1)
+    revision = db.query(PurchaseOrderRevision).filter(
+        PurchaseOrderRevision.purchase_order_id == order.id,
+        PurchaseOrderRevision.revision_no == selected_revision,
+    ).first()
+    if not revision:
+        raise HTTPException(status_code=404, detail="Purchase order revision not found")
+    revision_line_ids = [line.id for line in revision.lines or []]
+    schedule_rows = []
+    if revision_line_ids:
+        schedules = db.query(PurchaseDeliverySchedule).filter(
+            PurchaseDeliverySchedule.revision_line_id.in_(revision_line_ids),
+        ).order_by(PurchaseDeliverySchedule.delivery_date, PurchaseDeliverySchedule.created_at).all()
+        revision_lines = {line.id: line for line in revision.lines or []}
+        for schedule in schedules:
+            line = revision_lines.get(schedule.revision_line_id)
+            planned = Decimal(schedule.planned_qty or 0)
+            received = Decimal(schedule.received_qty or 0)
+            cancelled = Decimal(schedule.cancelled_qty or 0)
+            schedule_rows.append({
+                "delivery_date": schedule.delivery_date,
+                "item_code": line.item.item_code if line and line.item else str(line.item_id) if line else "-",
+                "planned_qty": planned,
+                "received_qty": received,
+                "cancelled_qty": cancelled,
+                "open_qty": max(planned - received - cancelled, Decimal("0")),
+                "vendor_confirmation": schedule.vendor_confirmation,
+            })
+    pdf_bytes = render_purchase_order_pdf(order, revision, schedule_rows)
+    filename = f"{order.po_no.replace('/', '-')}-R{selected_revision}.pdf"
+    return StreamingResponse(
+        BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.post("/orders", response_model=PurchaseOrderResponse)
@@ -389,14 +675,24 @@ def create_purchase_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Store", "PlantManager", "Owner"])),
 ):
-    po_no = (payload.po_no or "").strip().upper() or _next_doc_no(db, PurchaseOrder, plant_id, "po_no", "PO")
-    existing = db.query(PurchaseOrder).filter(PurchaseOrder.plant_id == plant_id, PurchaseOrder.po_no == po_no).first()
-    if existing:
-        raise HTTPException(status_code=400, detail="Purchase order number already exists")
+    fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id", "po_no"}))
+    existing_request = db.query(PurchaseOrder).filter(
+        PurchaseOrder.plant_id == plant_id, PurchaseOrder.request_id == payload.request_id,
+    ).first()
+    if existing_request:
+        if existing_request.request_fingerprint != fingerprint:
+            raise HTTPException(status_code=409, detail="This PO request key already exists with different details")
+        return _serialize_order(existing_request)
+    po_no = _next_purchase_order_no(db, plant_id, payload.category)
 
     order = PurchaseOrder(
         plant_id=plant_id,
         po_no=po_no,
+        request_id=payload.request_id,
+        request_fingerprint=fingerprint,
+        category=payload.category,
+        current_revision_no=1,
+        version=1,
         supplier_id=payload.supplier_id,
         supplier_name_snapshot=payload.supplier_name,
         expected_date=payload.expected_date,
@@ -420,6 +716,7 @@ def create_purchase_order(
     db.add(order)
     db.flush()
 
+    saved_lines: list[PurchaseOrderLine] = []
     for idx, line in enumerate(payload.lines, start=1):
         item = db.query(ItemMaster).filter(ItemMaster.id == line.item_id, ItemMaster.plant_id == plant_id).first()
         if not item:
@@ -434,11 +731,17 @@ def create_purchase_order(
             conflict = qualifier_conflicts_item(parsed, live_profile)
             if conflict:
                 conflicts.append(conflict)
-        db.add(
-            PurchaseOrderLine(
+        if item.type == "RAW_PAPER" or getattr(item.type, "value", item.type) == "RAW_PAPER":
+            if line.uom != "KG":
+                raise HTTPException(status_code=422, detail=f"Paper PO line {idx} must use KG")
+        saved_line = PurchaseOrderLine(
                 purchase_order_id=order.id,
                 item_id=item.id,
+                logical_line_id=uuid.uuid4(),
                 qty_ordered=line.qty_ordered,
+                uom=line.uom,
+                expected_unit_count=line.expected_unit_count,
+                count_basis=line.count_basis,
                 unit_cost=line.unit_cost,
                 incoming_qc_required=line.incoming_qc_required,
                 line_status="OPEN",
@@ -447,6 +750,7 @@ def create_purchase_order(
                     **dict(line.metadata_json or {}),
                     "description": line.description,
                     "width_mm": line.width_mm,
+                    "width_tolerance_mm": line.width_tolerance_mm,
                     "gsm": line.gsm,
                     "plybond": line.plybond,
                     "bulk": line.bulk,
@@ -458,7 +762,10 @@ def create_purchase_order(
                     "item_profile_untouched": True,
                 },
             )
-        )
+        db.add(saved_line)
+        saved_lines.append(saved_line)
+    db.flush()
+    _persist_revision(db, order, saved_lines, revision_no=1, request_id=payload.request_id, actor=_actor(current_user))
     db.commit()
     db.refresh(order)
     try:
@@ -484,9 +791,166 @@ def create_purchase_order(
     return _serialize_order(order)
 
 
+@router.post("/orders/{po_id}/submit", response_model=PurchaseOrderResponse)
+def submit_purchase_order(
+    po_id: uuid.UUID,
+    payload: RevisionActionPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Store", "Planner", "PlantManager"])),
+):
+    order = db.query(PurchaseOrder).filter(
+        PurchaseOrder.id == po_id,
+        PurchaseOrder.plant_id == plant_id,
+    ).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before submitting")
+    if order.status != "DRAFT":
+        raise HTTPException(status_code=409, detail="Only a draft purchase order can be submitted")
+    revision = _current_revision(db, order, lock=True)
+    if payload.content_hash and payload.content_hash != revision.content_hash:
+        raise HTTPException(status_code=409, detail="Purchase order content changed; reload before submitting")
+    revision.approval_state = "SUBMITTED"
+    revision.submitted_by = _actor(current_user)
+    revision.submitted_at = datetime.utcnow()
+    revision.version += 1
+    order.status = "SUBMITTED"
+    order.submitted_by = revision.submitted_by
+    order.submitted_at = revision.submitted_at
+    order.version += 1
+    db.add(PurchaseApprovalDecision(
+        revision_id=revision.id,
+        decision="SUBMITTED",
+        reason=payload.reason,
+        content_hash=revision.content_hash,
+        actor=_actor(current_user),
+        actor_role=str((current_user.get("roles") or [""])[0]),
+    ))
+    db.commit()
+    db.refresh(order)
+    return _serialize_order(order)
+
+
+@router.post("/orders/{po_id}/revisions", response_model=PurchaseOrderResponse)
+def create_purchase_order_revision(
+    po_id: uuid.UUID,
+    payload: PurchaseRevisionCreate,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Store", "Planner", "PlantManager"])),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before revising")
+    if order.status in {"CANCELLED", "RECEIVED", "SHORT_CLOSED"}:
+        raise HTTPException(status_code=409, detail="Closed purchase orders cannot be revised")
+    if payload.category != order.category:
+        raise HTTPException(status_code=422, detail="A PO category cannot change after its automatic series number is assigned")
+    if order.receipts and payload.supplier_id != order.supplier_id:
+        raise HTTPException(status_code=409, detail="Vendor cannot change after an inward exists; short-close the balance and create a new PO")
+    existing_by_logical = {str(line.logical_line_id): line for line in order.lines or []}
+    touched: set[str] = set()
+    revised_lines: list[PurchaseOrderLine] = []
+    for index, requested in enumerate(payload.lines, start=1):
+        item = db.query(ItemMaster).filter(ItemMaster.id == requested.item_id, ItemMaster.plant_id == plant_id).first()
+        if not item:
+            raise HTTPException(status_code=404, detail=f"Item not found for revision line {index}")
+        if getattr(item.type, "value", item.type) == "RAW_PAPER" and requested.uom != "KG":
+            raise HTTPException(status_code=422, detail=f"Paper revision line {index} must use KG")
+        logical_id = str(requested.logical_line_id) if requested.logical_line_id else ""
+        line = existing_by_logical.get(logical_id)
+        if line:
+            if line.item_id != requested.item_id and float(line.qty_received or 0) > 0:
+                raise HTTPException(status_code=409, detail=f"Received line {index} cannot change material")
+            if requested.qty_ordered + 1e-9 < float(line.qty_received or 0):
+                raise HTTPException(status_code=409, detail=f"Revision line {index} quantity is below received kg")
+            line.item_id = requested.item_id
+            line.qty_ordered = requested.qty_ordered
+            line.unit_cost = requested.unit_cost
+            line.uom = requested.uom
+            line.expected_unit_count = requested.expected_unit_count
+            line.count_basis = requested.count_basis
+            line.incoming_qc_required = requested.incoming_qc_required
+            line.notes = requested.notes
+            line.metadata_json = {
+                **dict(requested.metadata_json or {}), "description": requested.description,
+                "width_mm": requested.width_mm, "width_tolerance_mm": requested.width_tolerance_mm,
+                "gsm": requested.gsm, "plybond": requested.plybond,
+                "bulk": requested.bulk, "cobb": requested.cobb,
+            }
+            line.line_status = _line_status(line.qty_ordered, line.qty_received)
+        else:
+            line = PurchaseOrderLine(
+                purchase_order_id=order.id, item_id=requested.item_id, logical_line_id=requested.logical_line_id or uuid.uuid4(),
+                qty_ordered=requested.qty_ordered, qty_received=0, unit_cost=requested.unit_cost, uom=requested.uom,
+                expected_unit_count=requested.expected_unit_count, count_basis=requested.count_basis,
+                incoming_qc_required=requested.incoming_qc_required, line_status="OPEN", notes=requested.notes,
+                metadata_json={**dict(requested.metadata_json or {}), "description": requested.description,
+                    "width_mm": requested.width_mm, "width_tolerance_mm": requested.width_tolerance_mm,
+                    "gsm": requested.gsm, "plybond": requested.plybond,
+                    "bulk": requested.bulk, "cobb": requested.cobb},
+            )
+            db.add(line)
+        touched.add(str(line.logical_line_id))
+        revised_lines.append(line)
+    omitted = [line for key, line in existing_by_logical.items() if key not in touched]
+    if omitted:
+        raise HTTPException(status_code=422, detail="Revision must include every existing logical PO line; use short-close for an unwanted balance")
+    order.supplier_id = payload.supplier_id
+    order.supplier_name_snapshot = payload.supplier_name
+    order.expected_date = payload.expected_date
+    order.notes = payload.notes
+    order.category = payload.category
+    order.metadata_json = {
+        **dict(payload.metadata_json or {}), "po_date": (payload.po_date or date.today()).isoformat(),
+        "supplier_contact": payload.supplier_contact, "supplier_address": payload.supplier_address,
+        "supplier_gst_no": payload.supplier_gst_no, "freight_terms": payload.freight_terms,
+        "tax_terms": payload.tax_terms, "payment_terms": payload.payment_terms,
+        "delivery_terms": payload.delivery_terms, "test_report_terms": payload.test_report_terms,
+        "special_instruction": payload.special_instruction,
+    }
+    order.current_revision_no = int(order.current_revision_no or 1) + 1
+    order.status = "DRAFT"
+    order.approved_by = None
+    order.approved_at = None
+    order.version += 1
+    db.flush()
+    _persist_revision(db, order, revised_lines, revision_no=order.current_revision_no, request_id=payload.request_id, actor=_actor(current_user), change_reason=payload.change_reason)
+    db.commit()
+    db.refresh(order)
+    return _serialize_order(order)
+
+
+@router.get("/orders/{po_id}/history")
+def purchase_order_history(
+    po_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    revisions = db.query(PurchaseOrderRevision).filter(PurchaseOrderRevision.purchase_order_id == order.id).order_by(PurchaseOrderRevision.revision_no.desc()).all()
+    return {"po_id": str(order.id), "po_no": order.po_no, "items": [{
+        "id": str(revision.id), "revision_no": revision.revision_no, "approval_state": revision.approval_state,
+        "content_hash": revision.content_hash, "change_reason": revision.change_reason, "version": revision.version,
+        "created_by": revision.created_by, "submitted_by": revision.submitted_by,
+        "submitted_at": revision.submitted_at.isoformat() if revision.submitted_at else None,
+        "approved_by": revision.approved_by, "approved_at": revision.approved_at.isoformat() if revision.approved_at else None,
+        "rejected_by": revision.rejected_by, "rejected_at": revision.rejected_at.isoformat() if revision.rejected_at else None,
+        "rejection_reason": revision.rejection_reason, "snapshot": revision.snapshot_json,
+    } for revision in revisions]}
+
+
 @router.post("/orders/{po_id}/approve", response_model=PurchaseOrderResponse)
 def approve_purchase_order(
     po_id: uuid.UUID,
+    payload: RevisionActionPayload,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner"])),
@@ -497,15 +961,32 @@ def approve_purchase_order(
     ).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
-    if order.status == "APPROVED":
-        return _serialize_order(order)
-    if order.status not in {"DRAFT", "SUBMITTED"}:
-        raise HTTPException(status_code=409, detail="Only draft/submitted purchase orders can be approved")
-    if str(order.created_by or "").strip().lower() == _actor(current_user).strip().lower():
-        raise HTTPException(status_code=403, detail="A different authorized person must approve this purchase order")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before approving")
+    if order.status != "SUBMITTED":
+        raise HTTPException(status_code=409, detail="Only submitted purchase orders can be approved")
+    revision = _current_revision(db, order, lock=True)
+    if revision.approval_state != "SUBMITTED":
+        raise HTTPException(status_code=409, detail="Current purchase revision is not awaiting approval")
+    if payload.content_hash and payload.content_hash != revision.content_hash:
+        raise HTTPException(status_code=409, detail="Purchase order content changed; reload before approving")
+    actor = _actor(current_user).strip().lower()
+    makers = {str(revision.created_by or "").strip().lower(), str(revision.submitted_by or "").strip().lower()}
+    if actor in makers:
+        raise HTTPException(status_code=403, detail="A different authorized person must approve this purchase order revision")
     order.status = "APPROVED"
     order.approved_by = _actor(current_user)
     order.approved_at = datetime.utcnow()
+    order.version += 1
+    revision.approval_state = "APPROVED"
+    revision.approved_by = order.approved_by
+    revision.approved_at = order.approved_at
+    revision.version += 1
+    db.add(PurchaseApprovalDecision(
+        revision_id=revision.id, decision="APPROVED", reason=payload.reason,
+        content_hash=revision.content_hash, actor=_actor(current_user),
+        actor_role=str((current_user.get("roles") or [""])[0]),
+    ))
     db.commit()
     db.refresh(order)
     try:
@@ -530,6 +1011,135 @@ def approve_purchase_order(
     return _serialize_order(order)
 
 
+@router.post("/orders/{po_id}/reject", response_model=PurchaseOrderResponse)
+def reject_purchase_order(
+    po_id: uuid.UUID,
+    payload: RevisionActionPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner"])),
+):
+    if not payload.reason or len(payload.reason.strip()) < 3:
+        raise HTTPException(status_code=422, detail="A rejection reason is required")
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version or order.status != "SUBMITTED":
+        raise HTTPException(status_code=409, detail="Purchase order changed or is no longer awaiting review")
+    revision = _current_revision(db, order, lock=True)
+    if payload.content_hash and payload.content_hash != revision.content_hash:
+        raise HTTPException(status_code=409, detail="Purchase order content changed; reload before rejecting")
+    actor = _actor(current_user)
+    if actor.strip().lower() in {str(revision.created_by).lower(), str(revision.submitted_by).lower()}:
+        raise HTTPException(status_code=403, detail="A different authorized person must decide this purchase order revision")
+    revision.approval_state = "REJECTED"
+    revision.rejected_by = actor
+    revision.rejected_at = datetime.utcnow()
+    revision.rejection_reason = payload.reason.strip()
+    revision.version += 1
+    order.status = "REJECTED"
+    order.version += 1
+    db.add(PurchaseApprovalDecision(revision_id=revision.id, decision="REJECTED", reason=payload.reason,
+        content_hash=revision.content_hash, actor=actor, actor_role=str((current_user.get("roles") or [""])[0])))
+    db.commit()
+    db.refresh(order)
+    return _serialize_order(order)
+
+
+@router.post("/orders/{po_id}/short-close", response_model=PurchaseOrderResponse)
+def short_close_purchase_order(
+    po_id: uuid.UUID,
+    payload: ShortClosePayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["PlantManager", "Owner"])),
+):
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before short-closing")
+    if order.status not in {"APPROVED", "PARTIALLY_RECEIVED"}:
+        raise HTTPException(status_code=409, detail="Only an approved open purchase order can be short-closed")
+    requested = {row.po_line_id: row.qty for row in payload.lines}
+    if len(requested) != len(payload.lines):
+        raise HTTPException(status_code=422, detail="A PO line may appear only once")
+    if requested and not set(requested).issubset({line.id for line in order.lines or []}):
+        raise HTTPException(status_code=422, detail="Short-close line is not part of this purchase order")
+    closed_any = False
+    for line in order.lines or []:
+        open_qty = max(float(line.qty_ordered) - float(line.qty_received) - float(line.qty_short_closed or 0), 0)
+        if open_qty <= 1e-9 or (requested and line.id not in requested):
+            continue
+        close_qty = open_qty if requested.get(line.id) is None else float(requested[line.id] or 0)
+        if close_qty > open_qty + 1e-9:
+            raise HTTPException(status_code=422, detail=f"Short-close quantity exceeds open balance for line {line.id}")
+        line.qty_short_closed = float(line.qty_short_closed or 0) + close_qty
+        line.line_status = "CLOSED" if line.qty_received + line.qty_short_closed + 1e-9 >= line.qty_ordered else "PARTIAL"
+        revision_line = db.query(PurchaseOrderRevisionLine).filter(
+            PurchaseOrderRevisionLine.revision_id == _current_revision(db, order).id,
+            PurchaseOrderRevisionLine.source_order_line_id == line.id,
+        ).first()
+        remaining_close = Decimal(str(close_qty))
+        if revision_line:
+            schedules = db.query(PurchaseDeliverySchedule).filter(
+                PurchaseDeliverySchedule.revision_line_id == revision_line.id,
+            ).order_by(PurchaseDeliverySchedule.delivery_date, PurchaseDeliverySchedule.created_at).with_for_update().all()
+            for schedule in schedules:
+                schedule_open = Decimal(schedule.planned_qty) - Decimal(schedule.received_qty or 0) - Decimal(schedule.cancelled_qty or 0)
+                if schedule_open <= 0 or remaining_close <= 0:
+                    continue
+                applied = min(schedule_open, remaining_close)
+                schedule.cancelled_qty = Decimal(schedule.cancelled_qty or 0) + applied
+                schedule.version += 1
+                remaining_close -= applied
+        closed_any = True
+    if not closed_any:
+        raise HTTPException(status_code=409, detail="No open quantity was selected for short-close")
+    order.status = "SHORT_CLOSED" if all(line.line_status == "CLOSED" for line in order.lines or []) else "PARTIALLY_RECEIVED"
+    order.metadata_json = {**(order.metadata_json or {}), "short_close_reason": payload.reason,
+        "short_closed_by": _actor(current_user), "short_closed_at": datetime.utcnow().isoformat()}
+    order.version += 1
+    db.commit()
+    db.refresh(order)
+    return _serialize_order(order)
+
+
+@router.post("/orders/{po_id}/cancel", response_model=PurchaseOrderResponse)
+def cancel_purchase_order(
+    po_id: uuid.UUID,
+    payload: RevisionActionPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["PlantManager", "Owner"])),
+):
+    if not payload.reason or len(payload.reason.strip()) < 3:
+        raise HTTPException(status_code=422, detail="A cancellation reason is required")
+    order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
+    if not order:
+        raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.version != payload.expected_version:
+        raise HTTPException(status_code=409, detail="Purchase order changed; reload before cancelling")
+    if order.status in {"RECEIVED", "SHORT_CLOSED", "CANCELLED"} or any(float(line.qty_received or 0) > 0 for line in order.lines or []):
+        raise HTTPException(status_code=409, detail="A PO with received quantity cannot be cancelled; use short-close or a controlled return")
+    order.status = "CANCELLED"
+    revision = _current_revision(db, order)
+    schedules = db.query(PurchaseDeliverySchedule).join(
+        PurchaseOrderRevisionLine, PurchaseDeliverySchedule.revision_line_id == PurchaseOrderRevisionLine.id,
+    ).filter(PurchaseOrderRevisionLine.revision_id == revision.id).with_for_update().all()
+    for schedule in schedules:
+        remaining = Decimal(schedule.planned_qty) - Decimal(schedule.received_qty or 0) - Decimal(schedule.cancelled_qty or 0)
+        if remaining > 0:
+            schedule.cancelled_qty = Decimal(schedule.cancelled_qty or 0) + remaining
+            schedule.version += 1
+    order.metadata_json = {**(order.metadata_json or {}), "cancellation_reason": payload.reason.strip(),
+        "cancelled_by": _actor(current_user), "cancelled_at": datetime.utcnow().isoformat()}
+    order.version += 1
+    db.commit()
+    db.refresh(order)
+    return _serialize_order(order)
+
+
 @router.post("/orders/{po_id}/grn")
 def post_grn(
     po_id: uuid.UUID,
@@ -538,6 +1148,11 @@ def post_grn(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager"])),
 ):
+    if get_settings().PROCUREMENT_V2_ENFORCED:
+        raise HTTPException(
+            status_code=409,
+            detail="Legacy GRN posting is disabled. Use /inventory/procurement/receipts so invoice comparison and reel/coil identities cannot be bypassed.",
+        )
     order = db.query(PurchaseOrder).filter(
         PurchaseOrder.id == po_id,
         PurchaseOrder.plant_id == plant_id,
@@ -639,12 +1254,10 @@ def post_grn(
         if exemption:
             stock_status = "UNRESTRICTED"
             qc_status = "NOT_REQUIRED"
-        elif po_line.incoming_qc_required:
+        else:
+            # Purchase preferences cannot substitute for an approved QC exemption.
             stock_status = "QC_HOLD"
             qc_status = "PENDING"
-        else:
-            stock_status = "UNRESTRICTED"
-            qc_status = "PASS"
         inward_metadata["incoming_qc_task"] = {
             "status": qc_status,
             "notification_status": "PENDING" if qc_status == "PENDING" else qc_status,
@@ -1038,6 +1651,8 @@ def commit_supplier_schedules(
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")
+    if order.status in {"CANCELLED", "SHORT_CLOSED", "RECEIVED"}:
+        raise HTTPException(409, "Closed purchase orders cannot receive new delivery commitments")
     lines_by_id = {line.id: line for line in order.lines or []}
     created = []
     for idx, row in enumerate(payload.rows, start=1):
@@ -1045,7 +1660,7 @@ def commit_supplier_schedules(
         if not po_line:
             raise HTTPException(status_code=404, detail=f"Purchase line not found for schedule row {idx}")
         next_total = active_scheduled_qty(db, po_line.id) + float(row.scheduled_qty)
-        if next_total > float(po_line.qty_ordered or 0.0) + 1e-9:
+        if next_total > max(0, float(po_line.qty_ordered or 0) - float(po_line.qty_received or 0) - float(po_line.qty_short_closed or 0)) + 1e-9:
             raise HTTPException(
                 status_code=400,
                 detail=f"Scheduled quantity for line {idx} exceeds unordered remainder of the PO line",
@@ -1066,6 +1681,44 @@ def commit_supplier_schedules(
         created.append(serialize_schedule(schedule, db))
     db.commit()
     return {"purchase_order_id": str(order.id), "po_no": order.po_no, "ledger": False, "items": created}
+
+
+class SupplierScheduleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    expected_version: int = Field(ge=1)
+    current_date: date
+    confirmation_status: str = Field(pattern="^(TENTATIVE|CONFIRMED|CANCELLED)$")
+    reason: str = Field(min_length=3, max_length=500)
+
+
+@router.patch("/schedules/{schedule_id}")
+def update_supplier_schedule(schedule_id: uuid.UUID, payload: SupplierScheduleUpdate,
+    db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Store", "PlantManager", "Planner"]))):
+    row = db.query(PurchaseLineSchedule).filter_by(id=schedule_id, plant_id=plant_id).with_for_update().first()
+    if not row:
+        raise HTTPException(404, "Supplier schedule not found")
+    if row.version != payload.expected_version:
+        raise HTTPException(409, "Supplier schedule changed; refresh before editing")
+    if row.confirmation_status == "CANCELLED":
+        raise HTTPException(409, "Cancelled commitments remain in history; create a new schedule for remaining quantity")
+    if row.order_line.order.status in {"CANCELLED", "SHORT_CLOSED"}:
+        raise HTTPException(409, "This purchase order is closed")
+    row.change_history = [*(row.change_history or []), {
+        "version": row.version + 1, "previous_date": row.current_date.isoformat(),
+        "current_date": payload.current_date.isoformat(), "previous_status": row.confirmation_status,
+        "status": payload.confirmation_status, "reason": payload.reason.strip(),
+        "actor": _actor(current_user), "changed_at": datetime.utcnow().isoformat() + "Z",
+    }]
+    row.current_date = payload.current_date
+    row.confirmation_status = payload.confirmation_status
+    row.notes = payload.reason.strip()
+    row.version += 1
+    if payload.confirmation_status == "CANCELLED":
+        row.cancelled_qty = max(0, row.scheduled_qty - row.received_qty)
+        row.cancelled_at = datetime.utcnow()
+    db.commit()
+    return serialize_schedule(row, db)
 
 
 @router.post("/receipt-lines/{line_id}/allocate-schedule")

@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict'
+import ExcelJS from 'exceljs'
+import { parseScheduleSheet, mergeScheduleCells } from '../lib/schedule-workbook'
+const workbook = new ExcelJS.Workbook()
+const sheet = workbook.addWorksheet('SEP 2026')
+sheet.addRow(['Date', 'Day', 'RM-A', 'RM-A', 'Total kg'])
+sheet.addRow([new Date('2026-09-01T00:00:00Z'), 'Tuesday', 12, 10, 22])
+sheet.addRow([new Date('2026-09-02T00:00:00Z'), 'Wednesday', 8, 0, 8])
+sheet.addRow(['Totals', '', 20, 10, 30])
+sheet.addRow([new Date('2026-04-01T00:00:00Z'), 'FG target', 5000])
+const parsed = parseScheduleSheet(sheet)
+assert.equal(parsed.rows.length, 3)
+assert.equal(parsed.ignoredDatedRows, 1)
+assert.ok(parsed.rows.every(row => row.date.startsWith('2026-09')))
+const merged = mergeScheduleCells(parsed.rows.map(row => ({ ...row, item_id: 'material' })), 1000)
+assert.equal(merged.cells['2026-09-01:material'], '22000')
+assert.equal(merged.cells['2026-09-02:material'], '8000')
+assert.equal(merged.sources['2026-09-01:material'].length, 2)
+const roundtrip = workbook.addWorksheet('Export')
+roundtrip.addRow(['Date','Day','RM-A','Total kg'])
+roundtrip.addRow(['2026-09-15','Tuesday',225.5,225.5])
+assert.equal(parseScheduleSheet(roundtrip).rows[0].qty,225.5)
+console.log('Schedule workbook: date-block isolation, duplicate aggregation, MT conversion and ISO export roundtrip passed')
+
+const vehicleSheet = workbook.addWorksheet('Vehicle summaries')
+vehicleSheet.addRow(['Date', 'RM-A', 'VEHI'])
+vehicleSheet.addRow([new Date('2026-09-01T00:00:00Z'), 30, { formula: 'COUNT(B2:B2)', result: 1 }])
+assert.deepEqual(parseScheduleSheet(vehicleSheet).rows.map(row => row.header), ['RM-A'])

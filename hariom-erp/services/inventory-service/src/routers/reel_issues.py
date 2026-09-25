@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
+from ..concession_use import guard_concession_stock
 from ..database import get_db
 from ..models import (
     PaperReel,
@@ -82,6 +83,8 @@ class ReelIssueCreate(BaseModel):
     shift: str
     issue_date: date
     issued_weight_kg: float = Field(gt=0)
+    customer_id: Optional[uuid.UUID] = None
+    sales_order_id: Optional[uuid.UUID] = None
 
     @field_validator("shift")
     @classmethod
@@ -149,8 +152,15 @@ def create_reel_issue(
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="Reel is not issuable")
-    if str(reel.stock_status or "").upper() not in ISSUABLE_STOCK_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Reel is not QC-approved for issue ({reel.stock_status})")
+    guard_concession_stock(
+        db,
+        plant_id=plant_id,
+        entity=reel,
+        customer_id=payload.customer_id,
+        sales_order_id=payload.sales_order_id,
+        allowed_statuses=ISSUABLE_STOCK_STATUSES,
+        blocked_detail=f"Reel is not QC-approved for issue ({reel.stock_status})",
+    )
     if payload.issued_weight_kg > float(reel.current_weight_kg or 0.0):
         raise HTTPException(status_code=400, detail="Issued weight exceeds available reel weight")
 

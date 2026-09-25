@@ -199,3 +199,32 @@ def require_permission(required_permissions: list[str]):
             )
         return current_user
     return permission_checker
+
+
+def require_actual_owner(current_user: dict = Depends(get_current_user)):
+    """Require an actual Owner operating in the Owner role.
+
+    This intentionally does not use ``SUPER_ROLES``: Admin is broad for normal
+    administration but cannot change the Owner's planning-cost authority.
+    Role switching also cannot manufacture Owner authority because the token's
+    actual roles are checked separately from its effective role.
+    """
+    actual_roles = set(current_user.get("actual_roles") or [])
+    effective_roles = set(current_user.get("roles") or [])
+    effective_role = str(current_user.get("role") or "")
+    if "Owner" not in actual_roles or "Owner" not in effective_roles or effective_role != "Owner":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an actual Owner operating in the Owner role can change RM costing",
+        )
+    return current_user
+
+
+def require_cost_administrator(current_user: dict = Depends(get_current_user)):
+    """Client authorizes actual Owner and Admin in their administrative role."""
+    actual = set(current_user.get("actual_roles") or [])
+    effective = set(current_user.get("roles") or [])
+    role = str(current_user.get("role") or "")
+    if not actual.intersection(SUPER_ROLES) or role not in SUPER_ROLES or role not in effective:
+        raise HTTPException(status_code=403, detail="RM costing changes require an actual Owner or Admin in an administrative role")
+    return current_user

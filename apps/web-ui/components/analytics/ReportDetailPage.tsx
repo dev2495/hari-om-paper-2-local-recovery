@@ -159,20 +159,20 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
               From
-              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-white/10 bg-white/10 px-3 text-sm text-white outline-none" />
+              <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-border/10 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
             <label className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-300">
               To
-              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-white/10 bg-white/10 px-3 text-sm text-white outline-none" />
+              <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="mt-2 h-10 w-full rounded-2xl border border-border/10 bg-card/10 px-3 text-sm text-white outline-none" />
             </label>
           </div>
         }
       />
 
       {query.isLoading ? (
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-8 text-slate-500">Loading report...</div>
+        <div className="rounded-[2rem] border border-border bg-card p-8 text-muted-foreground">Loading report...</div>
       ) : query.isError ? (
-        <div className="rounded-[2rem] border border-rose-200 bg-rose-50 p-8 text-rose-700">Report service failed for this page.</div>
+        <div className="rounded-[2rem] border border-signal-rose-line bg-signal-rose-soft p-8 text-signal-rose-ink">Report service failed for this page.</div>
       ) : (
         <>
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -209,17 +209,17 @@ export function ReportDetailPage({ type }: { type: ReportType }) {
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div className="flex h-full items-center justify-center rounded-2xl bg-slate-50 text-sm text-slate-500">No trend series returned.</div>
+                  <div className="flex h-full items-center justify-center rounded-2xl bg-muted text-sm text-muted-foreground">No trend series returned.</div>
                 )}
               </div>
             </ChartCard>
 
             <ChartCard eyebrow="Decision Notes" title="How to use this report" description="Operator-facing notes for the current report mode.">
-              <div className="space-y-3 text-sm leading-6 text-slate-600">
+              <div className="space-y-3 text-sm leading-6 text-muted-foreground">
                 <p>Use this page to identify the action queue, then open the source workflow for correction. Report rows retain job, order, and plant references where the backend provides them.</p>
                 <p>For reconciliation: known rejection qty and reason should be captured at stage entry; only the unexplained balance should remain in monthly variance.</p>
-                <p>Current data scope: <span className="font-bold text-slate-950">{activePlantLabel}</span>.</p>
-                <Link href="/reports" className="inline-flex items-center gap-2 font-semibold text-cyan-900">
+                <p>Current data scope: <span className="font-bold text-foreground">{activePlantLabel}</span>.</p>
+                <Link href="/reports" className="inline-flex items-center gap-2 font-semibold text-signal-cyan-ink">
                   Back to reports hub
                 </Link>
               </div>

@@ -56,3 +56,48 @@ class QualityConcessionPolicyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_critical_inspection_cannot_receive_admin_concession():
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    import uuid
+    import pytest
+    from src.routers.quality import create_quality_concession, QualityConcessionCreate
+    inspection = SimpleNamespace(id=uuid.uuid4(), status='FAIL', created_by='inspector', evaluation={
+        'frozen_rules': [{'code': 'gsm', 'non_waivable': True}],
+        'parameter_results': [{'code': 'gsm', 'verdict': 'FAIL'}],
+    })
+    db = Mock()
+    db.query.return_value.filter.return_value.first.return_value = inspection
+    payload = QualityConcessionCreate(inspection_id=inspection.id, reason='Admin accepts this lot', quantity=10)
+    with pytest.raises(HTTPException) as exc:
+        create_quality_concession(payload, db=db, plant_id=str(uuid.uuid4()), current_user={
+            'sub': 'admin', 'roles': ['Admin'], 'permissions': ['qc:disposition:approve'],
+        })
+    assert exc.value.status_code == 409
+    assert exc.value.detail['code'] == 'NON_WAIVABLE_QUALITY_CHECK'
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_profile_critical_policy_requires_boolean_and_survives_approval():
+    import pytest
+    from src.quality_profile_lifecycle import apply_profile_save, apply_profile_approve, ProfileLifecycleError
+    with pytest.raises(ProfileLifecycleError):
+        apply_profile_save(None, {'parameters': [{'code': 'gsm', 'non_waivable': 'false'}]})
+    draft = apply_profile_save(None, {'parameters': [{'code': 'gsm', 'non_waivable': True}]})
+    approved = apply_profile_approve(draft, expected_revision=1, actor='owner', actor_roles=['Owner'])
+    assert approved['approved_snapshot']['parameters'][0]['non_waivable'] is True
+    edited = apply_profile_save(approved, {'parameters': [{'code': 'gsm', 'non_waivable': False}]})
+    assert edited['approved_snapshot']['parameters'][0]['non_waivable'] is True
+
+
+def test_draft_cannot_forge_or_erase_approved_snapshot():
+    from src.quality_profile_lifecycle import apply_profile_save
+    forged = {'status': 'approved', 'parameters': [{'code': 'gsm', 'non_waivable': False}]}
+    saved = apply_profile_save(None, {'parameters': [], 'approved_snapshot': forged})
+    assert 'approved_snapshot' not in saved
+    frozen = {'status': 'approved', 'revision': 1, 'parameters': [{'code': 'gsm', 'non_waivable': True}]}
+    saved = apply_profile_save({'status': 'draft', 'revision': 2, 'approved_snapshot': frozen}, {'parameters': [], 'approved_snapshot': forged})
+    assert saved['approved_snapshot'] == frozen

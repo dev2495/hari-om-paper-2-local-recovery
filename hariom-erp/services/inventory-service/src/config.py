@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # Service
     SERVICE_NAME: str = "inventory-service"
     SERVICE_PORT: int = 8005
+    # Once enabled, purchase receipts can only enter stock through the
+    # revision-aware procurement service. Non-purchase opening/adjustment
+    # routes remain available under their existing controls.
+    PROCUREMENT_V2_ENFORCED: bool = os.getenv("PROCUREMENT_V2_ENFORCED", "true").strip().lower() in {"1", "true", "yes", "on"}
     
 @lru_cache()
 def get_settings():

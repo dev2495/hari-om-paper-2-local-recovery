@@ -36,13 +36,13 @@ export default function PrintDispatchPage() {
     }
 
     return (
-        <div className="min-h-screen bg-slate-100 p-8 print:p-0 print:bg-white text-slate-900">
-            <div className="max-w-4xl mx-auto bg-white p-12 min-h-[10in] shadow-2xl print:shadow-none mx-auto print:m-0 print:w-full border print:border-none">
+        <div className="min-h-screen min-w-0 bg-background p-2 sm:p-6 print:p-0 print:bg-white text-foreground">
+            <div className="max-w-4xl mx-auto bg-card p-3 sm:p-8 lg:p-12 min-h-[10in] rounded-xl print:rounded-none print:p-0 print:shadow-none print:m-0 print:w-full border print:border-none">
                 <div className="mb-8 flex justify-end print:hidden">
                     <Button variant="outline" className="mr-4" onClick={() => router.push("/logistics/dispatch")}>
                         Back to Logistics
                     </Button>
-                    <Button onClick={() => window.print()} className="bg-blue-600 hover:bg-blue-700 text-white shadow-md rounded-md flex gap-2">
+                    <Button onClick={() => window.print()} className="flex gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                         Print
                     </Button>

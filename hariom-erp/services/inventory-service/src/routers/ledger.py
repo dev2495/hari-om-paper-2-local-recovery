@@ -293,3 +293,48 @@ def aggregate_transactions_by_item(
             }
         )
     return out
+
+
+@router.get("/material-issues/by-job")
+def material_issues_by_job(db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope), current_user: dict = Depends(get_current_user)):
+    query = db.query(StockTransaction.reference_id, StockTransaction.item_id,
+        func.sum(StockTransaction.qty_change)).filter(
+        StockTransaction.reference_type == ReferenceType.PRODUCTION_JOB,
+        StockTransaction.transaction_type.in_([TransactionType.ISSUE_PRODUCTION, TransactionType.PRODUCTION_RETURN]))
+    if plant_scope.get("scope_all"):
+        query = query.filter(StockTransaction.plant_id.in_(plant_scope.get("allowed_plants") or []))
+    else:
+        query = query.filter(StockTransaction.plant_id == plant_scope["selected_plant_id"])
+    totals = query.group_by(StockTransaction.reference_id, StockTransaction.item_id).all()
+    from sqlalchemy import String, cast
+    from ..models import PaperReel, ReelIssue, Reservation, ReservationStatus, StockBatch, ItemType
+    from ..services.stock_calc import get_batch_balance
+    plants = (plant_scope.get("allowed_plants") or []) if plant_scope.get("scope_all") else [plant_scope["selected_plant_id"]]
+    section_rows = db.query(ReelIssue, PaperReel.paper_id).join(PaperReel, PaperReel.id == ReelIssue.reel_id).filter(
+        cast(ReelIssue.plant_id, String).in_(plants)).all()
+    reservations = db.query(Reservation).join(ItemMaster).join(StockBatch, StockBatch.id == Reservation.batch_id).filter(
+        Reservation.plant_id.in_(plants), Reservation.status == ReservationStatus.ACTIVE,
+        ItemMaster.type == ItemType.FINISHED_GOOD, ItemMaster.uom == "PCS",
+        StockBatch.stock_status == "UNRESTRICTED").order_by(Reservation.created_at, Reservation.id).all()
+    fg = []; balances = {}; sources = {}
+    for reservation in reservations:
+        batch_id = str(reservation.batch_id)
+        if batch_id not in balances:
+            balances[batch_id] = max(0, get_batch_balance(batch_id, db))
+            sources[batch_id] = [str(row[0]) for row in db.query(StockTransaction.reference_id).filter(
+                StockTransaction.batch_id == reservation.batch_id,
+                StockTransaction.reference_type == ReferenceType.PRODUCTION_JOB,
+                StockTransaction.transaction_type == TransactionType.FG_INWARD).distinct().all()]
+        accepted = min(balances[batch_id], max(0, float(reservation.reserved_qty) - float(reservation.consumed_qty or 0)))
+        balances[batch_id] -= accepted
+        if accepted:
+            fg.append({"line_id":str(reservation.sales_order_line_id), "batch_id":batch_id,
+                "spec_id":str(reservation.spec_id or reservation.batch.spec_id),
+                "quantity_pcs":accepted, "source_job_ids":sources[batch_id]})
+    return {"coverage": "all_attributed_job_issues", "items": [{"job_id": str(job),
+        "item_id": str(item), "net_issued_qty": max(0, -float(qty or 0))} for job, item, qty in totals],
+        "section_issues": [{"id":str(issue.id), "item_id":str(item_id),
+            "qty_kg":float(issue.consumed_weight_kg if str(getattr(issue.status, "value", issue.status)) == "CLOSED" else issue.issued_weight_kg)} for issue,item_id in section_rows],
+        "accepted_fg_allocations":fg,
+        "note": "Section reel issues require an exclusive recorded job linkage; shared issues are not apportioned by inference."}

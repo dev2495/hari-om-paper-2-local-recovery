@@ -160,7 +160,7 @@ function ShiftsPage() {
       filters={<>
         <FilterField label="Search"><SearchField value={search} onChange={setSearch} placeholder="code, name…" /></FilterField>
         <FilterField label="Status">
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as any)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
             <option value="ACTIVE">Active</option><option value="INACTIVE">Inactive</option><option value="ALL">All</option>
           </select>
         </FilterField>
@@ -175,20 +175,20 @@ function ShiftsPage() {
           tabs={selected ? [{
             key: "overview", label: "Overview", content: (
               <div className="space-y-3 text-sm">
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Window</span><span className="font-mono">{selected.start_time} → {selected.end_time}</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Working hours</span><span>{selected.hours} h</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Break</span><span>{selected.break_minutes} min</span></div>
-                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-slate-500 tracking-wider">Night premium</span><span>{(selected.night_premium_percent || 0).toFixed(0)}%</span></div>
+                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Code</span><span className="font-mono">{selected.code}</span></div>
+                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Window</span><span className="font-mono">{selected.start_time} → {selected.end_time}</span></div>
+                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Working hours</span><span>{selected.hours} h</span></div>
+                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Break</span><span>{selected.break_minutes} min</span></div>
+                <div className="grid grid-cols-[140px_1fr] gap-2"><span className="text-[10px] font-bold uppercase text-muted-foreground tracking-wider">Night premium</span><span>{(selected.night_premium_percent || 0).toFixed(0)}%</span></div>
               </div>
             )
           }] : []}
           footer={selected ? (
             <div className="flex justify-end gap-2">
               {selected.is_active === false ? (
-                <button onClick={async () => { await updateShift.mutateAsync({ id: selected.id, data: { is_active: true } }); showToast("Reactivated", "success") }} className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50">Reactivate</button>
+                <button onClick={async () => { await updateShift.mutateAsync({ id: selected.id, data: { is_active: true } }); showToast("Reactivated", "success") }} className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft">Reactivate</button>
               ) : (
-                <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50">Deactivate</button>
+                <button onClick={() => setConfirmDeactivate(true)} className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft">Deactivate</button>
               )}
               <button onClick={startEdit} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-slate-900">Edit</button>
             </div>
@@ -197,7 +197,7 @@ function ShiftsPage() {
       </div>
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New shift" size="md" footer={<>
-        <button onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+        <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
         <button onClick={submitCreate} disabled={createShift.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{createShift.isPending ? "Creating…" : "Create"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -210,11 +210,11 @@ function ShiftsPage() {
           <LabeledInput label="Night premium (%)" value={createForm.night_premium_percent} onChange={(v) => setCreateForm({ ...createForm, night_premium_percent: v })} type="number" />
           <label className="flex items-center gap-2 text-sm mt-6"><input type="checkbox" checked={createForm.is_night} onChange={(e) => setCreateForm({ ...createForm, is_night: e.target.checked })} /> Night shift</label>
         </div>
-        {createError ? <p className="mt-2 text-xs text-rose-700">{createError}</p> : null}
+        {createError ? <p className="mt-2 text-xs text-signal-rose-ink">{createError}</p> : null}
       </Modal>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title={editForm.name || "Shift"} size="md" footer={<>
-        <button onClick={() => setEditOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+        <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
         <button onClick={submitEdit} disabled={updateShift.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{updateShift.isPending ? "Saving…" : "Save"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -227,7 +227,7 @@ function ShiftsPage() {
           <LabeledInput label="Night premium (%)" value={editForm.night_premium_percent || ""} onChange={(v) => setEditForm({ ...editForm, night_premium_percent: v })} type="number" />
           <label className="flex items-center gap-2 text-sm mt-6"><input type="checkbox" checked={!!editForm.is_night} onChange={(e) => setEditForm({ ...editForm, is_night: e.target.checked })} /> Night shift</label>
         </div>
-        {editError ? <p className="mt-2 text-xs text-rose-700">{editError}</p> : null}
+        {editError ? <p className="mt-2 text-xs text-signal-rose-ink">{editError}</p> : null}
       </Modal>
 
       <ConfirmDialog open={confirmDeactivate} title="Deactivate shift?" body={<><strong>{selected?.name}</strong> will be hidden from active lists.</>} confirmLabel="Deactivate" tone="warn"

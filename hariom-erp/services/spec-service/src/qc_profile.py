@@ -259,7 +259,11 @@ def _normalize_parameter(
             else None
         ),
     }
-    gating = _normalize_gating(raw)
+    non_waivable = raw.get("non_waivable", False)
+    if not isinstance(non_waivable, bool):
+        raise QcProfileError("non_waivable must be true or false.", code="INVALID_WAIVER_POLICY")
+    payload["non_waivable"] = non_waivable
+    gating = "blocking" if non_waivable else _normalize_gating(raw)
     if gating is not None:
         payload["gating"] = gating
     return payload

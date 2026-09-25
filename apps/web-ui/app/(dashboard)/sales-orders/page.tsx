@@ -470,21 +470,21 @@ export default function SalesOrdersPage() {
           description="Customer POs can span weeks. Each line keeps its own product code, parchment condition, and repeated release flow into planning whenever production asks for more."
           aside={
             <div className="space-y-3">
-              <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+              <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
                 <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Release Discipline</p>
                 <p className="mt-2 text-3xl font-semibold">{metrics.readyOrders}</p>
                 <p className="mt-1 text-xs text-emerald-100/80">Orders ready for line-level release planning</p>
               </div>
               <Link
                 href="/sales-orders/new"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-lg"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-card px-4 py-3 text-sm font-semibold text-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-lg"
               >
                 <Plus className="h-4 w-4" />
                 New sales order
               </Link>
               <Link
                 href="/sales-orders/pending"
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/30 px-4 py-3 text-sm font-semibold text-white"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border/30 px-4 py-3 text-sm font-semibold text-white"
               >
                 All pending orders
               </Link>
@@ -528,8 +528,8 @@ export default function SalesOrdersPage() {
           subtitle="Scan each PO as a long-running commercial contract, select the exact live line buckets, then release only what production needs."
           actions={
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex w-full min-w-[18rem] items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50/90 px-4 py-3 shadow-sm sm:w-[26rem]">
-                <Search className="h-4 w-4 text-slate-400" />
+              <div className="flex w-full min-w-[18rem] items-center gap-2 rounded-2xl border border-border bg-muted/90 px-4 py-3 shadow-sm sm:w-[26rem]">
+                <Search className="h-4 w-4 text-muted-foreground" />
                 <input
                   value={search}
                   onChange={(event) => {
@@ -537,13 +537,13 @@ export default function SalesOrdersPage() {
                     startTransition(() => setSearch(nextValue))
                   }}
                   placeholder="Search PO, product code, parchment..."
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-slate-400"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
                 />
               </div>
               <select
                 value={statusFilter}
                 onChange={(event) => setStatusFilter(event.target.value)}
-                className="h-12 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+                className="h-12 rounded-2xl border border-border bg-card px-3 text-sm font-semibold text-muted-foreground outline-none transition focus:border-signal-cyan-line focus:ring-4 focus:ring-cyan-100"
               >
                 <option value="open">Open queue</option>
                 <option value="all">All statuses</option>
@@ -558,7 +558,7 @@ export default function SalesOrdersPage() {
               <select
                 value={pageSize}
                 onChange={(event) => setPageSize(Number(event.target.value))}
-                className="h-12 rounded-2xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-cyan-300 focus:ring-4 focus:ring-cyan-100"
+                className="h-12 rounded-2xl border border-border bg-card px-3 text-sm font-semibold text-muted-foreground outline-none transition focus:border-signal-cyan-line focus:ring-4 focus:ring-cyan-100"
               >
                 <option value={10}>10 / page</option>
                 <option value={25}>25 / page</option>
@@ -567,11 +567,11 @@ export default function SalesOrdersPage() {
             </div>
           }
         >
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-border bg-muted/80 px-4 py-3 text-sm text-muted-foreground">
             <span>
               Window {offset + 1}-{offset + orders.length} · Page {pageIndex + 1} · {statusFilter === "open" ? "open orders" : statusFilter.replaceAll("_", " ")}
             </span>
-            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+            <span className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {ordersQuery.isFetching ? "Refreshing..." : hasNextPage ? "More rows available" : "End of current window"}
             </span>
           </div>
@@ -602,35 +602,35 @@ export default function SalesOrdersPage() {
                   <section
                     key={order.id}
                     data-order-id={order.id}
-                    className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.08)]"
+                    className="overflow-hidden rounded-[1.9rem] border border-border bg-card shadow-[0_18px_50px_rgba(15,23,42,0.08)]"
                   >
                     <div className="grid gap-0 xl:grid-cols-[320px_minmax(0,1fr)_340px]">
-                      <div className="border-b border-slate-200 bg-[linear-gradient(180deg,#f8fafc_0%,#eff6ff_100%)] p-6 xl:border-b-0 xl:border-r">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{salesOrderOriginLabel(order.origin)}</p>
+                      <div className="border-b border-border bg-card p-6 xl:border-b-0 xl:border-r">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{salesOrderOriginLabel(order.origin)}</p>
                         <Link
                           href={`/sales-orders/${order.id}`}
                           data-testid="sales-orders:detail-link"
-                          className="mt-3 block text-[1.8rem] font-semibold leading-tight tracking-tight text-slate-950 transition-colors duration-200 hover:text-cyan-700"
+                          className="mt-3 block text-[1.8rem] font-semibold leading-tight tracking-tight text-foreground transition-colors duration-200 hover:text-signal-cyan-ink"
                         >
                           {salesOrderReferenceLabel(order)}
                         </Link>
-                        <p className="mt-3 text-sm font-semibold text-slate-900">{resolveCustomerLabel(order, customerMap)}</p>
-                        <p className="mt-1 text-sm text-slate-500">
+                        <p className="mt-3 text-sm font-semibold text-foreground">{resolveCustomerLabel(order, customerMap)}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
                           Internal {order.order_no || String(order.id).slice(0, 8)}
                         </p>
 
                         <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                          <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Commercial Volume</p>
-                            <p className="mt-1 text-xl font-semibold text-slate-950">{Number(order.total_qty || 0).toFixed(0)} pcs</p>
+                          <div className="rounded-2xl border border-border/80 bg-card/80 px-4 py-3">
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Commercial Volume</p>
+                            <p className="mt-1 text-xl font-semibold text-foreground">{Number(order.total_qty || 0).toFixed(0)} pcs</p>
                           </div>
-                          <div className="rounded-2xl border border-white/80 bg-white/80 px-4 py-3">
-                            <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Selected For Release</p>
-                            <p className="mt-1 text-xl font-semibold text-slate-950">{selectedLineIds.length} line(s)</p>
+                          <div className="rounded-2xl border border-border/80 bg-card/80 px-4 py-3">
+                            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Selected For Release</p>
+                            <p className="mt-1 text-xl font-semibold text-foreground">{selectedLineIds.length} line(s)</p>
                           </div>
                         </div>
 
-                        <div className="mt-5 text-sm text-slate-600">
+                        <div className="mt-5 text-sm text-muted-foreground">
                           <p>
                             {isInternalOrigin(order.origin)
                               ? `Internal order date ${formatDate(order.internal_order_date)}`
@@ -640,7 +640,7 @@ export default function SalesOrdersPage() {
                             Earliest delivery{" "}
                             {formatDate(
                               [...(order.lines || [])]
-                                .map((line: any) => line.due_date)
+                                .map((line: any) => line.earliest_delivery_date ?? line.due_date)
                                 .filter(Boolean)
                                 .sort()[0],
                             )}
@@ -651,12 +651,12 @@ export default function SalesOrdersPage() {
                       <div className="p-6">
                         <div className="mb-4 flex items-center justify-between gap-3">
                           <div>
-                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Release Buckets</p>
-                            <p className="mt-1 text-sm text-slate-600">
+                            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Release Buckets</p>
+                            <p className="mt-1 text-sm text-muted-foreground">
                               Pick the exact line items production needs right now. One PO can release many times over its life.
                             </p>
                           </div>
-                          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                          <div className="rounded-full border border-border bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
                             {order.lines?.length || 0} line(s)
                           </div>
                         </div>
@@ -671,8 +671,8 @@ export default function SalesOrdersPage() {
                                 key={line.id}
                                 className={`group relative flex cursor-pointer gap-3 rounded-[1.35rem] border px-4 py-4 transition-all duration-200 ${
                                   checked
-                                    ? "border-cyan-300 bg-cyan-50/80 shadow-[0_14px_30px_rgba(14,165,233,0.10)]"
-                                    : "border-slate-200 bg-slate-50/80 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-white"
+                                    ? "border-signal-cyan-line bg-signal-cyan-soft/80 shadow-[0_14px_30px_rgba(14,165,233,0.10)]"
+                                    : "border-border bg-muted/80 hover:-translate-y-0.5 hover:border-border hover:bg-card"
                                 } ${!releaseable ? "cursor-not-allowed opacity-60" : ""}`}
                               >
                                 <input
@@ -682,13 +682,13 @@ export default function SalesOrdersPage() {
                                   onChange={(event) =>
                                     updateSelectedLines(String(order.id), String(line.id), event.target.checked)
                                   }
-                                  className="mt-1 h-4 w-4 rounded border-slate-300"
+                                  className="mt-1 h-4 w-4 rounded border-border"
                                 />
                                 <span className="min-w-0 flex-1">
-                                  <span className="block text-sm font-semibold text-slate-950">
+                                  <span className="block text-sm font-semibold text-foreground">
                                     Line {line.line_no || "-"} · {line.product_code || "No product code"}
                                   </span>
-                                  <span className="mt-2 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                                  <span className="mt-2 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
                                     <span>Ordered {Number(line.qty || 0).toFixed(0)} pcs</span>
                                     <span>Remaining {releaseRemainingQty.toFixed(0)} pcs</span>
                                     <span>Delivery {formatDate(line.due_date)}</span>
@@ -701,18 +701,18 @@ export default function SalesOrdersPage() {
                         </div>
                       </div>
 
-                      <div className="border-t border-slate-200 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)] p-6 xl:border-l xl:border-t-0">
+                      <div className="border-t border-border bg-card p-6 xl:border-l xl:border-t-0">
                         <div className="space-y-3">
                           <div className="flex items-start justify-between gap-3">
                             <div>
-                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Release Posture</p>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Release Posture</p>
                               <div className="mt-2">
                                 <StatusBadge value={order.status} />
                               </div>
                             </div>
-                            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-right">
-                              <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Released / Fulfilled</p>
-                              <p className="mt-1 text-lg font-semibold text-slate-950">
+                            <div className="rounded-2xl border border-border bg-card px-4 py-3 text-right">
+                              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Released / Fulfilled</p>
+                              <p className="mt-1 text-lg font-semibold text-foreground">
                                 {Number(order.released_qty || 0).toFixed(0)} / {Number(order.fulfilled_qty || 0).toFixed(0)}
                               </p>
                             </div>
@@ -722,13 +722,13 @@ export default function SalesOrdersPage() {
                             <Link
                               href={`/sales-orders/${order.id}`}
                               data-testid="sales-orders:view-link"
-                              className="rounded-xl border border-slate-300 px-3 py-3 text-center text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"
+                              className="rounded-xl border border-border px-3 py-3 text-center text-sm font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-sm"
                             >
                               View order
                             </Link>
                             <Link
                               href={`/sales-orders/${order.id}/audit`}
-                              className="rounded-xl border border-slate-300 px-3 py-3 text-center text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm"
+                              className="rounded-xl border border-border px-3 py-3 text-center text-sm font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-sm"
                             >
                               Audit trail
                             </Link>
@@ -739,7 +739,7 @@ export default function SalesOrdersPage() {
                               type="button"
                               onClick={() => handleApprove(order)}
                               disabled={approveOrder.isPending}
-                              className="w-full rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800 transition-all duration-200 hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-sm disabled:opacity-60"
+                              className="w-full rounded-xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm font-semibold text-signal-emerald-ink transition-all duration-200 hover:-translate-y-0.5 hover:bg-signal-emerald-soft hover:shadow-sm disabled:opacity-60"
                             >
                               Approve commercial PO
                             </button>
@@ -763,7 +763,7 @@ export default function SalesOrdersPage() {
                           </button>
 
                           {hasSyncedJobs ? (
-                            <div className="rounded-[1.35rem] border border-emerald-200 bg-emerald-50/90 p-4 text-sm text-emerald-900">
+                            <div className="rounded-[1.35rem] border border-signal-emerald-line bg-signal-emerald-soft/90 p-4 text-sm text-signal-emerald-ink">
                               <div className="font-semibold">Planner-linked job cards</div>
                               <div className="mt-3 flex flex-wrap gap-2">
                                 {[...linkedJobs.map((job: any) => String(job.id)), ...locallySynced]
@@ -773,7 +773,7 @@ export default function SalesOrdersPage() {
                                     <Link
                                       key={jobCardId}
                                       href={`/production/job-cards/${jobCardId}`}
-                                      className="rounded-full border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 transition hover:-translate-y-0.5 hover:shadow-sm"
+                                      className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink transition hover:-translate-y-0.5 hover:shadow-sm"
                                     >
                                       {jobCardId.slice(0, 8)}
                                     </Link>
@@ -781,7 +781,7 @@ export default function SalesOrdersPage() {
                               </div>
                             </div>
                           ) : (
-                            <div className="rounded-[1.2rem] border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                            <div className="rounded-[1.2rem] border border-dashed border-border bg-muted px-4 py-4 text-sm text-muted-foreground">
                               No planner job cards yet. The release action above will create the production cut for the selected lines.
                             </div>
                           )}
@@ -794,8 +794,8 @@ export default function SalesOrdersPage() {
             </div>
           )}
           {orders.length > 0 ? (
-            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-slate-200 bg-white px-4 py-3">
-              <p className="text-sm text-slate-600">
+            <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[1.2rem] border border-border bg-card px-4 py-3">
+              <p className="text-sm text-muted-foreground">
                 Large queue mode keeps only {pageSize} order cards mounted at once.
               </p>
               <div className="flex items-center gap-2">
@@ -803,7 +803,7 @@ export default function SalesOrdersPage() {
                   type="button"
                   onClick={() => setPageIndex((current) => Math.max(0, current - 1))}
                   disabled={pageIndex === 0 || ordersQuery.isFetching}
-                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Previous
                 </button>
@@ -824,19 +824,19 @@ export default function SalesOrdersPage() {
       <Dialog open={Boolean(releaseDialogOrder)} onOpenChange={(open) => (!open ? closeReleaseDialog() : null)}>
         <DialogContent
           data-testid="sales-orders:release-dialog"
-          className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-slate-200 bg-slate-50 p-0 shadow-2xl"
+          className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-border bg-muted p-0 shadow-2xl"
           style={{ width: "min(1180px, calc(100vw - 2rem))", maxWidth: "none" }}
         >
           <div className="flex max-h-[calc(100vh-2rem)] min-h-[560px] flex-col">
-            <DialogHeader className="shrink-0 border-b border-slate-200 bg-white px-5 py-4 sm:px-7">
+            <DialogHeader className="shrink-0 border-b border-border bg-card px-5 py-4 sm:px-7">
               <div className="flex items-start gap-3 pr-8">
                 <div className="mt-0.5 rounded-xl bg-slate-950 p-2.5 text-white">
                   <Factory className="h-5 w-5" />
                 </div>
                 <div>
-                  <DialogTitle className="text-xl text-slate-950 sm:text-2xl">Release to planning</DialogTitle>
-                  <DialogDescription className="mt-1 max-w-3xl text-sm leading-5 text-slate-600">
-                    Choose the authorized same-plant winder queue. Mandrel, geometry, and capacity mismatch is advisory and does not block admission.
+                  <DialogTitle className="text-xl text-foreground sm:text-2xl">Release to planning</DialogTitle>
+                  <DialogDescription className="mt-1 max-w-3xl text-sm leading-5 text-muted-foreground">
+                    Choose a winder name or number as a planning hint. The planner can use any available winder; geometry and mandrel differences are advisory.
                   </DialogDescription>
                 </div>
               </div>
@@ -846,15 +846,15 @@ export default function SalesOrdersPage() {
               {releaseOutcome ? (
                 <section className="space-y-4 px-5 py-6 sm:px-7" data-testid="sales-orders:release-next-step">
                   {releaseOutcome.syncPending ? (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <div className="rounded-2xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink">
                       Release recorded — planning synchronization pending. Do not create a second release; retry the handoff from this lot.
                     </div>
                   ) : (
-                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
-                      Lot created. Next step is the selected winder queue, not a fresh planner dump.
+                    <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-3 text-sm text-signal-emerald-ink">
+                      Job card created. Open the planning queue and schedule on any available winder.
                     </div>
                   )}
-                  <p className="text-sm text-slate-600">
+                  <p className="text-sm text-muted-foreground">
                     Release lots: {releaseOutcome.lotIds.map((id) => id.slice(0, 8)).join(", ") || "recorded"}
                   </p>
                   <div className="flex flex-wrap gap-2">
@@ -863,11 +863,11 @@ export default function SalesOrdersPage() {
                       className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
                       data-testid="sales-orders:open-winder-queue"
                     >
-                      Open this winder queue
+                      Open planning queue
                     </a>
                     <Link
                       href={`/sales-orders/${releaseOutcome.orderId}`}
-                      className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700"
+                      className="rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-muted-foreground"
                     >
                       Stay on this order
                     </Link>
@@ -875,33 +875,33 @@ export default function SalesOrdersPage() {
                 </section>
               ) : null}
               {releaseDialogOrder && !releaseOutcome ? (
-                <section className="border-b border-slate-200 bg-white px-5 py-4 sm:px-7">
+                <section className="border-b border-border bg-card px-5 py-4 sm:px-7">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-lg font-semibold text-slate-950">
+                        <p className="truncate text-lg font-semibold text-foreground">
                           {releaseDialogOrder.po_number || releaseDialogOrder.order_no}
                         </p>
                         <StatusBadge value={releaseDialogOrder.status} />
                         {releaseSummary.pendingCount > 0 ? (
-                          <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-800">
+                          <span className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-2.5 py-1 text-[11px] font-semibold text-signal-amber-ink">
                             {releaseSummary.pendingCount} handoff{releaseSummary.pendingCount === 1 ? "" : "s"} to recover
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-1 truncate text-sm text-slate-600">
+                      <p className="mt-1 truncate text-sm text-muted-foreground">
                         {resolveCustomerLabel(releaseDialogOrder, customerMap)}
                       </p>
                     </div>
-                    <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50 lg:min-w-[420px]">
+                    <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-border bg-muted lg:min-w-[420px]">
                       {[
                         ["Lines", releaseSummary.selectedCount.toFixed(0)],
                         ["Release now", `${releaseSummary.totalQty.toFixed(0)} pcs`],
                         ["Winders", releaseSummary.machineCount.toFixed(0)],
                       ].map(([label, value], index) => (
-                        <div key={label} className={`px-4 py-3 ${index > 0 ? "border-l border-slate-200" : ""}`}>
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-                          <p className="mt-1 text-base font-semibold text-slate-950">{value}</p>
+                        <div key={label} className={`px-4 py-3 ${index > 0 ? "border-l border-border" : ""}`}>
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+                          <p className="mt-1 text-base font-semibold text-foreground">{value}</p>
                         </div>
                       ))}
                     </div>
@@ -929,27 +929,27 @@ export default function SalesOrdersPage() {
                   return (
                     <article
                       key={row.release_lot_id}
-                      className={`overflow-hidden rounded-[1.35rem] border bg-white shadow-sm ${rowIssue ? "border-rose-200" : "border-slate-200"}`}
+                      className={`overflow-hidden rounded-[1.35rem] border bg-card shadow-sm ${rowIssue ? "border-signal-rose-line" : "border-border"}`}
                     >
                       <div className="grid gap-5 p-5 lg:grid-cols-[minmax(190px,1.1fr)_180px_minmax(280px,1.25fr)_150px] lg:items-start">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                               Line {line?.line_no || "-"}
                             </span>
-                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${row.mode === "resume" ? "bg-amber-50 text-amber-800" : "bg-cyan-50 text-cyan-800"}`}>
+                            <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.1em] ${row.mode === "resume" ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-cyan-soft text-signal-cyan-ink"}`}>
                               {row.mode === "resume" ? "Pending handoff" : "New release"}
                             </span>
                           </div>
-                          <h4 className="mt-2 truncate text-lg font-semibold text-slate-950">{row.product_code || "No product code"}</h4>
-                          <p className="mt-1 text-sm text-slate-600">Due {formatDate(row.due_date)}</p>
-                          <p className="mt-1 text-xs text-slate-500">
+                          <h4 className="mt-2 truncate text-lg font-semibold text-foreground">{row.product_code || "No product code"}</h4>
+                          <p className="mt-1 text-sm text-muted-foreground">Due {formatDate(row.due_date)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {parchmentLineLabel(line || {})}
                           </p>
                         </div>
 
                         <div>
-                          <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                             Production quantity
                           </label>
                           <div className="relative mt-2">
@@ -961,9 +961,9 @@ export default function SalesOrdersPage() {
                               readOnly={row.mode === "resume"}
                               value={row.release_qty}
                               onChange={(event) => updateReleaseDraftRow(row.release_lot_id, { release_qty: event.target.value, blocker: null })}
-                              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 pr-11 text-base font-semibold text-slate-950 read-only:bg-slate-50 read-only:text-slate-600"
+                              className="h-11 w-full rounded-xl border border-border bg-card px-3 pr-11 text-base font-semibold text-foreground read-only:bg-muted read-only:text-muted-foreground"
                             />
-                            <span className="pointer-events-none absolute right-3 top-3 text-xs font-semibold text-slate-500">pcs</span>
+                            <span className="pointer-events-none absolute right-3 top-3 text-xs font-semibold text-muted-foreground">pcs</span>
                           </div>
                           {row.mode === "new" ? (
                             <div className="mt-2 flex gap-1.5">
@@ -976,26 +976,26 @@ export default function SalesOrdersPage() {
                                   key={preset.label}
                                   type="button"
                                   onClick={() => updateReleaseDraftRow(row.release_lot_id, { release_qty: String(preset.qty), blocker: null })}
-                                  className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 hover:border-slate-300 hover:bg-white"
+                                  className="rounded-lg border border-border bg-muted px-2.5 py-1.5 text-[11px] font-semibold text-muted-foreground hover:border-border hover:bg-card"
                                 >
                                   {preset.label}
                                 </button>
                               ))}
                             </div>
                           ) : (
-                            <p className="mt-2 text-[11px] leading-4 text-amber-700">Already reserved; quantity is locked.</p>
+                            <p className="mt-2 text-[11px] leading-4 text-signal-amber-ink">Already reserved; quantity is locked.</p>
                           )}
                         </div>
 
                         <div>
                           <div className="flex items-center justify-between gap-3">
-                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">Winder queue</label>
+                            <label className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Winder queue</label>
                             {row.compatibility_warning ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-signal-amber-ink">
                                 Advisory mismatch
                               </span>
                             ) : row.winder_machine_id ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-signal-emerald-ink">
                                 <CheckCircle2 className="h-3.5 w-3.5" /> Queue ready
                               </span>
                             ) : null}
@@ -1004,7 +1004,7 @@ export default function SalesOrdersPage() {
                             data-testid="sales-orders:release-winder"
                             value={row.winder_machine_id}
                             onChange={(event) => updateReleaseDraftRow(row.release_lot_id, { winder_machine_id: event.target.value, blocker: null })}
-                            className="mt-2 h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-900"
+                            className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3 text-sm font-semibold text-foreground"
                           >
                             <option value="">Select winder queue</option>
                             {(row.authorized_winders.length ? row.authorized_winders : row.compatible_winders).map((machine) => (
@@ -1014,12 +1014,12 @@ export default function SalesOrdersPage() {
                             ))}
                           </select>
                           {selectedMachine ? (
-                            <p className="mt-2 text-[11px] leading-4 text-slate-500">
+                            <p className="mt-2 text-[11px] leading-4 text-muted-foreground">
                               ID {selectedMachine.id_min_mm || "-"}–{selectedMachine.id_max_mm || "-"} · OD {selectedMachine.od_min_mm || "-"}–{selectedMachine.od_max_mm || "-"} · Length {selectedMachine.length_min_mm || "-"}–{selectedMachine.length_max_mm || "-"} mm
                               {row.compatibility_warning ? ` · ${row.compatibility_warning}` : ""}
                             </p>
                           ) : (
-                            <p className="mt-2 text-[11px] leading-4 text-slate-500">Any authorized same-plant winder queue can be selected. Geometry mismatch is advisory only.</p>
+                            <p className="mt-2 text-[11px] leading-4 text-muted-foreground">Any authorized same-plant winder queue can be selected. Geometry mismatch is advisory only.</p>
                           )}
                         </div>
 
@@ -1037,7 +1037,7 @@ export default function SalesOrdersPage() {
                       </div>
 
                       {rowIssue ? (
-                        <div className="border-t border-rose-200 bg-rose-50 px-5 py-3 text-sm font-medium text-rose-800" data-testid="sales-orders:release-blocker">
+                        <div className="border-t border-signal-rose-line bg-signal-rose-soft px-5 py-3 text-sm font-medium text-signal-rose-ink" data-testid="sales-orders:release-blocker">
                           {rowIssue}
                         </div>
                       ) : null}
@@ -1048,13 +1048,13 @@ export default function SalesOrdersPage() {
               ) : null}
             </div>
 
-            <DialogFooter className="shrink-0 items-center border-t border-slate-200 bg-white px-5 py-4 sm:flex-row sm:justify-between sm:px-7 sm:space-x-0">
+            <DialogFooter className="shrink-0 items-center border-t border-border bg-card px-5 py-4 sm:flex-row sm:justify-between sm:px-7 sm:space-x-0">
               {releaseOutcome ? (
                 <div className="flex w-full justify-end">
                   <button
                     type="button"
                     onClick={closeReleaseDialog}
-                    className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted"
                   >
                     Close
                   </button>
@@ -1063,20 +1063,20 @@ export default function SalesOrdersPage() {
               <>
               <div className="mb-3 flex items-center gap-2 text-sm sm:mb-0">
                 {releaseSummary.blockers > 0 ? (
-                  <span className="font-semibold text-rose-700">{releaseSummary.blockers} blocker{releaseSummary.blockers === 1 ? "" : "s"} to resolve</span>
+                  <span className="font-semibold text-signal-rose-ink">{releaseSummary.blockers} blocker{releaseSummary.blockers === 1 ? "" : "s"} to resolve</span>
                 ) : (
-                  <span className="inline-flex items-center gap-2 font-semibold text-emerald-700">
+                  <span className="inline-flex items-center gap-2 font-semibold text-signal-emerald-ink">
                     <CheckCircle2 className="h-4 w-4" /> All lines ready for planning
                   </span>
                 )}
                 <span className="hidden text-slate-300 sm:inline">|</span>
-                <span className="hidden text-slate-600 sm:inline">{releaseSummary.totalQty.toFixed(0)} pcs across {releaseSummary.selectedCount} line{releaseSummary.selectedCount === 1 ? "" : "s"}</span>
+                <span className="hidden text-muted-foreground sm:inline">{releaseSummary.totalQty.toFixed(0)} pcs across {releaseSummary.selectedCount} line{releaseSummary.selectedCount === 1 ? "" : "s"}</span>
               </div>
               <div className="flex w-full gap-2 sm:w-auto">
                 <button
                   type="button"
                   onClick={closeReleaseDialog}
-                  className="flex-1 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 sm:flex-none"
+                  className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground hover:bg-muted sm:flex-none"
                 >
                   Cancel
                 </button>

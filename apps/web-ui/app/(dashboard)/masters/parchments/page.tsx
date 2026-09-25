@@ -61,7 +61,7 @@ function CompanyQuickForm({
 
   return (
     <form onSubmit={submit} className="space-y-4">
-      {error ? <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div> : null}
+      {error ? <div className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">{error}</div> : null}
       <div className="space-y-2">
         <label className="text-sm font-medium">Company Name</label>
         <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="Amma / China / Sagar" />
@@ -105,40 +105,40 @@ export default function ParchmentsPage() {
 
   return (
     <div className="space-y-6">
-      <section className="rounded-[2rem] border border-slate-200 bg-white/90 p-6 shadow-premium">
+      <section className="rounded-[2rem] border border-border bg-card/90 p-6 shadow-premium">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Parchment Workspace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Company first, then sub parchment</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Parchment Workspace</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Company first, then sub parchment</h1>
+            <p className="mt-3 text-sm leading-6 text-muted-foreground">
               Keep parchment companies separate from the actual vendor master. The spec sheet uses these company families, while downstream flows keep using the actual sub parchment rows.
             </p>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <div className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 <Tags className="h-3.5 w-3.5" />
                 Companies
               </div>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{vendorOptions.length}</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{vendorOptions.length}</p>
             </div>
-            <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <div className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 <SwatchBook className="h-3.5 w-3.5" />
                 Sub parchments
               </div>
-              <p className="mt-2 text-3xl font-semibold text-slate-950">{activeColors.length}</p>
+              <p className="mt-2 text-3xl font-semibold text-foreground">{activeColors.length}</p>
             </div>
           </div>
         </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="rounded-[2rem] border border-slate-200 bg-white/90 p-5 shadow-premium">
+        <div className="rounded-[2rem] border border-border bg-card/90 p-5 shadow-premium">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">Approved companies</p>
-              <h2 className="mt-2 text-xl font-semibold text-slate-950">Company directory</h2>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Approved companies</p>
+              <h2 className="mt-2 text-xl font-semibold text-foreground">Company directory</h2>
             </div>
             <Dialog open={vendorDialogOpen} onOpenChange={setVendorDialogOpen}>
               <DialogTrigger asChild>
@@ -160,24 +160,24 @@ export default function ParchmentsPage() {
             </Dialog>
           </div>
           {companyError ? (
-            <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            <div className="mt-4 rounded-xl border border-signal-rose-line bg-signal-rose-soft px-3 py-2 text-sm text-signal-rose-ink">
               {companyError}
             </div>
           ) : null}
           <div className="mt-5 space-y-3">
             {vendorOptions.length === 0 ? (
-              <div className="rounded-[1.5rem] border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+              <div className="rounded-[1.5rem] border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
                 No companies yet. Add the parchment companies first, then add the actual sub parchments under each one.
               </div>
             ) : (
               vendorOptions.map((vendor) => {
                 const count = activeColors.filter((row: any) => row.vendor_id === vendor.id).length
                 return (
-                  <div key={vendor.id} className="rounded-[1.5rem] border border-slate-200 bg-slate-50 px-4 py-4">
+                  <div key={vendor.id} className="rounded-[1.5rem] border border-border bg-muted px-4 py-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="text-base font-semibold text-slate-950">{vendor.name}</p>
-                        <p className="mt-1 text-sm text-slate-500">{count} sub parchment entries linked</p>
+                        <p className="text-base font-semibold text-foreground">{vendor.name}</p>
+                        <p className="mt-1 text-sm text-muted-foreground">{count} sub parchment entries linked</p>
                       </div>
                       <div className="flex gap-2">
                         <button
@@ -186,7 +186,7 @@ export default function ParchmentsPage() {
                             setCompanyError(null)
                             setEditingVendor(vendor)
                           }}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground"
                           title="Edit company"
                           aria-label="Edit company"
                         >
@@ -203,7 +203,7 @@ export default function ParchmentsPage() {
                             }
                           }}
                           disabled={count > 0 || deleteVendor.isPending}
-                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 bg-white text-amber-700 disabled:cursor-not-allowed disabled:opacity-45"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-signal-amber-line bg-card text-signal-amber-ink disabled:cursor-not-allowed disabled:opacity-45"
                           title={count > 0 ? "Remove sub parchments before removing this company" : "Disable company"}
                           aria-label={count > 0 ? "Company has linked sub parchments" : "Disable company"}
                         >

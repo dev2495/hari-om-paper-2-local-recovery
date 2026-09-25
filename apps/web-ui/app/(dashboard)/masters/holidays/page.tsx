@@ -134,9 +134,9 @@ function HolidaysPage() {
   }
 
   const columns: GridColumn<Holiday>[] = [
-    { key: "holiday_date", label: "Date", width: "140px", sortAccessor: (r) => r.holiday_date || "", render: (r) => <span className="text-sm font-semibold text-slate-950">{fmtDate(r.holiday_date)}</span> },
+    { key: "holiday_date", label: "Date", width: "140px", sortAccessor: (r) => r.holiday_date || "", render: (r) => <span className="text-sm font-semibold text-foreground">{fmtDate(r.holiday_date)}</span> },
     { key: "holiday_type", label: "Type", width: "150px", sortAccessor: (r) => r.holiday_type || "", render: (r) => <Pill tone={r.holiday_type === "MAINTENANCE_DAY" ? "warn" : r.holiday_type === "POWER_CUT" || r.holiday_type === "STRIKE" ? "critical" : "info"}>{(r.holiday_type || "").replace("_", " ")}</Pill> },
-    { key: "description", label: "Description", render: (r) => <span className="text-sm text-slate-700">{r.description || "—"}</span> },
+    { key: "description", label: "Description", render: (r) => <span className="text-sm text-muted-foreground">{r.description || "—"}</span> },
     { key: "impact_shifts", label: "Shifts affected", width: "140px", render: (r) => <span className="text-xs font-mono">{r.impact_shifts || "ALL"}</span> },
   ]
 
@@ -155,13 +155,13 @@ function HolidaysPage() {
       </>}
       filters={<>
         <FilterField label="Year">
-          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm">
+          <select value={year} onChange={(e) => setYear(Number(e.target.value))} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
             {[year - 1, year, year + 1].map((y) => <option key={y} value={y}>{y}</option>)}
           </select>
         </FilterField>
         <FilterField label="Search"><SearchField value={search} onChange={setSearch} placeholder="description, type…" /></FilterField>
         <FilterField label="Type">
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm">
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="rounded-md border border-border bg-card px-2 py-1 text-sm">
             <option value="ALL">All</option>
             {HOLIDAY_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
           </select>
@@ -173,22 +173,22 @@ function HolidaysPage() {
       <DataGrid<Holiday> columns={columns} rows={filtered} selectedId={selectedId} onSelect={(r) => setSelectedId(r.id)} emptyHint={query.isLoading ? "Loading…" : rows.length === 0 ? "No holidays for this year — add the first." : "No holidays match the filter."} />
 
       {selected ? (
-        <div className="rounded-[1.2rem] border border-slate-200 bg-white p-3 flex items-center justify-end gap-2">
-          <span className="mr-auto text-sm text-slate-700"><strong>{fmtDate(selected.holiday_date)}</strong> · {selected.holiday_type?.replace("_", " ")} · {selected.description || "(no description)"}</span>
-          <button onClick={startEdit} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-cyan-300">Edit</button>
-          <button onClick={() => setConfirmDelete(true)} className="rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50">Delete</button>
+        <div className="rounded-[1.2rem] border border-border bg-card p-3 flex items-center justify-end gap-2">
+          <span className="mr-auto text-sm text-muted-foreground"><strong>{fmtDate(selected.holiday_date)}</strong> · {selected.holiday_type?.replace("_", " ")} · {selected.description || "(no description)"}</span>
+          <button onClick={startEdit} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-signal-cyan-line">Edit</button>
+          <button onClick={() => setConfirmDelete(true)} className="rounded-full border border-signal-rose-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-rose-ink hover:bg-signal-rose-soft">Delete</button>
         </div>
       ) : null}
 
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} eyebrow="Create" title="+ New holiday" size="md" footer={<>
-        <button onClick={() => setCreateOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+        <button onClick={() => setCreateOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
         <button onClick={submitCreate} disabled={createHoliday.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{createHoliday.isPending ? "Adding…" : "Add"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Date" required type="date" value={createForm.holiday_date} onChange={(v) => setCreateForm({ ...createForm, holiday_date: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Type</span>
-            <select value={createForm.holiday_type} onChange={(e) => setCreateForm({ ...createForm, holiday_type: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Type</span>
+            <select value={createForm.holiday_type} onChange={(e) => setCreateForm({ ...createForm, holiday_type: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {HOLIDAY_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
             </select>
           </label>
@@ -199,25 +199,25 @@ function HolidaysPage() {
             <LabeledInput label="Impact shifts (CSV, blank = all)" value={createForm.impact_shifts} onChange={(v) => setCreateForm({ ...createForm, impact_shifts: v })} placeholder="A,B,C — leave blank for full day" />
           </div>
         </div>
-        {createError ? <p className="mt-2 text-xs text-rose-700">{createError}</p> : null}
+        {createError ? <p className="mt-2 text-xs text-signal-rose-ink">{createError}</p> : null}
       </Modal>
 
       <Modal open={editOpen} onClose={() => setEditOpen(false)} eyebrow="Edit" title="Edit holiday" size="md" footer={<>
-        <button onClick={() => setEditOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+        <button onClick={() => setEditOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
         <button onClick={submitEdit} disabled={updateHoliday.isPending} className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white shadow disabled:opacity-50">{updateHoliday.isPending ? "Saving…" : "Save"}</button>
       </>}>
         <div className="grid gap-3 sm:grid-cols-2">
           <LabeledInput label="Date" type="date" value={editForm.holiday_date || ""} onChange={(v) => setEditForm({ ...editForm, holiday_date: v })} />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Type</span>
-            <select value={editForm.holiday_type || "PUBLIC_HOLIDAY"} onChange={(e) => setEditForm({ ...editForm, holiday_type: e.target.value })} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Type</span>
+            <select value={editForm.holiday_type || "PUBLIC_HOLIDAY"} onChange={(e) => setEditForm({ ...editForm, holiday_type: e.target.value })} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {HOLIDAY_TYPES.map((t) => <option key={t} value={t}>{t.replace("_", " ")}</option>)}
             </select>
           </label>
           <div className="sm:col-span-2"><LabeledInput label="Description" value={editForm.description || ""} onChange={(v) => setEditForm({ ...editForm, description: v })} /></div>
           <div className="sm:col-span-2"><LabeledInput label="Impact shifts" value={editForm.impact_shifts || ""} onChange={(v) => setEditForm({ ...editForm, impact_shifts: v })} /></div>
         </div>
-        {editError ? <p className="mt-2 text-xs text-rose-700">{editError}</p> : null}
+        {editError ? <p className="mt-2 text-xs text-signal-rose-ink">{editError}</p> : null}
       </Modal>
 
       <ConfirmDialog open={confirmDelete} title="Delete holiday?" body={<>Permanently remove this holiday entry. Cannot be undone.</>} confirmLabel="Delete" tone="critical"

@@ -46,13 +46,13 @@ export function NotchDiagramPanel({
   const formatMm = (value: number) => `${value.toFixed(2)} mm`
 
   return (
-    <div className="rounded-2xl border border-slate-300 bg-white p-4">
+    <div className="rounded-2xl border border-border bg-card p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">Notch Diagram</h3>
-          <p className="mt-1 text-xs text-slate-500">{data?.title || "Reference sketch"}</p>
+          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-muted-foreground">Notch Diagram</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{data?.title || "Reference sketch"}</p>
         </div>
-        <div className="text-right text-[11px] text-slate-500">
+        <div className="text-right text-[11px] text-muted-foreground">
           <div>Type: {data?.notchType || "NONE"}</div>
           <div>Direction: {data?.tubeDirection || "--"}</div>
         </div>
@@ -108,9 +108,9 @@ export function NotchDiagramPanel({
       </svg>
 
       {editable ? (
-        <div className="mt-4 grid gap-3 text-xs text-slate-600 md:grid-cols-2">
+        <div className="mt-4 grid gap-3 text-xs text-muted-foreground md:grid-cols-2">
           <label className="space-y-1">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Distance</span>
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Notch Distance</span>
             <input
               type="range"
               min={0}
@@ -123,7 +123,7 @@ export function NotchDiagramPanel({
             <span>{formatMm(notchDistanceMm)}</span>
           </label>
           <label className="space-y-1">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Notch Depth</span>
+            <span className="block text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">Notch Depth</span>
             <input
               type="range"
               min={0}

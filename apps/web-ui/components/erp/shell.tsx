@@ -84,19 +84,19 @@ export function MetricCard({
     <article
       data-testid={testId}
       className={cn(
-        "erp-metric-card overflow-hidden rounded-[1.5rem] border border-white/70 bg-white/90 p-5 shadow-xl transition-all duration-200 hover:-translate-y-0.5 hover:shadow-2xl",
+        "tube-kpi erp-metric-card overflow-hidden",
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">{label}</p>
-          <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{value}</p>
+          <p className="tube-kpi-label">{label}</p>
+          <p className="tube-kpi-value">{value}</p>
         </div>
-        <div className={cn("rounded-2xl bg-gradient-to-br p-3 shadow-lg", toneMap[tone])}>
+        <div className={cn("mt-1 text-muted-foreground")}>
           <Icon className="h-5 w-5" />
         </div>
       </div>
-      {detail ? <p className="mt-3 text-sm text-slate-600">{detail}</p> : null}
+      {detail ? <p className="mt-3 text-sm text-muted-foreground">{detail}</p> : null}
     </article>
   )
 }
@@ -114,7 +114,7 @@ export function StickyFilterBar({
     <section
       data-testid={testId}
       className={cn(
-        "sticky top-[5.25rem] z-10 rounded-[1.4rem] border border-white/60 bg-white/85 p-4 shadow-lg backdrop-blur",
+        "tube-filter",
         className,
       )}
     >
@@ -141,14 +141,14 @@ export function Panel({
   return (
     <section
       data-testid={testId}
-      className={cn("erp-panel rounded-[1.7rem] p-6 shadow-xl transition-all duration-200", className)}
+      className={cn("erp-panel rounded-xl p-5", className)}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-semibold text-slate-950">{title}</h2>
-          {subtitle ? <p className="mt-1 text-sm text-slate-600">{subtitle}</p> : null}
+          <h2 className="text-xl font-semibold text-foreground">{title}</h2>
+          {subtitle ? <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p> : null}
         </div>
-        {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
+        {actions ? <div className="flex max-w-full flex-wrap items-center gap-2">{actions}</div> : null}
       </div>
       <div className="mt-5">{children}</div>
     </section>
@@ -172,14 +172,14 @@ export function ExceptionList({
         const appearance = getAppearance(item.tone || "BLOCKED", item.tone || "Exception")
         const Icon = appearance.icon
         return (
-          <div key={item.id} className="rounded-[1.25rem] border border-slate-200 bg-white/85 p-4 shadow-sm">
+          <div key={item.id} className="rounded-[1.25rem] border border-border bg-card/85 p-4 shadow-sm">
             <div className="flex items-start gap-3">
               <div className={cn("rounded-2xl border px-2.5 py-2", appearance.className)}>
                 <Icon className="h-4 w-4" />
               </div>
               <div className="min-w-0">
-                <p className="font-semibold text-slate-900">{item.title}</p>
-                <p className="mt-1 text-sm text-slate-600">{item.detail}</p>
+                <p className="font-semibold text-foreground">{item.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{item.detail}</p>
               </div>
             </div>
           </div>
@@ -197,7 +197,7 @@ export function EmptyState({
   className?: string
 }) {
   return (
-    <div className={cn("rounded-[1.3rem] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-10 text-center text-sm text-slate-500", className)}>
+    <div className={cn("rounded-[1.3rem] border border-dashed border-border bg-muted/80 px-4 py-10 text-center text-sm text-muted-foreground", className)}>
       {label}
     </div>
   )

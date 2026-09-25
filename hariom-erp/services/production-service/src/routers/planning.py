@@ -39,6 +39,7 @@ from ..models import (
 )
 from ..quality_eval import (
     apply_qc_setup_marker,
+    non_waivable_release_detail,
     evaluate_job_stage,
     evaluate_stage_quality,
     instrument_not_ready_detail,
@@ -720,7 +721,9 @@ def _validate_machine_compatibility(
     stage: str,
     spec_snapshot: dict[str, Any],
     plant_id: str,
-) -> None:
+    *,
+    strict_winder_capabilities: bool = False,
+) -> Optional[str]:
     try:
         machine_plant_id = _to_uuid(str(machine.get("plant_id") or ""), "machine.plant_id")
         selected_plant_id = _to_uuid(str(plant_id or ""), "plant_id")
@@ -740,7 +743,19 @@ def _validate_machine_compatibility(
         raise HTTPException(status_code=400, detail=f"Machine department must be {expected_department} for {stage}")
 
     if stage == "PACKING":
-        return
+        return None
+
+    # Winder selection is an operator planning choice. Saved capability ranges
+    # provide advice; identity, availability, capacity and measured QC still gate.
+    if stage == "WINDER" and not strict_winder_capabilities:
+        try:
+            _validate_machine_compatibility(
+                machine, stage, spec_snapshot, plant_id,
+                strict_winder_capabilities=True,
+            )
+        except HTTPException as exc:
+            return f"Winder capability advisory: {exc.detail}. Confirm the setup before production."
+        return None
 
     def _within(spec_min_key: str, spec_max_key: str, machine_min_key: str, machine_max_key: str, label: str):
         try:
@@ -791,7 +806,7 @@ def _compatibility_warning_for_machine(
     plant_id: str,
 ) -> Optional[str]:
     try:
-        _validate_machine_compatibility(machine, "WINDER", spec_snapshot, plant_id)
+        _validate_machine_compatibility(machine, "WINDER", spec_snapshot, plant_id, strict_winder_capabilities=True)
     except HTTPException as exc:
         return str(exc.detail)
     return None
@@ -2629,11 +2644,16 @@ def _build_job_card_snapshots(
     spec_snapshot["sales_order_dispatched_qty"] = float(line.get("fulfilled_qty") or 0.0)
     spec_snapshot["lot_number"] = f"{datetime.utcnow().strftime('%d/%m')}/{str(line.get('id') or '')[:6]}".upper()
     recipe_snapshot = _primary_recipe_snapshot(uuid.UUID(str(spec["id"])), token, plant_id)
-    yield_snapshot = _fetch_spec_calculation(f"/calculate/yield/{spec['id']}", token, plant_id)
+    # Freeze the same geometry used by the job card and capacity planner.
+    # Older calculation endpoints otherwise used sample 150mm/122mm defaults.
+    calculation_length = spec_snapshot.get("design_length_mm") or _snapshot_mid(spec_snapshot.get("length_min_mm"), spec_snapshot.get("length_max_mm"))
+    calculation_od = spec_snapshot.get("od_avg_mm") or _snapshot_mid(spec_snapshot.get("od_min_mm"), spec_snapshot.get("od_max_mm"))
+    calculation_query = f"tube_length_mm={calculation_length}&tube_od_mm={calculation_od}"
+    yield_snapshot = _fetch_spec_calculation(f"/calculate/yield/{spec['id']}?tube_length_mm={calculation_length}", token, plant_id)
     bom_snapshot = {}
     if recipe_snapshot.get("recipe_id"):
         bom_snapshot = _fetch_spec_calculation(
-            f"/calculate/bom/{recipe_snapshot['recipe_id']}",
+            f"/calculate/bom/{recipe_snapshot['recipe_id']}?{calculation_query}",
             token,
             plant_id,
         )
@@ -3418,21 +3438,23 @@ def _final_spec_qc_passed(
     plant_id: uuid.UUID,
     job_card: JobCard,
     inline_quality_checks: Optional[dict[str, Any]] = None,
+    inline_stage: Optional[str] = None,
 ) -> bool:
     spec_snapshot = job_card.spec_snapshot or {}
     inline_readings = dict(inline_quality_checks or {})
-    if inline_readings:
+    if inline_readings and inline_stage == FINAL_SPEC_QC_STAGE:
         if not _missing_final_spec_qc_fields(spec_snapshot, inline_readings):
             return not _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, inline_readings)
 
     for inspection in _quality_inspections_for_stage(db, job_card.id, FINAL_SPEC_QC_STAGE, plant_id):
+        if (getattr(inspection, "evaluation", None) or {}).get("workflow_status") == "SUPERSEDED":
+            continue
+        # A later failed or incomplete inspection invalidates an older pass.
         if str(getattr(inspection, "status", "") or "").upper() != "PASS":
-            continue
+            return False
         if not _inspection_has_full_final_spec(inspection, spec_snapshot):
-            continue
-        if _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, getattr(inspection, "readings", {}) or {}):
-            continue
-        return True
+            return False
+        return not _quality_failures_for_stage(FINAL_SPEC_QC_STAGE, spec_snapshot, getattr(inspection, "readings", {}) or {})
     return False
 
 
@@ -3447,6 +3469,25 @@ def _enforce_stage_quality_gate(
     actor_role: Optional[str] = None,
 ) -> None:
     normalized_stage = selected_stage.upper()
+    # Critical criteria are part of the frozen job contract, including when an
+    # operator submits inline readings without first creating an inspection.
+    critical_evaluation = evaluate_job_stage(
+        stage=normalized_stage, spec_snapshot=job_card.spec_snapshot or {},
+        readings=dict(quality_checks or {}), require_reasons_on_fail=False,
+    )
+    if any(rule.get("non_waivable") is True for rule in critical_evaluation.frozen_rules):
+        if not quality_checks:
+            for inspection in _quality_inspections_for_stage(db, job_card.id, normalized_stage, plant_id):
+                if (getattr(inspection, "evaluation", None) or {}).get("workflow_status") == "SUPERSEDED":
+                    continue
+                critical_evaluation = evaluate_job_stage(
+                    stage=normalized_stage, spec_snapshot=job_card.spec_snapshot or {},
+                    readings=getattr(inspection, "readings", None) or {}, require_reasons_on_fail=False,
+                )
+                break
+        critical_detail = non_waivable_release_detail(critical_evaluation.as_dict())
+        if critical_detail:
+            raise HTTPException(status_code=409, detail=critical_detail)
     if normalized_stage != FINAL_SPEC_QC_STAGE:
         return
 
@@ -3700,12 +3741,24 @@ def _hold_is_movement_blocking(db: Session, hold: QualityHold) -> bool:
     )
     if inspection is None:
         return True
+    if non_waivable_release_detail(inspection.evaluation):
+        return True
     gating = str((inspection.evaluation or {}).get("gating") or "blocking").strip().lower()
     return gating != "advisory"
 
 
 def _movement_blocking_holds(db: Session, holds: list[QualityHold]) -> list[QualityHold]:
     return [hold for hold in holds if _hold_is_movement_blocking(db, hold)]
+
+
+def _enforce_non_waivable_hold_override(db: Session, holds: list[QualityHold]) -> None:
+    for hold in holds:
+        if not hold.source_inspection_id:
+            continue
+        inspection = db.query(QualityInspection).filter(QualityInspection.id == hold.source_inspection_id).first()
+        detail = non_waivable_release_detail(getattr(inspection, "evaluation", None))
+        if detail:
+            raise HTTPException(status_code=409, detail=detail)
 
 
 def _job_has_active_hold(db: Session, job_card_id: uuid.UUID) -> bool:
@@ -5595,6 +5648,23 @@ def export_job_cards(
     )
 
 
+@router.get("/material-demand-snapshots")
+def material_demand_snapshots(db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales"]))):
+    query = _apply_plant_scope_filter(db.query(JobCard).options(selectinload(JobCard.stages)), JobCard.plant_id, plant_scope)
+    jobs = query.filter(JobCard.status != "CANCELLED", JobCard.sales_order_line_id.isnot(None)).all()
+    return {"coverage": "all_linked_jobs", "jobs": [{
+        "id": str(job.id), "sales_order_line_id": str(job.sales_order_line_id),
+        "release_lot_id": str(job.release_lot_id) if job.release_lot_id else None,
+        "status": job.status, "planned_qty": job.planned_qty,
+        "started": any(stage.actual_start is not None or float(stage.output_qty or 0) > 0 for stage in job.stages),
+        "material_plan_snapshot": job.material_plan_snapshot or {},
+        "spec_snapshot": job.spec_snapshot or {},
+        "reel_issue_ids": sorted({str(issue) for stage in job.stages for issue in (stage.reel_issue_ids or [])}),
+    } for job in jobs]}
+
+
 @router.get("/job-cards/{job_card_id}", response_model=JobCardPlanningDetail)
 def get_planning_job_card(
     job_card_id: uuid.UUID,
@@ -6378,12 +6448,14 @@ def reorder_stage_queue(
                 if warning:
                     warnings.append(warning)
             machine = _fetch_machine(machine_uuid, current_user.get("token", ""), plant_id)
-            _validate_machine_compatibility(
+            capability_warning = _validate_machine_compatibility(
                 machine=machine,
                 stage=selected_stage,
                 spec_snapshot=job_card.spec_snapshot,
                 plant_id=plant_id,
             )
+            if capability_warning:
+                warnings.append(capability_warning)
             machine_capacity = machine.get("capacity_value")
 
     stage.machine_id = machine_uuid
@@ -6613,6 +6685,12 @@ def assign_machine_to_current_stage(
         segment_id=None,
     )
 
+    warnings: list[str] = []
+    if selected_stage == "WINDER":
+        hint_warning = _winder_override_warning(job_card, payload.machine_id)
+        if hint_warning:
+            warnings.append(hint_warning)
+
     if selected_stage == "PACKING":
         machine_uuid = payload.machine_id
         machine_capacity = None
@@ -6629,12 +6707,14 @@ def assign_machine_to_current_stage(
                 raise HTTPException(status_code=400, detail="machine_id is required for this stage")
             machine_uuid = payload.machine_id
             machine = _fetch_machine(machine_uuid, current_user.get("token", ""), plant_id)
-            _validate_machine_compatibility(
+            capability_warning = _validate_machine_compatibility(
                 machine=machine,
                 stage=selected_stage,
                 spec_snapshot=job_card.spec_snapshot,
                 plant_id=plant_id,
             )
+            if capability_warning:
+                warnings.append(capability_warning)
             machine_capacity = machine.get("capacity_value")
 
     stage.machine_id = machine_uuid
@@ -6682,10 +6762,13 @@ def assign_machine_to_current_stage(
             stage.plan_date or datetime.utcnow().date(),
         ),
     )
+    if warning_message:
+        warnings.append(warning_message)
     db.commit()
     db.refresh(job_card)
     return StageActionResponse(
-        message="Machine assignment planned" if not warning_message else f"Machine assignment planned. {warning_message}",
+        message="Machine assignment planned" + (". " + " ".join(warnings) if warnings else ""),
+        warnings=warnings,
         job_card_id=job_card.id,
         stage=stage.stage_type,
         segment_id=moved_segment.id,
@@ -6747,6 +6830,8 @@ def capture_stage_output(
     )
     movement_holds = _movement_blocking_holds(db, active_holds)
     override_reason = (payload.override_reason or "").strip() if hasattr(payload, "override_reason") else ""
+    if override_reason:
+        _enforce_non_waivable_hold_override(db, active_holds)
     qc_hold_override_roles = {"Owner", "Admin", "PlantManager"}
     if movement_holds and override_reason and actor_role not in qc_hold_override_roles:
         raise HTTPException(
@@ -6837,17 +6922,20 @@ def capture_stage_output(
     if actor_role == "Operator" and (payload.override_reason or "").strip():
         raise HTTPException(status_code=403, detail="Operator cannot use override_reason")
 
+    machine_warnings: list[str] = []
     if payload.machine_id is not None:
         machine = _fetch_machine(payload.machine_id, current_user.get("token", ""), plant_id)
         if selected_stage == "PACKING":
             _validate_machine_presence_for_packing(machine, plant_id)
         else:
-            _validate_machine_compatibility(
+            capability_warning = _validate_machine_compatibility(
                 machine=machine,
                 stage=selected_stage,
                 spec_snapshot=job_card.spec_snapshot,
                 plant_id=plant_id,
             )
+            if capability_warning:
+                machine_warnings.append(capability_warning)
         stage.machine_id = payload.machine_id
         segment.machine_id = payload.machine_id
 
@@ -6973,7 +7061,7 @@ def capture_stage_output(
             stage_status=stage.status,
             remaining_open_segments=len(_open_stage_segments(db, job_card.id, selected_stage)),
             entry_saved=True,
-            warnings=hold_warnings,
+            warnings=hold_warnings + machine_warnings,
             reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
             quality_hold_ids=[str(hold.id) for hold in active_holds],
         )
@@ -7055,7 +7143,7 @@ def capture_stage_output(
             stage_status=stage.status,
             remaining_open_segments=len(_open_stage_segments(db, job_card.id, selected_stage)),
             entry_saved=True,
-            warnings=warnings,
+            warnings=warnings + machine_warnings,
             reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
             quality_hold_ids=[str(hold.id) for hold in active_holds],
         )
@@ -7109,12 +7197,14 @@ def capture_stage_output(
         stage.machine_id = effective_machine_id
         segment.machine_id = effective_machine_id
         machine_for_capacity = _fetch_machine(effective_machine_id, token, plant_id)
-        _validate_machine_compatibility(
+        capability_warning = _validate_machine_compatibility(
             machine=machine_for_capacity,
             stage=selected_stage,
             spec_snapshot=job_card.spec_snapshot,
             plant_id=plant_id,
         )
+        if capability_warning and capability_warning not in machine_warnings:
+            machine_warnings.append(capability_warning)
         _validate_execution_capacity(
             db=db,
             stage_row=stage,
@@ -7172,6 +7262,7 @@ def capture_stage_output(
         plant_id=plant_uuid,
         job_card=job_card,
         inline_quality_checks=stage.quality_checks or {},
+        inline_stage=selected_stage,
     )
     if _stage_allows_fg_inward(selected_stage=selected_stage, final_qc_ready=final_qc_ready) and stage.status == "COMPLETED":
         fg_stage_for_posting = stage
@@ -7315,5 +7406,6 @@ def capture_stage_output(
         override_used=bool(override_reason),
         override_reason=override_reason,
         reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
+        warnings=machine_warnings,
         quality_hold_ids=[str(hold.id) for hold in quality_holds],
     )

@@ -74,12 +74,12 @@ export function KeyboardScheduleForm({
       onSubmit={submit}
       onKeyDown={onKeyDown}
       data-testid="planner-keyboard-schedule"
-      className="min-w-0 max-w-full overflow-hidden rounded-[1.2rem] border border-slate-200 bg-white/90 p-3 shadow-sm"
+      className="min-w-0 max-w-full overflow-hidden rounded-[1.2rem] border border-border bg-card/90 p-3 shadow-sm"
     >
-      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Keyboard scheduling</p>
-      <p className="mt-1 text-xs text-slate-600">Same move as drag-and-drop. Focus a queue card and press Enter, or pick a card here.</p>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Keyboard scheduling</p>
+      <p className="mt-1 text-xs text-muted-foreground">Same move as drag-and-drop. Focus a queue card and press Enter, or pick a card here.</p>
       <div className="mt-3 grid gap-2 lg:grid-cols-5">
-        <label className="text-xs font-semibold text-slate-600">
+        <label className="text-xs font-semibold text-muted-foreground">
           Job card
           <select
             data-testid="planner-keyboard-schedule:job"
@@ -89,7 +89,7 @@ export function KeyboardScheduleForm({
               const option = options.find((row) => row.id === event.target.value)
               onSelectJob(option?.job || null)
             }}
-            className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+            className="mt-1 w-full rounded-lg border border-border px-2 py-1.5 text-sm"
           >
             <option value="">Select a queued card</option>
             {options.map((row) => (
@@ -99,25 +99,25 @@ export function KeyboardScheduleForm({
             ))}
           </select>
         </label>
-        <label className="text-xs font-semibold text-slate-600">
+        <label className="text-xs font-semibold text-muted-foreground">
           Date
-          <select data-testid="planner-keyboard-schedule:date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+          <select data-testid="planner-keyboard-schedule:date" value={planDate} onChange={(event) => setPlanDate(event.target.value)} className="mt-1 w-full rounded-lg border border-border px-2 py-1.5 text-sm">
             {dates.map((value) => (
               <option key={value} value={value}>{value}</option>
             ))}
           </select>
         </label>
-        <label className="text-xs font-semibold text-slate-600">
+        <label className="text-xs font-semibold text-muted-foreground">
           Machine
-          <select data-testid="planner-keyboard-schedule:machine" value={machineId} onChange={(event) => setMachineId(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+          <select data-testid="planner-keyboard-schedule:machine" value={machineId} onChange={(event) => setMachineId(event.target.value)} className="mt-1 w-full rounded-lg border border-border px-2 py-1.5 text-sm">
             {machines.map((machine) => (
               <option key={machine.id} value={machine.id}>{machine.code || machine.name || machine.id}</option>
             ))}
           </select>
         </label>
-        <label className="text-xs font-semibold text-slate-600">
+        <label className="text-xs font-semibold text-muted-foreground">
           Shift
-          <select data-testid="planner-keyboard-schedule:shift" value={shiftCode} onChange={(event) => setShiftCode(event.target.value)} className="mt-1 w-full rounded-lg border border-slate-200 px-2 py-1.5 text-sm">
+          <select data-testid="planner-keyboard-schedule:shift" value={shiftCode} onChange={(event) => setShiftCode(event.target.value)} className="mt-1 w-full rounded-lg border border-border px-2 py-1.5 text-sm">
             {shifts.map((shift) => (
               <option key={shift.code} value={shift.code}>{shift.label || shift.code}</option>
             ))}

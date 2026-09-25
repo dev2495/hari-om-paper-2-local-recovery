@@ -115,12 +115,12 @@ function InventoryIntelligencePage() {
 
       <ReportFilterBar>
         <FilterField label="As of">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">
             {new Date().toISOString().split("T")[0]}
           </span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlantLabel}</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">{activePlantLabel}</span>
         </FilterField>
       </ReportFilterBar>
 
@@ -162,7 +162,7 @@ function InventoryIntelligencePage() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 {["Type", "Date", "Amigo no", "Party/Mill", "Item/Variety", "Qty", "PO", "Bill", "Rate", "Location", "QC"].map((head) => (
                   <th key={head} className="py-2 pr-3">{head}</th>
                 ))}
@@ -170,10 +170,10 @@ function InventoryIntelligencePage() {
             </thead>
             <tbody>
               {inwardStockRows.map((row: any) => (
-                <tr key={`${row.entity_type}-${row.entity_id}`} className="border-b border-slate-100">
+                <tr key={`${row.entity_type}-${row.entity_id}`} className="border-b border-border">
                   <td className="py-2 pr-3">{row.entity_type || "-"}</td>
                   <td className="py-2 pr-3">{row.date || "-"}</td>
-                  <td className="py-2 pr-3 font-semibold text-slate-950">{row.amigo_no || "-"}</td>
+                  <td className="py-2 pr-3 font-semibold text-foreground">{row.amigo_no || "-"}</td>
                   <td className="py-2 pr-3">{row.mill || row.party_name || "-"}</td>
                   <td className="py-2 pr-3">{row.variety || row.item_name || "-"}</td>
                   <td className="py-2 pr-3">{formatNumber(row.reel_weight || row.tank_weight || row.current_qty, 2)}</td>
@@ -186,7 +186,7 @@ function InventoryIntelligencePage() {
               ))}
               {!inwardStockRows.length ? (
                 <tr>
-                  <td colSpan={11} className="py-6 text-center text-slate-500">No inward stock rows available yet.</td>
+                  <td colSpan={11} className="py-6 text-center text-muted-foreground">No inward stock rows available yet.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -199,7 +199,7 @@ function InventoryIntelligencePage() {
           {topMovers.length ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Item</th>
                   <th className="py-2 pr-3">Type</th>
                   <th className="py-2 pr-3 text-right">Issued 30d</th>
@@ -210,7 +210,7 @@ function InventoryIntelligencePage() {
               </thead>
               <tbody>
                 {topMovers.map((row) => (
-                  <tr key={row.item_code} className="border-b border-slate-100">
+                  <tr key={row.item_code} className="border-b border-border">
                     <td className="py-2 pr-3 font-mono text-xs">{row.item_code}</td>
                     <td className="py-2 pr-3">{row.type}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(row.issued_30d || 0))}</td>
@@ -233,7 +233,7 @@ function InventoryIntelligencePage() {
           {shortages.length ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Item</th>
                   <th className="py-2 pr-3 text-right">Available</th>
                   <th className="py-2 pr-3 text-right">DOH</th>
@@ -243,10 +243,10 @@ function InventoryIntelligencePage() {
               </thead>
               <tbody>
                 {shortages.map((row) => (
-                  <tr key={row.item_code} className="border-b border-slate-100">
+                  <tr key={row.item_code} className="border-b border-border">
                     <td className="py-2 pr-3 font-mono text-xs">{row.item_code}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(row.available_qty || 0))}</td>
-                    <td className="py-2 pr-3 text-right text-rose-700 font-bold">{formatNumber(Number(row.days_on_hand || 0), 1)} d</td>
+                    <td className="py-2 pr-3 text-right text-signal-rose-ink font-bold">{formatNumber(Number(row.days_on_hand || 0), 1)} d</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(row.burn_per_day || 0), 2)}</td>
                     <td className="py-2 pr-3"><DrillLink href={`/analytics/mrp?view=demand`}>Demand coverage</DrillLink></td>
                   </tr>

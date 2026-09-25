@@ -133,6 +133,7 @@ class ParameterRule:
     requires_instrument: bool = False
     required_instrument_id: Optional[str] = None
     gating: str = "blocking"
+    non_waivable: bool = False
 
     def allowed_display(self) -> str:
         if not self.applicable:
@@ -169,7 +170,8 @@ class ParameterRule:
             "options": list(self.options or []),
             "requires_instrument": self.requires_instrument,
             "required_instrument_id": self.required_instrument_id,
-            "gating": normalize_gating_policy(self.gating),
+            "gating": GATING_BLOCKING if self.non_waivable else normalize_gating_policy(self.gating),
+            "non_waivable": self.non_waivable,
             "allowed_display": self.allowed_display(),
         }
 
@@ -241,7 +243,8 @@ class ParameterResult:
             payload["min"] = _decimal_to_number(self.rule.lower)
             payload["max"] = _decimal_to_number(self.rule.upper)
             payload["unit"] = self.rule.unit
-            payload["gating"] = normalize_gating_policy(self.rule.gating)
+            payload["gating"] = GATING_BLOCKING if self.rule.non_waivable else normalize_gating_policy(self.rule.gating)
+            payload["non_waivable"] = self.rule.non_waivable
         return payload
 
 
@@ -293,6 +296,44 @@ class InspectionEvaluation:
         }
 
 
+def non_waivable_release_detail(evaluation: Any) -> Optional[dict[str, Any]]:
+    """Identify unresolved critical criteria from the inspection's frozen contract."""
+    if not isinstance(evaluation, dict):
+        return None
+    results = {
+        str(row.get("code")): row
+        for row in evaluation.get("parameter_results") or []
+        if isinstance(row, dict) and row.get("code")
+    }
+    criteria = {
+        str(row.get("code")): row
+        for row in evaluation.get("frozen_rules") or []
+        if isinstance(row, dict) and row.get("code")
+    }
+    # Older persisted evaluations may carry policy on results instead of rules.
+    for code, row in results.items():
+        criteria.setdefault(code, row)
+    blocked = []
+    for code, rule in criteria.items():
+        if rule.get("non_waivable") is not True or rule.get("applicable") is False:
+            continue
+        result = results.get(code, {})
+        invalid_instrument = bool(rule.get("requires_instrument")) and any(
+            row.get("code") == "instrument" and row.get("verdict") == VERDICT_INVALID
+            for row in results.values()
+        )
+        if str(result.get("verdict") or "").upper() == VERDICT_PASS and not invalid_instrument:
+            continue
+        blocked.append({"code": code, "label": rule.get("label") or code, "verdict": result.get("verdict") or VERDICT_INCOMPLETE})
+    if not blocked:
+        return None
+    return {
+        "code": "NON_WAIVABLE_QUALITY_CHECK",
+        "message": "A critical quality check cannot be waived by a reason or administrator approval. Keep the affected stock contained and complete corrective inspection.",
+        "parameters": blocked,
+    }
+
+
 def inspection_gating_policy(results: list[ParameterResult]) -> str:
     failed = [
         row
@@ -303,7 +344,7 @@ def inspection_gating_policy(results: list[ParameterResult]) -> str:
         return GATING_BLOCKING
     for row in failed:
         gating = normalize_gating_policy(getattr(getattr(row, "rule", None), "gating", GATING_BLOCKING))
-        if gating != GATING_ADVISORY:
+        if getattr(getattr(row, "rule", None), "non_waivable", False) or gating != GATING_ADVISORY:
             return GATING_BLOCKING
     return GATING_ADVISORY
 
@@ -498,7 +539,8 @@ def normalize_parameter_rule(
         options=list(raw.get("options") or []) if isinstance(raw.get("options"), list) else None,
         requires_instrument=requires_instrument,
         required_instrument_id=required_instrument_id or None,
-        gating=gating,
+        gating=GATING_BLOCKING if raw.get("non_waivable") is True else gating,
+        non_waivable=raw.get("non_waivable") is True,
     )
 
 

@@ -51,7 +51,7 @@ export default function AuditPage() {
               <Label htmlFor="audit-period">Period</Label>
               <select
                 id="audit-period"
-                className="h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+                className="h-10 rounded-xl border border-border bg-card px-3 text-sm"
                 value={hours}
                 onChange={(event) => {
                   setHours(Number(event.target.value))
@@ -76,7 +76,7 @@ export default function AuditPage() {
                 className="h-10 w-56 rounded-xl"
               />
             </div>
-            <label className="flex items-center gap-2 text-sm text-slate-700">
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
               <input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)} />
               Refresh every 30 seconds
             </label>
@@ -85,7 +85,7 @@ export default function AuditPage() {
             </Button>
           </CardContent>
         </Card>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-muted-foreground">
           {events.data?.total_count ?? "—"} recorded events in this period · Last fetched:{" "}
           {events.dataUpdatedAt ? new Date(events.dataUpdatedAt).toLocaleString() : "Not yet fetched"}
         </p>
@@ -103,37 +103,37 @@ export default function AuditPage() {
         ) : null}
         <div className="space-y-3">
           {(events.data?.items || []).map((event: any) => (
-            <details key={event.id} className="rounded-xl border border-slate-200 bg-white p-4">
+            <details key={event.id} className="rounded-xl border border-border bg-card p-4">
               <summary className="cursor-pointer">
                 <span className="font-semibold">{event.summary || event.event_type}</span>
-                <span className="mt-2 block text-sm text-slate-600">
+                <span className="mt-2 block text-sm text-muted-foreground">
                   {new Date(event.occurred_at + (/Z$|[+-]\d\d:\d\d$/.test(event.occurred_at) ? "" : "Z")).toLocaleString()} ·{" "}
                   {event.actor_email || "System"} · {event.actor_role || "—"} · {event.source_service || "Unknown source"}
                 </span>
               </summary>
               <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-2">
                 <div>
-                  <dt className="text-slate-500">Event</dt>
+                  <dt className="text-muted-foreground">Event</dt>
                   <dd>
                     <Badge variant="outline">{event.event_type}</Badge>
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Entity</dt>
+                  <dt className="text-muted-foreground">Entity</dt>
                   <dd>
                     {event.entity_type} {event.entity_id}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Record ID</dt>
+                  <dt className="text-muted-foreground">Record ID</dt>
                   <dd>{event.id}</dd>
                 </div>
                 <div>
-                  <dt className="text-slate-500">Plant</dt>
+                  <dt className="text-muted-foreground">Plant</dt>
                   <dd>{event.plant_id || "Account / global"}</dd>
                 </div>
               </dl>
-              <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-lg bg-slate-50 p-4 text-xs">{JSON.stringify(event.payload, null, 2)}</pre>
+              <pre className="mt-4 overflow-x-auto whitespace-pre-wrap rounded-lg bg-muted p-4 text-xs">{JSON.stringify(event.payload, null, 2)}</pre>
             </details>
           ))}
         </div>

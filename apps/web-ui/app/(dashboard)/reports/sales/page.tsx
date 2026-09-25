@@ -98,10 +98,10 @@ function SalesPulsePage() {
 
       <ReportFilterBar>
         <FilterField label="Period">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">Last 30 days</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">Last 30 days</span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">{activePlantLabel}</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">{activePlantLabel}</span>
         </FilterField>
       </ReportFilterBar>
 
@@ -156,7 +156,7 @@ function SalesPulsePage() {
           {customerRows.length ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Customer</th>
                   <th className="py-2 pr-3 text-right">Open ₹</th>
                   <th className="py-2 pr-3 text-right">Dispatched ₹</th>
@@ -167,8 +167,8 @@ function SalesPulsePage() {
               </thead>
               <tbody>
                 {customerRows.slice(0, 10).map((c: any) => (
-                  <tr key={c.customer_id} className="border-b border-slate-100">
-                    <td className="py-2 pr-3 font-medium text-slate-900">{c.customer_name}</td>
+                  <tr key={c.customer_id} className="border-b border-border">
+                    <td className="py-2 pr-3 font-medium text-foreground">{c.customer_name}</td>
                     <td className="py-2 pr-3 text-right">{formatCurrency(Number(c.open_value || 0))}</td>
                     <td className="py-2 pr-3 text-right">{formatCurrency(Number(c.dispatched_value || 0))}</td>
                     <td className="py-2 pr-3 text-right">{formatPct(Number(c.otif_percent || 0))}</td>
@@ -193,8 +193,8 @@ function SalesPulsePage() {
             <ul className="space-y-1.5">
               {topSkuRows.map((s) => (
                 <li key={s.label} className="grid grid-cols-[1fr_60px] items-center gap-2 text-sm">
-                  <span className="truncate font-medium text-slate-700">{s.label}</span>
-                  <span className="text-right font-bold text-slate-950">{formatNumber(s.value)}</span>
+                  <span className="truncate font-medium text-muted-foreground">{s.label}</span>
+                  <span className="text-right font-bold text-foreground">{formatNumber(s.value)}</span>
                 </li>
               ))}
             </ul>

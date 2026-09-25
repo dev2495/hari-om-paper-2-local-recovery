@@ -41,12 +41,12 @@ async function login(page, key) {
   expect(payload?.access_token).toBeUndefined()
 
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
-  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page).toHaveURL(/\/(?:dashboard|landing\/(?:owner|admin|qc))$/)
   const userMenuTrigger = page.getByTestId("workspace-user-menu-trigger")
   if (await userMenuTrigger.count()) {
     await expect(userMenuTrigger).toBeVisible()
   } else {
-    await expect(page.getByRole("button", { name: /logout/i })).toBeVisible()
+    await expect(page.getByRole("button", { name: /^logout$/i }).first()).toBeVisible()
   }
   return user
 }
@@ -60,9 +60,9 @@ async function logout(page) {
   const trigger = page.getByTestId("workspace-user-menu-trigger")
   if (await trigger.count()) {
     await trigger.click()
-    await page.getByRole("button", { name: /logout/i }).click()
+    await page.getByRole("button", { name: /^logout$/i }).first().click()
   } else {
-    await page.getByRole("button", { name: /logout/i }).click()
+    await page.getByRole("button", { name: /^logout$/i }).first().click()
   }
   try {
     await page.waitForURL("**/login", { timeout: 5_000 })
@@ -141,7 +141,7 @@ test("login page keeps credentials private and contextual guide pages work", asy
   await expect(page.getByText(/issue movement must reference a job card/i)).toBeVisible()
 
   await page.goto("/purchase", { waitUntil: "domcontentloaded" })
-  await page.getByRole("link", { name: /^guide$/i }).click()
+  await page.getByRole("link", { name: "Open page guide", exact: true }).click()
   await expect(page).toHaveURL(/\/help\?route=%2Fpurchase$/)
   await expect(page.getByRole("heading", { name: /purchase and vendor guide/i })).toBeVisible()
   await expect(page.getByText(/batch price belongs to inward stock/i)).toBeVisible()
@@ -152,18 +152,18 @@ test("login page keeps credentials private and contextual guide pages work", asy
 test("admin shell, plant switching, and reports load cleanly", async ({ page }) => {
   const assertCritical = beginCriticalMonitoring(page)
   await login(page, "admin")
-  await expect(page.getByRole("heading", { name: /board-level manufacturing pulse/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /manufacturing overview/i })).toBeVisible()
   await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
 
   await page.goto("/dashboard", { waitUntil: "domcontentloaded" })
-  await expect(page).toHaveURL(/\/dashboard$/)
+  await expect(page).toHaveURL(/\/(?:dashboard|landing\/(?:owner|admin|qc))$/)
 
   await page.goto("/planning", { waitUntil: "domcontentloaded" })
   await expect(page).toHaveURL(/\/planning\/board$/)
   await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
   await expect(page.getByRole("heading", { name: /select one plant before scheduling/i })).toBeVisible()
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /inventory stock/i })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /^stock overview$/i })).toBeVisible()
   await page.goto("/planning/board?section=winder", { waitUntil: "domcontentloaded" })
   await expect(page.getByTestId("plant-switcher-trigger").first()).toContainText("All Visible Plants")
   await expect(page.getByRole("heading", { name: /select one plant before scheduling/i })).toBeVisible()
@@ -428,12 +428,34 @@ test("real seeded users enforce route separation and role guards", async ({ page
   await expect(page.getByRole("heading", { name: /restricted area/i })).toBeVisible()
 
   await page.goto("/inventory", { waitUntil: "domcontentloaded" })
-  await expect(page.getByRole("heading", { name: /inventory/i }).first()).toBeVisible()
+  await expect(page.getByRole("heading", { name: /^stock overview$/i })).toBeVisible()
 
   await logout(page)
   await expect(page).toHaveURL(/\/login/)
   await login(page, "owner")
-  await expect(page).toHaveURL(/\/dashboard/)
+  await expect(page).toHaveURL(/\/landing\/owner$/)
 
+  await assertCritical()
+})
+
+test("procurement workspaces require one plant before loading or editing records", async ({ page }) => {
+  test.setTimeout(120_000)
+  const assertCritical = beginCriticalMonitoring(page)
+  await login(page, "admin")
+  const purchaseRequests = []
+  page.on("request", (request) => {
+    if (request.url().includes("/api/purchase/v2/")) purchaseRequests.push(request.url())
+  })
+  for (const route of ["/purchase", "/purchase/new", "/purchase/inward", "/purchase/receipts", "/purchase/approvals", "/purchase/discrepancies", "/purchase/debit-notes", "/purchase/registers", "/purchase/scheduler", "/purchase/supplier-deliveries", "/inventory/rm-costing", "/inventory/stock-alerts", "/inventory/stock-alert-policies"]) {
+    await page.goto(route, { waitUntil: "domcontentloaded" })
+    await expect(page.getByText(/Choose one plant using the plant selector/)).toBeVisible()
+    await expect(page.getByTestId("procurement-workspace").locator("input, select, textarea")).toHaveCount(0)
+  }
+  expect(purchaseRequests, "No plant-specific query should run for All plants").toEqual([])
+  await page.goto("/purchase/inward", { waitUntil: "domcontentloaded" })
+  await page.getByTestId("plant-switcher-trigger").first().click()
+  await page.getByTestId(`plant-option:${plantOptionId("plant_a")}`).click()
+  await expect(page.getByRole("combobox", { name: "Receipt source", exact: true })).toBeVisible()
+  await expect.poll(() => purchaseRequests.length).toBeGreaterThan(0)
   await assertCritical()
 })

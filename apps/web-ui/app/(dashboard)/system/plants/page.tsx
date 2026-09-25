@@ -16,13 +16,13 @@ function SystemSetupNav() {
     ]
 
     return (
-        <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
+        <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
             {items.map((item) => (
                 <Link
                     key={item.href}
                     href={item.href}
                     className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                        item.href === "/system/plants" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                        item.href === "/system/plants" ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
                     }`}
                 >
                     <item.icon className="h-4 w-4" />

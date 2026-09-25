@@ -367,19 +367,19 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
   }
 
   if (editing && existingOrder.isLoading) {
-    return <p className="text-sm text-slate-600">Loading sales order...</p>
+    return <p className="text-sm text-muted-foreground">Loading sales order...</p>
   }
 
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">Sales</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Sales</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight text-foreground">
             {editing ? "Edit sales order" : "New sales order"}
           </h1>
         </div>
-        <Link href="/sales-orders" className="text-sm font-semibold text-slate-600 hover:text-slate-900">
+        <Link href="/sales-orders" className="text-sm font-semibold text-muted-foreground hover:text-foreground">
           Back to sales queue
         </Link>
       </header>
@@ -388,14 +388,14 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
         <Panel title="Order header" subtitle="Customer stays on both customer PO and internal orders. External PO fields stay empty for internal orders.">
           <div className="space-y-4">
             <fieldset>
-              <legend className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Order source</legend>
-              <div className="mt-2 inline-flex rounded-xl border border-slate-300 bg-slate-50 p-1">
+              <legend className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Order source</legend>
+              <div className="mt-2 inline-flex rounded-xl border border-border bg-muted p-1">
                 <button
                   type="button"
                   data-testid="sales-orders:origin-customer-po"
                   aria-pressed={customerPoMode}
                   onClick={() => setOrigin(ORDER_ORIGIN_CUSTOMER_PO)}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${customerPoMode ? "bg-white text-slate-950 shadow-sm" : "text-slate-600"}`}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${customerPoMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
                 >
                   Customer PO
                 </button>
@@ -404,7 +404,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                   data-testid="sales-orders:origin-internal"
                   aria-pressed={!customerPoMode}
                   onClick={() => setOrigin(ORDER_ORIGIN_INTERNAL)}
-                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${!customerPoMode ? "bg-white text-slate-950 shadow-sm" : "text-slate-600"}`}
+                  className={`rounded-lg px-3 py-2 text-sm font-semibold ${!customerPoMode ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
                 >
                   Internal sales order
                 </button>
@@ -413,13 +413,13 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
 
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div className="space-y-1">
-                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customer</label>
+                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Customer</label>
                 <select
                   data-testid="sales-orders:customer"
                   required
                   value={form.customer_id}
                   onChange={(event) => updateHeader("customer_id", event.target.value)}
-                  className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                 >
                   <option value="">Select customer</option>
                   {(customers || []).map((customer: any) => (
@@ -428,57 +428,57 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                     </option>
                   ))}
                 </select>
-                {fieldErrors.customer_id ? <p className="text-xs text-rose-700">{fieldErrors.customer_id}</p> : null}
+                {fieldErrors.customer_id ? <p className="text-xs text-signal-rose-ink">{fieldErrors.customer_id}</p> : null}
               </div>
               {customerPoMode ? (
                 <>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customer PO number</label>
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Customer PO number</label>
                     <input
                       data-testid="sales-orders:po-number"
                       required={customerPoMode}
                       value={form.po_number}
                       onChange={(event) => updateHeader("po_number", event.target.value)}
-                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                      className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                       placeholder="Customer PO number"
                     />
-                    {fieldErrors.po_number ? <p className="text-xs text-rose-700">{fieldErrors.po_number}</p> : null}
+                    {fieldErrors.po_number ? <p className="text-xs text-signal-rose-ink">{fieldErrors.po_number}</p> : null}
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Customer PO Date</label>
+                    <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Customer PO Date</label>
                     <input
                       data-testid="sales-orders:po-date"
                       type="date"
                       required={customerPoMode}
                       value={form.po_date}
                       onChange={(event) => updateHeader("po_date", event.target.value)}
-                      className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                      className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                     />
-                    {fieldErrors.po_date ? <p className="text-xs text-rose-700">{fieldErrors.po_date}</p> : null}
+                    {fieldErrors.po_date ? <p className="text-xs text-signal-rose-ink">{fieldErrors.po_date}</p> : null}
                   </div>
                 </>
               ) : (
                 <div className="space-y-1">
-                  <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Internal order date</label>
+                  <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Internal order date</label>
                   <input
                     data-testid="sales-orders:internal-order-date"
                     type="date"
                     required={!customerPoMode}
                     value={form.internal_order_date}
                     onChange={(event) => updateHeader("internal_order_date", event.target.value)}
-                    className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                    className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                   />
-                  {fieldErrors.internal_order_date ? <p className="text-xs text-rose-700">{fieldErrors.internal_order_date}</p> : null}
+                  {fieldErrors.internal_order_date ? <p className="text-xs text-signal-rose-ink">{fieldErrors.internal_order_date}</p> : null}
                 </div>
               )}
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
-                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Notes</label>
+                <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Notes</label>
                 <textarea
                   data-testid="sales-orders:notes"
                   rows={1}
                   value={form.notes}
                   onChange={(event) => updateHeader("notes", event.target.value)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                  className="w-full rounded-xl border border-border bg-card px-3 py-3 text-sm"
                   placeholder="Delivery notes or commercial remarks"
                 />
               </div>
@@ -493,9 +493,9 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
               const dueError = fieldErrors[`due_date:${line.localId}`]
               const parchmentError = fieldErrors[`parchment_color:${line.localId}`]
               return (
-                <section key={line.localId} className="rounded-xl border border-slate-200 bg-white p-4">
+                <section key={line.localId} className="rounded-xl border border-border bg-card p-4">
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm font-semibold text-slate-700">
+                    <p className="text-sm font-semibold text-muted-foreground">
                       <span className="sr-only">Sales order </span>Line {lineNumber}
                     </p>
                     <button
@@ -503,7 +503,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       onClick={() => removeLine(line.localId)}
                       disabled={form.lines.length === 1}
                       aria-label={`Remove line ${lineNumber}`}
-                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-40"
+                      className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition hover:bg-muted disabled:opacity-40"
                     >
                       <Trash2 className="h-4 w-4" />
                       Remove
@@ -512,13 +512,13 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Approved Specification</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Approved Specification</label>
                       <select
                         data-testid={index === 0 ? "sales-orders:spec" : undefined}
                         required
                         value={line.approved_spec_id}
                         onChange={(event) => updateSpec(line.localId, event.target.value)}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                       >
                         <option value="">Select approved spec</option>
                         {approvedSpecs.map((spec: any) => (
@@ -529,38 +529,38 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       </select>
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Product Code</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Product Code</label>
                       <input
                         required
                         value={line.product_code}
                         onChange={(event) => updateLine(line.localId, "product_code", event.target.value.toUpperCase())}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                         placeholder="Customer-facing product code"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Size Label</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Size Label</label>
                       <input
                         value={line.size_label}
                         readOnly
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-slate-100 px-3 text-sm text-slate-700"
+                        className="h-11 w-full rounded-xl border border-border bg-muted px-3 text-sm text-muted-foreground"
                         placeholder="Auto-filled from selected spec"
                       />
                     </div>
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Rate / Pc</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Rate / Pc</label>
                       <input
                         type="number"
                         step="0.01"
                         min="0"
                         value={line.rate_per_pc}
                         onChange={(event) => updateLine(line.localId, "rate_per_pc", event.target.value)}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                         placeholder="12.60"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Order Qty</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Order Qty</label>
                       <input
                         data-testid={index === 0 ? "sales-orders:qty" : undefined}
                         required
@@ -568,12 +568,12 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                         min="1"
                         value={line.qty}
                         onChange={(event) => updateLine(line.localId, "qty", event.target.value)}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm"
+                        className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
                         placeholder="2000"
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Delivery Date</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Delivery Date</label>
                       <input
                         data-testid={index === 0 ? "sales-orders:due-date" : `sales-orders:due-date-${index}`}
                         required
@@ -581,11 +581,11 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                         min={deliveryMinDate}
                         value={line.due_date}
                         onChange={(event) => updateLine(line.localId, "due_date", event.target.value)}
-                        className={`h-11 w-full rounded-xl border bg-white px-3 text-sm ${dueError ? "border-rose-400" : "border-slate-300"}`}
+                        className={`h-11 w-full rounded-xl border bg-card px-3 text-sm ${dueError ? "border-rose-400" : "border-border"}`}
                       />
-                      {dueError ? <p className="text-xs text-rose-700">{dueError}</p> : null}
+                      {dueError ? <p className="text-xs text-signal-rose-ink">{dueError}</p> : null}
                     </div>
-                    <label className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
+                    <label className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
                       <input
                         data-testid={index === 0 ? "sales-orders:parchment-required" : undefined}
                         type="checkbox"
@@ -595,14 +595,14 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       Parchment required
                     </label>
                     <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">Parchment Color</label>
+                      <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Parchment Color</label>
                       <select
                         data-testid={index === 0 ? "sales-orders:parchment" : undefined}
                         value={line.parchment_color_id}
                         onChange={(event) => updateParchment(line.localId, event.target.value)}
                         disabled={!line.parchment_required}
                         required={line.parchment_required}
-                        className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+                        className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm disabled:bg-muted"
                       >
                         <option value="">{line.parchment_required ? "Select parchment color" : "Not required for this line"}</option>
                         {parchmentOptions.map((parchment: any) => (
@@ -611,7 +611,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                           </option>
                         ))}
                       </select>
-                      {parchmentError ? <p className="text-xs text-rose-700">{parchmentError}</p> : null}
+                      {parchmentError ? <p className="text-xs text-signal-rose-ink">{parchmentError}</p> : null}
                     </div>
                   </div>
                 </section>
@@ -622,7 +622,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
               type="button"
               onClick={addLine}
               data-testid="sales-orders:add-line"
-              className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-white"
+              className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-muted-foreground transition hover:bg-card"
             >
               <Plus className="h-4 w-4" />
               Add line
@@ -641,7 +641,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
           </button>
           <Link
             href="/sales-orders"
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex items-center justify-center rounded-xl border border-border px-5 py-3 text-sm font-semibold text-muted-foreground transition hover:bg-muted"
           >
             Cancel
           </Link>

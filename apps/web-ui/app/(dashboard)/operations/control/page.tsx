@@ -309,10 +309,10 @@ function OperationsControlPage() {
 
       <ReportFilterBar>
         <FilterField label="Window">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold">Last 30 days</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold">Last 30 days</span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold">{activePlant || "ALL"}</span>
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold">{activePlant || "ALL"}</span>
         </FilterField>
         <span className="ml-auto" />
         <button onClick={() => setScOpen(true)} className="inline-flex items-center gap-1.5 rounded-full bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-800">
@@ -349,7 +349,7 @@ function OperationsControlPage() {
           {Array.isArray(shortCloses) && shortCloses.length > 0 ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Job card</th>
                   <th className="py-2 pr-3">Scope</th>
                   <th className="py-2 pr-3 text-right">Planned</th>
@@ -362,15 +362,15 @@ function OperationsControlPage() {
               </thead>
               <tbody>
                 {(shortCloses as any[]).slice(0, 20).map((s) => (
-                  <tr key={s.id} className="border-b border-slate-100">
+                  <tr key={s.id} className="border-b border-border">
                     <td className="py-2 pr-3 font-mono text-xs"><Link className="hover:underline" href={`/production/job-cards/${s.job_card_id}`}>{String(s.job_card_id || "").slice(0, 8)}</Link></td>
                     <td className="py-2 pr-3"><Pill tone={(s.stage_type && s.stage_type !== "JOB_CARD") ? "info" : "neutral"}>{(s.stage_type && s.stage_type !== "JOB_CARD") ? s.stage_type : "Whole card"}</Pill></td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(s.planned_qty || 0))}</td>
                     <td className="py-2 pr-3 text-right">{formatNumber(Number(s.produced_qty || 0))}</td>
-                    <td className="py-2 pr-3 text-right font-bold text-rose-700">{formatNumber(Number(s.gap_qty || 0))}</td>
+                    <td className="py-2 pr-3 text-right font-bold text-signal-rose-ink">{formatNumber(Number(s.gap_qty || 0))}</td>
                     <td className="py-2 pr-3 font-mono text-xs">{s.reason_code}</td>
                     <td className="py-2 pr-3"><Pill tone={s.decision === "CARRY_FORWARD" ? "ok" : s.decision === "SHORT_CLOSE_SO" ? "warn" : "neutral"}>{(s.decision || "").replace("_", " ")}</Pill></td>
-                    <td className="py-2 pr-3 font-mono text-xs">{s.carry_forward_job_card_id ? <Link className="text-emerald-700 hover:underline" href={`/production/job-cards/${s.carry_forward_job_card_id}`}>{String(s.carry_forward_job_card_id).slice(0, 8)}</Link> : "—"}</td>
+                    <td className="py-2 pr-3 font-mono text-xs">{s.carry_forward_job_card_id ? <Link className="text-signal-emerald-ink hover:underline" href={`/production/job-cards/${s.carry_forward_job_card_id}`}>{String(s.carry_forward_job_card_id).slice(0, 8)}</Link> : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -384,7 +384,7 @@ function OperationsControlPage() {
           {Array.isArray(downtimeRows) && downtimeRows.length > 0 ? (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <th className="py-2 pr-3">Machine</th>
                   <th className="py-2 pr-3">Started</th>
                   <th className="py-2 pr-3">Ended</th>
@@ -400,7 +400,7 @@ function OperationsControlPage() {
                   const affected: string[] = Array.isArray(d.affected_job_card_ids) ? d.affected_job_card_ids : []
                   const hasAffected = affected.length > 0
                   return (
-                    <tr key={d.id} className="border-b border-slate-100">
+                    <tr key={d.id} className="border-b border-border">
                       <td className="py-2 pr-3 font-mono text-xs">{d.machine_code || String(d.machine_id || "").slice(0, 8)}</td>
                       <td className="py-2 pr-3 text-xs">{d.started_at ? new Date(d.started_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
                       <td className="py-2 pr-3 text-xs">{d.ended_at ? new Date(d.ended_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : <Pill tone="warn">ONGOING</Pill>}</td>
@@ -414,7 +414,7 @@ function OperationsControlPage() {
                               type="button"
                               onClick={() => handleEndDowntime(d)}
                               disabled={updateDowntime.isPending}
-                              className="inline-flex items-center rounded-full border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                              className="inline-flex items-center rounded-full border border-signal-rose-line bg-card px-2.5 py-1 text-[11px] font-semibold text-signal-rose-ink hover:bg-signal-rose-soft disabled:opacity-50"
                             >
                               {updateDowntime.isPending ? "Ending…" : "End now"}
                             </button>
@@ -424,13 +424,13 @@ function OperationsControlPage() {
                               type="button"
                               onClick={focusReschedulePanel}
                               title={`${affected.length} job card${affected.length === 1 ? "" : "s"} need rescheduling`}
-                              className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-amber-800 hover:bg-amber-50"
+                              className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-card px-2.5 py-1 text-[11px] font-semibold text-signal-amber-ink hover:bg-signal-amber-soft"
                             >
                               <CalendarClock className="h-3 w-3" />
                               Reschedule ({affected.length})
                             </button>
                           ) : null}
-                          {!isOngoing && !hasAffected ? <span className="text-[11px] text-slate-400">—</span> : null}
+                          {!isOngoing && !hasAffected ? <span className="text-[11px] text-muted-foreground">—</span> : null}
                         </div>
                       </td>
                     </tr>
@@ -456,16 +456,16 @@ function OperationsControlPage() {
             {openHolds.map((h: any) => {
               const isResolving = resolveForId === h.id
               return (
-                <div key={h.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                <div key={h.id} className="rounded-xl border border-border bg-card p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                       <span className="font-mono text-xs">
                         <Link className="font-semibold hover:underline" href={`/production/job-cards/${h.job_card_id}`}>{String(h.job_card_id || "").slice(0, 8)}</Link>
                       </span>
                       <Pill tone={(h.stage_type && h.stage_type !== "JOB_CARD") ? "info" : "neutral"}>{(h.stage_type && h.stage_type !== "JOB_CARD") ? h.stage_type : "Whole card"}</Pill>
-                      <span className="text-slate-600">Gap <strong className="text-rose-700">{formatNumber(Number(h.gap_qty || 0))}</strong></span>
-                      <span className="font-mono text-xs text-slate-500">{h.reason_code}</span>
-                      <span className="inline-flex items-center gap-1 text-xs text-slate-400"><Clock className="h-3 w-3" />{relativeAge(h.created_at)} old</span>
+                      <span className="text-muted-foreground">Gap <strong className="text-signal-rose-ink">{formatNumber(Number(h.gap_qty || 0))}</strong></span>
+                      <span className="font-mono text-xs text-muted-foreground">{h.reason_code}</span>
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground"><Clock className="h-3 w-3" />{relativeAge(h.created_at)} old</span>
                     </div>
                     {!isResolving ? (
                       <button
@@ -477,21 +477,21 @@ function OperationsControlPage() {
                       </button>
                     ) : null}
                   </div>
-                  {h.notes ? <p className="mt-1 text-xs text-slate-500">{h.notes}</p> : null}
+                  {h.notes ? <p className="mt-1 text-xs text-muted-foreground">{h.notes}</p> : null}
                   {isResolving ? (
-                    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <div className="mt-3 rounded-lg border border-border bg-muted p-3">
                       <div className="grid gap-2 sm:grid-cols-2">
                         <button
                           type="button"
                           onClick={() => setResolveDecision("CARRY_FORWARD")}
-                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "CARRY_FORWARD" ? "border-emerald-700 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white text-slate-700"}`}
+                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "CARRY_FORWARD" ? "border-emerald-700 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}
                         >
                           Carry forward<br /><span className="text-[10px] font-normal">Spawn top-up JC for the gap</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => setResolveDecision("SHORT_CLOSE_SO")}
-                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "SHORT_CLOSE_SO" ? "border-amber-700 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-700"}`}
+                          className={`rounded-md border px-3 py-2 text-xs font-semibold ${resolveDecision === "SHORT_CLOSE_SO" ? "border-amber-700 bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-card text-muted-foreground"}`}
                         >
                           Short-close SO line<br /><span className="text-[10px] font-normal">Customer agreed to short ship</span>
                         </button>
@@ -501,14 +501,14 @@ function OperationsControlPage() {
                         onChange={(e) => setResolveNote(e.target.value)}
                         rows={2}
                         placeholder="Optional note — who decided and why"
-                        className="mt-2 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                        className="mt-2 w-full rounded-md border border-border bg-card px-3 py-2 text-sm"
                       />
-                      {resolveError ? <p className="mt-1 text-xs text-rose-700 font-medium">{resolveError}</p> : null}
+                      {resolveError ? <p className="mt-1 text-xs text-signal-rose-ink font-medium">{resolveError}</p> : null}
                       <div className="mt-2 flex items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => { setResolveForId(null); setResolveError(null) }}
-                          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700"
+                          className="rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold text-muted-foreground"
                         >
                           Cancel
                         </button>
@@ -546,22 +546,22 @@ function OperationsControlPage() {
               {rescheduleRows.map((d: any) => {
                 const affected: string[] = Array.isArray(d.affected_job_card_ids) ? d.affected_job_card_ids : []
                 return (
-                  <div key={d.id} className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div key={d.id} className="rounded-xl border border-border bg-card p-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                          <span className="inline-flex items-center gap-1 font-mono text-xs font-semibold"><Wrench className="h-3 w-3 text-slate-400" />{d.machine_code || String(d.machine_id || "").slice(0, 8)}</span>
+                          <span className="inline-flex items-center gap-1 font-mono text-xs font-semibold"><Wrench className="h-3 w-3 text-muted-foreground" />{d.machine_code || String(d.machine_id || "").slice(0, 8)}</span>
                           <Pill tone={d.is_planned ? "ok" : "warn"}>{d.is_planned ? "PLANNED" : "UNPLANNED"}</Pill>
-                          <span className="font-mono text-xs text-slate-500">{d.reason_code}</span>
+                          <span className="font-mono text-xs text-muted-foreground">{d.reason_code}</span>
                         </div>
-                        <div className="text-xs text-slate-500">
+                        <div className="text-xs text-muted-foreground">
                           {d.started_at ? new Date(d.started_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}
                           {" → "}
                           {d.ended_at ? new Date(d.ended_at).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : <Pill tone="warn">ONGOING</Pill>}
-                          {d.duration_minutes ? <span className="ml-2 font-semibold text-slate-600">{Math.round(Number(d.duration_minutes))} m</span> : null}
+                          {d.duration_minutes ? <span className="ml-2 font-semibold text-muted-foreground">{Math.round(Number(d.duration_minutes))} m</span> : null}
                         </div>
                         <div className="flex flex-wrap items-center gap-2 pt-1">
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Affected:</span>
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Affected:</span>
                           {affected.map((jc) => (
                             <DrillLink key={jc} href={`/planning/board?job_card_id=${jc}`}>{String(jc).slice(0, 8)}</DrillLink>
                           ))}
@@ -572,7 +572,7 @@ function OperationsControlPage() {
                           type="button"
                           onClick={() => handleRescheduleStatus(d, "DONE")}
                           disabled={updateRescheduleStatus.isPending}
-                          className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-full border border-signal-emerald-line bg-card px-2.5 py-1 text-[11px] font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft disabled:opacity-50"
                         >
                           <CheckCircle2 className="h-3 w-3" />
                           Mark rescheduled
@@ -581,7 +581,7 @@ function OperationsControlPage() {
                           type="button"
                           onClick={() => handleRescheduleStatus(d, "DISMISSED")}
                           disabled={updateRescheduleStatus.isPending}
-                          className="inline-flex items-center gap-1 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-[11px] font-semibold text-muted-foreground hover:bg-muted disabled:opacity-50"
                         >
                           <XCircle className="h-3 w-3" />
                           Dismiss
@@ -607,7 +607,7 @@ function OperationsControlPage() {
         size="lg"
         footer={
           <>
-            <button onClick={() => setScOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+            <button onClick={() => setScOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
             <button onClick={submitShortClose} disabled={shortCloseJob.isPending || !concretePlantSelected} className="rounded-full bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-800 disabled:opacity-50">
               {shortCloseJob.isPending ? "Closing…" : `Close with gap ${gapPreview > 0 ? formatNumber(gapPreview) : ""}`}
             </button>
@@ -616,8 +616,8 @@ function OperationsControlPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Job card *</span>
-            <select value={scJobCardId} onChange={(e) => setScJobCardId(e.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Job card *</span>
+            <select value={scJobCardId} onChange={(e) => setScJobCardId(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose an open job card…</option>
               {openJobCards.map((j: any) => (
                 <option key={j.id} value={j.id}>
@@ -627,46 +627,46 @@ function OperationsControlPage() {
             </select>
           </label>
           {selectedJC ? (
-            <div className="sm:col-span-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            <div className="sm:col-span-2 rounded-md border border-border bg-muted px-3 py-2 text-xs text-muted-foreground">
               <strong>{selectedJC.product_code || "—"}</strong> · planned <strong>{formatNumber(plannedQty)}</strong> · status <Pill tone="info">{selectedJC.status}</Pill>
             </div>
           ) : null}
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Short-close scope: whole card or a specific stage *</span>
-            <select value={scStageType} onChange={(e) => setScStageType(e.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Short-close scope: whole card or a specific stage *</span>
+            <select value={scStageType} onChange={(e) => setScStageType(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               {SHORT_CLOSE_STAGES.map((s) => (
                 <option key={s} value={s}>{s === "JOB_CARD" ? "Whole job card" : s} {s === "JOB_CARD" ? "(default)" : ""}</option>
               ))}
             </select>
-            <span className="text-[11px] text-slate-400">Pick a stage (Winder / Oven / Process …) to short-close just that step, or leave it on the whole card.</span>
+            <span className="text-[11px] text-muted-foreground">Pick a stage (Winder / Oven / Process …) to short-close just that step, or leave it on the whole card.</span>
           </label>
           <LabeledInput label="Produced qty" required value={scProduced} onChange={setScProduced} type="number" placeholder="e.g. 50000" />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Gap (auto)</span>
-            <span className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold text-rose-700">{gapPreview > 0 ? formatNumber(gapPreview) : "—"}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Gap (auto)</span>
+            <span className="rounded-md border border-border bg-muted px-3 py-2 text-sm font-bold text-signal-rose-ink">{gapPreview > 0 ? formatNumber(gapPreview) : "—"}</span>
           </label>
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Reason code *</span>
-            <select value={scReason} onChange={(e) => setScReason(e.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Reason code *</span>
+            <select value={scReason} onChange={(e) => setScReason(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {(Array.isArray(scReasons) ? scReasons : []).filter((r: any) => r.is_active !== false).map((r: any) => (
                 <option key={r.id} value={r.code}>{r.code} · {r.label}</option>
               ))}
             </select>
             {(!Array.isArray(scReasons) || scReasons.length === 0) ? (
-              <span className="text-[11px] text-amber-700">No SHORT_CLOSE reason codes seeded yet. <Link href="/masters/reason-codes" className="underline">Seed them →</Link></span>
+              <span className="text-[11px] text-signal-amber-ink">No SHORT_CLOSE reason codes seeded yet. <Link href="/masters/reason-codes" className="underline">Seed them →</Link></span>
             ) : null}
           </label>
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Decision *</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Decision *</span>
             <div className="grid grid-cols-3 gap-2">
-              <button type="button" onClick={() => setScDecision("CARRY_FORWARD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "CARRY_FORWARD" ? "border-emerald-700 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white text-slate-700"}`}>
+              <button type="button" onClick={() => setScDecision("CARRY_FORWARD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "CARRY_FORWARD" ? "border-emerald-700 bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card text-muted-foreground"}`}>
                 Carry forward<br /><span className="text-[10px] font-normal">Spawn top-up JC for the gap</span>
               </button>
-              <button type="button" onClick={() => setScDecision("SHORT_CLOSE_SO")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "SHORT_CLOSE_SO" ? "border-amber-700 bg-amber-50 text-amber-900" : "border-slate-200 bg-white text-slate-700"}`}>
+              <button type="button" onClick={() => setScDecision("SHORT_CLOSE_SO")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "SHORT_CLOSE_SO" ? "border-amber-700 bg-signal-amber-soft text-signal-amber-ink" : "border-border bg-card text-muted-foreground"}`}>
                 Short-close SO line<br /><span className="text-[10px] font-normal">Customer agreed to short ship</span>
               </button>
-              <button type="button" onClick={() => setScDecision("HOLD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "HOLD" ? "border-slate-700 bg-slate-100 text-slate-900" : "border-slate-200 bg-white text-slate-700"}`}>
+              <button type="button" onClick={() => setScDecision("HOLD")} className={`rounded-md border px-3 py-2 text-xs font-semibold ${scDecision === "HOLD" ? "border-slate-700 bg-muted text-foreground" : "border-border bg-card text-muted-foreground"}`}>
                 Hold<br /><span className="text-[10px] font-normal">Decide later</span>
               </button>
             </div>
@@ -675,7 +675,7 @@ function OperationsControlPage() {
             <LabeledTextarea label="Notes" value={scNotes} onChange={setScNotes} rows={2} placeholder="What happened, who's accountable, what's next" />
           </div>
         </div>
-        {scError ? <p className="mt-2 text-xs text-rose-700 font-medium">{scError}</p> : null}
+        {scError ? <p className="mt-2 text-xs text-signal-rose-ink font-medium">{scError}</p> : null}
       </Modal>
 
       {/* Downtime modal */}
@@ -687,7 +687,7 @@ function OperationsControlPage() {
         size="lg"
         footer={
           <>
-            <button onClick={() => setDtOpen(false)} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">Cancel</button>
+            <button onClick={() => setDtOpen(false)} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">Cancel</button>
             <button onClick={submitDowntime} disabled={logDowntime.isPending || !concretePlantSelected} className="rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold text-white shadow hover:bg-rose-800 disabled:opacity-50">
               {logDowntime.isPending ? "Logging…" : "Log downtime"}
             </button>
@@ -696,8 +696,8 @@ function OperationsControlPage() {
       >
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Machine *</span>
-            <select value={dtMachineId} onChange={(e) => setDtMachineId(e.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Machine *</span>
+            <select value={dtMachineId} onChange={(e) => setDtMachineId(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {machines.filter((m: any) => m.active !== false).map((m: any) => (
                 <option key={m.id} value={m.id}>{m.code || m.name} · {m.department || "—"}</option>
@@ -707,15 +707,15 @@ function OperationsControlPage() {
           <LabeledInput label="Started at" required type="datetime-local" value={dtStartedAt} onChange={setDtStartedAt} />
           <LabeledInput label="Ended at (blank = still down)" type="datetime-local" value={dtEndedAt} onChange={setDtEndedAt} />
           <label className="sm:col-span-2 flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Reason code *</span>
-            <select value={dtReason} onChange={(e) => setDtReason(e.target.value)} className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Reason code *</span>
+            <select value={dtReason} onChange={(e) => setDtReason(e.target.value)} className="rounded-md border border-border bg-card px-3 py-2 text-sm">
               <option value="">Choose…</option>
               {(Array.isArray(dtReasons) ? dtReasons : []).filter((r: any) => r.is_active !== false).map((r: any) => (
                 <option key={r.id} value={r.code}>{r.code} · {r.label}</option>
               ))}
             </select>
             {(!Array.isArray(dtReasons) || dtReasons.length === 0) ? (
-              <span className="text-[11px] text-amber-700">No DOWNTIME reason codes seeded yet. <Link href="/masters/reason-codes" className="underline">Seed them →</Link></span>
+              <span className="text-[11px] text-signal-amber-ink">No DOWNTIME reason codes seeded yet. <Link href="/masters/reason-codes" className="underline">Seed them →</Link></span>
             ) : null}
           </label>
           <label className="sm:col-span-2 flex items-center gap-2 text-sm">
@@ -726,7 +726,7 @@ function OperationsControlPage() {
             <LabeledTextarea label="Notes" value={dtNotes} onChange={setDtNotes} rows={2} />
           </div>
         </div>
-        {dtError ? <p className="mt-2 text-xs text-rose-700 font-medium">{dtError}</p> : null}
+        {dtError ? <p className="mt-2 text-xs text-signal-rose-ink font-medium">{dtError}</p> : null}
       </Modal>
     </div>
   )

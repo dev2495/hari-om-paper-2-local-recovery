@@ -1,4 +1,6 @@
 import logging
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +8,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
+from ..concession_use import guard_concession_stock
 from ..database import get_db
 from ..models import (
     ItemMaster,
@@ -41,6 +44,8 @@ class DispatchCreate(BaseModel):
     production_job_id: Optional[uuid.UUID] = None
     sales_order_id: Optional[uuid.UUID] = None
     sales_order_line_id: Optional[uuid.UUID] = None
+    customer_id: Optional[uuid.UUID] = None
+    effective_date: Optional[date] = None
 
 
 class DispatchResponse(BaseModel):
@@ -87,6 +92,8 @@ def _existing_dispatch_response(transaction: StockTransaction, dispatch: Dispatc
         requested = getattr(dispatch, key, None)
         if requested and metadata.get(key) and str(requested) != str(metadata[key]):
             raise HTTPException(status_code=409, detail=f"Dispatch reference has different {key}")
+    if dispatch.effective_date and transaction.effective_date and dispatch.effective_date != transaction.effective_date:
+        raise HTTPException(status_code=409, detail="Dispatch reference has a different business date")
     _backfill_dispatch_lineage(transaction, dispatch)
 
     return DispatchResponse(
@@ -237,8 +244,15 @@ def create_dispatch(
         ).with_for_update().first()
     if not batch:
         raise HTTPException(status_code=404, detail="Batch not found")
-    if batch.stock_status not in {"UNRESTRICTED", "DISPATCH_STAGING"}:
-        raise HTTPException(status_code=400, detail=f"Batch is not dispatchable ({batch.stock_status})")
+    guard_concession_stock(
+        db,
+        plant_id=plant_id,
+        entity=batch,
+        customer_id=dispatch.customer_id,
+        sales_order_id=dispatch.sales_order_id,
+        allowed_statuses={"UNRESTRICTED", "DISPATCH_STAGING"},
+        blocked_detail=f"Batch is not dispatchable ({batch.stock_status})",
+    )
 
     effective_batch_available = get_available_batch_qty(str(selected_batch_id), db)
     if reservation and reservation.batch_id == selected_batch_id:
@@ -253,6 +267,7 @@ def create_dispatch(
         item_id=dispatch.item_id,
         batch_id=selected_batch_id,
         transaction_type=TransactionType.DISPATCH,
+        effective_date=dispatch.effective_date or datetime.now(ZoneInfo("Asia/Kolkata")).date(),
         qty_change=-dispatch.qty,
         reference_type=ReferenceType.DISPATCH,
         reference_id=uuid.uuid5(uuid.NAMESPACE_URL, dispatch.dispatch_ref),

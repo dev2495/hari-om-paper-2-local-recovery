@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..config import get_settings
 from ..models import InventoryLocation, ItemMaster, PaperReel, ReferenceType, StockBatch, StockTransaction, TrackingMode, TransactionType
 from ..services import get_batch_balance, get_item_balance
 from ..services.labels import batch_label_payload
@@ -255,6 +256,11 @@ def create_inward(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "Admin"])),
 ):
+    if get_settings().PROCUREMENT_V2_ENFORCED and inward.reference_type.strip().upper() == "PURCHASE":
+        raise HTTPException(
+            status_code=409,
+            detail="Purchase inward is controlled by an approved PO revision. Use /inventory/procurement/receipts; use this route only for an authorized non-purchase exception.",
+        )
     item = db.query(ItemMaster).filter(
         ItemMaster.id == inward.item_id,
         ItemMaster.plant_id == plant_id

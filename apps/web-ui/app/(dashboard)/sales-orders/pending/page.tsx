@@ -121,14 +121,16 @@ export default function PendingOrdersWorkspacePage() {
         appearance={MODULE_APPEARANCES.sales}
         badge="Pending orders"
         title="All in-scope pending demand, not the first page"
-        description="Filters, sort, counts and export run on the server for the authorized plant. Production WIP is an overlay; supplier calendars and BOM shortages are deferred."
+        description="Filters, sort, counts and export run on the server for the authorized plant. Production status comes from linked job cards. Open the material plan for residual BOM requirements and dated purchasing coverage."
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => void exportRows()} className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900" data-testid="pending-orders:export">
+            <button type="button" onClick={() => void exportRows()} className="inline-flex items-center gap-2 rounded-xl bg-card px-4 py-2.5 text-sm font-semibold text-foreground" data-testid="pending-orders:export">
               <Download className="h-4 w-4" />
               Export full set
             </button>
-            <Link href="/sales-orders" className="rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold text-white">
+            <Link href="/purchase/scheduler" className="rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">Material plan</Link>
+            <Link href="/purchase/supplier-deliveries" className="rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">Supplier deliveries</Link>
+            <Link href="/sales-orders" className="rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">
               Sales queue
             </Link>
           </div>
@@ -155,8 +157,8 @@ export default function PendingOrdersWorkspacePage() {
               replaceQuery({ search: searchDraft.trim() || null })
             }}
           >
-            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2">
-              <Search className="h-4 w-4 text-slate-400" />
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2">
+              <Search className="h-4 w-4 text-muted-foreground" />
               <input
                 aria-label="Search pending orders"
                 value={searchDraft}
@@ -165,25 +167,25 @@ export default function PendingOrdersWorkspacePage() {
                 className="w-64 bg-transparent text-sm outline-none"
               />
             </div>
-            <select value={source} onChange={(event) => replaceQuery({ source: event.target.value || null })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+            <select value={source} onChange={(event) => replaceQuery({ source: event.target.value || null })} className="rounded-xl border border-border bg-card px-3 py-2 text-sm">
               <option value="">All sources</option>
               <option value="customer_po">Customer PO</option>
               <option value="internal">Internal</option>
             </select>
-            <select value={dueRisk} onChange={(event) => replaceQuery({ due_risk: event.target.value || null })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+            <select value={dueRisk} onChange={(event) => replaceQuery({ due_risk: event.target.value || null })} className="rounded-xl border border-border bg-card px-3 py-2 text-sm">
               <option value="">All due risk</option>
               <option value="PRIORITY">Priority (3 plant days)</option>
               <option value="OVERDUE">Overdue</option>
             </select>
-            <select value={missingSchedule} onChange={(event) => replaceQuery({ missing_schedule: event.target.value || null })} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+            <select value={missingSchedule} onChange={(event) => replaceQuery({ missing_schedule: event.target.value || null })} className="rounded-xl border border-border bg-card px-3 py-2 text-sm">
               <option value="">Schedule any</option>
               <option value="1">Missing schedule</option>
             </select>
-            <input value={product} onChange={(event) => replaceQuery({ product: event.target.value || null })} placeholder="Product" className="w-36 rounded-xl border border-slate-200 px-3 py-2 text-sm" />
+            <input value={product} onChange={(event) => replaceQuery({ product: event.target.value || null })} placeholder="Product" className="w-36 rounded-xl border border-border px-3 py-2 text-sm" />
             <select value={`${sort}:${direction}`} onChange={(event) => {
               const [nextSort, nextDir] = event.target.value.split(":")
               replaceQuery({ sort: nextSort, direction: nextDir })
-            }} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+            }} className="rounded-xl border border-border bg-card px-3 py-2 text-sm">
               <option value="due_date:asc">Due date</option>
               <option value="outstanding_qty:desc">Outstanding qty</option>
               <option value="unreleased_qty:desc">Unreleased qty</option>
@@ -209,9 +211,9 @@ export default function PendingOrdersWorkspacePage() {
             {null}
           </QuerySwitch>
         ) : (
-          <div className="overflow-x-auto rounded-[1.35rem] border border-slate-200">
+          <div className="overflow-x-auto rounded-[1.35rem] border border-border">
             <table className="min-w-full">
-              <thead className="bg-slate-50 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+              <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                 <tr>
                   <th className="px-4 py-3 text-left">Order</th>
                   <th className="px-4 py-3 text-left">Customer / source</th>
@@ -222,48 +224,48 @@ export default function PendingOrdersWorkspacePage() {
                   <th className="px-4 py-3 text-left">Due / production</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+              <tbody className="divide-y divide-border bg-card">
                 {items.map((order: any) => {
                   const production = productionByOrder.get(String(order.id))
                   return (order.lines || []).map((line: any, index: number) => (
                     <tr key={`${order.id}:${line.line_id}`} className="align-top">
                       {index === 0 ? (
                         <td className="px-4 py-4" rowSpan={(order.lines || []).length}>
-                          <Link href={`/sales-orders/${order.id}`} className="text-sm font-black text-slate-950 hover:text-cyan-700">
+                          <Link href={`/sales-orders/${order.id}`} className="text-sm font-black text-foreground hover:text-signal-cyan-ink">
                             {order.order_no}
                           </Link>
-                          <div className="mt-1 text-xs text-slate-500">{order.status}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{order.status}</div>
                         </td>
                       ) : null}
                       {index === 0 ? (
                         <td className="px-4 py-4" rowSpan={(order.lines || []).length}>
-                          <div className="font-semibold text-slate-900">{customerMap.get(String(order.customer_id)) || order.customer_id}</div>
-                          <div className="mt-1 text-xs text-slate-500">{order.source === "customer_po" ? `PO ${order.po_number}` : "Internal sales order"}</div>
+                          <div className="font-semibold text-foreground">{customerMap.get(String(order.customer_id)) || order.customer_id}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">{order.source === "customer_po" ? `PO ${order.po_number}` : "Internal sales order"}</div>
                         </td>
                       ) : null}
                       <td className="px-4 py-4 text-sm">
-                        <div className="font-semibold text-slate-900">Line {line.line_no} · {line.product_code || "No product code"}</div>
-                        <div className="mt-1 text-xs text-slate-500">Spec {(line.approved_spec_id || "").slice(0, 8)} · Parchment {line.parchment_color || "-"}</div>
+                        <div className="font-semibold text-foreground">Line {line.line_no} · {line.product_code || "No product code"}</div>
+                        <div className="mt-1 text-xs text-muted-foreground">Spec {(line.approved_spec_id || "").slice(0, 8)} · Parchment {line.parchment_color || "-"}</div>
                       </td>
                       <td className="px-4 py-4 text-right text-sm">
                         {formatQty(line.ordered_qty)}
-                        <div className="mt-1 text-xs text-slate-500">{formatQty(line.outstanding_qty)} outstanding</div>
+                        <div className="mt-1 text-xs text-muted-foreground">{formatQty(line.outstanding_qty)} outstanding</div>
                       </td>
                       <td className="px-4 py-4 text-right text-sm">{formatQty(line.unreleased_qty)}</td>
                       <td className="px-4 py-4 text-right text-sm">
                         {formatQty(line.scheduled_qty)}
-                        {line.missing_schedule ? <div className="mt-1 text-xs font-semibold text-amber-700">Remainder {formatQty(line.remaining_to_schedule_qty)}</div> : null}
+                        {line.missing_schedule ? <div className="mt-1 text-xs font-semibold text-signal-amber-ink">Remainder {formatQty(line.remaining_to_schedule_qty)}</div> : null}
                       </td>
                       <td className="px-4 py-4 text-sm">
-                        <div className={line.due_risk === "OVERDUE" ? "font-semibold text-rose-700" : line.due_risk === "PRIORITY" ? "font-semibold text-amber-700" : ""}>
+                        <div className={line.due_risk === "OVERDUE" ? "font-semibold text-signal-rose-ink" : line.due_risk === "PRIORITY" ? "font-semibold text-signal-amber-ink" : ""}>
                           {formatDate(line.due_date)} {line.due_risk === "OVERDUE" ? "· Overdue" : line.due_risk === "PRIORITY" ? "· Priority" : ""}
                         </div>
                         {index === 0 ? (
-                          <div className="mt-2 text-xs text-slate-500">
+                          <div className="mt-2 text-xs text-muted-foreground">
                             {production ? `${production.flow_status} · ${production.job_count} job card(s)` : "No production overlay yet"}
                             <div className="mt-2 flex gap-2">
-                              <Link href={`/sales-orders/${order.id}`} className="font-black text-cyan-800">Schedule PO</Link>
-                              <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-1 font-black text-slate-800">
+                              <Link href={`/sales-orders/${order.id}`} className="font-black text-signal-cyan-ink">Schedule PO</Link>
+                              <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-1 font-black text-foreground">
                                 Plan <ArrowRight className="h-3 w-3" />
                               </Link>
                             </div>

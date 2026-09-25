@@ -147,7 +147,7 @@ function AnalyticsLandingPage() {
             aria-label="Reporting period"
             value={period}
             onChange={(e) => setPeriod(e.target.value as any)}
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+            className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
           >
             <option value="7">Last 7 days</option>
             <option value="30">Last 30 days</option>
@@ -155,12 +155,12 @@ function AnalyticsLandingPage() {
           </select>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">
             {activePlantLabel}
           </span>
         </FilterField>
         <span className="ml-auto" />
-        <span className="text-sm font-semibold text-slate-500">Finished reports are listed on this page.</span>
+        <span className="text-sm font-semibold text-muted-foreground">Finished reports are listed on this page.</span>
       </ReportFilterBar>
 
       {isLoading ? <LoadingState label="Loading intelligence snapshot…" /> : null}
@@ -181,14 +181,14 @@ function AnalyticsLandingPage() {
               <div
                 className={
                   "flex items-center justify-between gap-3 rounded-2xl border px-4 py-3 shadow-sm hover:shadow transition " +
-                  (a.tone === "critical" ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50")
+                  (a.tone === "critical" ? "border-signal-rose-line bg-signal-rose-soft" : "border-signal-amber-line bg-signal-amber-soft")
                 }
               >
                 <div className="flex items-center gap-2 text-sm">
                   <Pill tone={a.tone === "critical" ? "critical" : "warn"}>{a.tone === "critical" ? "Critical" : "Watch"}</Pill>
-                  <span className="font-medium text-slate-900">{a.title}</span>
+                  <span className="font-medium text-foreground">{a.title}</span>
                 </div>
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Open →</span>
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Open →</span>
               </div>
             </Link>
           ))}
@@ -198,7 +198,7 @@ function AnalyticsLandingPage() {
       )}
 
       {/* Hero KPIs */}
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Hero KPIs</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Hero KPIs</p>
       <KpiRail
         items={[
           {
@@ -248,7 +248,7 @@ function AnalyticsLandingPage() {
         ]}
       />
 
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Secondary KPIs</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Secondary KPIs</p>
       <KpiRail
         items={[
           {
@@ -356,7 +356,7 @@ function AnalyticsLandingPage() {
       <Panel eyebrow="Live exception streams" title="What's firing right now" description="Click a row to drill into the underlying records.">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               <th className="py-2 pr-3">Stream</th>
               <th className="py-2 pr-3 text-right">Count</th>
               <th className="py-2 pr-3">Severity</th>
@@ -364,19 +364,19 @@ function AnalyticsLandingPage() {
             </tr>
           </thead>
           <tbody>
-            <tr className="border-b border-slate-100">
+            <tr className="border-b border-border">
               <td className="py-2 pr-3">Jobs blocked &gt; 4h</td>
               <td className="py-2 pr-3 text-right font-bold">{formatNumber(blockedCount)}</td>
               <td><Pill tone={blockedCount ? "critical" : "ok"}>{blockedCount ? "CRITICAL" : "OK"}</Pill></td>
               <td><DrillLink href="/reports/operations">Open</DrillLink></td>
             </tr>
-            <tr className="border-b border-slate-100">
+            <tr className="border-b border-border">
               <td className="py-2 pr-3">Orders past promise date</td>
               <td className="py-2 pr-3 text-right font-bold">{formatNumber(delayedRows.length)}</td>
               <td><Pill tone={delayedRows.length ? "warn" : "ok"}>{delayedRows.length ? "WATCH" : "OK"}</Pill></td>
               <td><DrillLink href="/reports/sales">Open</DrillLink></td>
             </tr>
-            <tr className="border-b border-slate-100">
+            <tr className="border-b border-border">
               <td className="py-2 pr-3">Items below reorder</td>
               <td className="py-2 pr-3 text-right font-bold">{formatNumber(lowStockCount)}</td>
               <td><Pill tone={lowStockCount ? "warn" : "ok"}>{lowStockCount ? "WATCH" : "OK"}</Pill></td>

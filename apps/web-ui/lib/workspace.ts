@@ -107,7 +107,7 @@ export const LANDING_QUICK_ACTIONS: Record<LandingRole, QuickAction[]> = {
     { href: "/inventory", label: "Inventory Actions", detail: "Run inward, issue, and reservations." },
     { href: "/inventory/genealogy", label: "Genealogy", detail: "Trace reel lineage, issues, and scan events." },
     { href: "/inventory/valuation", label: "Valuation", detail: "Audit stock value and risk items." },
-    { href: "/inventory/reels/inward", label: "Reel Inward", detail: "Record reel-wise inward entries." },
+    { href: "/purchase/inward", label: "PO-linked Inward", detail: "Receive approved PO lines in kg with one AT label per reel or coil." },
   ],
   Dispatch: [
     { href: "/logistics/dispatch", label: "Dispatch Desk", detail: "Move finished-goods lots into challans." },

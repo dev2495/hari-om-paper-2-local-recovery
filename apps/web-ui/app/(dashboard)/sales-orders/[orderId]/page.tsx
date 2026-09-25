@@ -69,7 +69,7 @@ export default function SalesOrderDetailPage() {
   const earliestDue = useMemo(
     () =>
       [...(order?.lines || [])]
-        .map((line: any) => line.due_date)
+        .map((line: any) => line.earliest_delivery_date ?? line.due_date)
         .filter(Boolean)
         .sort()[0] || null,
     [order?.lines],
@@ -129,12 +129,12 @@ export default function SalesOrderDetailPage() {
         description={`${salesOrderOriginLabel(order.origin)} for ${customerLabel}. Created ${formatDate(order.created_at)}.`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
-            <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
+            <Link href="/sales-orders" className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-sm">
               <ArrowLeft className="h-4 w-4" />
               Back to queue
             </Link>
             {order.status === "draft" || order.status === "submitted" ? (
-              <Link href={`/sales-orders/${order.id}/edit`} className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-all duration-200 hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm">
+              <Link href={`/sales-orders/${order.id}/edit`} className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-muted hover:shadow-sm">
                 Edit order
               </Link>
             ) : null}
@@ -155,10 +155,10 @@ export default function SalesOrderDetailPage() {
                 Approve + Release
               </button>
             ) : null}
-            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 rounded-xl border border-white/30 px-4 py-2.5 text-sm font-semibold text-white">
+            <Link href="/sales-orders/pending" className="inline-flex items-center gap-2 rounded-xl border border-border/30 px-4 py-2.5 text-sm font-semibold text-white">
               Pending workspace
             </Link>
-            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-white/20">
+            <Link href={`/planning/board?section=winder&order_id=${order.id}`} className="inline-flex items-center gap-2 rounded-xl bg-card/10 px-4 py-2.5 text-sm font-semibold text-white transition-all duration-200 hover:bg-card/20">
               Open planner handoff
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -166,13 +166,13 @@ export default function SalesOrderDetailPage() {
         }
         aside={
           <div className="space-y-3">
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Current Status</p>
               <div className="mt-3">
-                <StatusBadge value={order.status} className="border-white/20 bg-white/10 text-white" />
+                <StatusBadge value={order.status} className="border-border/20 bg-card/10 text-white" />
               </div>
             </div>
-            <div className="rounded-[1.15rem] border border-white/10 bg-white/10 p-4 text-sm text-emerald-100">
+            <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4 text-sm text-emerald-100">
               <p>{customerLabel}</p>
               <p className="mt-1 text-xs text-emerald-100/80">Created {formatDate(order.created_at)}</p>
             </div>
@@ -190,62 +190,62 @@ export default function SalesOrderDetailPage() {
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel title="Commercial Header" subtitle="The sales truth that planning and dispatch should read, not reinterpret.">
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Customer</p>
-              <p className="mt-2 font-semibold text-slate-950">{customerLabel}</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Customer</p>
+              <p className="mt-2 font-semibold text-foreground">{customerLabel}</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Order source</p>
-              <p className="mt-2 font-semibold text-slate-950">{salesOrderOriginLabel(order.origin)}</p>
-              <p className="mt-1 text-slate-600">{salesOrderReferenceLabel(order)}</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Order source</p>
+              <p className="mt-2 font-semibold text-foreground">{salesOrderOriginLabel(order.origin)}</p>
+              <p className="mt-1 text-muted-foreground">{salesOrderReferenceLabel(order)}</p>
               {isInternalOrigin(order.origin) ? (
-                <p className="mt-1 text-slate-600">Internal order date {formatDate(order.internal_order_date)}</p>
+                <p className="mt-1 text-muted-foreground">Internal order date {formatDate(order.internal_order_date)}</p>
               ) : (
-                <p className="mt-1 text-slate-600">Customer PO Date {formatDate(order.po_date)}</p>
+                <p className="mt-1 text-muted-foreground">Customer PO Date {formatDate(order.po_date)}</p>
               )}
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Commercial Notes</p>
-              <p className="mt-2 text-slate-700">{order.notes || "No commercial notes recorded."}</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Commercial Notes</p>
+              <p className="mt-2 text-muted-foreground">{order.notes || "No commercial notes recorded."}</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Earliest Delivery Date</p>
-              <p className="mt-2 text-slate-700">{formatDate(earliestDue)}</p>
-              <p className="mt-1 text-xs text-slate-500">Customer commitment date for the earliest line.</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Earliest Delivery Date</p>
+              <p className="mt-2 text-muted-foreground">{formatDate(earliestDue)}</p>
+              <p className="mt-1 text-xs text-muted-foreground">Earliest outstanding call-off, or unscheduled line delivery date.</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Approved</p>
-              <p className="mt-2 text-slate-700">{formatDate(order.approved_at)}</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Approved</p>
+              <p className="mt-2 text-muted-foreground">{formatDate(order.approved_at)}</p>
             </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-              <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Released</p>
-              <p className="mt-2 text-slate-700">{formatDate(order.released_at)}</p>
+            <div className="rounded-2xl border border-border bg-muted p-4 text-sm">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">Released</p>
+              <p className="mt-2 text-muted-foreground">{formatDate(order.released_at)}</p>
             </div>
           </div>
         </Panel>
 
         <Panel title="Flow Next" subtitle="What this PO should do next in the sales -> planning -> production path.">
           <div className="space-y-4">
-            <div className="rounded-[1.25rem] border border-slate-200 bg-[linear-gradient(135deg,#f8fafc_0%,#ecfeff_100%)] p-4">
-              <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Planner Handoff</p>
-              <p className="mt-2 text-lg font-semibold text-slate-950">Release exact line quantities and schedule them into the next 3 days.</p>
-              <p className="mt-2 text-sm text-slate-600">Each job becomes floor-executable only after the planner assigns a valid machine, shift, and plan date.</p>
+            <div className="rounded-[1.25rem] border border-border bg-card p-4">
+              <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Planner Handoff</p>
+              <p className="mt-2 text-lg font-semibold text-foreground">Release exact line quantities and schedule them into the next 3 days.</p>
+              <p className="mt-2 text-sm text-muted-foreground">Each job becomes floor-executable only after the planner assigns a valid machine, shift, and plan date.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <Link
                 href={`/planning/board?section=winder&order_id=${order.id}`}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm font-semibold text-slate-900 transition hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-xl border border-border bg-card px-4 py-4 text-sm font-semibold text-foreground transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 Open winder board
               </Link>
               <Link
                 href={`/planning/tracker?section=winder`}
-                className="rounded-xl border border-slate-200 bg-white px-4 py-4 text-sm font-semibold text-slate-900 transition hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-xl border border-border bg-card px-4 py-4 text-sm font-semibold text-foreground transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 Open tracker
               </Link>
             </div>
-            <div className="rounded-[1.2rem] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+            <div className="rounded-[1.2rem] border border-border bg-muted p-4 text-sm text-muted-foreground">
               {orderJobs.length === 0
                 ? "No job cards are synced from this PO yet."
                 : `${orderJobs.length} planner-linked job card(s) already exist for this PO. One PO can safely split into many job cards.`}
@@ -263,15 +263,15 @@ export default function SalesOrderDetailPage() {
               {orderJobs.map((job: any) => (
                 <div
                   key={job.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
+                  className="rounded-2xl border border-border bg-muted p-4 transition hover:-translate-y-0.5 hover:bg-card hover:shadow-md"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold text-slate-950">{jobCardRef(job)}</p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="text-sm font-semibold text-foreground">{jobCardRef(job)}</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
                         {job.product_code || "No product code"} · {job.current_stage} · {Number(job.planned_qty || 0).toFixed(0)} pcs
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
+                      <p className="mt-1 text-xs text-muted-foreground">
                         Line {String(job.sales_order_line_id || "").slice(0, 8)} · Release {String(job.release_lot_id || "").slice(0, 8)}
                       </p>
                     </div>
@@ -280,7 +280,7 @@ export default function SalesOrderDetailPage() {
                   <div className="mt-4 flex flex-wrap gap-2">
                     <Link
                       href={`/production/job-cards/${job.id}`}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-800 transition hover:bg-slate-100"
+                      className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground transition hover:bg-muted"
                     >
                       Job card
                     </Link>
@@ -301,10 +301,10 @@ export default function SalesOrderDetailPage() {
       <Panel title="Order Lines" subtitle="Every line stays visible as its own long-running release bucket under the same PO.">
         <div className="grid gap-4">
           {(order.lines || []).map((line: any, index: number) => (
-            <div key={line.id} className="rounded-[1.35rem] border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+            <div key={line.id} className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
               <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                 <div>
-                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  <label className="flex items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                     <input
                       type="checkbox"
                       checked={selectedLineIds.includes(String(line.id))}
@@ -315,27 +315,27 @@ export default function SalesOrderDetailPage() {
                     />
                     Line {line.line_no || index + 1}
                   </label>
-                  <h3 className="mt-2 text-lg font-semibold text-slate-950">{line.product_code || "No product code"}</h3>
-                  <p className="mt-1 text-sm text-slate-600">
+                  <h3 className="mt-2 text-lg font-semibold text-foreground">{line.product_code || "No product code"}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
                     Spec {String(line.approved_spec_id || "-").slice(0, 8)} · {parchmentLineLabel(line)} · Delivery {formatDate(line.due_date)}
                   </p>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Qty</p>
-                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.qty || 0).toFixed(0)}</p>
+                  <div className="rounded-xl border border-border bg-muted px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Qty</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">{Number(line.qty || 0).toFixed(0)}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Released</p>
-                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.released_qty || 0).toFixed(0)}</p>
+                  <div className="rounded-xl border border-border bg-muted px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Released</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">{Number(line.released_qty || 0).toFixed(0)}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Fulfilled</p>
-                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.fulfilled_qty || 0).toFixed(0)}</p>
+                  <div className="rounded-xl border border-border bg-muted px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Fulfilled</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">{Number(line.fulfilled_qty || 0).toFixed(0)}</p>
                   </div>
-                  <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                    <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Remaining</p>
-                    <p className="mt-1 text-base font-semibold text-slate-950">{Number(line.remaining_qty || 0).toFixed(0)}</p>
+                  <div className="rounded-xl border border-border bg-muted px-3 py-3">
+                    <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Remaining</p>
+                    <p className="mt-1 text-base font-semibold text-foreground">{Number(line.remaining_qty || 0).toFixed(0)}</p>
                   </div>
                 </div>
               </div>

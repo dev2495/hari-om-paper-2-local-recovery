@@ -40,6 +40,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     const router = useRouter()
     const { user, activePlant, setActivePlant } = useAuth()
     const [isOpen, setIsOpen] = React.useState(false)
+    const triggerRef = React.useRef<HTMLButtonElement>(null)
     const [plants, setPlants] = React.useState<PlantOption[]>([])
     const [isLoading, setIsLoading] = React.useState(false)
     const allowedPlantIds = React.useMemo(
@@ -134,8 +135,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
             <div
                 className={`flex items-center gap-2 rounded-full border shadow-sm ${
                     compact
-                        ? "border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-700"
-                        : "border-white/70 bg-slate-900 px-3 py-2 text-[11px] font-semibold text-slate-50"
+                        ? "border-border bg-card px-3 py-2 text-[11px] font-semibold text-muted-foreground"
+                        : "border-border/70 bg-slate-900 px-3 py-2 text-[11px] font-semibold text-slate-50"
                 }`}
             >
                 <Building2 className="h-3 w-3" />
@@ -145,14 +146,16 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
     }
 
     return (
-        <div className="relative">
+        <div className="relative" onKeyDown={(event) => { if (event.key === "Escape" && isOpen) { event.stopPropagation(); setIsOpen(false); triggerRef.current?.focus() } }}>
             <button
                 data-testid="plant-switcher-trigger"
+                ref={triggerRef}
+                aria-expanded={isOpen}
                 onClick={() => setIsOpen(!isOpen)}
-                className={`flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-sm transition ${
+                className={`relative z-20 flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-sm transition ${
                     compact
-                        ? "border-slate-200 bg-white text-slate-600 hover:border-cyan-200 hover:text-cyan-900"
-                        : "border-white/70 bg-white/92 text-slate-700 hover:border-cyan-200 hover:text-cyan-900"
+                        ? "border-border bg-card text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
+                        : "border-border/70 bg-card/92 text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
                 }`}
             >
                 <Building2 className="h-3 w-3" />
@@ -163,8 +166,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-                    <div className="absolute right-0 z-20 mt-2 w-64 rounded-2xl border border-white/70 bg-white/95 p-2 shadow-2xl backdrop-blur">
-                        <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-400">
+                    <div className="absolute right-0 z-20 mt-2 w-64 rounded-2xl border border-border/70 bg-card/95 p-2 shadow-2xl backdrop-blur">
+                        <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
                             Select Plant
                         </p>
                         {canReadAllPlants ? (
@@ -174,8 +177,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                                 onClick={() => handlePlantChange("ALL")}
                                 className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${
                                     activePlant === "ALL"
-                                        ? "bg-cyan-50 text-cyan-900"
-                                        : "text-slate-700 hover:bg-slate-50"
+                                        ? "bg-signal-cyan-soft text-signal-cyan-ink"
+                                        : "text-muted-foreground hover:bg-muted"
                                 }`}
                             >
                                 <div className="min-w-0">
@@ -191,8 +194,8 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                                 data-testid={`plant-option:${plant.id}`}
                                 onClick={() => handlePlantChange(normalizePlantScopeValue(plant))}
                                 className={`flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition ${activePlant === plant.id || activePlant === plant.code || activePlant === normalizePlantScopeValue(plant)
-                                    ? "bg-cyan-50 text-cyan-900"
-                                    : "text-slate-700 hover:bg-slate-50"
+                                    ? "bg-signal-cyan-soft text-signal-cyan-ink"
+                                    : "text-muted-foreground hover:bg-muted"
                                     }`}
                             >
                                 <div className="min-w-0">
@@ -205,7 +208,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                             </button>
                         ))}
                         {isLoading ? (
-                            <p className="px-3 py-2 text-[11px] text-slate-400">Refreshing plants…</p>
+                            <p className="px-3 py-2 text-[11px] text-muted-foreground">Refreshing plants…</p>
                         ) : null}
                     </div>
                 </>

@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
+from ..config import get_settings
 from ..models import (
     CostSource,
     InventoryLocation,
@@ -255,6 +256,11 @@ def create_reel_inward(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "PlantManager"])),
 ):
+    if get_settings().PROCUREMENT_V2_ENFORCED:
+        raise HTTPException(
+            status_code=409,
+            detail="Paper reel and coil inward must use an approved PO line through /inventory/procurement/receipts.",
+        )
     plant_uuid = _to_uuid(plant_id)
     stock_status = payload.stock_status.strip().upper()
     if stock_status == "UNRESTRICTED":

@@ -36,7 +36,7 @@ export function SpecForm({ initialData, onSubmit, onCancel }: SpecFormProps) {
     const { data: parchments } = useParchments()
 
     return (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 max-w-4xl mx-auto p-6 bg-white rounded-lg shadow">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-8 max-w-4xl mx-auto p-6 bg-card rounded-lg shadow">
 
             <div className="grid grid-cols-2 gap-6">
                 {/* Spec Details */}

@@ -43,7 +43,7 @@ export default function QualityDeskHubPage() {
           description="Incoming material uses the item quality profile. Winding, oven, and process use frozen spec ranges. Holds and dispositions stay on the results desk. The server computes every verdict."
           aside={
             <div className="space-y-3">
-              <div className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
+              <div className="inline-flex items-center gap-2 rounded-full bg-card/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-100">
                 <ShieldCheck className="h-3.5 w-3.5" />
                 Server-side evaluator
               </div>
@@ -77,14 +77,14 @@ export default function QualityDeskHubPage() {
             ["/quality/stage", "Stage QC", "Winding, oven, and process use exact client fields and frozen Allowed ranges."],
             ["/quality/results", "Results / holds", "Inspections, holds, and dispositions live here — separate from measurement entry."],
           ].map(([href, title, detail]) => (
-            <Link key={href} href={href} className="rounded-[1.6rem] border border-slate-200 bg-white p-5 shadow-sm transition hover:border-cyan-300">
-              <p className="text-sm font-semibold text-slate-950">{title}</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">{detail}</p>
+            <Link key={href} href={href} className="rounded-[1.6rem] border border-border bg-card p-5 shadow-sm transition hover:border-signal-cyan-line">
+              <p className="text-sm font-semibold text-foreground">{title}</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">{detail}</p>
             </Link>
           ))}
         </div>
         <Panel title="Binding QC rules" subtitle="These desks do not invent thresholds or copy finished-product limits into winding.">
-          <ul className="grid gap-2 text-sm text-slate-600 md:grid-cols-2">
+          <ul className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
             <li>Winding measures I.D., O.D., Height, Weight, C.S.</li>
             <li>Oven uses paired pre/post weight and moisture on one sample.</li>
             <li>Process measures Height, Weight, C.S., notch (if applicable), moisture.</li>

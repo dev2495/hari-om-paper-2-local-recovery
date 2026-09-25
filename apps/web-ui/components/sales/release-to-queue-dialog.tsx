@@ -222,8 +222,8 @@ export function ReleaseToQueueDialog({
         onOpenChange(next)
       }}
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-slate-200 bg-slate-50 p-0" style={{ width: "min(980px, calc(100vw - 2rem))", maxWidth: "none" }}>
-        <DialogHeader className="border-b border-slate-200 bg-white px-6 py-4">
+      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-[1.75rem] border-border bg-muted p-0" style={{ width: "min(980px, calc(100vw - 2rem))", maxWidth: "none" }}>
+        <DialogHeader className="border-b border-border bg-card px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-slate-950 p-2.5 text-white"><Factory className="h-5 w-5" /></div>
             <div>
@@ -235,23 +235,23 @@ export function ReleaseToQueueDialog({
         <div className="max-h-[60vh] overflow-y-auto px-6 py-5">
           {outcome ? (
             <div className="space-y-4" data-testid="sales-order-detail:release-next-step">
-              <div className={`rounded-2xl border px-4 py-3 text-sm ${outcome.syncPending ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
-                {outcome.syncPending ? "Release recorded — planning synchronization pending." : "Lot created. Open this winder queue next."}
+              <div className={`rounded-2xl border px-4 py-3 text-sm ${outcome.syncPending ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"}`}>
+                {outcome.syncPending ? "Release recorded — planning synchronization pending." : "Job card created. The release winder is a hint; schedule on any available winder."}
               </div>
               <a
                 href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`}
                 className="inline-flex rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white"
                 data-testid="sales-order-detail:open-winder-queue"
               >
-                Open this winder queue
+                Open planning queue
               </a>
             </div>
           ) : (
             <div className="space-y-3">
               {rows.map((row) => (
-                <div key={row.release_lot_id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div key={row.release_lot_id} className="rounded-2xl border border-border bg-card p-4">
                   <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="font-semibold text-slate-950">{row.product_code || "Line"}</p>
+                    <p className="font-semibold text-foreground">{row.product_code || "Line"}</p>
                     <StatusBadge value={row.mode === "resume" ? "PENDING" : "NEW"} />
                   </div>
                   <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -262,12 +262,12 @@ export function ReleaseToQueueDialog({
                       readOnly={row.mode === "resume"}
                       value={row.release_qty}
                       onChange={(event) => setRows((current) => current.map((entry) => entry.release_lot_id === row.release_lot_id ? { ...entry, release_qty: event.target.value, blocker: null } : entry))}
-                      className="h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold"
+                      className="h-11 rounded-xl border border-border px-3 text-sm font-semibold"
                     />
                     <select
                       value={row.winder_machine_id}
                       onChange={(event) => setRows((current) => current.map((entry) => entry.release_lot_id === row.release_lot_id ? { ...entry, winder_machine_id: event.target.value, blocker: null } : entry))}
-                      className="h-11 rounded-xl border border-slate-300 px-3 text-sm font-semibold"
+                      className="h-11 rounded-xl border border-border px-3 text-sm font-semibold"
                       data-testid="sales-order-detail:release-winder"
                     >
                       <option value="">Select winder queue</option>
@@ -276,21 +276,21 @@ export function ReleaseToQueueDialog({
                       ))}
                     </select>
                   </div>
-                  {row.compatibility_warning ? <p className="mt-2 text-xs text-amber-700">{row.compatibility_warning}</p> : null}
-                  {row.blocker ? <p className="mt-2 text-xs text-rose-700">{row.blocker}</p> : null}
+                  {row.compatibility_warning ? <p className="mt-2 text-xs text-signal-amber-ink">{row.compatibility_warning}</p> : null}
+                  {row.blocker ? <p className="mt-2 text-xs text-signal-rose-ink">{row.blocker}</p> : null}
                 </div>
               ))}
             </div>
           )}
         </div>
-        <DialogFooter className="border-t border-slate-200 bg-white px-6 py-4">
+        <DialogFooter className="border-t border-border bg-card px-6 py-4">
           {outcome ? (
-            <button type="button" onClick={() => onOpenChange(false)} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold">Close</button>
+            <button type="button" onClick={() => onOpenChange(false)} className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold">Close</button>
           ) : (
             <div className="flex w-full items-center justify-between gap-3">
-              <span className="text-sm text-slate-600">{totalQty.toFixed(0)} pcs · {blockers ? `${blockers} blocker(s)` : "ready"}</span>
+              <span className="text-sm text-muted-foreground">{totalQty.toFixed(0)} pcs · {blockers ? `${blockers} blocker(s)` : "ready"}</span>
               <div className="flex gap-2">
-                <button type="button" onClick={() => onOpenChange(false)} className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-semibold">Cancel</button>
+                <button type="button" onClick={() => onOpenChange(false)} className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold">Cancel</button>
                 <button
                   type="button"
                   data-testid="sales-order-detail:confirm-release"

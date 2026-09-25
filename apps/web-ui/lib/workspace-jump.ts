@@ -1,3 +1,5 @@
+import { MODULE_NAVIGATION } from "./module-navigation"
+
 export type WorkspaceJumpItem = {
   name: string
   href: string
@@ -7,6 +9,10 @@ export type WorkspaceJumpItem = {
 }
 
 export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
+  { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", description: "Confirmed arrivals and receipt allocations.", group: "Purchasing" },
+  { name: "RM Schedule", href: "/purchase/scheduler", description: "Monthly procurement calendar and workbook import.", group: "Purchasing", keywords: ["calendar", "excel", "workbook"] },
+  { name: "Goods inward", href: "/purchase/inward", description: "Measured receipt and distinct physical lot labels.", group: "Stores & inventory", keywords: ["grn", "receipt"] },
+  { name: "GRN register", href: "/purchase/receipts", description: "Receipts, invoice status and saved labels.", group: "Stores & inventory" },
   { name: "Dashboard", href: "/dashboard", description: "Control room overview, alerts, and operating posture.", group: "Overview" },
   { name: "Guide", href: "/help", description: "Flow maps, field rules, and operator checklists.", group: "Overview" },
   { name: "Sales Orders", href: "/sales-orders", description: "Commercial demand, releases, and customer intake.", group: "Operations", keywords: ["so", "po", "customer"] },
@@ -48,7 +54,9 @@ export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
 export function searchWorkspaceJumps(query: string, limit = 8) {
   const needle = query.trim().toLowerCase()
   if (!needle) return []
-  return WORKSPACE_JUMP_ITEMS.filter((item) => {
+  const entries: WorkspaceJumpItem[] = [...WORKSPACE_JUMP_ITEMS]
+  for (const child of Object.values(MODULE_NAVIGATION).flat()) if (!entries.some(item => item.href === child.href)) entries.push({ ...child, description: "Open " + child.name.toLowerCase(), group: "Workspace" })
+  return entries.filter((item) => {
     const haystack = `${item.name} ${item.href} ${item.description} ${item.group} ${(item.keywords || []).join(" ")}`.toLowerCase()
     return haystack.includes(needle)
   }).slice(0, limit)

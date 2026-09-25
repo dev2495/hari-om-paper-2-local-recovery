@@ -1,16 +1,18 @@
 from typing import Any, Optional
 import hashlib
 import json
+import math
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import or_, text
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 import uuid
 
 from ..config import get_settings
+from ..due_risk import plant_today
 from ..database import get_db
 from ..models import Dispatch, DispatchIdempotency, JobCard, PackingRecord, QualityHold, SalesOrder
 from ..utils.auth import get_current_plant, require_role
@@ -91,29 +93,39 @@ def _number(value: Any) -> Optional[float]:
 
 
 def _dispatch_qty(snapshot: dict[str, Any], job_card: JobCard, packing_record: Optional[PackingRecord]) -> float:
+    def quantity(value: Any) -> float:
+        parsed = _number(value)
+        if parsed is None or not math.isfinite(parsed) or parsed < 0:
+            raise HTTPException(status_code=400, detail="Dispatch quantity must be a finite non-negative number")
+        return parsed
+
     for key in ["qty", "dispatch_qty", "quantity", "total_qty", "packed_qty"]:
-        value = _number(snapshot.get(key))
-        if value and value > 0:
-            return value
+        if key in snapshot:
+            return quantity(snapshot[key])
+    summary = snapshot.get("summary")
+    if isinstance(summary, dict) and "total_pcs" in summary:
+        return quantity(summary["total_pcs"])
 
     items = snapshot.get("items")
-    if isinstance(items, list):
+    if isinstance(items, list) and items:
         total = 0.0
         for item in items:
             if not isinstance(item, dict):
-                continue
-            total += _number(item.get("qty") or item.get("quantity") or item.get("dispatch_qty")) or 0.0
-        if total > 0:
-            return total
+                raise HTTPException(status_code=400, detail="Invalid dispatch item")
+            key = next((key for key in ["total_pcs", "qty", "quantity", "dispatch_qty"] if key in item), None)
+            if key is None:
+                raise HTTPException(status_code=400, detail="Dispatch item quantity is missing")
+            total += quantity(item[key])
+        return quantity(total)
 
     if packing_record and float(packing_record.total_packed_qty or 0.0) > 0:
-        return float(packing_record.total_packed_qty or 0.0)
-    return float(job_card.released_qty or job_card.planned_qty or 0.0)
+        return quantity(packing_record.total_packed_qty)
+    return quantity(job_card.released_qty or job_card.planned_qty or 0.0)
 
 
 def _dispatch_ref(snapshot: dict[str, Any], dispatch_id: uuid.UUID, request_id: str = "") -> str:
     if request_id:
-        date_token = str(snapshot.get("date") or datetime.utcnow().date().isoformat()).replace("-", "")
+        date_token = str(snapshot.get("date") or plant_today().isoformat()).replace("-", "")
         request_token = hashlib.sha256(request_id.encode("utf-8")).hexdigest()[:8].upper()
         fallback = f"DC-{date_token}-{request_token}"
     else:
@@ -138,6 +150,12 @@ def _active_hold_count(db: Session, job_card_id: uuid.UUID) -> int:
         )
         .count()
     )
+
+
+def _require_final_qc(db: Session, plant_id: uuid.UUID, job_card: JobCard) -> None:
+    from .planning import _final_spec_qc_passed
+    if not _final_spec_qc_passed(db=db, plant_id=plant_id, job_card=job_card):
+        raise HTTPException(status_code=409, detail="A current passing final QC inspection is required before dispatch")
 
 
 def _post_inventory_dispatch_if_needed(
@@ -165,6 +183,7 @@ def _post_inventory_dispatch_if_needed(
         "item_id": str(fg_item_id),
         "batch_id": str(inventory_batch_id),
         "qty": dispatch_qty,
+        "effective_date": snapshot.get("date") or plant_today().isoformat(),
         "dispatch_ref": dispatch_ref,
         "external_ref": str(
             snapshot.get("inventory_dispatch_external_ref")
@@ -350,6 +369,8 @@ def create_or_update_dispatch(
     if active_holds:
         raise HTTPException(status_code=409, detail=f"Cannot seal dispatch while {active_holds} quality hold(s) are active")
 
+    _require_final_qc(db, plant_uuid, job_card)
+
     packing_record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).first()
     if not packing_record or float(packing_record.total_packed_qty or 0.0) <= 0:
         raise HTTPException(status_code=409, detail="Cannot seal dispatch before production is packed")
@@ -364,6 +385,13 @@ def create_or_update_dispatch(
     if dispatch_qty > remaining_qty + 0.0001:
         raise HTTPException(status_code=409, detail=f"Dispatch qty {dispatch_qty:g} cannot exceed remaining packed qty {remaining_qty:g}")
 
+    # Freeze the plant business date once so a retry across midnight keeps
+    # the original challan and inventory accounting date.
+    dispatch_snapshot.setdefault("date", plant_today().isoformat())
+    try:
+        dispatch_snapshot["date"] = date.fromisoformat(str(dispatch_snapshot["date"])).isoformat()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Dispatch date must be YYYY-MM-DD") from exc
     dispatch_ref = _dispatch_ref(dispatch_snapshot, dispatch.id, request_id)
     dispatch_snapshot.update(
         {

@@ -91,3 +91,33 @@ test("keyboard, escape, print media, and narrow viewport on job-card print", asy
   await page.setViewportSize({ width: 1280, height: 800 })
   await assertCritical()
 })
+
+test("workspace toolbar and plant menu stay usable from 320px through desktop", async ({ page }) => {
+  const assertCritical = beginCriticalMonitoring(page)
+  await loginAdmin(page)
+  await page.goto("/purchase/receipts", { waitUntil: "domcontentloaded" })
+  for (const width of [1440, 1280, 1024, 768, 390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    const trigger = page.getByTestId("plant-switcher-trigger").first()
+    await expect(trigger).toBeVisible()
+    const box = await trigger.boundingBox()
+    expect(box.x).toBeGreaterThanOrEqual(0)
+    expect(box.x + box.width).toBeLessThanOrEqual(width)
+    const books = page.locator('header a[href="/production/reconciliation"]')
+    if (await books.isVisible()) expect((await books.boundingBox()).height).toBeLessThan(50)
+    await trigger.click()
+    const option = page.getByTestId(`plant-option:${getBrowserFixture().plants.plant_b.id}`)
+    await expect(option).toBeVisible()
+    expect(await option.evaluate((element) => {
+      const rect = element.getBoundingClientRect()
+      return element.contains(document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2))
+    }), `Plant dropdown must not be clipped at ${width}px`).toBeTruthy()
+    await page.screenshot({ path: `${process.env.PLAYWRIGHT_OUTPUT_DIR}/toolbar-${width}.png`, fullPage: true })
+    await trigger.click()
+    const next = await page.getByRole("button", { name: "Next", exact: true }).boundingBox()
+    expect(next.x).toBeGreaterThanOrEqual(0)
+    expect(next.x + next.width).toBeLessThanOrEqual(width)
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width)
+  }
+  await assertCritical()
+})

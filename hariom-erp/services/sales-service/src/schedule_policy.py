@@ -8,6 +8,7 @@ rows; it must not mutate release lots, started jobs, or locked/delivered rows.
 from __future__ import annotations
 
 from datetime import date
+from math import isfinite
 from typing import Any, Iterable, Optional
 
 ACTIVE_STATUSES = frozenset({"planned", "committed", "locked", "delivered"})
@@ -34,7 +35,13 @@ class SchedulePolicyError(ValueError):
 
 
 def _qty(value: Any) -> float:
-    return round(float(value or 0.0), 4)
+    try:
+        quantity = float(value or 0.0)
+    except (TypeError, ValueError) as exc:
+        raise SchedulePolicyError("Quantity must be a finite number.", code="INVALID_QUANTITY", field="quantity") from exc
+    if not isfinite(quantity):
+        raise SchedulePolicyError("Quantity must be a finite number.", code="INVALID_QUANTITY", field="quantity")
+    return round(quantity, 4)
 
 
 def _status(value: Any) -> str:
@@ -68,6 +75,23 @@ def _row_qty(row: Any) -> float:
 
 def delivered_schedule_qty(schedules: Iterable[Any]) -> float:
     return round(sum(_row_qty(row) for row in schedules if _row_status(row) == "delivered"), 4)
+
+
+def earliest_pending_delivery(line: Any) -> Optional[date]:
+    if _qty(getattr(line, "fulfilled_qty", 0)) >= _qty(getattr(line, "qty", 0)):
+        return None
+    schedules = list(getattr(line, "delivery_schedules", []) or [])
+    dates = []
+    for row in schedules:
+        if _row_status(row) not in {"planned", "committed", "locked"}:
+            continue
+        value = row.get("delivery_date") if isinstance(row, dict) else getattr(row, "delivery_date", None)
+        if value:
+            dates.append(date.fromisoformat(value) if isinstance(value, str) else value)
+    fallback = getattr(line, "due_date", None)
+    if fallback and (not dates or remaining_to_schedule(line, schedules) > 0):
+        dates.append(date.fromisoformat(fallback) if isinstance(fallback, str) else fallback)
+    return min(dates) if dates else None
 
 
 def fulfilled_unscheduled_qty(line: Any, schedules: Iterable[Any]) -> float:
@@ -182,6 +206,7 @@ def merge_line_schedules(
             kept.append(_serialize_existing_row(row, line, immutable=is_immutable_status(status)))
 
     merged = list(kept)
+    proposed_ids: set[str] = set()
     existing_ids = {str(item.get("id") or "") for item in merged if item.get("id")}
     for item in proposed:
         row_id = str(item.get("id") or "").strip()
@@ -191,9 +216,13 @@ def merge_line_schedules(
         if merge_mode == "append" and row_id and row_id in existing_ids:
             continue
         if row_id:
+            if row_id in proposed_ids:
+                raise SchedulePolicyError("A schedule row may appear only once.", code="DUPLICATE_SCHEDULE_ROW")
+            proposed_ids.add(row_id)
             existing_row = next((row for row in existing if str(getattr(row, "id", "") if not isinstance(row, dict) else row.get("id")) == row_id), None)
-            if existing_row is not None:
-                assert_row_mutable(existing_row)
+            if existing_row is None:
+                raise SchedulePolicyError("Schedule row does not belong to this line.", code="UNKNOWN_SCHEDULE_ROW")
+            assert_row_mutable(existing_row)
         qty = _qty(item.get("quantity"))
         if qty <= 0:
             raise SchedulePolicyError(
@@ -217,9 +246,9 @@ def merge_line_schedules(
                 field="status",
                 line_id=str(getattr(line, "id", "")),
             )
-        if is_immutable_status(status) and not row_id:
+        if is_immutable_status(status):
             raise SchedulePolicyError(
-                "New rows cannot be created as locked or delivered.",
+                "Delivery status and locking cannot be set by a planning allocation.",
                 code="INVALID_STATUS",
                 field="status",
                 line_id=str(getattr(line, "id", "")),
@@ -254,6 +283,10 @@ def propose_entire_po_rows(
     """
     proposed: list[dict[str, Any]] = []
     splits = line_splits or {}
+    lines = list(lines)
+    line_ids = {str(getattr(line, "id", "")) for line in lines}
+    if any(str(key) not in line_ids for key in splits):
+        raise SchedulePolicyError("Split line does not belong to this order.", code="UNKNOWN_LINE")
     for line in lines:
         existing = list(getattr(line, "delivery_schedules", []) or [])
         remaining = remaining_to_schedule(line, existing)

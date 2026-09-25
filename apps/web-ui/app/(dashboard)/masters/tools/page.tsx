@@ -51,16 +51,16 @@ const CATEGORY_LABELS = TOOL_CATEGORY_LABELS
 const CATEGORY_ORDER = Object.keys(TOOL_CATEGORY_LABELS)
 
 function statusClass(status: string) {
-  if (status === "DISCONTINUED") return "border-slate-300 bg-slate-100 text-slate-700"
-  return "border-emerald-200 bg-emerald-50 text-emerald-800"
+  if (status === "DISCONTINUED") return "border-border bg-muted text-muted-foreground"
+  return "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
 }
 
 function assetStatusClass(status: string) {
-  if (status === "ISSUED") return "border-cyan-200 bg-cyan-50 text-cyan-800"
-  if (status === "MAINTENANCE") return "border-amber-200 bg-amber-50 text-amber-800"
-  if (status === "GRINDING_OUT") return "border-orange-200 bg-orange-50 text-orange-800"
-  if (status === "SCRAP") return "border-rose-200 bg-rose-50 text-rose-800"
-  return "border-emerald-200 bg-emerald-50 text-emerald-800"
+  if (status === "ISSUED") return "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink"
+  if (status === "MAINTENANCE") return "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
+  if (status === "GRINDING_OUT") return "border-signal-orange-line bg-signal-orange-soft text-signal-orange-ink"
+  if (status === "SCRAP") return "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+  return "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
 }
 
 function formatDate(value: any) {
@@ -304,37 +304,37 @@ export default function ToolsPage() {
 
   return (
     <div className="space-y-6 px-6 pb-10 pt-2">
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_50%,#ecfeff_100%)] shadow-premium">
+      <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-premium">
         <div className="grid gap-5 px-6 py-6 lg:grid-cols-[minmax(0,1.4fr)_360px] lg:px-8">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">Master Data Workspace</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">Tooling Master</h1>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Master Data Workspace</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-foreground">Tooling Master</h1>
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-muted-foreground">
               Five fixed tooling categories define the spec-sheet dropdowns. Physical units are inwarded and controlled below with QR, location, issue, return, grinding, and production usage.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
-              <Link href="/specifications" className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700">
+              <Link href="/specifications" className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">
                 Spec sheets
               </Link>
-              <Link href="/reports/tooling" className="rounded-full border border-cyan-200 bg-cyan-50 px-3 py-1.5 text-xs font-semibold text-cyan-900">
+              <Link href="/reports/tooling" className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-3 py-1.5 text-xs font-semibold text-signal-cyan-ink">
                 Tooling report
               </Link>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {[
-              { label: "Total", value: counts.total, icon: ClipboardList, tone: "border-slate-200 bg-white" },
-              { label: "Active", value: counts.active, icon: Activity, tone: "border-emerald-200 bg-emerald-50" },
-              { label: "Discontinued", value: counts.discontinued, icon: Recycle, tone: "border-slate-200 bg-slate-100" },
+              { label: "Total", value: counts.total, icon: ClipboardList, tone: "border-border bg-card" },
+              { label: "Active", value: counts.active, icon: Activity, tone: "border-signal-emerald-line bg-signal-emerald-soft" },
+              { label: "Discontinued", value: counts.discontinued, icon: Recycle, tone: "border-border bg-muted" },
             ].map((metric) => {
               const Icon = metric.icon
               return (
                 <div key={metric.label} className={`rounded-2xl border p-4 ${metric.tone}`}>
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{metric.label}</p>
-                    <Icon className="h-4 w-4 text-slate-500" />
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{metric.label}</p>
+                    <Icon className="h-4 w-4 text-muted-foreground" />
                   </div>
-                  <p className="mt-3 text-3xl font-semibold text-slate-950">{metric.value}</p>
+                  <p className="mt-3 text-3xl font-semibold text-foreground">{metric.value}</p>
                 </div>
               )
             })}
@@ -342,11 +342,11 @@ export default function ToolsPage() {
         </div>
       </section>
 
-      <section className="rounded-[1.6rem] border border-slate-200 bg-white p-4 shadow-sm">
+      <section className="rounded-[1.6rem] border border-border bg-card p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-1 flex-col gap-3 md:flex-row">
             <label className="relative flex-1">
-              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -357,7 +357,7 @@ export default function ToolsPage() {
             <select
               value={category}
               onChange={(event) => setCategory(event.target.value)}
-              className="h-10 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-900"
+              className="h-10 rounded-md border border-border bg-card px-3 text-sm font-medium text-foreground"
             >
               <option value="ALL">All categories</option>
               {CATEGORY_ORDER.map((key) => (
@@ -384,44 +384,44 @@ export default function ToolsPage() {
           </Dialog>
         </div>
         {writeBlocked ? (
-          <div className="mt-3 flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+          <div className="mt-3 flex items-center gap-2 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm font-medium text-signal-amber-ink">
             <AlertTriangle className="h-4 w-4" />
             Pick one plant before adding or changing tooling masters.
           </div>
         ) : null}
       </section>
 
-      <section className="overflow-hidden rounded-[1.7rem] border border-slate-200 bg-white shadow-sm">
+      <section className="overflow-hidden rounded-[1.7rem] border border-border bg-card shadow-sm">
         <div className="overflow-x-auto">
           <div className="min-w-[980px]">
-            <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            <div className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 border-b border-border bg-muted px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
               <div>Tool</div>
               <div>Category</div>
               <div>Status</div>
               <div>Usage</div>
               <div>Actions</div>
             </div>
-            <div className="divide-y divide-slate-100">
+            <div className="divide-y divide-border">
               {isLoading ? (
-                <div className="px-4 py-8 text-sm text-slate-500">Loading tools...</div>
+                <div className="px-4 py-8 text-sm text-muted-foreground">Loading tools...</div>
               ) : rows.length === 0 ? (
-                <div className="px-4 py-8 text-sm text-slate-500">No tools found.</div>
+                <div className="px-4 py-8 text-sm text-muted-foreground">No tools found.</div>
               ) : (
                 rows.map((row) => {
                   const status = String(row.status || "ACTIVE").toUpperCase()
                   return (
                     <div key={row.id} className="grid grid-cols-[1.3fr_1fr_0.9fr_0.9fr_1.6fr] gap-3 px-4 py-4 text-sm">
                   <div>
-                    <p className="font-semibold text-slate-950">{row.name}</p>
-                    <p className="mt-1 text-xs text-slate-500">{toolDetailText(row)}</p>
+                    <p className="font-semibold text-foreground">{row.name}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{toolDetailText(row)}</p>
                   </div>
-                  <div className="font-medium text-slate-700">{CATEGORY_LABELS[row.category] || row.category}</div>
+                  <div className="font-medium text-muted-foreground">{CATEGORY_LABELS[row.category] || row.category}</div>
                   <div>
                     <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${statusClass(status)}`}>{status}</span>
                   </div>
                   <div>
-                    <p className="font-semibold text-slate-900">{Number(row.usage_count || 0).toLocaleString("en-IN")}</p>
-                    <p className="text-xs text-slate-500">spec/job logs</p>
+                    <p className="font-semibold text-foreground">{Number(row.usage_count || 0).toLocaleString("en-IN")}</p>
+                    <p className="text-xs text-muted-foreground">spec/job logs</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Button variant="outline" size="sm" onClick={() => setEditTool(row)} disabled={writeBlocked}>
@@ -447,12 +447,12 @@ export default function ToolsPage() {
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
-        <div className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-[1.7rem] border border-border bg-card p-5 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Editable dropdown registry</p>
-              <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Tool attributes</h2>
-              <p className="mt-1 text-sm text-slate-500">Only these option values feed the five tooling definitions and the notch process fields.</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Editable dropdown registry</p>
+              <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">Tool attributes</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Only these option values feed the five tooling definitions and the notch process fields.</p>
             </div>
             <form onSubmit={addOption} className="flex flex-wrap gap-2">
               <select
@@ -461,11 +461,11 @@ export default function ToolsPage() {
                   const nextCategory = event.target.value
                   setOptionDraft({ category: nextCategory, field_key: optionFields[nextCategory]?.[0] || "", value: "" })
                 }}
-                className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm"
+                className="h-9 rounded-lg border border-border bg-card px-2 text-sm"
               >
                 {CATEGORY_ORDER.map((key) => <option key={key} value={key}>{CATEGORY_LABELS[key]}</option>)}
               </select>
-              <select value={optionDraft.field_key} onChange={(event) => setOptionDraft({ ...optionDraft, field_key: event.target.value })} className="h-9 rounded-lg border border-slate-200 bg-white px-2 text-sm">
+              <select value={optionDraft.field_key} onChange={(event) => setOptionDraft({ ...optionDraft, field_key: event.target.value })} className="h-9 rounded-lg border border-border bg-card px-2 text-sm">
                 {(optionFields[optionDraft.category] || []).map((key) => <option key={key} value={key}>{key}</option>)}
               </select>
               <Input value={optionDraft.value} onChange={(event) => setOptionDraft({ ...optionDraft, value: event.target.value })} placeholder="New option" className="h-9 w-32" />
@@ -474,13 +474,13 @@ export default function ToolsPage() {
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             {(options as any[]).map((option) => (
-              <div key={option.id} className={`rounded-xl border px-3 py-3 ${option.active === false ? "border-slate-200 bg-slate-50 text-slate-400" : "border-slate-200 bg-slate-50"}`}>
+              <div key={option.id} className={`rounded-xl border px-3 py-3 ${option.active === false ? "border-border bg-muted text-muted-foreground" : "border-border bg-muted"}`}>
                 <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-slate-400">{CATEGORY_LABELS[option.category] || option.category} · {option.field_key}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-900">{option.value}</p>
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{CATEGORY_LABELS[option.category] || option.category} · {option.field_key}</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{option.value}</p>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${option.active === false ? "border-slate-200 bg-white text-slate-500" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>{option.active === false ? "DISCONTINUED" : "ACTIVE"}</span>
+                  <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${option.active === false ? "border-border bg-card text-muted-foreground" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"}`}>{option.active === false ? "DISCONTINUED" : "ACTIVE"}</span>
                   <Button type="button" size="sm" variant="outline" onClick={() => editOption(option)} disabled={writeBlocked}>Edit</Button>
                   <Button type="button" size="sm" variant="ghost" onClick={() => updateOptionMutation.mutate({ id: option.id, data: { active: option.active === false } })} disabled={writeBlocked}>{option.active === false ? "Reactivate" : "Discontinue"}</Button>
                 </div>
@@ -489,7 +489,7 @@ export default function ToolsPage() {
           </div>
         </div>
 
-        <div className="self-start rounded-[1.7rem] border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
+        <div className="self-start rounded-[1.7rem] border border-border bg-slate-950 p-5 text-white shadow-sm">
           <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300">Physical tool control</p>
           <h2 className="mt-1 text-lg font-semibold">QR asset ledger</h2>
           <div className="mt-5 grid grid-cols-2 gap-3">
@@ -498,33 +498,33 @@ export default function ToolsPage() {
               ["Available", assetReport.summary?.available || 0],
               ["Issued", assetReport.summary?.issued || 0],
               ["Grinding", assetReport.summary?.grinding_out || 0],
-            ].map(([label, value]) => <div key={label} className="rounded-xl border border-white/10 bg-white/5 p-3"><p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>)}
+            ].map(([label, value]) => <div key={label} className="rounded-xl border border-border/10 bg-card/5 p-3"><p className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{label}</p><p className="mt-2 text-2xl font-semibold">{value}</p></div>)}
           </div>
           <p className="mt-5 text-sm leading-6 text-slate-300">Inward a physical unit against a definition, assign its Location Master position, and use the QR asset number for issue, return, grinding, and trace reports.</p>
         </div>
       </section>
 
-      <section className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-[1.7rem] border border-border bg-card p-5 shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Physical register</p>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Inwarded tools and lifecycle</h2>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Physical register</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">Inwarded tools and lifecycle</h2>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <label className="relative flex-1 sm:flex-none">
-              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
               <Input value={assetSearch} onChange={(event) => setAssetSearch(event.target.value)} placeholder="Search QR / asset no." className="h-9 w-64 pl-9" />
             </label>
             <Button type="button" variant="outline" size="sm" onClick={() => setIsScanOpen(true)} title="Scan a physical tool QR code">
               <ScanLine className="mr-1.5 h-4 w-4" /> Scan QR
             </Button>
-            <Link href="/reports/tooling" className="text-sm font-semibold text-cyan-800 hover:underline">Open tooling report</Link>
+            <Link href="/reports/tooling" className="text-sm font-semibold text-signal-cyan-ink hover:underline">Open tooling report</Link>
           </div>
         </div>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full min-w-[920px] text-sm">
-            <thead><tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-slate-500"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
-            <tbody>{(assets as any[]).map((asset) => <tr key={asset.id} className="border-b border-slate-100"><td className="py-3 pr-3"><p className="font-semibold text-slate-950">{asset.asset_no}</p><p className="text-xs text-slate-500">{asset.qr_value}</p>{asset.current_job_card_id ? <p className="mt-1 text-xs font-medium text-cyan-800">{asset.current_job_card_id} · {asset.current_stage_type || "Assigned"}</p> : null}</td><td className="py-3 pr-3">{asset.definition_name}<p className="text-xs text-slate-500">{CATEGORY_LABELS[asset.category] || asset.category}</p></td><td className="py-3 pr-3"><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${assetStatusClass(asset.status)}`}>{asset.status}</span></td><td className="py-3 pr-3 text-slate-700">{asset.location_label || "-"}</td><td className="py-3 pr-3 font-semibold">V{asset.grind_version || 0}</td><td className="py-3 pr-3">{Number(asset.produced_qty || 0).toLocaleString("en-IN")}</td><td className="py-3"><div className="flex flex-wrap gap-1.5"><Button size="sm" variant="ghost" onClick={() => setSelectedAssetId(asset.id)}><Eye className="mr-1 h-3.5 w-3.5" />Details / label</Button>{asset.status !== "SCRAP" ? <Button size="sm" variant="ghost" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: asset.location_id || "", value: "" }); setActionDialog({ kind: "move", asset }) }}><MapPin className="mr-1 h-3.5 w-3.5" />Move</Button> : null}{asset.status === "AVAILABLE" ? <><Button size="sm" variant="outline" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: "", value: "" }); setActionDialog({ kind: "issue", asset }) }}>Issue</Button><Button size="sm" variant="outline" onClick={() => action(maintainMutation, asset)}>Maintain</Button>{asset.category === "BLADE" ? <Button size="sm" variant="outline" onClick={() => action(grindingOutMutation, asset)}>Grinding out</Button> : null}<Button size="sm" variant="outline" onClick={() => action(scrapMutation, asset)}>Scrap</Button></> : null}{asset.status === "ISSUED" ? <Button size="sm" variant="outline" onClick={() => action(returnMutation, asset)}>Return</Button> : null}{asset.status === "MAINTENANCE" ? <Button size="sm" variant="outline" onClick={() => action(maintenanceCompleteMutation, asset)}>Complete maintenance</Button> : null}{asset.status === "GRINDING_OUT" ? <Button size="sm" variant="outline" onClick={() => action(grindingReturnMutation, asset)}>Grinding return</Button> : null}</div></td></tr>)}</tbody>
+            <thead><tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground"><th className="py-2 pr-3">Asset / QR</th><th className="py-2 pr-3">Definition</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3">Location</th><th className="py-2 pr-3">Grinding</th><th className="py-2 pr-3">Produced</th><th className="py-2">Action</th></tr></thead>
+            <tbody>{(assets as any[]).map((asset) => <tr key={asset.id} className="border-b border-border"><td className="py-3 pr-3"><p className="font-semibold text-foreground">{asset.asset_no}</p><p className="text-xs text-muted-foreground">{asset.qr_value}</p>{asset.current_job_card_id ? <p className="mt-1 text-xs font-medium text-signal-cyan-ink">{asset.current_job_card_id} · {asset.current_stage_type || "Assigned"}</p> : null}</td><td className="py-3 pr-3">{asset.definition_name}<p className="text-xs text-muted-foreground">{CATEGORY_LABELS[asset.category] || asset.category}</p></td><td className="py-3 pr-3"><span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${assetStatusClass(asset.status)}`}>{asset.status}</span></td><td className="py-3 pr-3 text-muted-foreground">{asset.location_label || "-"}</td><td className="py-3 pr-3 font-semibold">V{asset.grind_version || 0}</td><td className="py-3 pr-3">{Number(asset.produced_qty || 0).toLocaleString("en-IN")}</td><td className="py-3"><div className="flex flex-wrap gap-1.5"><Button size="sm" variant="ghost" onClick={() => setSelectedAssetId(asset.id)}><Eye className="mr-1 h-3.5 w-3.5" />Details / label</Button>{asset.status !== "SCRAP" ? <Button size="sm" variant="ghost" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: asset.location_id || "", value: "" }); setActionDialog({ kind: "move", asset }) }}><MapPin className="mr-1 h-3.5 w-3.5" />Move</Button> : null}{asset.status === "AVAILABLE" ? <><Button size="sm" variant="outline" onClick={() => { setActionForm({ job_card_id: "", stage_type: "PROCESS", location_id: "", value: "" }); setActionDialog({ kind: "issue", asset }) }}>Issue</Button><Button size="sm" variant="outline" onClick={() => action(maintainMutation, asset)}>Maintain</Button>{asset.category === "BLADE" ? <Button size="sm" variant="outline" onClick={() => action(grindingOutMutation, asset)}>Grinding out</Button> : null}<Button size="sm" variant="outline" onClick={() => action(scrapMutation, asset)}>Scrap</Button></> : null}{asset.status === "ISSUED" ? <Button size="sm" variant="outline" onClick={() => action(returnMutation, asset)}>Return</Button> : null}{asset.status === "MAINTENANCE" ? <Button size="sm" variant="outline" onClick={() => action(maintenanceCompleteMutation, asset)}>Complete maintenance</Button> : null}{asset.status === "GRINDING_OUT" ? <Button size="sm" variant="outline" onClick={() => action(grindingReturnMutation, asset)}>Grinding return</Button> : null}</div></td></tr>)}</tbody>
           </table>
         </div>
       </section>
@@ -533,10 +533,10 @@ export default function ToolsPage() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>Inward physical tool</DialogTitle><DialogDescription>This creates a GRN-style receipt and one QR asset per quantity at the selected Location Master position.</DialogDescription></DialogHeader>
           <form onSubmit={receive} className="space-y-4">
-            <div className="rounded-xl border border-cyan-100 bg-cyan-50 px-3 py-3 text-sm"><p className="font-semibold text-cyan-950">{receiveForm.definition_name}</p><p className="mt-1 text-xs text-cyan-800">{CATEGORY_LABELS[receiveForm.category] || receiveForm.category}</p></div>
-            <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm font-medium">Receipt date<input type="date" required value={receiveForm.receipt_date} onChange={(event) => setReceiveForm({ ...receiveForm, receipt_date: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label><label className="space-y-1 text-sm font-medium">Quantity<input type="number" min="1" max="500" required value={receiveForm.quantity} onChange={(event) => setReceiveForm({ ...receiveForm, quantity: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label></div>
-            <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm font-medium">Supplier<input value={receiveForm.supplier_name || ""} onChange={(event) => setReceiveForm({ ...receiveForm, supplier_name: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label><label className="space-y-1 text-sm font-medium">Receipt / GRN no<input value={receiveForm.receipt_no || ""} onChange={(event) => setReceiveForm({ ...receiveForm, receipt_no: event.target.value })} placeholder="Auto-generated if blank" className="h-10 w-full rounded-lg border border-slate-200 px-3" /></label></div>
-            <label className="space-y-1 text-sm font-medium">Location Master position<select required value={receiveForm.location_id} onChange={(event) => setReceiveForm({ ...receiveForm, location_id: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 px-3"><option value="">Select location</option>{(locations as any[]).map((location) => <option key={location.id} value={location.id}>{[location.code, location.warehouse, location.zone, location.bin].filter(Boolean).join(" · ")}</option>)}</select></label>
+            <div className="rounded-xl border border-signal-cyan-line bg-signal-cyan-soft px-3 py-3 text-sm"><p className="font-semibold text-signal-cyan-ink">{receiveForm.definition_name}</p><p className="mt-1 text-xs text-signal-cyan-ink">{CATEGORY_LABELS[receiveForm.category] || receiveForm.category}</p></div>
+            <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm font-medium">Receipt date<input type="date" required value={receiveForm.receipt_date} onChange={(event) => setReceiveForm({ ...receiveForm, receipt_date: event.target.value })} className="h-10 w-full rounded-lg border border-border px-3" /></label><label className="space-y-1 text-sm font-medium">Quantity<input type="number" min="1" max="500" required value={receiveForm.quantity} onChange={(event) => setReceiveForm({ ...receiveForm, quantity: event.target.value })} className="h-10 w-full rounded-lg border border-border px-3" /></label></div>
+            <div className="grid gap-3 sm:grid-cols-2"><label className="space-y-1 text-sm font-medium">Supplier<input value={receiveForm.supplier_name || ""} onChange={(event) => setReceiveForm({ ...receiveForm, supplier_name: event.target.value })} className="h-10 w-full rounded-lg border border-border px-3" /></label><label className="space-y-1 text-sm font-medium">Receipt / GRN no<input value={receiveForm.receipt_no || ""} onChange={(event) => setReceiveForm({ ...receiveForm, receipt_no: event.target.value })} placeholder="Auto-generated if blank" className="h-10 w-full rounded-lg border border-border px-3" /></label></div>
+            <label className="space-y-1 text-sm font-medium">Location Master position<select required value={receiveForm.location_id} onChange={(event) => setReceiveForm({ ...receiveForm, location_id: event.target.value })} className="h-10 w-full rounded-lg border border-border px-3"><option value="">Select location</option>{(locations as any[]).map((location) => <option key={location.id} value={location.id}>{[location.code, location.warehouse, location.zone, location.bin].filter(Boolean).join(" · ")}</option>)}</select></label>
             <DialogFooter><Button type="button" variant="outline" onClick={() => setIsReceiveOpen(false)}>Cancel</Button><Button type="submit" disabled={receiveMutation.isPending || writeBlocked}><PackagePlus className="mr-2 h-4 w-4" />Post inward</Button></DialogFooter>
           </form>
         </DialogContent>
@@ -550,13 +550,13 @@ export default function ToolsPage() {
           </DialogHeader>
           <form onSubmit={submitActionDialog} className="space-y-4">
             {actionDialog?.kind === "edit-option" ? (
-              <><label className="space-y-1 text-sm font-medium">Value<Input autoFocus value={actionForm.value} onChange={(event) => setActionForm({ ...actionForm, value: event.target.value })} /></label><label className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium"><input type="checkbox" checked={actionForm.active !== false} onChange={(event) => setActionForm({ ...actionForm, active: event.target.checked })} />Active in dropdowns</label></>
+              <><label className="space-y-1 text-sm font-medium">Value<Input autoFocus value={actionForm.value} onChange={(event) => setActionForm({ ...actionForm, value: event.target.value })} /></label><label className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium"><input type="checkbox" checked={actionForm.active !== false} onChange={(event) => setActionForm({ ...actionForm, active: event.target.checked })} />Active in dropdowns</label></>
             ) : actionDialog?.kind === "move" ? (
-              <label className="space-y-1 text-sm font-medium">Location Master position<select required value={actionForm.location_id} onChange={(event) => setActionForm({ ...actionForm, location_id: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="">Select location</option>{(locations as any[]).map((location) => <option key={location.id} value={location.id}>{[location.code, location.warehouse, location.zone, location.bin].filter(Boolean).join(" · ")}</option>)}</select></label>
+              <label className="space-y-1 text-sm font-medium">Location Master position<select required value={actionForm.location_id} onChange={(event) => setActionForm({ ...actionForm, location_id: event.target.value })} className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm"><option value="">Select location</option>{(locations as any[]).map((location) => <option key={location.id} value={location.id}>{[location.code, location.warehouse, location.zone, location.bin].filter(Boolean).join(" · ")}</option>)}</select></label>
             ) : (
               <>
-                <label className="space-y-1 text-sm font-medium">Job card<select autoFocus required value={actionForm.job_card_id} onChange={(event) => setActionForm({ ...actionForm, job_card_id: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="">Select released job card</option>{jobCards.map((job: any) => <option key={job.id} value={job.id}>{job.job_card_ref || job.job_card_no || String(job.id).slice(0, 8)} · {job.customer_name || job.product_name || job.status || "Production"}</option>)}</select></label>
-                <label className="space-y-1 text-sm font-medium">Stage<select required value={actionForm.stage_type} onChange={(event) => setActionForm({ ...actionForm, stage_type: event.target.value })} className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm"><option value="SLITTING">Slitting</option><option value="WINDER">Winder</option><option value="OVEN">Oven</option><option value="PROCESS">Process</option><option value="PACKING">Packing</option><option value="QC">QC</option></select></label>
+                <label className="space-y-1 text-sm font-medium">Job card<select autoFocus required value={actionForm.job_card_id} onChange={(event) => setActionForm({ ...actionForm, job_card_id: event.target.value })} className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm"><option value="">Select released job card</option>{jobCards.map((job: any) => <option key={job.id} value={job.id}>{job.job_card_ref || job.job_card_no || String(job.id).slice(0, 8)} · {job.customer_name || job.product_name || job.status || "Production"}</option>)}</select></label>
+                <label className="space-y-1 text-sm font-medium">Stage<select required value={actionForm.stage_type} onChange={(event) => setActionForm({ ...actionForm, stage_type: event.target.value })} className="h-10 w-full rounded-lg border border-border bg-card px-3 text-sm"><option value="SLITTING">Slitting</option><option value="WINDER">Winder</option><option value="OVEN">Oven</option><option value="PROCESS">Process</option><option value="PACKING">Packing</option><option value="QC">QC</option></select></label>
               </>
             )}
             <DialogFooter><Button type="button" variant="outline" onClick={() => setActionDialog(null)}>Cancel</Button><Button type="submit" disabled={updateOptionMutation.isPending || issueMutation.isPending || moveMutation.isPending}>Save</Button></DialogFooter>
@@ -567,10 +567,10 @@ export default function ToolsPage() {
       <Dialog open={Boolean(selectedAssetId)} onOpenChange={(open) => !open && setSelectedAssetId("")}>
         <DialogContent className="max-w-3xl">
           <DialogHeader><DialogTitle>Physical tool trace</DialogTitle><DialogDescription>Print the permanent QR label and review every inward, movement, issue, use, return, grinding, maintenance, and scrap event.</DialogDescription></DialogHeader>
-          {selectedAssetQuery.isLoading ? <p className="py-8 text-sm text-slate-500">Loading tool history...</p> : selectedAssetQuery.data?.asset ? <div className="grid gap-5 md:grid-cols-[260px_1fr]">
-            <div className="rounded-xl border border-slate-300 p-4 text-center" data-tool-label-qr><p className="text-xs font-semibold uppercase tracking-wider text-slate-500">Physical tool</p><p className="mt-2 text-xl font-bold text-slate-950">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-slate-600">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={selectedAssetQuery.data.asset.qr_value} size={164} level="M" /></div><p className="break-all text-[11px] text-slate-500">{selectedAssetQuery.data.asset.qr_value}</p><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
-            <div className="max-h-[460px] overflow-y-auto pr-1"><div className="mb-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Status</p><p className="font-semibold">{selectedAssetQuery.data.asset.status}</p></div><div className="rounded-lg bg-slate-50 p-3"><p className="text-xs text-slate-500">Location</p><p className="font-semibold">{selectedAssetQuery.data.asset.location_label || "-"}</p></div></div><div className="space-y-2">{(selectedAssetQuery.data.events || []).map((event: any) => <div key={event.id} className="rounded-lg border border-slate-200 px-3 py-2"><div className="flex justify-between gap-3"><p className="text-sm font-semibold text-slate-900">{event.event_type}</p><p className="text-xs text-slate-500">{formatDate(event.event_at)}</p></div><p className="mt-1 text-xs text-slate-600">{[event.job_card_id, event.stage_type, event.grind_version !== null ? `V${event.grind_version}` : "", event.actor].filter(Boolean).join(" · ") || "System lifecycle event"}</p>{event.good_qty || event.scrap_qty ? <p className="mt-1 text-xs text-slate-600">Good {Number(event.good_qty || 0).toLocaleString("en-IN")} · Scrap {Number(event.scrap_qty || 0).toLocaleString("en-IN")}</p> : null}</div>)}</div></div>
-          </div> : <p className="py-8 text-sm text-rose-700">Tool details could not be loaded.</p>}
+          {selectedAssetQuery.isLoading ? <p className="py-8 text-sm text-muted-foreground">Loading tool history...</p> : selectedAssetQuery.data?.asset ? <div className="grid gap-5 md:grid-cols-[260px_1fr]">
+            <div className="rounded-xl border border-border p-4 text-center" data-tool-label-qr><p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Physical tool</p><p className="mt-2 text-xl font-bold text-foreground">{selectedAssetQuery.data.asset.asset_no}</p><p className="mt-1 text-sm text-muted-foreground">{selectedAssetQuery.data.asset.definition_name}</p><div className="my-4 flex justify-center"><QRCodeSVG value={selectedAssetQuery.data.asset.qr_value} size={164} level="M" /></div><p className="break-all text-[11px] text-muted-foreground">{selectedAssetQuery.data.asset.qr_value}</p><Button className="mt-4 w-full" type="button" onClick={() => printAssetLabel(selectedAssetQuery.data.asset)}><Printer className="mr-2 h-4 w-4" />Print QR label</Button></div>
+            <div className="max-h-[460px] overflow-y-auto pr-1"><div className="mb-3 grid grid-cols-2 gap-2 text-sm"><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Status</p><p className="font-semibold">{selectedAssetQuery.data.asset.status}</p></div><div className="rounded-lg bg-muted p-3"><p className="text-xs text-muted-foreground">Location</p><p className="font-semibold">{selectedAssetQuery.data.asset.location_label || "-"}</p></div></div><div className="space-y-2">{(selectedAssetQuery.data.events || []).map((event: any) => <div key={event.id} className="rounded-lg border border-border px-3 py-2"><div className="flex justify-between gap-3"><p className="text-sm font-semibold text-foreground">{event.event_type}</p><p className="text-xs text-muted-foreground">{formatDate(event.event_at)}</p></div><p className="mt-1 text-xs text-muted-foreground">{[event.job_card_id, event.stage_type, event.grind_version !== null ? `V${event.grind_version}` : "", event.actor].filter(Boolean).join(" · ") || "System lifecycle event"}</p>{event.good_qty || event.scrap_qty ? <p className="mt-1 text-xs text-muted-foreground">Good {Number(event.good_qty || 0).toLocaleString("en-IN")} · Scrap {Number(event.scrap_qty || 0).toLocaleString("en-IN")}</p> : null}</div>)}</div></div>
+          </div> : <p className="py-8 text-sm text-signal-rose-ink">Tool details could not be loaded.</p>}
         </DialogContent>
       </Dialog>
 
@@ -580,29 +580,29 @@ export default function ToolsPage() {
             <DialogTitle>Scan physical tool QR</DialogTitle>
             <DialogDescription>Point the camera at the label. The matching asset will be loaded into the ledger search.</DialogDescription>
           </DialogHeader>
-          <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+          <div className="overflow-hidden rounded-2xl border border-border bg-slate-950">
             <video ref={videoRef} muted playsInline className="aspect-square w-full object-cover" />
           </div>
-          {scanError ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{scanError}</p> : null}
-          <p className="text-xs leading-5 text-slate-500">You can also close this window and paste the QR value into the search field. QR values are searchable even when the printed label is scanned from a different device.</p>
+          {scanError ? <p className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink">{scanError}</p> : null}
+          <p className="text-xs leading-5 text-muted-foreground">You can also close this window and paste the QR value into the search field. QR values are searchable even when the printed label is scanned from a different device.</p>
           <DialogFooter><Button type="button" variant="outline" onClick={() => setIsScanOpen(false)}>Close</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <section className="rounded-[1.7rem] border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-[1.7rem] border border-border bg-card p-5 shadow-sm">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">Ledger</p>
-            <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">Recent Tool Events</h2>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Ledger</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">Recent Tool Events</h2>
           </div>
-          <Link href="/reports/tooling" className="text-sm font-semibold text-cyan-800 hover:underline">
+          <Link href="/reports/tooling" className="text-sm font-semibold text-signal-cyan-ink hover:underline">
             Open report
           </Link>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
                 <th className="py-2 pr-3">Time</th>
                 <th className="py-2 pr-3">Tool</th>
                 <th className="py-2 pr-3">Event</th>
@@ -612,12 +612,12 @@ export default function ToolsPage() {
             </thead>
             <tbody>
               {(logs as any[]).slice(0, 12).map((log) => (
-                <tr key={log.id} className="border-b border-slate-100">
-                  <td className="py-2 pr-3 text-slate-500">{formatDate(log.created_at)}</td>
-                  <td className="py-2 pr-3 font-medium text-slate-900">{log.tool_name}</td>
-                  <td className="py-2 pr-3 text-slate-700">{log.event_type}</td>
-                  <td className="py-2 pr-3 text-slate-700">{log.source_type}</td>
-                  <td className="py-2 pr-3 text-slate-700">{log.source_ref || log.source_id || "-"}</td>
+                <tr key={log.id} className="border-b border-border">
+                  <td className="py-2 pr-3 text-muted-foreground">{formatDate(log.created_at)}</td>
+                  <td className="py-2 pr-3 font-medium text-foreground">{log.tool_name}</td>
+                  <td className="py-2 pr-3 text-muted-foreground">{log.event_type}</td>
+                  <td className="py-2 pr-3 text-muted-foreground">{log.source_type}</td>
+                  <td className="py-2 pr-3 text-muted-foreground">{log.source_ref || log.source_id || "-"}</td>
                 </tr>
               ))}
             </tbody>

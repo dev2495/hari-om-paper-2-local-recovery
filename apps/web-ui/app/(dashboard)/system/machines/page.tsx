@@ -18,13 +18,13 @@ function SystemSetupNav() {
     ]
 
     return (
-        <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-slate-200 bg-white/85 p-2 shadow-lg shadow-slate-900/5">
+        <section className="flex flex-wrap items-center gap-2 rounded-[1.75rem] border border-border bg-card/85 p-2 shadow-lg shadow-slate-900/5">
             {items.map((item) => (
                 <Link
                     key={item.href}
                     href={item.href}
                     className={`inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold transition ${
-                        item.href === "/system/machines" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-100"
+                        item.href === "/system/machines" ? "bg-slate-950 text-white" : "text-muted-foreground hover:bg-muted"
                     }`}
                 >
                     <item.icon className="h-4 w-4" />
@@ -41,10 +41,10 @@ function machineState(row: any) {
 }
 
 function stateClasses(state: string) {
-    if (state === "UP") return "border-emerald-200 bg-emerald-50 text-emerald-700"
-    if (state === "MAINT") return "border-amber-200 bg-amber-50 text-amber-700"
-    if (state === "DOWN") return "border-rose-200 bg-rose-50 text-rose-700"
-    return "border-slate-200 bg-slate-100 text-slate-600"
+    if (state === "UP") return "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+    if (state === "MAINT") return "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
+    if (state === "DOWN") return "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
+    return "border-border bg-muted text-muted-foreground"
 }
 
 function capacitySummary(row: any) {
@@ -88,7 +88,7 @@ export default function MachinesPage() {
         {
             header: "Capacity",
             accessorKey: "capacity_value",
-            render: (_val: any, row: any) => <span className="text-sm leading-6 text-slate-700">{capacitySummary(row)}</span>,
+            render: (_val: any, row: any) => <span className="text-sm leading-6 text-muted-foreground">{capacitySummary(row)}</span>,
         },
         {
             header: "Status",
@@ -124,7 +124,7 @@ export default function MachinesPage() {
                                 size="icon"
                                 title="Send to maintenance"
                                 aria-label="Send to maintenance"
-                                className="rounded-xl border border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
+                                className="rounded-xl border border-signal-amber-line bg-card text-signal-amber-ink hover:bg-signal-amber-soft"
                                 disabled={writeBlocked || updateMutation.isPending}
                                 onClick={() => setMachineState(row, "MAINT")}
                             >
@@ -136,7 +136,7 @@ export default function MachinesPage() {
                                     size="icon"
                                     title="Restore machine"
                                     aria-label="Restore machine"
-                                    className="rounded-xl border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50"
+                                    className="rounded-xl border border-signal-emerald-line bg-card text-signal-emerald-ink hover:bg-signal-emerald-soft"
                                     disabled={writeBlocked || updateMutation.isPending}
                                     onClick={() => setMachineState(row, "UP")}
                                 >
@@ -149,7 +149,7 @@ export default function MachinesPage() {
                                     size="icon"
                                     title="Disable machine"
                                     aria-label="Disable machine"
-                                    className="rounded-xl border border-amber-200 bg-white text-amber-700 hover:bg-amber-50"
+                                    className="rounded-xl border border-signal-amber-line bg-card text-signal-amber-ink hover:bg-signal-amber-soft"
                                     disabled={writeBlocked || deleteMutation.isPending}
                                     onClick={() => deleteMutation.mutateAsync(row.id)}
                                 >

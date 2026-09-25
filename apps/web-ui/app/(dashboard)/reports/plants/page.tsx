@@ -81,8 +81,8 @@ export default function PlantsReportsPage() {
       </div>
 
       <section className="erp-panel rounded-[1.7rem] p-6">
-        <h2 className="text-xl font-semibold text-slate-950">Plant Scoreboard</h2>
-        <p className="mt-1 text-sm text-slate-600">Inventory, dispatch readiness, delayed demand, and active work by plant.</p>
+        <h2 className="text-xl font-semibold text-foreground">Plant Scoreboard</h2>
+        <p className="mt-1 text-sm text-muted-foreground">Inventory, dispatch readiness, delayed demand, and active work by plant.</p>
         <div className="mt-5">
           <DataGrid
             rows={rows}
@@ -94,8 +94,8 @@ export default function PlantsReportsPage() {
                 label: "Plant",
                 render: (row: any) => (
                   <div>
-                    <p className="font-semibold text-slate-900">{row.plant_name}</p>
-                    <p className="text-xs text-slate-500">{row.plant_code}</p>
+                    <p className="font-semibold text-foreground">{row.plant_name}</p>
+                    <p className="text-xs text-muted-foreground">{row.plant_code}</p>
                   </div>
                 ),
               },

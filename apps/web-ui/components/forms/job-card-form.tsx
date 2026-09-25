@@ -56,7 +56,7 @@ export function JobCardForm({ initialData, onSubmit, onCancel }: JobCardFormProp
     const scrapPercent = totalReelWeight > 0 ? ((scrap / totalReelWeight) * 100).toFixed(2) : "0"
 
     return (
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 max-w-5xl mx-auto p-6 bg-white rounded-lg shadow">
+        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6 max-w-5xl mx-auto p-6 bg-card rounded-lg shadow">
 
             <div className="grid grid-cols-4 gap-4">
                 <div className="space-y-2">
@@ -151,7 +151,7 @@ export function JobCardForm({ initialData, onSubmit, onCancel }: JobCardFormProp
                 </div>
                 <div className="text-center">
                     <div className="text-xs text-muted-foreground">Scrap</div>
-                    <div className="text-xl font-bold text-red-600">{scrapPercent}%</div>
+                    <div className="text-xl font-bold text-signal-red-ink">{scrapPercent}%</div>
                 </div>
                 <div className="text-center">
                     <div className="text-xs text-muted-foreground">Bamboo Loss</div>

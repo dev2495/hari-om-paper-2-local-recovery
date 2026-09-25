@@ -21,7 +21,7 @@ export function QualityDeskNav() {
             key={link.href}
             href={link.href}
             className={`rounded-full border px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] ${
-              active ? "border-cyan-300 bg-cyan-50 text-cyan-900" : "border-slate-200 bg-white text-slate-500"
+              active ? "border-signal-cyan-line bg-signal-cyan-soft text-signal-cyan-ink" : "border-border bg-card text-muted-foreground"
             }`}
           >
             {link.label}

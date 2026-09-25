@@ -779,6 +779,11 @@ async def create_inventory_quality_inspection(request: Request, token: str = Dep
     return response
 
 
+@router.get("/quality/concessions")
+async def list_inventory_quality_concessions(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/concessions", request, token)
+
+
 @router.post("/quality/concessions")
 async def create_inventory_quality_concession(request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/quality/concessions", request, token)

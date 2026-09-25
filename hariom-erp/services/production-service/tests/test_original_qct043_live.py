@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 URL = os.environ.get("HARI_OM_PRODUCTION_DATABASE_URL") or os.environ.get("DATABASE_URL", "")
-if os.environ.get("HARI_OM_LIVE_PG") != "1" or "hariom_nverify" not in URL:
+if os.environ.get("HARI_OM_LIVE_PG") != "1" or not ("hariom_nverify" in URL or ("@127.0.0.1:5432/hariom_" in URL and "_integration_" in URL)):
     pytest.skip("Requires isolated hariom_nverify production Postgres", allow_module_level=True)
 
 os.environ["DATABASE_URL"] = URL

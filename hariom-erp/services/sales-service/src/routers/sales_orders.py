@@ -206,6 +206,7 @@ class SalesOrderLineResponse(BaseModel):
     rate_per_pc: Optional[float]
     qty: float
     due_date: date
+    earliest_delivery_date: Optional[date] = None
     released_qty: float
     fulfilled_qty: float
     remaining_qty: float
@@ -279,7 +280,7 @@ def _timeline_event(
 
 
 def _serialize_line(line: SalesOrderLine) -> dict:
-    from ..schedule_policy import remaining_to_schedule
+    from ..schedule_policy import remaining_to_schedule, earliest_pending_delivery
 
     release_lots = [lot for lot in getattr(line, "release_lots", []) if str(lot.status or "").lower() != "cancelled"]
     released_qty = sum(float(lot.released_qty or 0.0) for lot in release_lots)
@@ -298,6 +299,7 @@ def _serialize_line(line: SalesOrderLine) -> dict:
         "rate_per_pc": line.rate_per_pc,
         "qty": line.qty,
         "due_date": line.due_date,
+        "earliest_delivery_date": earliest_pending_delivery(line),
         "released_qty": round(released_qty, 2),
         "fulfilled_qty": line.fulfilled_qty,
         "remaining_qty": max(0.0, line.qty - line.fulfilled_qty),
@@ -707,6 +709,7 @@ class SalesOrderAggregatesResponse(BaseModel):
 
 
 class DeliveryScheduleRowInput(BaseModel):
+    model_config = {"allow_inf_nan": False}
     id: Optional[uuid.UUID] = None
     line_id: uuid.UUID
     delivery_date: date
@@ -725,6 +728,7 @@ class DeliveryScheduleCommitPayload(BaseModel):
 
 
 class ScheduleEntirePoLineSplit(BaseModel):
+    model_config = {"allow_inf_nan": False}
     delivery_date: date
     quantity: float = Field(..., gt=0)
     status: Optional[str] = "committed"
@@ -737,14 +741,16 @@ class ScheduleEntirePoPayload(BaseModel):
 
 
 class DeliverySchedulePatchPayload(BaseModel):
+    model_config = {"allow_inf_nan": False}
     quantity: Optional[float] = Field(default=None, gt=0)
     delivery_date: Optional[date] = None
     status: Optional[str] = None
 
 
 class GroupMoveRemainderPayload(BaseModel):
-    day_delta: int
+    day_delta: int = Field(ge=-366, le=366)
     expected_revision: int = 0
+    preview_only: bool = False
 
 
 class BulkReleaseLinePayload(BaseModel):
@@ -1147,6 +1153,7 @@ def group_move_order_remainder(
         day_delta=payload.day_delta,
         expected_revision=payload.expected_revision,
         actor=str(current_user.get("sub") or "unknown"),
+        preview_only=payload.preview_only,
     )
 
 

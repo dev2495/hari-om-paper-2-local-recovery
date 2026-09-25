@@ -1,4 +1,9 @@
+FROM python:3.12.14-slim-bookworm@sha256:392307d22300de8b5986851a12d9176dfc0fc073e65bf6523ebd7dcbeb23564e AS python-runtime
 FROM public.ecr.aws/docker/library/node:20-bookworm-slim
+
+# Keep the verified interpreter rather than Debian's older Python 3.11.
+# /usr/local merges Python into the Node image without replacing Node/npm.
+COPY --from=python-runtime /usr/local/ /usr/local/
 
 ENV APP_HOME=/app \
     PATH=/opt/hariom-venv/bin:$PATH \
@@ -17,15 +22,21 @@ RUN apt-get update \
         libpq-dev \
         postgresql \
         postgresql-contrib \
-        python3 \
-        python3-pip \
-        python3-venv \
+        libbz2-1.0 \
+        libexpat1 \
+        libffi8 \
+        liblzma5 \
+        libreadline8 \
+        libsqlite3-0 \
+        libssl3 \
+        zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 COPY hariom-erp/scripts/direct/requirements.all.txt /tmp/requirements.all.txt
 COPY apps/bff-api/requirements.txt /tmp/bff-requirements.txt
 
-RUN python3 -m venv /opt/hariom-venv \
+RUN python3 -c 'import sys; assert sys.version_info[:3] == (3, 12, 14), sys.version' \
+    && python3 -m venv /opt/hariom-venv \
     && pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir -r /tmp/requirements.all.txt -r /tmp/bff-requirements.txt
 
@@ -34,7 +45,7 @@ RUN cd apps/web-ui && npm ci --include=dev
 
 COPY . .
 
-RUN cd apps/web-ui && npm run build && npm prune --omit=dev
+RUN cd apps/web-ui && npm run build && rm -rf .next/cache && npm prune --omit=dev && npm cache clean --force
 
 ENV NODE_ENV=production \
     APP_ENV=production \

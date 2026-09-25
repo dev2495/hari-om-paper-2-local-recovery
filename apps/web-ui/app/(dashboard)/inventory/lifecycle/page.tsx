@@ -141,10 +141,10 @@ const STEPS: StepDef[] = [
 type StepStatus = "PENDING" | "ACTIVE" | "DONE" | "BLOCKED"
 
 const STATUS_COLORS: Record<StepStatus, { ring: string; bg: string; chip: string; chipLabel: string }> = {
-  PENDING: { ring: "border-slate-200", bg: "bg-slate-50/60", chip: "bg-slate-200 text-slate-700", chipLabel: "Pending" },
-  ACTIVE: { ring: "border-amber-300 ring-2 ring-amber-200", bg: "bg-amber-50/70", chip: "bg-amber-200 text-amber-900", chipLabel: "Now" },
-  DONE: { ring: "border-emerald-300", bg: "bg-emerald-50/70", chip: "bg-emerald-200 text-emerald-900", chipLabel: "Done" },
-  BLOCKED: { ring: "border-rose-300 ring-2 ring-rose-200", bg: "bg-rose-50/70", chip: "bg-rose-200 text-rose-900", chipLabel: "Blocked" },
+  PENDING: { ring: "border-border", bg: "bg-muted/60", chip: "bg-muted text-muted-foreground", chipLabel: "Pending" },
+  ACTIVE: { ring: "border-signal-amber-line ring-2 ring-amber-200", bg: "bg-signal-amber-soft/70", chip: "bg-amber-200 text-signal-amber-ink", chipLabel: "Now" },
+  DONE: { ring: "border-signal-emerald-line", bg: "bg-signal-emerald-soft/70", chip: "bg-emerald-200 text-signal-emerald-ink", chipLabel: "Done" },
+  BLOCKED: { ring: "border-signal-rose-line ring-2 ring-rose-200", bg: "bg-signal-rose-soft/70", chip: "bg-rose-200 text-signal-rose-ink", chipLabel: "Blocked" },
 }
 
 function normalizeRows(raw: any): any[] {
@@ -291,15 +291,15 @@ function StockLifecycleHubPage() {
               className={cn(
                 "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em]",
                 isLocked
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-amber-200 bg-amber-50 text-amber-800",
+                  ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+                  : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
               )}
             >
               {isLocked ? <LockKeyhole className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
               Books {isLocked ? "locked" : "open"}
             </span>
             {blockerCount > 0 ? (
-              <span className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-rose-800">
+              <span className="inline-flex items-center gap-2 rounded-full border border-signal-rose-line bg-signal-rose-soft px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.18em] text-signal-rose-ink">
                 <AlertTriangle className="h-3 w-3" />
                 {blockerCount} blocker{blockerCount === 1 ? "" : "s"}
               </span>
@@ -313,7 +313,7 @@ function StockLifecycleHubPage() {
             <p className="text-[12px] leading-5 text-slate-200/85">{nextAction.detail}</p>
             <Link
               href={nextAction.href}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-white hover:bg-white/20"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-border/20 bg-card/10 px-3 py-2 text-[12px] font-bold uppercase tracking-[0.12em] text-white hover:bg-card/20"
             >
               {nextAction.cta} <ArrowRight className="h-3.5 w-3.5" />
             </Link>
@@ -357,21 +357,21 @@ function StockLifecycleHubPage() {
                 )}
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200">
-                    <Icon className="h-4.5 w-4.5 text-slate-700" />
+                  <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-card shadow-sm ring-1 ring-slate-200">
+                    <Icon className="h-4.5 w-4.5 text-muted-foreground" />
                   </div>
                   <span className={cn("rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-[0.12em]", colors.chip)}>
                     {colors.chipLabel}
                   </span>
                 </div>
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">Step {step.index}</p>
-                  <p className="text-sm font-semibold text-slate-900">{step.title}</p>
-                  <p className="mt-1 text-[12px] leading-5 text-slate-600">{step.description}</p>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Step {step.index}</p>
+                  <p className="text-sm font-semibold text-foreground">{step.title}</p>
+                  <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{step.description}</p>
                 </div>
                 <Link
                   href={step.href}
-                  className="mt-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-cyan-800 hover:text-cyan-900"
+                  className="mt-auto inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:text-signal-cyan-ink"
                 >
                   {step.cta} <ArrowRight className="h-3 w-3" />
                 </Link>
@@ -391,8 +391,8 @@ function StockLifecycleHubPage() {
               className={cn(
                 "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em]",
                 blockerCount === 0
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : "border-rose-200 bg-rose-50 text-rose-800",
+                  ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
+                  : "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
               )}
             >
               {blockerCount === 0 ? <CheckCircle2 className="h-3 w-3" /> : <AlertTriangle className="h-3 w-3" />}
@@ -401,29 +401,29 @@ function StockLifecycleHubPage() {
           }
         >
           {blockers.length === 0 ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-900">
+            <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-5 text-sm text-signal-emerald-ink">
               <CheckCircle2 className="mr-2 inline h-4 w-4" />
               No blockers — close can be approved once all DRAFT actuals are entered.
             </div>
           ) : (
             <ul className="space-y-2">
               {blockers.slice(0, 6).map((b, i) => (
-                <li key={`${b.code}:${b.item_code || i}`} className="flex items-start gap-3 rounded-xl border border-rose-200 bg-white px-3 py-2.5 shadow-sm">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-600" />
+                <li key={`${b.code}:${b.item_code || i}`} className="flex items-start gap-3 rounded-xl border border-signal-rose-line bg-card px-3 py-2.5 shadow-sm">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-signal-rose-ink" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-rose-700">{b.code.replaceAll("_", " ")}</p>
-                    <p className="text-[12.5px] text-slate-700">{b.detail}</p>
+                    <p className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-rose-ink">{b.code.replaceAll("_", " ")}</p>
+                    <p className="text-[12.5px] text-muted-foreground">{b.detail}</p>
                   </div>
                   <Link
                     href={b.code === "CERT_NOT_CERTIFIED" ? "/inventory/stock-control" : "/production/reconciliation"}
-                    className="shrink-0 rounded-full border border-rose-300 px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-rose-700 hover:bg-rose-50"
+                    className="shrink-0 rounded-full border border-signal-rose-line px-2.5 py-0.5 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-rose-ink hover:bg-signal-rose-soft"
                   >
                     Fix
                   </Link>
                 </li>
               ))}
               {blockers.length > 6 ? (
-                <li className="text-[12px] font-semibold text-slate-500">+ {blockers.length - 6} more — open reconciliation for full list.</li>
+                <li className="text-[12px] font-semibold text-muted-foreground">+ {blockers.length - 6} more — open reconciliation for full list.</li>
               ) : null}
             </ul>
           )}
@@ -435,35 +435,35 @@ function StockLifecycleHubPage() {
           actions={
             <Link
               href="/production/reconciliation"
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
             >
               See all <ArrowRight className="h-3 w-3" />
             </Link>
           }
         >
           {variancePreview.length === 0 ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-900">
+            <div className="rounded-2xl border border-signal-emerald-line bg-signal-emerald-soft px-4 py-5 text-sm text-signal-emerald-ink">
               <CheckCircle2 className="mr-2 inline h-4 w-4" />
               All items within tolerance.
             </div>
           ) : (
             <ul className="space-y-2">
               {variancePreview.map((row: any) => (
-                <li key={row.item_code} className="flex items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+                <li key={row.item_code} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-3 py-2.5">
                   <div className="min-w-0">
-                    <p className="font-mono text-[12px] font-bold text-cyan-800">{row.item_code}</p>
-                    <p className="text-[11.5px] text-slate-500 truncate">{row.item_name || "—"} · tolerance ±{numberValue(row.tolerance_kg)} kg</p>
+                    <p className="font-mono text-[12px] font-bold text-signal-cyan-ink">{row.item_code}</p>
+                    <p className="text-[11.5px] text-muted-foreground truncate">{row.item_name || "—"} · tolerance ±{numberValue(row.tolerance_kg)} kg</p>
                   </div>
                   <div className="shrink-0 text-right">
-                    <p className={cn("font-bold tabular-nums", numberValue(row.variance_kg) >= 0 ? "text-rose-700" : "text-amber-700")}>
+                    <p className={cn("font-bold tabular-nums", numberValue(row.variance_kg) >= 0 ? "text-signal-rose-ink" : "text-signal-amber-ink")}>
                       {fmtKg(row.variance_kg)}
                     </p>
                     {row.needs_explanation ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-amber-700">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-signal-amber-ink">
                         <Pencil className="h-2.5 w-2.5" /> Note needed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-violet-700">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-signal-violet-line bg-signal-violet-soft px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.1em] text-signal-violet-ink">
                         <CheckCircle2 className="h-2.5 w-2.5" /> Explained
                       </span>
                     )}
@@ -471,7 +471,7 @@ function StockLifecycleHubPage() {
                   {row.item_id ? (
                     <Link
                       href={`/inventory/ledger?item_id=${row.item_id}&start=${startDate}&end=${endDate}&from=reconciliation`}
-                      className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-cyan-800 hover:bg-cyan-100"
+                      className="rounded-full border border-signal-cyan-line bg-signal-cyan-soft px-2.5 py-1 text-[10.5px] font-bold uppercase tracking-[0.12em] text-signal-cyan-ink hover:bg-signal-cyan-soft"
                     >
                       Drill
                     </Link>
@@ -490,7 +490,7 @@ function StockLifecycleHubPage() {
         actions={
           <Link
             href="/production/reconciliation"
-            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
           >
             Full table <ArrowRight className="h-3 w-3" />
           </Link>
@@ -551,7 +551,7 @@ function StockLifecycleHubPage() {
           actions={
             <Link
               href="/production/reconciliation?tab=drift"
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
             >
               Full drift <ArrowRight className="h-3 w-3" />
             </Link>
@@ -571,14 +571,14 @@ function StockLifecycleHubPage() {
           actions={
             <Link
               href="/production/reconciliation?tab=history"
-              className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-slate-700 hover:border-cyan-300"
+              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground hover:border-signal-cyan-line"
             >
               See history <ArrowRight className="h-3 w-3" />
             </Link>
           }
         >
           {historyTrend.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-sm text-slate-500">
+            <p className="rounded-2xl border border-dashed border-border bg-muted px-4 py-6 text-sm text-muted-foreground">
               No close history yet.
             </p>
           ) : (
@@ -609,7 +609,7 @@ function StockLifecycleHubPage() {
           <ShortcutTile href="/inventory/stock-control" title="Stock control" detail="Opening · cert · carry-forward" icon={ClipboardCheck} />
           <ShortcutTile href="/production/reconciliation" title="Monthly reconciliation" detail="3-stream variance, drift, history" icon={Scale} />
           <ShortcutTile href="/inventory/ledger" title="Ledger" detail="Every txn, drill-down enabled" icon={Workflow} />
-          <ShortcutTile href="/inventory/raw-material-inward" title="RM inward" detail="Daily inward of paper/adhesive/parchment" icon={FilePlus2} />
+          <ShortcutTile href="/purchase/inward" title="PO-linked inward" detail="Approved PO receipt, invoice comparison and AT lots" icon={FilePlus2} />
           <ShortcutTile href="/inventory/production-issue" title="Production issue" detail="Daily RM → WIP issue (ledger feed)" icon={PackageCheck} />
           <ShortcutTile href="/inventory/fg-inward" title="Manual FG inward" detail="Rework · returns · adjustments" icon={Layers} />
         </div>
@@ -632,12 +632,12 @@ function KpiTile({
   icon: LucideIcon
 }) {
   const toneClass: Record<string, string> = {
-    cyan: "border-cyan-200 bg-cyan-50/70 text-cyan-950",
-    emerald: "border-emerald-200 bg-emerald-50/70 text-emerald-950",
-    amber: "border-amber-200 bg-amber-50/70 text-amber-950",
-    rose: "border-rose-200 bg-rose-50/70 text-rose-950",
-    violet: "border-violet-200 bg-violet-50/70 text-violet-950",
-    slate: "border-slate-200 bg-white/90 text-slate-950",
+    cyan: "border-signal-cyan-line bg-signal-cyan-soft/70 text-signal-cyan-ink",
+    emerald: "border-signal-emerald-line bg-signal-emerald-soft/70 text-signal-emerald-ink",
+    amber: "border-signal-amber-line bg-signal-amber-soft/70 text-signal-amber-ink",
+    rose: "border-signal-rose-line bg-signal-rose-soft/70 text-signal-rose-ink",
+    violet: "border-signal-violet-line bg-signal-violet-soft/70 text-signal-violet-ink",
+    slate: "border-border bg-card/90 text-foreground",
   }
   return (
     <div className={cn("relative overflow-hidden rounded-[1.3rem] border px-4 py-3 shadow-sm", toneClass[tone])}>
@@ -666,21 +666,21 @@ function StreamCard({
 }) {
   return (
     <div
-      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+      className="rounded-2xl border border-border bg-card p-4 shadow-sm"
       style={{ borderTop: `4px solid ${color}` }}
     >
       <div className="flex items-center justify-between">
         <p className="text-[10.5px] font-bold uppercase tracking-[0.16em]" style={{ color }}>{title}</p>
         <Icon className="h-4 w-4" style={{ color }} />
       </div>
-      <p className="mt-3 text-3xl font-semibold leading-none tabular-nums tracking-tight text-slate-950">{value}</p>
-      <p className="mt-1.5 text-[12px] text-slate-500">{subtitle}</p>
+      <p className="mt-3 text-3xl font-semibold leading-none tabular-nums tracking-tight text-foreground">{value}</p>
+      <p className="mt-1.5 text-[12px] text-muted-foreground">{subtitle}</p>
     </div>
   )
 }
 
 function MiniTile({ label, value, accent }: { label: string; value: string; accent?: "amber" | "emerald" }) {
-  const accentClass = accent === "amber" ? "border-amber-200 bg-amber-50 text-amber-900" : accent === "emerald" ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-slate-200 bg-white"
+  const accentClass = accent === "amber" ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : accent === "emerald" ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-card"
   return (
     <div className={cn("rounded-2xl border px-3 py-2.5 shadow-sm", accentClass)}>
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] opacity-65">{label}</p>
@@ -693,16 +693,16 @@ function ShortcutTile({ href, title, detail, icon: Icon }: { href: string; title
   return (
     <Link
       href={href}
-      className="group flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-200 hover:shadow-md"
+      className="group flex items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 shadow-sm transition hover:-translate-y-0.5 hover:border-signal-cyan-line hover:shadow-md"
     >
       <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-700 via-cyan-600 to-emerald-500 text-white shadow-sm">
         <Icon className="h-4.5 w-4.5" />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-slate-900">{title}</p>
-        <p className="text-[12px] text-slate-500">{detail}</p>
+        <p className="text-sm font-semibold text-foreground">{title}</p>
+        <p className="text-[12px] text-muted-foreground">{detail}</p>
       </div>
-      <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:text-cyan-700" />
+      <ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:text-signal-cyan-ink" />
     </Link>
   )
 }

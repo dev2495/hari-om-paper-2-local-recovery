@@ -19,6 +19,7 @@ from ..database import get_db
 from ..models import AuditEvent, Dispatch, JobCard, JobCardStage, PackingRecord, PLANT_A_UUID, PLANT_B_UUID, QualityHold, QualityInspection
 from ..quality_eval import (
     apply_qc_setup_marker,
+    non_waivable_release_detail,
     evaluate_job_stage,
     evaluate_stage_quality,
     instrument_not_ready_detail,
@@ -2471,6 +2472,9 @@ def release_hold(
     source_inspection = None
     if hold.source_inspection_id:
         source_inspection = db.query(QualityInspection).filter(QualityInspection.id == hold.source_inspection_id).first()
+    critical_detail = non_waivable_release_detail(getattr(source_inspection, "evaluation", None))
+    if critical_detail:
+        raise HTTPException(status_code=409, detail=critical_detail)
     if source_inspection is not None and str(source_inspection.status or "").upper() == "FAIL":
         _require_concession_authority(
             current_user,

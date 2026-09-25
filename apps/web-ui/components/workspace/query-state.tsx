@@ -19,15 +19,15 @@ export function LoadingState({
       aria-live="polite"
       data-testid="query-loading"
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-[1.3rem] border border-slate-200 bg-white/80 px-4 py-12 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-[1.3rem] border border-border bg-card/80 px-4 py-12 text-center",
         className,
       )}
     >
-      <LoaderCircle className="h-6 w-6 animate-spin text-cyan-800" aria-hidden="true" />
-      <p className="text-sm font-semibold text-slate-700">{label}</p>
+      <LoaderCircle className="h-6 w-6 animate-spin text-signal-cyan-ink" aria-hidden="true" />
+      <p className="text-sm font-semibold text-muted-foreground">{label}</p>
       <div className="mt-2 grid w-full max-w-xl gap-2">
-        <div className="h-3 animate-pulse rounded-full bg-slate-200" />
-        <div className="h-3 w-4/5 animate-pulse rounded-full bg-slate-100" />
+        <div className="h-3 animate-pulse rounded-full bg-muted" />
+        <div className="h-3 w-4/5 animate-pulse rounded-full bg-muted" />
       </div>
     </div>
   )
@@ -48,15 +48,15 @@ export function ErrorState({
     <div
       role="alert"
       data-testid="query-error"
-      className={cn("rounded-[1.3rem] border border-rose-200 bg-rose-50 px-4 py-6 text-rose-950", className)}
+      className={cn("rounded-[1.3rem] border border-signal-rose-line bg-signal-rose-soft px-4 py-6 text-signal-rose-ink", className)}
     >
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
         <div className="min-w-0 space-y-2">
           <p className="text-sm font-semibold">{title}</p>
-          <p className="text-sm leading-6 text-rose-800">{message}</p>
+          <p className="text-sm leading-6 text-signal-rose-ink">{message}</p>
           {onRetry ? (
-            <Button type="button" variant="outline" className="h-9 rounded-xl border-rose-200 bg-white" onClick={onRetry}>
+            <Button type="button" variant="outline" className="h-9 rounded-xl border-signal-rose-line bg-card" onClick={onRetry}>
               <RotateCcw className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
               Retry
             </Button>
@@ -83,13 +83,13 @@ export function EmptyQueryState({
       role="status"
       data-testid="query-empty"
       className={cn(
-        "flex flex-col items-center justify-center gap-3 rounded-[1.3rem] border border-dashed border-slate-200 bg-slate-50/80 px-4 py-10 text-center",
+        "flex flex-col items-center justify-center gap-3 rounded-[1.3rem] border border-dashed border-border bg-muted/80 px-4 py-10 text-center",
         className,
       )}
     >
-      <Inbox className="h-6 w-6 text-slate-400" aria-hidden="true" />
-      <p className="text-sm font-semibold text-slate-800">{title}</p>
-      {message ? <p className="max-w-xl text-sm leading-6 text-slate-500">{message}</p> : null}
+      <Inbox className="h-6 w-6 text-muted-foreground" aria-hidden="true" />
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      {message ? <p className="max-w-xl text-sm leading-6 text-muted-foreground">{message}</p> : null}
       {action}
     </div>
   )
@@ -111,7 +111,7 @@ export function PaginationBar({
   label?: string
 }) {
   return (
-    <nav className="mt-4 flex items-center justify-between gap-3 text-sm text-slate-600" aria-label="Pagination">
+    <nav className="mt-4 flex items-center justify-between gap-3 text-sm text-muted-foreground" aria-label="Pagination">
       <span>{label || `Page ${page}`}</span>
       <div className="flex gap-2">
         <Button type="button" variant="outline" className="h-9 rounded-xl" disabled={!hasPrevious} onClick={onPrevious}>

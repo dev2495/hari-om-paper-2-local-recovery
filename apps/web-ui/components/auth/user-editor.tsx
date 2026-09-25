@@ -16,7 +16,7 @@ import { PageHeader } from "@/components/workspace/page-header"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { RoleGate } from "@/components/workspace/role-gate"
 
-const inputClass = "mt-2 h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-slate-950"
+const inputClass = "mt-2 h-12 w-full rounded-xl border border-border bg-card px-4 text-foreground"
 
 const PRIVILEGED_ROLES = ["Owner", "Admin"]
 const FRIENDLY_ROLE_LABELS: Record<string, string> = {
@@ -263,24 +263,24 @@ export function UserEditor({ userId }: { userId?: string }) {
         <ErrorState title="Could not load user access settings" message={loadError} />
       )}
       {error && (
-        <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-rose-900">
+        <p role="alert" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-4 text-signal-rose-ink">
           {error}
         </p>
       )}
       {warning && (
-        <p role="alert" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+        <p role="alert" className="rounded-xl border border-signal-amber-line bg-signal-amber-soft p-4 text-signal-amber-ink">
           {warning}
         </p>
       )}
       {saved && (
-        <p role="status" className="rounded-xl bg-teal-50 p-4 text-teal-900">
+        <p role="status" className="rounded-xl bg-signal-teal-soft p-4 text-signal-teal-ink">
           Saved. The user should sign in again to use their current access.
         </p>
       )}
       {loading ? (
         <LoadingState label="Loading access settings…" />
       ) : (
-        <Card className="rounded-[1.6rem] border-slate-200 shadow-sm">
+        <Card className="rounded-[1.6rem] border-border shadow-sm">
           <CardContent className="p-6">
         <form onSubmit={save} className="space-y-6">
           <div className="grid gap-5 md:grid-cols-2">
@@ -321,7 +321,7 @@ export function UserEditor({ userId }: { userId?: string }) {
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
-            <span className="mt-2 block text-sm text-slate-500">
+            <span className="mt-2 block text-sm text-muted-foreground">
               At least 12 characters, with uppercase, lowercase, a number, and a symbol.
             </span>
           </div>
@@ -337,7 +337,7 @@ export function UserEditor({ userId }: { userId?: string }) {
                 </Button>
               </div>
             </div>
-            <p className="my-2 text-sm text-slate-600">
+            <p className="my-2 text-sm text-muted-foreground">
               Assign one or more roles. Saving replaces the user&apos;s current roles. Owner and Admin include user
               administration and all-plant access — selecting another role never silently grants either of these.
             </p>
@@ -350,19 +350,19 @@ export function UserEditor({ userId }: { userId?: string }) {
                     key={role}
                     title={roleMeta[role]?.summary || undefined}
                     className={`flex items-start gap-3 rounded-xl border p-3 transition ${
-                      active ? "border-cyan-500 bg-cyan-50/60" : "border-slate-200"
+                      active ? "border-cyan-500 bg-signal-cyan-soft/60" : "border-border"
                     }`}
                   >
                     <input type="checkbox" className="mt-1" checked={active} onChange={() => toggleRole(role)} />
                     <span>
-                      <span className="flex items-center gap-2 font-medium text-slate-900">
+                      <span className="flex items-center gap-2 font-medium text-foreground">
                         {roleLabel(role)}
                         {rolePrivileged && (
                           <Badge variant="warning">Admin</Badge>
                         )}
                       </span>
                       {roleMeta[role]?.summary && (
-                        <span className="mt-1 block text-xs leading-5 text-slate-500">{roleMeta[role].summary}</span>
+                        <span className="mt-1 block text-xs leading-5 text-muted-foreground">{roleMeta[role].summary}</span>
                       )}
                     </span>
                   </label>
@@ -370,14 +370,14 @@ export function UserEditor({ userId }: { userId?: string }) {
               })}
             </div>
             {!form.role_names.length && (
-              <p className="mt-2 text-sm text-rose-700">Select at least one role before saving.</p>
+              <p className="mt-2 text-sm text-signal-rose-ink">Select at least one role before saving.</p>
             )}
             {form.role_names.length > 0 && (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm font-semibold text-slate-800">
+              <div className="mt-3 rounded-xl border border-border bg-muted p-4">
+                <p className="text-sm font-semibold text-foreground">
                   Effective access ({form.role_names.length} role{form.role_names.length > 1 ? "s" : ""})
                 </p>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs text-muted-foreground">
                   {privileged
                     ? "Includes user administration and all-plant access (Owner/Admin)."
                     : "Plant-scoped access. No user administration."}
@@ -395,7 +395,7 @@ export function UserEditor({ userId }: { userId?: string }) {
             )}
           </fieldset>
           {privileged && (
-            <label className="flex items-center gap-3 rounded-xl bg-amber-50 p-4">
+            <label className="flex items-center gap-3 rounded-xl bg-signal-amber-soft p-4">
               <input
                 type="checkbox"
                 checked={form.is_owner_all_plants}
@@ -461,7 +461,7 @@ export function UserEditor({ userId }: { userId?: string }) {
                 onChange={(e) => setForm({ ...form, is_active: e.target.checked })}
               />
               Account active{" "}
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-muted-foreground">
                 Inactive accounts retain their history and cannot sign in.
               </span>
             </label>

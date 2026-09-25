@@ -76,16 +76,16 @@ function SupervisorEntryPageContent() {
 
       <section className="grid gap-4 lg:grid-cols-[1.3fr_1fr] no-print">
         <div className="erp-panel p-5 shadow-xl">
-          <h2 className="text-lg font-semibold text-slate-900">Load Job Card</h2>
+          <h2 className="text-lg font-semibold text-foreground">Load Job Card</h2>
           {activePlant === "ALL" ? (
-            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="mt-3 rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink">
               Global reads are enabled. Choose one plant below before opening supervisor-stage entry for saving.
             </div>
           ) : null}
           {activePlant === "ALL" ? (
             <div className="mt-3">
-              <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Write Plant</label>
-              <select value={writePlant} onChange={(event) => setWritePlant(event.target.value)} className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm">
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Write Plant</label>
+              <select value={writePlant} onChange={(event) => setWritePlant(event.target.value)} className="h-10 w-full rounded-lg border border-border px-3 text-sm">
                 <option value="">Select one plant for supervisor entry</option>
                 {allowedPlants.map((plantId: string) => (
                   <option key={plantId} value={plantId}>
@@ -101,7 +101,7 @@ function SupervisorEntryPageContent() {
               value={jobCardInput}
               onChange={(event) => setJobCardInput(event.target.value)}
               placeholder="Scan / paste job card number, barcode alias, customer, or order reference"
-              className="h-10 rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 rounded-lg border border-border px-3 text-sm"
               autoFocus
               disabled={!effectiveWritePlant}
             />
@@ -117,9 +117,9 @@ function SupervisorEntryPageContent() {
               value={jobSearch}
               onChange={(event) => setJobSearch(event.target.value)}
               placeholder="Search by customer / job card number / order"
-              className="h-10 w-full rounded-lg border border-slate-200 px-3 text-sm"
+              className="h-10 w-full rounded-lg border border-border px-3 text-sm"
             />
-            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+            <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-border bg-card">
               {normalizedJobOptions.map((job: any) => (
                 <button
                   key={job.id}
@@ -128,35 +128,35 @@ function SupervisorEntryPageContent() {
                     setJobCardId(job.id)
                     setJobCardInput(job.ref)
                   }}
-                  className={`flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm transition hover:bg-slate-50 ${
-                    jobCardId === job.id ? "bg-cyan-50" : ""
+                  className={`flex w-full items-center justify-between border-b border-border px-3 py-2 text-left text-sm transition hover:bg-muted ${
+                    jobCardId === job.id ? "bg-signal-cyan-soft" : ""
                   }`}
                   disabled={!effectiveWritePlant}
                 >
                   <span>
-                    <span className="font-semibold text-slate-900">{job.ref}</span>
-                    <span className="text-slate-500"> · {job.customer_name || "Unknown customer"}</span>
+                    <span className="font-semibold text-foreground">{job.ref}</span>
+                    <span className="text-muted-foreground"> · {job.customer_name || "Unknown customer"}</span>
                   </span>
-                  <span className="text-xs text-slate-500">{job.status}</span>
+                  <span className="text-xs text-muted-foreground">{job.status}</span>
                 </button>
               ))}
               {selectedJobOptions.length === 0 && (
-                <p className="px-3 py-3 text-sm text-slate-500">No job cards found</p>
+                <p className="px-3 py-3 text-sm text-muted-foreground">No job cards found</p>
               )}
             </div>
           </div>
         </div>
 
         <div className="erp-panel p-5 shadow-xl">
-          <h2 className="text-lg font-semibold text-slate-900">Fast Entry Rules</h2>
-          <div className="mt-3 space-y-3 text-sm text-slate-600">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+          <h2 className="text-lg font-semibold text-foreground">Fast Entry Rules</h2>
+          <div className="mt-3 space-y-3 text-sm text-muted-foreground">
+            <div className="rounded-xl border border-border bg-muted px-3 py-3">
               Machine, shift, spec, mandrel, customer, order, parchment, and packaging all come from planning plus the approved setup snapshot.
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+            <div className="rounded-xl border border-border bg-muted px-3 py-3">
               Supervisors should only fill actual times, counts, measurements, reject reasons, and signatures.
             </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+            <div className="rounded-xl border border-border bg-muted px-3 py-3">
               A released job becomes floor-executable only after planner schedules its active stage into the next three days with a machine and shift.
             </div>
           </div>
@@ -164,7 +164,7 @@ function SupervisorEntryPageContent() {
       </section>
 
       {!effectiveWritePlant ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <div className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink">
           Select one plant before opening supervisor-stage data entry.
         </div>
       ) : (
@@ -176,7 +176,7 @@ function SupervisorEntryPageContent() {
 
 export default function SupervisorEntryPage() {
   return (
-    <Suspense fallback={<div className="rounded-xl border border-slate-200 bg-white p-8 text-sm text-slate-600">Loading supervisor entry...</div>}>
+    <Suspense fallback={<div className="rounded-xl border border-border bg-card p-8 text-sm text-muted-foreground">Loading supervisor entry...</div>}>
       <SupervisorEntryPageContent />
     </Suspense>
   )

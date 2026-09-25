@@ -5,6 +5,21 @@ from src.routers import deep_cuts
 from src import utils
 
 
+def test_item_velocity_uses_full_source_aggregate_instead_of_invalid_ledger_page(monkeypatch):
+    def get(url, token, **kwargs):
+        assert kwargs['required'] is True
+        if url.endswith('/all-balances'):
+            return {'items': [{'item_code': 'RM-1', 'name': 'Paper', 'available_qty': 100}]}
+        assert url.endswith('/transactions/aggregate-by-item')
+        assert kwargs['params']['transaction_types'] == 'ISSUE_PRODUCTION,DISPATCH'
+        return [{'item_code': 'RM-1', 'issued_kg': 3000, 'txn_count': 7001}]
+    monkeypatch.setattr(deep_cuts, 'service_get', get)
+    result = deep_cuts.item_velocity(horizon_days=30, token='test', plant_scope={'selected_plant_id': 'plant'})
+    assert result['rows'][0]['issued_30d'] == 3000
+    assert result['rows'][0]['burn_per_day'] == 100
+    assert result['rows'][0]['tone'] == 'critical'
+
+
 def test_customer_360_uses_dispatch_logs_for_period_value_and_qty(monkeypatch):
     def fake_service_get(url, token, **kwargs):
         if "/master/customers/" in url:

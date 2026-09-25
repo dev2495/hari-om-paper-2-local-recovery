@@ -18,6 +18,7 @@ from .routers import (
     ledger,
     locations,
     purchase,
+    procurement,
     quality,
     reel_issues,
     reels,
@@ -490,10 +491,20 @@ def ensure_runtime_schema() -> None:
     )
     connection.execute(
       text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_schedule_alloc_receipt_line "
-        "ON receipt_schedule_allocations (receipt_line_id)"
+        "ALTER TABLE receipt_schedule_allocations DROP CONSTRAINT IF EXISTS uq_receipt_schedule_alloc_receipt_line"
       )
     )
+    connection.execute(text("DROP INDEX IF EXISTS uq_receipt_schedule_alloc_receipt_line"))
+    for statement in (
+      "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS revision_line_id UUID REFERENCES purchase_order_revision_lines(id)",
+      "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS source_plan_entry_id UUID",
+      "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS cancelled_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
+      "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 1",
+      "ALTER TABLE purchase_line_schedules ADD COLUMN IF NOT EXISTS change_history JSONB NOT NULL DEFAULT '[]'::jsonb",
+      "ALTER TABLE reel_issues ADD COLUMN IF NOT EXISTS issue_section VARCHAR(40) NOT NULL DEFAULT 'WINDER_SECTION'",
+      "ALTER TABLE reel_issues ALTER COLUMN winder_machine_id DROP NOT NULL",
+    ):
+      connection.execute(text(statement))
     connection.execute(
       text(
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_receipt_schedule_alloc_pair "
@@ -540,6 +551,30 @@ def ensure_runtime_schema() -> None:
     connection.execute(
       text("CREATE INDEX IF NOT EXISTS ix_inventory_quality_concessions_operation ON inventory_quality_concessions (operation_id)")
     )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_concessions ADD COLUMN IF NOT EXISTS permitted_customer_id UUID")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_concessions ADD COLUMN IF NOT EXISTS permitted_sales_order_id UUID")
+    )
+    connection.execute(
+      text("ALTER TABLE IF EXISTS inventory_quality_concessions ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP")
+    )
+    connection.execute(
+      text("CREATE INDEX IF NOT EXISTS ix_inventory_quality_concessions_released_entity ON inventory_quality_concessions (released_entity_id)")
+    )
+    from .models import STOCK_STATUS_CHECK
+    for table_name, constraint_name in (
+      ("stock_batch", "ck_stock_batch_stock_status"),
+      ("stock_transaction", "ck_stock_transaction_stock_status"),
+      ("paper_reels", "ck_paper_reels_stock_status"),
+    ):
+      connection.execute(text(f"ALTER TABLE IF EXISTS {table_name} DROP CONSTRAINT IF EXISTS {constraint_name}"))
+      connection.execute(
+        text(
+          f"ALTER TABLE IF EXISTS {table_name} ADD CONSTRAINT {constraint_name} CHECK ({STOCK_STATUS_CHECK})"
+        )
+      )
     connection.execute(
       text(
         "CREATE TABLE IF NOT EXISTS inventory_quality_holds ("
@@ -799,6 +834,8 @@ app.include_router(dispatch.router)
 app.include_router(reservations.router)
 app.include_router(locations.router)
 app.include_router(purchase.router)
+from .routers import manual_receipts  # registers routes on the shared procurement router
+app.include_router(procurement.router)
 app.include_router(quality.router)
 app.include_router(reels.router)
 app.include_router(reel_issues.router)

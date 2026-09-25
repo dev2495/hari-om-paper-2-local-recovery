@@ -26,7 +26,7 @@ from .due_risk import (
     PLANT_TIMEZONE_NAME,
 )
 from .models import SalesOrder, SalesOrderLine, SalesOrderStatus
-from .schedule_policy import active_schedule_qty, remaining_to_schedule
+from .schedule_policy import active_schedule_qty, remaining_to_schedule, earliest_pending_delivery
 from .utils.auth import apply_plant_scope
 
 SORT_KEYS = {
@@ -109,7 +109,7 @@ def serialize_pending_line(line: Any, order: Any, today: date) -> dict[str, Any]
     scheduled = active_schedule_qty(schedules)
     remaining_schedule = remaining_to_schedule(line, schedules)
     rate = float(line.rate_per_pc or 0.0)
-    due = line.due_date
+    due = earliest_pending_delivery(line)
     risk = classify_due_risk(due, today)
     missing = remaining_schedule > 1e-9
     return {
@@ -150,7 +150,8 @@ def serialize_pending_order(order: Any, today: date) -> dict[str, Any]:
     unreleased_qty = round(sum(line["unreleased_qty"] for line in lines), 2)
     scheduled_qty = round(sum(line["scheduled_qty"] for line in lines), 2)
     outstanding_value = round(sum(line["outstanding_value"] for line in lines), 2)
-    due_dates = [line.due_date for line in (order.lines or []) if line.due_date]
+    due_dates = [earliest_pending_delivery(line) for line in (order.lines or [])]
+    due_dates = [value for value in due_dates if value]
     earliest = min(due_dates) if due_dates else None
     return {
         "id": str(order.id),

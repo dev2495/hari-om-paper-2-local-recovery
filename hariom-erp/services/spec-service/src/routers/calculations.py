@@ -68,7 +68,7 @@ def get_weight_calculation(
 @router.get("/yield/{spec_id}")
 def get_yield_calculation(
     spec_id: uuid.UUID,
-    tube_length_mm: int = 150,  # Default tube length, should come from masterdata
+    tube_length_mm: Optional[float] = None,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
@@ -116,8 +116,8 @@ def _approved_recipe_for_spec(spec_id: uuid.UUID, db: Session, plant_scope: dict
 @router.get("/bom/{recipe_id}")
 def get_bom(
     recipe_id: uuid.UUID,
-    tube_length_mm: int = 150,
-    tube_od_mm: int = 122,
+    tube_length_mm: Optional[float] = None,
+    tube_od_mm: Optional[float] = None,
     db: Session = Depends(get_db),
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(get_current_user)
@@ -170,8 +170,8 @@ def get_bom_for_spec(
             },
         }
 
-    tube_length_mm = int(round(_midpoint(spec.length_min_mm, spec.length_max_mm)))
-    tube_od_mm = int(round(_midpoint(spec.od_min_mm, spec.od_max_mm)))
+    tube_length_mm = _midpoint(spec.length_min_mm, spec.length_max_mm)
+    tube_od_mm = _midpoint(spec.od_min_mm, spec.od_max_mm)
     if tube_length_mm <= 0:
         return {
             "spec_id": str(spec.id),
@@ -194,7 +194,7 @@ def get_bom_for_spec(
         }
 
     try:
-        bom = generate_bom(str(recipe.id), tube_length_mm, tube_od_mm or 122, db)
+        bom = generate_bom(str(recipe.id), None, None, db)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"BOM generation error: {str(exc)}") from exc
 

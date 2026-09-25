@@ -79,7 +79,7 @@ function SchedulerPage() {
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 <th className="py-2 pr-3">Job</th>
                 <th className="py-2 pr-3">Status</th>
                 <th className="py-2 pr-3">Last started</th>
@@ -92,13 +92,13 @@ function SchedulerPage() {
               {Object.keys({ owner_pack_daily: 1, exceptions_check_hourly: 1, ...jobs }).map((jobId) => {
                 const row = jobs[jobId] || {}
                 return (
-                  <tr key={jobId} className="border-b border-slate-100">
+                  <tr key={jobId} className="border-b border-border">
                     <td className="py-2 pr-3 font-mono text-xs">{jobId}</td>
                     <td className="py-2 pr-3"><Pill tone={statusTone(row.status)}>{row.status || "—"}</Pill></td>
                     <td className="py-2 pr-3 text-xs">{fmtTime(row.last_started_at)}</td>
                     <td className="py-2 pr-3 text-xs">{fmtTime(row.last_finished_at)}</td>
                     <td className="py-2 pr-3 text-xs">{fmtTime(nextRuns[jobId])}</td>
-                    <td className="py-2 pr-3 text-xs text-rose-700">{row.last_error || ""}</td>
+                    <td className="py-2 pr-3 text-xs text-signal-rose-ink">{row.last_error || ""}</td>
                   </tr>
                 )
               })}

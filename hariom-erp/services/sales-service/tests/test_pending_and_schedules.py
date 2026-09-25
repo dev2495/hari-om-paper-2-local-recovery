@@ -55,6 +55,21 @@ def _order(**kwargs):
     return SimpleNamespace(**defaults)
 
 
+def test_pending_priority_and_export_follow_saved_calloffs_before_final_line_date():
+    from src.schedule_policy import earliest_pending_delivery
+    line = _line(due_date=date(2026, 12, 31), delivery_schedules=[
+        SimpleNamespace(quantity=400, status="committed", delivery_date=date(2026, 9, 22)),
+        SimpleNamespace(quantity=600, status="locked", delivery_date=date(2026, 12, 20)),
+        SimpleNamespace(quantity=99, status="cancelled", delivery_date=date(2026, 9, 1)),
+    ])
+    assert earliest_pending_delivery(line) == date(2026, 9, 22)
+    row = serialize_pending_order(_order(lines=[line]), date(2026, 9, 21))
+    assert row["earliest_due"] == "2026-09-22"
+    assert row["lines"][0]["due_date"] == "2026-09-22"
+    line.fulfilled_qty = 1000
+    assert earliest_pending_delivery(line) is None
+
+
 def test_infer_source_does_not_guess_internal_from_blank_po():
     assert infer_source(SimpleNamespace(po_number="PO-1", origin="CUSTOMER_PO")) == "customer_po"
     assert infer_source(SimpleNamespace(po_number="  ", origin="INTERNAL")) == "internal"

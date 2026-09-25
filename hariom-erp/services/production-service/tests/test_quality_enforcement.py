@@ -153,6 +153,29 @@ class QualityEnforcementTests(unittest.TestCase):
             override_reason=None,
         )
 
+    def test_packing_measurements_cannot_stand_in_for_final_qc(self):
+        job = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        kwargs = dict(db=_InspectionSession([]), plant_id=PLANT_ID, job_card=job,
+                      inline_quality_checks=_full_spec_readings())
+        self.assertFalse(planning._final_spec_qc_passed(**kwargs, inline_stage="PACKING"))
+        self.assertFalse(planning._final_spec_qc_passed(**kwargs))
+        self.assertTrue(planning._final_spec_qc_passed(**kwargs, inline_stage="QC"))
+
+    def test_new_failed_inspection_invalidates_old_final_pass(self):
+        job = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        old = SimpleNamespace(status="PASS", readings=_full_spec_readings())
+        latest = SimpleNamespace(status="FAIL", readings={**_full_spec_readings(), "weight":999})
+        self.assertFalse(planning._final_spec_qc_passed(db=_InspectionSession([latest,old]), plant_id=PLANT_ID, job_card=job))
+
+    def test_dispatch_requires_final_qc_even_when_stock_was_already_posted(self):
+        from src.routers.dispatch import _require_final_qc
+        job = SimpleNamespace(id=uuid.uuid4(), spec_snapshot=_spec_snapshot())
+        with self.assertRaises(HTTPException) as exc:
+            _require_final_qc(_InspectionSession([]), PLANT_ID, job)
+        self.assertEqual(exc.exception.status_code,409)
+        inspection=SimpleNamespace(status="PASS", readings=_full_spec_readings())
+        _require_final_qc(_InspectionSession([inspection]), PLANT_ID, job)
+
     def test_fg_inward_waits_for_final_qc_and_posts_after_qc_stage(self):
         post_gate = getattr(planning, "_stage_allows_fg_inward", None)
         self.assertIsNotNone(post_gate, "_stage_allows_fg_inward must guard FG handoff")

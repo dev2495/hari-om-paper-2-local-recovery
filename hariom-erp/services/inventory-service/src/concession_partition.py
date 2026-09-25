@@ -3,11 +3,18 @@
 A concession records a measured FAIL and may release only an identified
 quantity. The residual lot stays held. Independent holds are not released by
 another inspection's concession. Measured status is never rewritten to PASS.
+
+A customer/order/expiry authorization is a separate record. Scoped stock is
+not universally interchangeable unrestricted supply.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
+
+CONCESSION_STOCK_STATUS = "CONCESSION"
+UNRESTRICTED_STOCK_STATUS = "UNRESTRICTED"
 
 
 class ConcessionPartitionError(ValueError):
@@ -18,6 +25,102 @@ class ConcessionPartitionError(ValueError):
 
     def as_dict(self) -> dict[str, Any]:
         return {"code": self.code, "message": self.message}
+
+
+class ConcessionScopeError(ValueError):
+    def __init__(self, message: str, *, code: str):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
+    def as_dict(self) -> dict[str, Any]:
+        return {"code": self.code, "message": self.message}
+
+
+def _naive_utc(value: datetime) -> datetime:
+    if value.tzinfo is not None:
+        return value.replace(tzinfo=None)
+    return value
+
+
+def _id_text(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    return str(value)
+
+
+def concession_is_scoped(
+    *,
+    permitted_customer_id: Any = None,
+    permitted_sales_order_id: Any = None,
+    expires_at: Any = None,
+) -> bool:
+    return bool(permitted_customer_id or permitted_sales_order_id or expires_at)
+
+
+def concession_release_stock_status(
+    *,
+    permitted_customer_id: Any = None,
+    permitted_sales_order_id: Any = None,
+    expires_at: Any = None,
+) -> str:
+    if concession_is_scoped(
+        permitted_customer_id=permitted_customer_id,
+        permitted_sales_order_id=permitted_sales_order_id,
+        expires_at=expires_at,
+    ):
+        return CONCESSION_STOCK_STATUS
+    return UNRESTRICTED_STOCK_STATUS
+
+
+def normalize_expires_at(value: Any, *, now: Optional[datetime] = None) -> Optional[datetime]:
+    if value is None:
+        return None
+    if not isinstance(value, datetime):
+        raise ConcessionScopeError("Concession expiry is invalid.", code="INVALID_EXPIRY")
+    expires_at = _naive_utc(value)
+    current = _naive_utc(now or datetime.utcnow())
+    if expires_at <= current:
+        raise ConcessionScopeError(
+            "Concession expiry is already in the past.",
+            code="CONCESSION_ALREADY_EXPIRED",
+        )
+    return expires_at
+
+
+def assert_concession_use_allowed(
+    concession: Any,
+    *,
+    customer_id: Any = None,
+    sales_order_id: Any = None,
+    now: Optional[datetime] = None,
+) -> None:
+    """Permit only unexpired, matching customer/order use of scoped stock."""
+    if concession is None:
+        raise ConcessionScopeError(
+            "Concession stock has no authorization record.",
+            code="CONCESSION_RECORD_MISSING",
+        )
+    current = _naive_utc(now or datetime.utcnow())
+    expires_at = getattr(concession, "expires_at", None)
+    if expires_at is not None:
+        if isinstance(expires_at, datetime) and current >= _naive_utc(expires_at):
+            raise ConcessionScopeError(
+                "Concession authorization has expired.",
+                code="CONCESSION_EXPIRED",
+            )
+    permitted_customer = getattr(concession, "permitted_customer_id", None)
+    permitted_order = getattr(concession, "permitted_sales_order_id", None)
+    if permitted_customer is not None and _id_text(permitted_customer) != _id_text(customer_id):
+        raise ConcessionScopeError(
+            "Concession is limited to another customer/order.",
+            code="CONCESSION_SCOPE_MISMATCH",
+        )
+    if permitted_order is not None and _id_text(permitted_order) != _id_text(sales_order_id):
+        raise ConcessionScopeError(
+            "Concession is limited to another customer/order.",
+            code="CONCESSION_SCOPE_MISMATCH",
+        )
 
 
 def _qty(value: Any) -> float:

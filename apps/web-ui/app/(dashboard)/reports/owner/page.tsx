@@ -120,12 +120,12 @@ function OwnerPackPage() {
 
       <ReportFilterBar>
         <FilterField label="Period">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">
             Last 30 days
           </span>
         </FilterField>
         <FilterField label="Plant">
-          <span className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-sm font-semibold text-slate-700">
+          <span className="rounded-md border border-border bg-muted px-2 py-1 text-sm font-semibold text-muted-foreground">
             {activePlantLabel}
           </span>
         </FilterField>
@@ -148,14 +148,14 @@ function OwnerPackPage() {
       />
 
       {/* Standup questions */}
-      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-slate-500">Three things to ask in standup</p>
+      <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Three things to ask in standup</p>
       {standupQuestions.length ? (
         <div className="grid gap-3 md:grid-cols-3">
           {standupQuestions.map((q, i) => (
-            <a key={i} href={q.link} className={`rounded-[1.4rem] border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${q.tone === "critical" ? "border-rose-300 bg-rose-50" : "border-amber-300 bg-amber-50"}`}>
+            <a key={i} href={q.link} className={`rounded-[1.4rem] border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${q.tone === "critical" ? "border-signal-rose-line bg-signal-rose-soft" : "border-signal-amber-line bg-signal-amber-soft"}`}>
               <Pill tone={q.tone}>{i + 1}. {q.tone === "critical" ? "Critical" : "Watch"}</Pill>
-              <h3 className="mt-2 font-semibold text-slate-950">{q.title}</h3>
-              <p className="mt-1 text-sm text-slate-700">{q.detail}</p>
+              <h3 className="mt-2 font-semibold text-foreground">{q.title}</h3>
+              <p className="mt-1 text-sm text-muted-foreground">{q.detail}</p>
             </a>
           ))}
         </div>
@@ -203,34 +203,34 @@ function OwnerPackPage() {
         </Panel>
         <Panel eyebrow="Live exceptions" title="What's firing right now" description="Click each row to drill into the underlying records.">
           <ul className="space-y-2 text-sm">
-            <li className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <li className="flex items-center justify-between rounded-xl border border-border bg-muted px-3 py-2">
               <span>Blocked job cards</span>
               <span className="flex items-center gap-2">
-                <span className="font-bold text-slate-950">{formatNumber(blockedCount)}</span>
+                <span className="font-bold text-foreground">{formatNumber(blockedCount)}</span>
                 <Pill tone={blockedCount ? "critical" : "ok"}>{blockedCount ? "CRITICAL" : "OK"}</Pill>
                 <DrillLink href="/reports/operations">Open</DrillLink>
               </span>
             </li>
-            <li className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <li className="flex items-center justify-between rounded-xl border border-border bg-muted px-3 py-2">
               <span>Delayed orders</span>
               <span className="flex items-center gap-2">
-                <span className="font-bold text-slate-950">{formatNumber(delayedRows.length)}</span>
+                <span className="font-bold text-foreground">{formatNumber(delayedRows.length)}</span>
                 <Pill tone={delayedRows.length ? "warn" : "ok"}>{delayedRows.length ? "WATCH" : "OK"}</Pill>
                 <DrillLink href="/reports/sales">Open</DrillLink>
               </span>
             </li>
-            <li className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <li className="flex items-center justify-between rounded-xl border border-border bg-muted px-3 py-2">
               <span>Low-stock items</span>
               <span className="flex items-center gap-2">
-                <span className="font-bold text-slate-950">{formatNumber(Number(headline.low_stock_items || 0))}</span>
+                <span className="font-bold text-foreground">{formatNumber(Number(headline.low_stock_items || 0))}</span>
                 <Pill tone={Number(headline.low_stock_items || 0) ? "warn" : "ok"}>{Number(headline.low_stock_items || 0) ? "WATCH" : "OK"}</Pill>
                 <DrillLink href="/analytics/mrp">Open</DrillLink>
               </span>
             </li>
-            <li className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <li className="flex items-center justify-between rounded-xl border border-border bg-muted px-3 py-2">
               <span>Variance ledger drift</span>
               <span className="flex items-center gap-2">
-                <span className="font-bold text-slate-950">{formatCurrency(varianceValue)}</span>
+                <span className="font-bold text-foreground">{formatCurrency(varianceValue)}</span>
                 <Pill tone={varianceValue > 100_000 ? "critical" : varianceValue > 0 ? "warn" : "ok"}>{varianceValue > 100_000 ? "CRITICAL" : varianceValue > 0 ? "WATCH" : "OK"}</Pill>
                 <DrillLink href="/production/reconciliation">Open</DrillLink>
               </span>

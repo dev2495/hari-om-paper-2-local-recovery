@@ -55,10 +55,10 @@ export function ReportHero({
     emerald: "linear-gradient(135deg, #0b1220 0%, #064e3b 60%, #047857 100%)",
   }
   const toneClass = (tone?: string) => {
-    if (tone === "ok") return "border-emerald-300/40 bg-emerald-400/15 text-emerald-100"
-    if (tone === "warn") return "border-amber-300/40 bg-amber-400/15 text-amber-100"
-    if (tone === "critical") return "border-rose-300/40 bg-rose-400/15 text-rose-100"
-    return "border-white/30 bg-white/10 text-white/90"
+    if (tone === "ok") return "border-signal-emerald-line/40 bg-emerald-400/15 text-emerald-100"
+    if (tone === "warn") return "border-signal-amber-line/40 bg-amber-400/15 text-amber-100"
+    if (tone === "critical") return "border-signal-rose-line/40 bg-rose-400/15 text-rose-100"
+    return "border-border/30 bg-card/10 text-white/90"
   }
   return (
     <section
@@ -92,7 +92,7 @@ export function ReportHero({
 
 export function ReportFilterBar({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-slate-200 bg-white px-4 py-3 shadow-sm">
+    <div className="flex flex-wrap items-center gap-3 rounded-[1.4rem] border border-border bg-card px-4 py-3 shadow-sm">
       {children}
     </div>
   )
@@ -100,9 +100,9 @@ export function ReportFilterBar({ children }: { children: ReactNode }) {
 
 export function FilterField({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+    <label className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
       <span>{label}</span>
-      <span className="text-slate-900 font-medium tracking-normal normal-case text-sm">{children}</span>
+      <span className="text-foreground font-medium tracking-normal normal-case text-sm">{children}</span>
     </label>
   )
 }
@@ -122,12 +122,12 @@ export type KpiRailItem = {
 }
 
 const railTone: Record<KpiTone, string> = {
-  slate: "border-slate-200 bg-white",
-  cyan: "border-cyan-200 bg-cyan-50/85",
-  amber: "border-amber-200 bg-amber-50/85",
-  emerald: "border-emerald-200 bg-emerald-50/85",
-  rose: "border-rose-200 bg-rose-50/85",
-  violet: "border-violet-200 bg-violet-50/85",
+  slate: "border-border bg-card",
+  cyan: "border-signal-cyan-line bg-signal-cyan-soft/85",
+  amber: "border-signal-amber-line bg-signal-amber-soft/85",
+  emerald: "border-signal-emerald-line bg-signal-emerald-soft/85",
+  rose: "border-signal-rose-line bg-signal-rose-soft/85",
+  violet: "border-signal-violet-line bg-signal-violet-soft/85",
 }
 
 export function KpiRail({ items, columns = 6 }: { items: KpiRailItem[]; columns?: 3 | 4 | 5 | 6 }) {
@@ -150,21 +150,21 @@ export function KpiRail({ items, columns = 6 }: { items: KpiRailItem[]; columns?
               (item.href || item.onClick) && "hover:-translate-y-0.5 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08)] cursor-pointer",
             )}
           >
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{item.label}</p>
-            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">{item.value}</p>
-            {item.detail ? <p className="mt-1 text-[11px] text-slate-500">{item.detail}</p> : null}
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{item.label}</p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{item.value}</p>
+            {item.detail ? <p className="mt-1 text-[11px] text-muted-foreground">{item.detail}</p> : null}
             {item.delta ? (
               <p
                 className={cn(
                   "mt-2 text-[11px] font-semibold",
-                  item.delta.direction === "up" && "text-emerald-700",
-                  item.delta.direction === "down" && "text-rose-700",
-                  (!item.delta.direction || item.delta.direction === "flat") && "text-slate-500",
+                  item.delta.direction === "up" && "text-signal-emerald-ink",
+                  item.delta.direction === "down" && "text-signal-rose-ink",
+                  (!item.delta.direction || item.delta.direction === "flat") && "text-muted-foreground",
                 )}
               >
                 {item.delta.direction === "up" ? "▲ " : item.delta.direction === "down" ? "▼ " : "• "}
                 {item.delta.value}
-                {item.delta.label ? <span className="ml-1 font-normal text-slate-500">{item.delta.label}</span> : null}
+                {item.delta.label ? <span className="ml-1 font-normal text-muted-foreground">{item.delta.label}</span> : null}
               </p>
             ) : null}
           </div>
@@ -207,13 +207,13 @@ export function Panel({
   className?: string
 }) {
   return (
-    <section className={cn("rounded-[1.8rem] border border-slate-200 bg-white p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]", className)}>
+    <section className={cn("rounded-[1.8rem] border border-border bg-card p-5 shadow-[0_18px_50px_rgba(15,23,42,0.06)]", className)}>
       {(eyebrow || title || actions) && (
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-400">{eyebrow}</p> : null}
-            {title ? <h2 className="mt-1 text-lg font-semibold tracking-tight text-slate-950">{title}</h2> : null}
-            {description ? <p className="mt-1 text-sm text-slate-500">{description}</p> : null}
+            {eyebrow ? <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{eyebrow}</p> : null}
+            {title ? <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">{title}</h2> : null}
+            {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
           </div>
           {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
         </div>
@@ -227,7 +227,7 @@ export function Panel({
 
 export function DrillLink({ href, children }: { href: string; children: ReactNode }) {
   return (
-    <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-800 hover:underline">
+    <Link href={href} className="inline-flex items-center gap-1 text-xs font-semibold text-signal-cyan-ink hover:underline">
       {children} <ChevronRight className="h-3.5 w-3.5" />
     </Link>
   )
@@ -244,12 +244,12 @@ export function NoteCallout({
 }) {
   const toneClass =
     tone === "critical"
-      ? "border-rose-300 bg-rose-50 text-rose-900"
+      ? "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink"
       : tone === "ok"
-        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+        ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"
         : tone === "neutral"
-          ? "border-slate-200 bg-slate-50 text-slate-700"
-          : "border-amber-300 bg-amber-50 text-amber-900"
+          ? "border-border bg-muted text-muted-foreground"
+          : "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink"
   return <p className={cn("mt-3 rounded-xl border px-3 py-2 text-sm font-medium leading-5", toneClass)}>{children}</p>
 }
 
@@ -340,14 +340,14 @@ export function Funnel({ stages, unit = "" }: { stages: FunnelStage[]; unit?: st
         const dropPct = i > 0 && stages[i - 1].value > 0 ? (drop / stages[i - 1].value) * 100 : 0
         return (
           <div key={stage.label}>
-            <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+            <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
               <span className="uppercase tracking-wide">{stage.label}</span>
               <span>
-                <span className="font-bold text-slate-950">{formatNumber(stage.value)}</span>
-                {unit ? <span className="ml-1 text-slate-500">{unit}</span> : null}
+                <span className="font-bold text-foreground">{formatNumber(stage.value)}</span>
+                {unit ? <span className="ml-1 text-muted-foreground">{unit}</span> : null}
               </span>
             </div>
-            <div className="mt-1 h-7 w-full rounded-md bg-slate-100">
+            <div className="mt-1 h-7 w-full rounded-md bg-muted">
               <div
                 className="h-7 rounded-md transition-all"
                 style={{
@@ -357,7 +357,7 @@ export function Funnel({ stages, unit = "" }: { stages: FunnelStage[]; unit?: st
               />
             </div>
             {i > 0 && drop > 0 ? (
-              <div className="mt-0.5 pl-1 text-[11px] font-semibold text-rose-700">
+              <div className="mt-0.5 pl-1 text-[11px] font-semibold text-signal-rose-ink">
                 ▼ {formatNumber(drop)} ({formatPct(dropPct)}) dropped
               </div>
             ) : null}
@@ -391,9 +391,9 @@ export function CalendarHeatmap({
       <table className="min-w-full border-separate border-spacing-1 text-[10px]">
         <thead>
           <tr>
-            <th className="text-left text-slate-500 font-semibold uppercase tracking-wider px-1">&nbsp;</th>
+            <th className="text-left text-muted-foreground font-semibold uppercase tracking-wider px-1">&nbsp;</th>
             {colLabels.map((cl) => (
-              <th key={cl} className="text-center text-slate-500 font-semibold w-7">
+              <th key={cl} className="text-center text-muted-foreground font-semibold w-7">
                 {cl}
               </th>
             ))}
@@ -402,7 +402,7 @@ export function CalendarHeatmap({
         <tbody>
           {Array.from({ length: rows }).map((_, r) => (
             <tr key={rowLabels[r] || r}>
-              <td className="text-slate-700 text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap pr-2">
+              <td className="text-muted-foreground text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap pr-2">
                 {rowLabels[r] || `R${r}`}
               </td>
               {Array.from({ length: cols }).map((__, c) => {
@@ -492,10 +492,10 @@ export function DonutWithCenter({
                 </span>{" "}
                 {s.label}
               </span>
-              <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
                 <div className="h-2" style={{ width: `${pct}%`, background: s.color }} />
               </div>
-              <span className="text-right font-semibold text-slate-700">{formatPct(pct, 0)}</span>
+              <span className="text-right font-semibold text-muted-foreground">{formatPct(pct, 0)}</span>
             </div>
           )
         })}
@@ -521,8 +521,8 @@ export function MiniLadder({
         const fmt = formatter ? formatter(row.value) : formatNumber(row.value)
         return (
           <li key={row.label} className="grid grid-cols-[140px_1fr_80px] items-center gap-2 text-xs">
-            <span className="truncate font-medium text-slate-700">{row.label}</span>
-            <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+            <span className="truncate font-medium text-muted-foreground">{row.label}</span>
+            <div className="h-2 rounded-full bg-muted overflow-hidden">
               <div
                 className="h-2 rounded-full"
                 style={{
@@ -538,8 +538,8 @@ export function MiniLadder({
                 }}
               />
             </div>
-            <span className="text-right font-bold text-slate-950">{fmt}</span>
-            {row.hint ? <span className="col-span-3 -mt-0.5 pl-1 text-[10px] text-slate-500">{row.hint}</span> : null}
+            <span className="text-right font-bold text-foreground">{fmt}</span>
+            {row.hint ? <span className="col-span-3 -mt-0.5 pl-1 text-[10px] text-muted-foreground">{row.hint}</span> : null}
           </li>
         )
       })}
@@ -609,17 +609,17 @@ export function ReportTable<T extends Record<string, any>>({
 }) {
   if (!rows?.length) {
     return (
-      <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
+      <div className="rounded-xl border border-dashed border-border bg-muted px-4 py-8 text-center text-sm text-muted-foreground">
         {empty || "No data."}
       </div>
     )
   }
   return (
     <div className="overflow-x-auto">
-      {caption ? <p className="mb-2 text-xs uppercase tracking-wider text-slate-500">{caption}</p> : null}
+      {caption ? <p className="mb-2 text-xs uppercase tracking-wider text-muted-foreground">{caption}</p> : null}
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          <tr className="border-b border-border text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
             {columns.map((c) => (
               <th
                 key={String(c.key)}
@@ -633,12 +633,12 @@ export function ReportTable<T extends Record<string, any>>({
         </thead>
         <tbody>
           {rows.map((row, i) => (
-            <tr key={i} className="border-b border-slate-100 last:border-b-0 hover:bg-slate-50">
+            <tr key={i} className="border-b border-border last:border-b-0 hover:bg-muted">
               {columns.map((c) => (
                 <td
                   key={String(c.key)}
                   style={{ textAlign: c.align || (typeof row[c.key] === "number" ? "right" : "left") }}
-                  className="py-2 pr-3 text-slate-700"
+                  className="py-2 pr-3 text-muted-foreground"
                 >
                   {c.render ? c.render(row) : String(row[c.key as keyof T] ?? "")}
                 </td>
@@ -662,14 +662,14 @@ export function Pill({
 }) {
   const toneClass =
     tone === "ok"
-      ? "bg-emerald-100 text-emerald-900 border-emerald-200"
+      ? "bg-signal-emerald-soft text-signal-emerald-ink border-signal-emerald-line"
       : tone === "warn"
-        ? "bg-amber-100 text-amber-900 border-amber-200"
+        ? "bg-signal-amber-soft text-signal-amber-ink border-signal-amber-line"
         : tone === "critical"
-          ? "bg-rose-100 text-rose-900 border-rose-200"
+          ? "bg-signal-rose-soft text-signal-rose-ink border-signal-rose-line"
           : tone === "info"
-            ? "bg-cyan-100 text-cyan-900 border-cyan-200"
-            : "bg-slate-100 text-slate-700 border-slate-200"
+            ? "bg-signal-cyan-soft text-signal-cyan-ink border-signal-cyan-line"
+            : "bg-muted text-muted-foreground border-border"
   return (
     <span
       className={cn(
@@ -774,7 +774,7 @@ export function VelocityMatrix({ points, reorderDays = 10 }: { points: VelocityP
           )
         })}
       </svg>
-      <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-slate-600">
+      <div className="mt-1 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
         <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-rose-600 align-middle mr-1" /> Reorder now</span>
         <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-500 align-middle mr-1" /> Watch</span>
         <span><span className="inline-block w-2.5 h-2.5 rounded-full bg-cyan-700 align-middle mr-1" /> Healthy RM</span>
@@ -793,13 +793,13 @@ export function LeadTimeAnatomy({ stages, totalLabel = "Total" }: { stages: Lead
   const total = stages.reduce((acc, s) => acc + s.days, 0) || 1
   return (
     <div>
-      <div className="mb-2 flex items-center justify-between text-xs font-semibold text-slate-600 uppercase tracking-wider">
+      <div className="mb-2 flex items-center justify-between text-xs font-semibold text-muted-foreground uppercase tracking-wider">
         <span>Order created → dispatch</span>
         <span>
-          {totalLabel}: <span className="font-bold text-slate-950">{formatNumber(total, 1)} d</span>
+          {totalLabel}: <span className="font-bold text-foreground">{formatNumber(total, 1)} d</span>
         </span>
       </div>
-      <div className="flex h-8 w-full overflow-hidden rounded-xl border border-slate-200">
+      <div className="flex h-8 w-full overflow-hidden rounded-xl border border-border">
         {stages.map((s, i) => {
           const w = (s.days / total) * 100
           const color =
@@ -816,13 +816,13 @@ export function LeadTimeAnatomy({ stages, totalLabel = "Total" }: { stages: Lead
           )
         })}
       </div>
-      <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-600 md:grid-cols-3">
+      <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-muted-foreground md:grid-cols-3">
         {stages.map((s, i) => (
           <li key={s.label} className="flex justify-between">
             <span>
-              <span className="font-bold text-slate-700">{i + 1}.</span> {s.label}
+              <span className="font-bold text-muted-foreground">{i + 1}.</span> {s.label}
             </span>
-            <span className="font-semibold text-slate-900">{formatNumber(s.days, 1)} d</span>
+            <span className="font-semibold text-foreground">{formatNumber(s.days, 1)} d</span>
           </li>
         ))}
       </ul>
@@ -847,18 +847,18 @@ export function ReportTileLink({
 }) {
   const accentClass: Record<string, string> = {
     owner: "from-slate-950 via-slate-900 to-cyan-900 text-white",
-    ops: "from-white to-cyan-50 text-slate-950",
-    sales: "from-white to-amber-50 text-slate-950",
-    inv: "from-white to-emerald-50 text-slate-950",
-    qc: "from-white to-violet-50 text-slate-950",
-    disp: "from-white to-rose-50 text-slate-950",
-    slate: "from-white to-slate-50 text-slate-950",
+    ops: "from-card to-signal-cyan-soft text-foreground",
+    sales: "from-card to-signal-amber-soft text-foreground",
+    inv: "from-card to-signal-emerald-soft text-foreground",
+    qc: "from-card to-signal-violet-soft text-foreground",
+    disp: "from-card to-signal-rose-soft text-foreground",
+    slate: "from-card to-muted text-foreground",
   }
   return (
     <Link
       href={href}
       className={cn(
-        "group block rounded-[1.6rem] border border-slate-200 bg-gradient-to-br px-5 py-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]",
+        "group block rounded-[1.6rem] border border-border bg-gradient-to-br px-5 py-5 shadow-[0_18px_40px_rgba(15,23,42,0.06)] transition duration-200 hover:-translate-y-0.5 hover:shadow-[0_24px_60px_rgba(15,23,42,0.12)]",
         accentClass[accent],
       )}
     >
@@ -870,7 +870,7 @@ export function ReportTileLink({
       {chips?.length ? (
         <div className="mt-4 flex flex-wrap gap-1.5">
           {chips.map((c) => (
-            <span key={c.label} className="rounded-full border border-current/15 bg-white/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
+            <span key={c.label} className="rounded-full border border-current/15 bg-card/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider">
               {c.label}
             </span>
           ))}

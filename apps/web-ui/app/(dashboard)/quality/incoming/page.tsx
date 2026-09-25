@@ -8,7 +8,7 @@ import { StageQcFields } from "@/components/qc/StageQcFields"
 import { RoleGate } from "@/components/workspace/role-gate"
 import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
-import { useCreateInventoryQualityInspection, usePendingInventoryQuality } from "@/hooks/use-inventory"
+import { useCreateInventoryQualityInspection, useInventoryQualityConcessions, usePendingInventoryQuality } from "@/hooks/use-inventory"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { formatAllowedRange } from "@/lib/qc-measurement"
 
@@ -23,8 +23,10 @@ export default function IncomingQualityPage() {
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState("")
   const pendingQualityQuery = usePendingInventoryQuality()
+  const concessionsQuery = useInventoryQualityConcessions()
   const createInventoryInspection = useCreateInventoryQualityInspection()
   const pendingQuality = useMemo(() => asArray(pendingQualityQuery.data), [pendingQualityQuery.data])
+  const concessions = useMemo(() => asArray(concessionsQuery.data), [concessionsQuery.data])
   const selectedPending = pendingQuality.find((row: any) => `${row.entity_type}:${row.entity_id}` === selectedPendingId) || null
   const profile = selectedPending?.quality_profile || {}
   const parameters = asArray(profile.parameters).filter((row: any) => row?.applicable !== false)
@@ -108,13 +110,13 @@ export default function IncomingQualityPage() {
                       setReasons({})
                       setNotes("")
                     }}
-                    className={`mb-2 w-full rounded-2xl border px-4 py-3 text-left ${active ? "border-cyan-300 bg-cyan-50" : "border-slate-200 bg-white"}`}
+                    className={`mb-2 w-full rounded-2xl border px-4 py-3 text-left ${active ? "border-signal-cyan-line bg-signal-cyan-soft" : "border-border bg-card"}`}
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-slate-950">{row.label}</p>
+                      <p className="text-sm font-semibold text-foreground">{row.label}</p>
                       <StatusBadge value={row.stock_status} />
                     </div>
-                    <p className="mt-1 text-xs text-slate-500">{row.material_type} · {row.source}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{row.material_type} · {row.source}</p>
                   </button>
                 )
               })
@@ -122,9 +124,9 @@ export default function IncomingQualityPage() {
           </Panel>
           <Panel title="Item profile readings" subtitle="No result or disposition shortcut. The server returns PASS, FAIL, INCOMPLETE, or INVALID.">
             <form onSubmit={handleSubmit} className="space-y-4">
-              <p className="text-sm font-semibold text-slate-950">{selectedPending ? selectedPending.label : "Select held material"}</p>
+              <p className="text-sm font-semibold text-foreground">{selectedPending ? selectedPending.label : "Select held material"}</p>
               {selectedPending && !parameters.length ? (
-                <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                <p className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-sm text-signal-amber-ink">
                   This item has no approved quality profile. Incoming QC will stay INCOMPLETE until item rules are saved.
                 </p>
               ) : null}
@@ -137,13 +139,13 @@ export default function IncomingQualityPage() {
                   onReasonChange={(code, value) => setReasons((current) => ({ ...current, [code]: value }))}
                 />
               ) : selectedPending ? (
-                <p className="text-xs text-slate-500">Open Inventory → Items to add owned incoming parameters. {formatAllowedRange(null)}</p>
+                <p className="text-xs text-muted-foreground">Open Inventory → Items to add owned incoming parameters. {formatAllowedRange(null)}</p>
               ) : null}
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 placeholder="Inspector notes (optional)"
-                className="min-h-20 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm"
+                className="min-h-20 w-full rounded-xl border border-border px-3 py-3 text-sm"
               />
               <button
                 type="submit"
@@ -155,6 +157,40 @@ export default function IncomingQualityPage() {
             </form>
           </Panel>
         </div>
+        <Panel
+          title="Concession authorizations"
+          subtitle="Measured FAIL stays FAIL. A concession is a separate limited authorization, not unrestricted interchangeable stock."
+        >
+          <div data-testid="quality-incoming-concessions" className="space-y-3">
+            {concessionsQuery.isLoading ? (
+              <LoadingState label="Loading concession authorizations..." />
+            ) : concessions.length === 0 ? (
+              <EmptyState label="No concession authorizations recorded." />
+            ) : (
+              concessions.map((row: any) => (
+                <div
+                  key={row.concession_id || `${row.inspection_id}:${row.approved_at}`}
+                  data-testid="quality-incoming-concession"
+                  className="rounded-2xl border border-border bg-card px-4 py-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm font-semibold text-foreground">
+                      Measured {row.measured_status || "FAIL"} · released {row.released_stock_status || row.stock_status || "held"}
+                    </p>
+                    <StatusBadge value={row.released_stock_status || "CONCESSION"} />
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground" data-testid="quality-incoming-concession-separate">
+                    Concession is a separate record. Quantity {row.quantity}. Residual stays held.
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Inspection {row.inspection_id} · Customer {row.permitted_customer_id || "unscoped"} · Order {row.permitted_sales_order_id || "unscoped"}
+                    {row.expires_at ? ` · Expires ${row.expires_at}` : ""}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </Panel>
       </div>
     </RoleGate>
   )

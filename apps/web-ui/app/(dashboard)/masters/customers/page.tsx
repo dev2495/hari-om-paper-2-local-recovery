@@ -357,7 +357,7 @@ export default function CustomersPage() {
       label: "Code",
       width: "140px",
       sortAccessor: (r) => r.customer_code || "",
-      render: (r) => <span className="font-mono text-xs text-slate-700">{r.customer_code || "—"}</span>,
+      render: (r) => <span className="font-mono text-xs text-muted-foreground">{r.customer_code || "—"}</span>,
     },
     {
       key: "name",
@@ -365,8 +365,8 @@ export default function CustomersPage() {
       sortAccessor: (r) => r.name || "",
       render: (r) => (
         <div className="min-w-0">
-          <div className="truncate text-sm font-semibold text-slate-950">{r.name || "—"}</div>
-          <div className="truncate text-[11px] text-slate-500">{r.address || "—"}</div>
+          <div className="truncate text-sm font-semibold text-foreground">{r.name || "—"}</div>
+          <div className="truncate text-[11px] text-muted-foreground">{r.address || "—"}</div>
         </div>
       ),
     },
@@ -384,7 +384,7 @@ export default function CustomersPage() {
         if (risk === "critical") return <Pill tone="critical">Critical</Pill>
         if (risk === "watch") return <Pill tone="warn">Watch</Pill>
         if (perf) return <Pill tone="ok">OK</Pill>
-        return <span className="text-[11px] text-slate-400">—</span>
+        return <span className="text-[11px] text-muted-foreground">—</span>
       },
     },
     {
@@ -395,7 +395,7 @@ export default function CustomersPage() {
       sortAccessor: (r) => Number(lookupPerf(r)?.orders_open || 0),
       render: (r) => {
         const perf = lookupPerf(r)
-        return <span className="font-semibold text-slate-800">{perf?.orders_open ?? 0}</span>
+        return <span className="font-semibold text-foreground">{perf?.orders_open ?? 0}</span>
       },
     },
     {
@@ -407,7 +407,7 @@ export default function CustomersPage() {
       render: (r) => {
         const perf = lookupPerf(r)
         const v = Number(perf?.open_value || 0)
-        return <span className="font-semibold text-slate-900">{fmtINR(v)}</span>
+        return <span className="font-semibold text-foreground">{fmtINR(v)}</span>
       },
     },
     {
@@ -419,7 +419,7 @@ export default function CustomersPage() {
       render: (r) => {
         const perf = lookupPerf(r)
         const otif = Number(perf?.otif_percent || 0)
-        if (!perf) return <span className="text-[11px] text-slate-400">—</span>
+        if (!perf) return <span className="text-[11px] text-muted-foreground">—</span>
         const tone = otif >= 92 ? "ok" : otif >= 80 ? "warn" : "critical"
         return <Pill tone={tone}>{otif.toFixed(0)}%</Pill>
       },
@@ -486,7 +486,7 @@ export default function CustomersPage() {
             <select
               value={categoryFilter}
               onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
             >
               <option value="ALL">All</option>
               {CUSTOMER_CATEGORIES.map((c) => (
@@ -500,7 +500,7 @@ export default function CustomersPage() {
             <select
               value={riskFilter}
               onChange={(e) => setRiskFilter(e.target.value as any)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
             >
               <option value="all">All</option>
               <option value="watch">Watch + Critical</option>
@@ -511,7 +511,7 @@ export default function CustomersPage() {
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-medium text-slate-900"
+              className="rounded-md border border-border bg-card px-2 py-1 text-sm font-medium text-foreground"
             >
               <option value="ACTIVE">Active</option>
               <option value="INACTIVE">Inactive</option>
@@ -522,7 +522,7 @@ export default function CustomersPage() {
           <button
             type="button"
             onClick={exportFilteredCsv}
-            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-emerald-300 hover:text-emerald-800"
+            className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-signal-emerald-line hover:text-signal-emerald-ink"
           >
             ⇡ Export CSV
           </button>
@@ -558,34 +558,34 @@ export default function CustomersPage() {
             }
           />
           {selection.size ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.2rem] border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-              <span className="font-semibold text-slate-700">{selection.size} selected</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[1.2rem] border border-border bg-muted px-3 py-2 text-xs">
+              <span className="font-semibold text-muted-foreground">{selection.size} selected</span>
               <span className="flex gap-2">
                 <button
                   type="button"
                   onClick={bulkActivate}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-emerald-300 hover:text-emerald-700"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-signal-emerald-line hover:text-signal-emerald-ink"
                 >
                   Activate
                 </button>
                 <button
                   type="button"
                   onClick={bulkDeactivate}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-amber-300 hover:text-amber-700"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-signal-amber-line hover:text-signal-amber-ink"
                 >
                   Deactivate
                 </button>
                 <button
                   type="button"
                   onClick={() => setSelection(new Set())}
-                  className="rounded-full border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-700 hover:border-slate-400"
+                  className="rounded-full border border-border bg-card px-3 py-1.5 font-semibold text-muted-foreground hover:border-slate-400"
                 >
                   Clear
                 </button>
               </span>
             </div>
           ) : null}
-          <p className="px-1 text-[11px] text-slate-500">
+          <p className="px-1 text-[11px] text-muted-foreground">
             Showing {filteredCustomers.length} of {customers.length} customers
             {selection.size ? ` · ${selection.size} selected` : ""}.
           </p>
@@ -678,12 +678,12 @@ export default function CustomersPage() {
                         <PerfCard label="Closed orders" value={String(selectedPerf.orders_closed || 0)} tone="ok" />
                         <PerfCard label="Delayed" value={String(selectedPerf.orders_delayed || 0)} tone={Number(selectedPerf.orders_delayed || 0) > 0 ? "critical" : "ok"} />
                       </div>
-                      <Link href={`/reports/customer-360?customer=${encodeURIComponent(selectedCustomer.id)}`} className="block text-xs font-semibold text-emerald-700 hover:underline">
+                      <Link href={`/reports/customer-360?customer=${encodeURIComponent(selectedCustomer.id)}`} className="block text-xs font-semibold text-signal-emerald-ink hover:underline">
                         Open full customer-360 →
                       </Link>
                     </>
                   ) : (
-                    <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-4 text-center text-[11px] text-slate-500">
+                    <p className="rounded-xl border border-dashed border-border bg-muted px-3 py-4 text-center text-[11px] text-muted-foreground">
                       No 30-day customer-360 data yet — performance shows once orders flow through.
                     </p>
                   )}
@@ -704,7 +704,7 @@ export default function CustomersPage() {
                       showToast(errorMessage(err), "error")
                     }
                   }}
-                  className="rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50"
+                  className="rounded-full border border-signal-emerald-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-emerald-ink hover:bg-signal-emerald-soft"
                 >
                   Reactivate
                 </button>
@@ -712,7 +712,7 @@ export default function CustomersPage() {
                 <button
                   type="button"
                   onClick={() => setConfirmKind("deactivate")}
-                  className="rounded-full border border-amber-200 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-50"
+                  className="rounded-full border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-amber-ink hover:bg-signal-amber-soft"
                 >
                   Deactivate
                 </button>
@@ -720,7 +720,7 @@ export default function CustomersPage() {
               <button
                 type="button"
                 onClick={() => setConfirmKind("delete")}
-                className="rounded-full border border-rose-200 bg-white px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                className="rounded-full border border-signal-rose-line bg-card px-3 py-1.5 text-xs font-semibold text-signal-rose-ink hover:bg-signal-rose-soft"
               >
                 Delete
               </button>
@@ -754,7 +754,7 @@ export default function CustomersPage() {
                 setCreateOpen(false)
                 resetCreate()
               }}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
             >
               Cancel
             </button>
@@ -778,11 +778,11 @@ export default function CustomersPage() {
             placeholder="CUST-XXX"
           />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Category</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category</span>
             <select
               value={createForm.category}
               onChange={(e) => setCreateForm({ ...createForm, category: e.target.value })}
-              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-emerald-400 focus:outline-none"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-emerald-400 focus:outline-none"
             >
               <option value="">Choose…</option>
               {CUSTOMER_CATEGORIES.map((c) => (
@@ -830,8 +830,8 @@ export default function CustomersPage() {
             onChange={(v) => setCreateForm({ ...createForm, address: v })}
           />
         </div>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Primary contact (optional — add more later)</p>
+        <div className="mt-4 rounded-xl border border-border bg-muted/60 p-3">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Primary contact (optional — add more later)</p>
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
             <LabeledInput
               label="Name"
@@ -850,7 +850,7 @@ export default function CustomersPage() {
             />
           </div>
         </div>
-        {createError ? <p className="mt-3 text-xs font-medium text-rose-700">{createError}</p> : null}
+        {createError ? <p className="mt-3 text-xs font-medium text-signal-rose-ink">{createError}</p> : null}
       </Modal>
 
       {/* Edit customer modal */}
@@ -865,7 +865,7 @@ export default function CustomersPage() {
             <button
               type="button"
               onClick={() => setEditOpen(false)}
-              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-400"
+              className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground hover:border-slate-400"
             >
               Cancel
             </button>
@@ -888,11 +888,11 @@ export default function CustomersPage() {
             onChange={(v) => setEditForm({ ...editForm, customer_code: v })}
           />
           <label className="flex flex-col gap-1 text-sm">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Category</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Category</span>
             <select
               value={editForm.category || ""}
               onChange={(e) => setEditForm({ ...editForm, category: e.target.value })}
-              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:border-emerald-400 focus:outline-none"
+              className="rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground focus:border-emerald-400 focus:outline-none"
             >
               <option value="">—</option>
               {CUSTOMER_CATEGORIES.map((c) => (
@@ -925,7 +925,7 @@ export default function CustomersPage() {
             onChange={(v) => setEditForm({ ...editForm, address: v })}
           />
         </div>
-        {editError ? <p className="mt-3 text-xs font-medium text-rose-700">{editError}</p> : null}
+        {editError ? <p className="mt-3 text-xs font-medium text-signal-rose-ink">{editError}</p> : null}
       </Modal>
 
       <ConfirmDialog
@@ -963,8 +963,8 @@ export default function CustomersPage() {
 function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[120px_1fr] gap-3 text-sm">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</span>
-      <span className="text-slate-900">{value}</span>
+      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</span>
+      <span className="text-foreground">{value}</span>
     </div>
   )
 }
@@ -972,16 +972,16 @@ function FieldRow({ label, value }: { label: string; value: React.ReactNode }) {
 function PerfCard({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "ok" | "warn" | "critical" | "neutral" }) {
   const cls =
     tone === "ok"
-      ? "border-emerald-200 bg-emerald-50"
+      ? "border-signal-emerald-line bg-signal-emerald-soft"
       : tone === "warn"
-        ? "border-amber-200 bg-amber-50"
+        ? "border-signal-amber-line bg-signal-amber-soft"
         : tone === "critical"
-          ? "border-rose-200 bg-rose-50"
-          : "border-slate-200 bg-slate-50"
+          ? "border-signal-rose-line bg-signal-rose-soft"
+          : "border-border bg-muted"
   return (
     <div className={`rounded-lg border px-3 py-2 ${cls}`}>
-      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-1 text-base font-bold text-slate-950">{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-base font-bold text-foreground">{value}</p>
     </div>
   )
 }

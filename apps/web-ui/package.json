@@ -9,7 +9,7 @@
     "lint": "next lint --dir app --dir components --dir hooks --dir lib",
     "test": "npm run test:static && npm run test:unit",
     "test:static": "node scripts/validate-help-coverage.cjs && node scripts/validate-spec-canonical.cjs && node scripts/validate-route-canonical.cjs",
-    "test:unit": "node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts && node -r ./node_modules/sucrase/register __tests__/reconciliation-math.test.ts && node -r ./node_modules/sucrase/register __tests__/quality-addon-contracts.test.ts && node -r ./node_modules/sucrase/register __tests__/sales-order-entry.test.ts && node -r ./node_modules/sucrase/register __tests__/qc-workspace.test.ts && node -r ./node_modules/sucrase/register __tests__/qc-measurement.test.ts && node -r ./node_modules/sucrase/register __tests__/slice-ab-contracts.test.ts && node --test -r ./node_modules/sucrase/register __tests__/ui-polish-nav.test.ts",
+    "test:unit": "node -r ./node_modules/sucrase/register __tests__/spec-math.test.ts && node -r ./node_modules/sucrase/register __tests__/reconciliation-math.test.ts && node -r ./node_modules/sucrase/register __tests__/quality-addon-contracts.test.ts && node -r ./node_modules/sucrase/register __tests__/sales-order-entry.test.ts && node -r ./node_modules/sucrase/register __tests__/qc-workspace.test.ts && node -r ./node_modules/sucrase/register __tests__/qc-measurement.test.ts && node -r ./node_modules/sucrase/register __tests__/slice-ab-contracts.test.ts && node --test -r ./node_modules/sucrase/register __tests__/ui-polish-nav.test.ts && node -r ./node_modules/sucrase/register __tests__/schedule-workbook.test.ts",
     "verify": "npm run lint && npm run test && npx tsc --noEmit --pretty false && npm run build",
     "start": "next start"
   },
@@ -21,14 +21,15 @@
     "axios": "^1.16.0",
     "class-variance-authority": "^0.7.1",
     "dayjs": "^1.11.13",
+    "exceljs": "^4.4.0",
     "lucide-react": "^0.562.0",
     "next": "^15.5.24",
     "qrcode.react": "^4.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-hook-form": "^7.71.1",
-    "sharp": "0.35.4",
-    "recharts": "^2.12.7"
+    "recharts": "^2.12.7",
+    "sharp": "0.35.4"
   },
   "devDependencies": {
     "@playwright/test": "^1.59.1",
@@ -45,6 +46,9 @@
   },
   "overrides": {
     "postcss": "8.5.23",
-    "sharp": "0.35.4"
+    "sharp": "0.35.4",
+    "exceljs": {
+      "uuid": "11.1.1"
+    }
   }
 }
