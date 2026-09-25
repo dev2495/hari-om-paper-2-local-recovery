@@ -4433,6 +4433,14 @@ def _stage_sort_key(stage_type: str) -> int:
         return 99
 
 
+def _plant_today() -> date:
+    return datetime.now(PLANT_TIMEZONE).date()
+
+
+def _is_stale_slot(segment: JobCardStageSegment, today: Optional[date] = None) -> bool:
+    return segment.plan_date is not None and segment.plan_date < (today or _plant_today())
+
+
 def _query_stage_queue_rows(
     *,
     db: Session,
@@ -4468,6 +4476,9 @@ def _query_stage_queue_rows(
                         JobCardStageSegment.machine_id.is_(None),
                         JobCardStageSegment.shift_code.is_(None),
                     ),
+                    # Stale slots (before today) never match a live board date;
+                    # without this they vanish from both queue and canvas.
+                    JobCardStageSegment.plan_date < _plant_today(),
                 )
             )
         else:
@@ -4606,6 +4617,8 @@ def _queue_item_from_stage_row(
             _nullable_uuid(carry_forward_entry.get("source")) if carry_forward_entry else None
         ),
         carry_forward_reason_code=(carry_forward_entry.get("reason") if carry_forward_entry else None),
+        stale_slot=_is_stale_slot(queue_entry),
+        stale_plan_date=queue_entry.plan_date if _is_stale_slot(queue_entry) else None,
     )
 
 
@@ -4736,7 +4749,9 @@ def _build_stage_board_view(
             remaining_segments,
             carry_forward_lookup=carry_forward_lookup,
         )
-        if queue_entry.machine_id:
+        if item.stale_slot and queue_entry.plan_date != plan_date:
+            lane_key = f"{stage}:UNSCHEDULED"
+        elif queue_entry.machine_id:
             lane_key = f"{stage}:{str(queue_entry.machine_id)}:{queue_entry.shift_code or 'SHIFT_A'}"
         elif stage in {"QC", "DISPATCH"} and queue_entry.shift_code:
             lane_key = f"{stage}:SHIFT:{queue_entry.shift_code}"

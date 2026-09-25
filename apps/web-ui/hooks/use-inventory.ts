@@ -604,6 +604,17 @@ export function useCloseReelIssue() {
   })
 }
 
+export function useSlitCoil() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (data: any) => inventoryApi.slitCoil(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["inventory-reel-issues"] })
+      queryClient.invalidateQueries({ queryKey: ["inventory-reels"] })
+    },
+  })
+}
+
 export function useInventoryQualityTemplates(materialType?: string) {
   return useQuery({
     queryKey: ["inventory-quality-templates", materialType || "all"],

@@ -169,7 +169,7 @@ export default function SalesOrderDetailPage() {
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4">
               <p className="text-[11px] uppercase tracking-[0.16em] text-emerald-100">Current Status</p>
               <div className="mt-3">
-                <StatusBadge value={order.status} className="border-border/20 bg-card/10 text-white" />
+                <StatusBadge value={order.status} />
               </div>
             </div>
             <div className="rounded-[1.15rem] border border-border/10 bg-card/10 p-4 text-sm text-emerald-100">
@@ -186,6 +186,16 @@ export default function SalesOrderDetailPage() {
         <MetricCard label="Released Qty" value={Number(order.released_qty || 0).toFixed(0)} detail="Already cut into production demand" icon={ClipboardCheck} tone="emerald" />
         <MetricCard label="Planner Cards" value={orderJobs.length} detail="Job cards already synced from this PO" icon={ScrollText} tone="violet" />
       </MetricRail>
+
+      {orderJobs.length === 0 && !jobCardsQuery.isLoading ? (
+        <div data-testid="sales-order-detail:planner-handoff-hint" className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink">
+          {canApprove
+            ? "No job card yet. Click Approve + Release, choose the winder queue and release quantity — the job card then appears in Winder planning's open queue."
+            : canRelease
+              ? "Approved but not released to the floor. Click Approve + Release to cut a release lot; its job card appears in Winder planning's open queue."
+              : "No job card is linked to this order."}
+        </div>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <Panel title="Commercial Header" subtitle="The sales truth that planning and dispatch should read, not reinterpret.">

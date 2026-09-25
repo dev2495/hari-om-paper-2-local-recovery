@@ -659,6 +659,34 @@ async def get_reel(reel_id: str, request: Request, token: str = Depends(get_toke
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}", request, token)
 
 
+@router.post("/reels/slit")
+async def slit_coil(request: Request, token: str = Depends(get_token)):
+    plant_id = request.headers.get("X-Plant-ID", "")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if isinstance(body, dict) and body.get("slit_date"):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("slit_date"))
+    response = await proxy_to_service(
+        INVENTORY_SERVICE_URL,
+        "/reels/slit",
+        request,
+        token,
+        json_body=body if body else None,
+    )
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="COIL_SLIT_RECORDED",
+        title="Coil slitting recorded",
+        message="Slit reels are available for winder issue.",
+        href="/inventory/reels/issue",
+        recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
+    )
+    return response
+
+
 @router.post("/reels/{reel_id}/scan")
 async def create_reel_scan_event(reel_id: str, request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(INVENTORY_SERVICE_URL, f"/reels/{reel_id}/scan", request, token)

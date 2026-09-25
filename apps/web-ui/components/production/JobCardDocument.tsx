@@ -2062,11 +2062,20 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           <div className="mt-3 border border-border px-3 py-2 no-print">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Linked Reel Issues (optional)</div>
             <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">
-              {availableReelIssues.map((issue: any) => {
+              {[...availableReelIssues]
+                .sort((left: any, right: any) => {
+                  const machineId = String(assignment.machineId || "")
+                  return Number(String(right.machine_id || "") === machineId) - Number(String(left.machine_id || "") === machineId)
+                })
+                .map((issue: any) => {
                 const checked = (stageForms[stage]?.reel_issue_ids || []).includes(issue.id)
+                const onThisWinder = Boolean(assignment.machineId) && String(issue.machine_id || "") === String(assignment.machineId)
                 return (
                   <label key={issue.id} className="flex items-center justify-between gap-2 text-sm">
-                    <span>{issue.id.slice(0, 8)} | Shift {issue.shift} | {formatNumber(issue.remaining_weight_kg)}kg</span>
+                    <span>
+                      {issue.reel_code || issue.id.slice(0, 8)} | {issue.machine_id ? machineLabelMap.get(String(issue.machine_id)) || "Winder" : "Winder not recorded"} | Shift {issue.shift} | {formatNumber(issue.issued_weight_kg)}kg
+                      {onThisWinder ? <span className="ml-2 rounded-full bg-signal-emerald-soft px-2 text-[10px] font-semibold text-signal-emerald-ink">this winder</span> : null}
+                    </span>
                     <input
                       type="checkbox"
                       checked={checked}

@@ -4,8 +4,8 @@ from typing import List, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy.orm import Session, joinedload
 
 from ..concession_use import guard_concession_stock
 from ..database import get_db
@@ -29,6 +29,29 @@ VALID_SHIFTS = {"A", "B", "C", "GENERAL", "DAY", "NIGHT"}
 VALID_STATUSES = {"OPEN", "CLOSED"}
 VALID_SECTIONS = {"WINDER_SECTION", "SLITTING_SECTION"}
 ISSUABLE_STOCK_STATUSES = {"UNRESTRICTED", "WIP"}
+# A coil is too narrow to wind as received: it is slit first and the slit
+# reels go to the winder. A reel is winder-ready and never goes to slitting.
+SECTION_FOR_FORM = {"COIL": "SLITTING_SECTION", "REEL": "WINDER_SECTION"}
+
+
+def _reel_form(reel: PaperReel) -> str:
+    return str(getattr(reel, "physical_form", None) or "REEL").strip().upper()
+
+
+def _require_section_for_form(reel: PaperReel, section: str) -> None:
+    form = _reel_form(reel)
+    expected = SECTION_FOR_FORM.get(form, "WINDER_SECTION")
+    if section == expected:
+        return
+    if form == "COIL":
+        raise HTTPException(
+            status_code=400,
+            detail=f"{reel.reel_code} is a coil. Issue it to slitting; the slit reels are then issued to the winder.",
+        )
+    raise HTTPException(
+        status_code=400,
+        detail=f"{reel.reel_code} is a reel. Issue it directly to a winder; only coils go to slitting.",
+    )
 
 
 def _to_uuid(value: str, field: str = "plant_id") -> uuid.UUID:
@@ -78,8 +101,10 @@ def _parse_uuid_list(value: Optional[str], field_name: str) -> list[uuid.UUID]:
 
 class ReelIssueCreate(BaseModel):
     reel_id: uuid.UUID
-    issue_section: str = "WINDER_SECTION"
+    issue_section: Optional[str] = None
     machine_id: Optional[uuid.UUID] = None
+    # Older screens sent the winder under this name; it was silently dropped.
+    winder_machine_id: Optional[uuid.UUID] = None
     shift: str
     issue_date: date
     issued_weight_kg: float = Field(gt=0)
@@ -93,8 +118,16 @@ class ReelIssueCreate(BaseModel):
 
     @field_validator("issue_section")
     @classmethod
-    def validate_issue_section(cls, value: str) -> str:
-        return _normalize_section(value)
+    def validate_issue_section(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else _normalize_section(value)
+
+    @model_validator(mode="after")
+    def fold_machine_alias(self) -> "ReelIssueCreate":
+        if self.machine_id is None:
+            self.machine_id = self.winder_machine_id
+        elif self.winder_machine_id is not None and self.winder_machine_id != self.machine_id:
+            raise ValueError("machine_id and winder_machine_id disagree")
+        return self
 
 
 class ReelIssueClosePayload(BaseModel):
@@ -115,11 +148,15 @@ class ReelIssueResponse(BaseModel):
     status: str
     closed_at: Optional[datetime] = None
     created_at: datetime
+    reel_code: Optional[str] = None
+    physical_form: Optional[str] = None
+    reel_current_weight_kg: Optional[float] = None
 
     model_config = ConfigDict(from_attributes=True)
 
 
 def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
+    reel = getattr(issue, "reel", None)
     return ReelIssueResponse(
         id=issue.id,
         plant_id=issue.plant_id,
@@ -134,6 +171,9 @@ def _serialize_issue(issue: ReelIssue) -> ReelIssueResponse:
         status=issue.status.value if isinstance(issue.status, ReelIssueStatus) else str(issue.status),
         closed_at=getattr(issue, "closed_at", None),
         created_at=issue.created_at,
+        reel_code=reel.reel_code if reel is not None else None,
+        physical_form=_reel_form(reel) if reel is not None else None,
+        reel_current_weight_kg=float(reel.current_weight_kg or 0.0) if reel is not None else None,
     )
 
 
@@ -152,6 +192,10 @@ def create_reel_issue(
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
         raise HTTPException(status_code=400, detail="Reel is not issuable")
+    section = payload.issue_section or SECTION_FOR_FORM.get(_reel_form(reel), "WINDER_SECTION")
+    _require_section_for_form(reel, section)
+    if section == "WINDER_SECTION" and payload.machine_id is None:
+        raise HTTPException(status_code=400, detail="Select the winder machine this reel is issued to")
     guard_concession_stock(
         db,
         plant_id=plant_id,
@@ -174,7 +218,7 @@ def create_reel_issue(
     issue = ReelIssue(
         plant_id=_to_uuid(plant_id),
         reel_id=payload.reel_id,
-        issue_section=payload.issue_section,
+        issue_section=section,
         winder_machine_id=payload.machine_id,
         shift=payload.shift,
         issue_date=payload.issue_date,
@@ -184,6 +228,24 @@ def create_reel_issue(
     )
     reel.status = ReelStatus.ISSUED
     db.add(issue)
+    db.flush()
+    db.add(
+        ReelScanEvent(
+            plant_id=_to_uuid(plant_id),
+            reel_id=reel.id,
+            event_type=ReelScanEventType.ISSUE_SCAN,
+            source=ReelScanSource.INVENTORY,
+            operator_id=None,
+            event_metadata={
+                "issue_id": str(issue.id),
+                "issue_section": section,
+                "machine_id": str(payload.machine_id) if payload.machine_id else None,
+                "shift": payload.shift,
+                "issued_weight_kg": float(payload.issued_weight_kg),
+                "physical_form": _reel_form(reel),
+            },
+        )
+    )
     db.commit()
     db.refresh(issue)
     try:
@@ -195,10 +257,10 @@ def create_reel_issue(
             plant_id=str(plant_id),
             actor_role=str((current_user.get("roles") or ["?"])[0]),
             actor_email=current_user.get("sub"),
-            summary=f"Reel issued ({payload.issued_weight_kg} kg) to {payload.issue_section} on shift {payload.shift}",
+            summary=f"Reel issued ({payload.issued_weight_kg} kg) to {section} on shift {payload.shift}",
             payload={
                 "reel_id": str(payload.reel_id),
-                "issue_section": payload.issue_section,
+                "issue_section": section,
                 "machine_id": str(payload.machine_id) if payload.machine_id else None,
                 "shift": payload.shift,
                 "issue_date": payload.issue_date.isoformat(),
@@ -233,7 +295,7 @@ def list_reel_issues(
     normalized_status = _normalize_status(status)
     selected_issue_ids = _parse_uuid_list(issue_ids, "issue_ids")
 
-    query = db.query(ReelIssue)
+    query = db.query(ReelIssue).options(joinedload(ReelIssue.reel))
     if plant_scope.get("scope_all"):
         allowed_plants = plant_scope.get("allowed_plants") or []
         if allowed_plants:
@@ -289,6 +351,11 @@ def close_reel_issue(
         raise HTTPException(status_code=404, detail="Linked reel not found")
 
     consumed = float(payload.consumed_weight_kg)
+    if str(issue.issue_section or "") == "SLITTING_SECTION" and consumed > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Record slitting output on this coil so the slit reels are created; close with 0 kg only to return the coil unslit.",
+        )
     if consumed > float(issue.issued_weight_kg):
         raise HTTPException(status_code=400, detail="Consumed weight cannot exceed issued weight")
     if consumed > float(reel.current_weight_kg):

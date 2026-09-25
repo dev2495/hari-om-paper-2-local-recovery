@@ -185,6 +185,10 @@ class QueueJobCardItem(BaseModel):
     is_carry_forward: bool = False
     carry_forward_source_job_card_id: Optional[UUID] = None
     carry_forward_reason_code: Optional[str] = None
+    # Open segment whose planner slot is before today: shown in the open
+    # queue so it can be re-slotted instead of disappearing from the board.
+    stale_slot: bool = False
+    stale_plan_date: Optional[date] = None
 
 
 class QueueMachineBucket(BaseModel):

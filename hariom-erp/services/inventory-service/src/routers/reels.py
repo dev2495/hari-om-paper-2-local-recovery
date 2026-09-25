@@ -14,7 +14,10 @@ from ..models import (
     InventoryLocation,
     ItemMaster,
     ItemType,
+    LotLabelRecord,
     PaperReel,
+    ReelIssue,
+    ReelIssueStatus,
     ReelScanEvent,
     ReelScanEventType,
     ReelScanSource,
@@ -149,6 +152,10 @@ class ReelResponse(BaseModel):
     cost_source: Optional[str]
     status: str
     stock_status: str
+    physical_form: Optional[str] = None
+    width_mm: Optional[float] = None
+    source_reel_no: Optional[str] = None
+    commercial_status: Optional[str] = None
     location_id: Optional[uuid.UUID] = None
     parent_reel_id: Optional[uuid.UUID] = None
     genealogy_metadata: Optional[dict[str, Any]] = None
@@ -210,43 +217,38 @@ class ReelScanResponse(BaseModel):
 class SlitChildCreate(BaseModel):
     model_config = {"extra": "forbid"}
 
-    reel_code: Optional[str] = Field(default=None, min_length=1, max_length=100)
     weight_kg: float = Field(gt=0)
+    width_mm: Optional[float] = Field(default=None, gt=0)
     location_id: Optional[uuid.UUID] = None
-    stock_status: Optional[str] = None
-
-    @field_validator("reel_code")
-    @classmethod
-    def normalize_child_code(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return None
-        cleaned = value.strip().upper()
-        return cleaned or None
-
-    @field_validator("stock_status")
-    @classmethod
-    def normalize_child_status(cls, value: Optional[str]) -> Optional[str]:
-        if value is None:
-            return value
-        normalized = value.strip().upper()
-        if normalized not in VALID_STOCK_STATUSES:
-            raise ValueError("Invalid stock_status")
-        return normalized
 
 
 class ReelSlitCreate(BaseModel):
     model_config = {"extra": "forbid"}
 
     parent_reel_id: uuid.UUID
-    children: list[SlitChildCreate] = Field(min_length=1)
+    children: list[SlitChildCreate] = Field(min_length=1, max_length=60)
+    trim_wastage_kg: float = Field(default=0.0, ge=0)
+    slit_date: Optional[date] = None
+    remarks: Optional[str] = Field(default=None, max_length=500)
+
+
+class SlitChildResponse(BaseModel):
+    id: uuid.UUID
+    at_no: str
+    weight_kg: float
+    width_mm: Optional[float] = None
+    stock_status: str
+    label: Optional[dict[str, Any]] = None
 
 
 class ReelSlitResponse(BaseModel):
-    model_config = {"extra": "forbid"}
-
     parent_reel_id: uuid.UUID
+    parent_reel_code: str
+    issue_id: uuid.UUID
     remaining_weight_kg: float
+    trim_wastage_kg: float
     child_reel_ids: list[uuid.UUID]
+    children: list[SlitChildResponse] = Field(default_factory=list)
 
 
 @router.post("/inward", response_model=ReelResponse)
@@ -396,6 +398,8 @@ def list_reels(
     status: Optional[str] = Query(default=None),
     reel_ids: Optional[str] = Query(default=None, description="Comma-separated reel UUIDs"),
     search: Optional[str] = Query(default=None, min_length=1, max_length=120),
+    stock_status: Optional[str] = Query(default=None, description="Comma-separated stock statuses"),
+    physical_form: Optional[str] = Query(default=None, pattern="^(REEL|COIL)$"),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
@@ -420,6 +424,13 @@ def list_reels(
     if search:
         needle = f"%{search.strip()}%"
         query = query.filter(PaperReel.reel_code.ilike(needle))
+    if stock_status:
+        statuses = {value.strip().upper() for value in stock_status.split(",") if value.strip()}
+        if not statuses <= VALID_STOCK_STATUSES:
+            raise HTTPException(status_code=400, detail="Invalid stock_status filter")
+        query = query.filter(PaperReel.stock_status.in_(sorted(statuses)))
+    if physical_form:
+        query = query.filter(PaperReel.physical_form == physical_form)
 
     return query.order_by(PaperReel.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -452,65 +463,105 @@ def slit_reel(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "PlantManager"])),
 ):
+    """Record slitting output for a coil that was issued to the slitting section.
+
+    Every slit reel becomes its own AT identity (REEL form, label, lineage to the
+    coil and its PO receipt). The coil's open slitting issue closes with
+    consumed = slit reels + trim wastage; any unslit balance stays on the coil.
+    """
     plant_uuid = _to_uuid(plant_id)
     parent = db.query(PaperReel).filter(
         PaperReel.id == payload.parent_reel_id,
         PaperReel.plant_id == plant_uuid,
-    ).first()
+    ).with_for_update().first()
     if not parent:
-        raise HTTPException(status_code=404, detail="Parent reel not found")
+        raise HTTPException(status_code=404, detail="Coil not found in this plant")
+    if str(parent.physical_form or "REEL").upper() != "COIL":
+        raise HTTPException(status_code=400, detail=f"{parent.reel_code} is a reel; only coils are slit")
+    issue = db.query(ReelIssue).filter(
+        ReelIssue.reel_id == parent.id,
+        ReelIssue.plant_id == plant_uuid,
+        ReelIssue.status == ReelIssueStatus.OPEN,
+    ).with_for_update().first()
+    if not issue or str(issue.issue_section or "") != "SLITTING_SECTION":
+        raise HTTPException(status_code=409, detail=f"Issue coil {parent.reel_code} to slitting before recording slit output")
 
-    total_child_weight = round(sum(float(child.weight_kg or 0.0) for child in payload.children), 4)
-    if total_child_weight <= 0:
-        raise HTTPException(status_code=400, detail="Child slit weight must be positive")
-    if total_child_weight > float(parent.current_weight_kg or 0.0) + 1e-9:
-        raise HTTPException(status_code=400, detail="Child slit weight exceeds available parent reel balance")
+    child_total = round(sum(float(child.weight_kg) for child in payload.children), 3)
+    consumed = round(child_total + float(payload.trim_wastage_kg or 0.0), 3)
+    if consumed > float(issue.issued_weight_kg) + 1e-6:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Slit reels + trim ({consumed:.3f} kg) exceed the {float(issue.issued_weight_kg):.3f} kg issued to slitting",
+        )
+    if consumed > float(parent.current_weight_kg or 0.0) + 1e-6:
+        raise HTTPException(status_code=400, detail="Slit reels + trim exceed the coil balance")
 
-    child_ids: list[uuid.UUID] = []
-    for index, child in enumerate(payload.children, start=1):
-        location = None
-        if child.location_id:
-            location = db.query(InventoryLocation).filter(
-                InventoryLocation.id == child.location_id,
-                InventoryLocation.plant_id == plant_id,
-            ).first()
-            if not location:
-                raise HTTPException(status_code=404, detail="Child reel location not found")
-        child_code = child.reel_code or f"{parent.reel_code}-S{index}"
+    location_ids = {child.location_id for child in payload.children if child.location_id}
+    if location_ids and db.query(InventoryLocation).filter(
+        InventoryLocation.id.in_(location_ids),
+        InventoryLocation.plant_id == plant_id,
+    ).count() != len(location_ids):
+        raise HTTPException(status_code=404, detail="Slit reel location not found in this plant")
+
+    paper = db.query(ItemMaster).filter(ItemMaster.id == parent.paper_id).first()
+    slit_date = payload.slit_date or date.today()
+    existing_children = db.query(PaperReel).filter(PaperReel.parent_reel_id == parent.id).count()
+    lineage = {
+        key: (parent.inward_metadata or {}).get(key)
+        for key in ("po_id", "po_no", "po_line_id", "receipt_id", "grn_no", "invoice_no", "receipt_kind")
+        if (parent.inward_metadata or {}).get(key) is not None
+    }
+    children: list[SlitChildResponse] = []
+    for offset, child in enumerate(payload.children, start=1):
+        at_no = f"{parent.reel_code}-S{existing_children + offset}"
+        metadata = {
+            **lineage,
+            "amigo_no": at_no,
+            "physical_form": "REEL",
+            "parent_reel_id": str(parent.id),
+            "parent_reel_code": parent.reel_code,
+            "source_document_type": "SLIT",
+            "slit_issue_id": str(issue.id),
+            "slit_weight_kg": float(child.weight_kg),
+            "slit_date": slit_date.isoformat(),
+            # Printed on the label so the floor can trace a slit reel to its coil.
+            "source_reel_no": f"{parent.source_reel_no or parent.reel_code} / S{existing_children + offset}",
+        }
         db_child = PaperReel(
             plant_id=plant_uuid,
-            reel_code=child_code,
+            reel_code=at_no,
             paper_id=parent.paper_id,
             gsm=parent.gsm,
             bf=parent.bf,
+            supplier_id=parent.supplier_id,
             supplier_name=parent.supplier_name,
-            inward_weight_kg=child.weight_kg,
-            current_weight_kg=child.weight_kg,
+            supplier_name_snapshot=parent.supplier_name_snapshot or parent.supplier_name,
+            inward_weight_kg=float(child.weight_kg),
+            net_weight_kg=float(child.weight_kg),
+            current_weight_kg=float(child.weight_kg),
+            physical_form="REEL",
+            width_mm=child.width_mm,
+            commercial_status=parent.commercial_status or "CLEAR",
             unit_cost=parent.unit_cost,
             cost_source=parent.cost_source,
             status=ReelStatus.IN_STOCK,
-            stock_status=child.stock_status or parent.stock_status,
-            location_id=(location.id if location else parent.location_id),
+            stock_status=parent.stock_status,
+            location_id=child.location_id or parent.location_id,
             parent_reel_id=parent.id,
             genealogy_metadata={
                 "source": "slit",
                 "parent_reel_id": str(parent.id),
                 "parent_reel_code": parent.reel_code,
-                "slit_weight_kg": child.weight_kg,
+                "slit_issue_id": str(issue.id),
+                "slit_weight_kg": float(child.weight_kg),
             },
-            inward_metadata={
-                **(parent.inward_metadata or {}),
-                "amigo_no": child_code,
-                "parent_reel_id": str(parent.id),
-                "parent_reel_code": parent.reel_code,
-                "source_document_type": "SLIT",
-                "slit_weight_kg": child.weight_kg,
-            },
-            inward_date=parent.inward_date,
+            inward_metadata=metadata,
+            inward_date=slit_date,
         )
         db.add(db_child)
         db.flush()
-        child_ids.append(db_child.id)
+        label = reel_label_payload(db_child, paper)
+        db.add(LotLabelRecord(plant_id=plant_id, reel_id=db_child.id, label_code=at_no, content_snapshot=label))
         db.add(
             ReelScanEvent(
                 plant_id=plant_uuid,
@@ -518,14 +569,30 @@ def slit_reel(
                 event_type=ReelScanEventType.SLIT_SCAN,
                 source=ReelScanSource.PRODUCTION,
                 operator_id=None,
-                event_metadata={"parent_reel_id": str(parent.id), "parent_reel_code": parent.reel_code},
+                event_metadata={"parent_reel_id": str(parent.id), "parent_reel_code": parent.reel_code, "slit_issue_id": str(issue.id)},
+            )
+        )
+        children.append(
+            SlitChildResponse(
+                id=db_child.id,
+                at_no=at_no,
+                weight_kg=float(child.weight_kg),
+                width_mm=child.width_mm,
+                stock_status=str(db_child.stock_status),
+                label=label,
             )
         )
 
-    parent.current_weight_kg = round(float(parent.current_weight_kg or 0.0) - total_child_weight, 4)
-    if parent.current_weight_kg <= 1e-9:
+    issue.consumed_weight_kg = consumed
+    issue.remaining_weight_kg = round(float(issue.issued_weight_kg) - consumed, 3)
+    issue.status = ReelIssueStatus.CLOSED
+    issue.closed_at = datetime.utcnow()
+    parent.current_weight_kg = round(float(parent.current_weight_kg or 0.0) - consumed, 3)
+    if parent.current_weight_kg <= 1e-6:
         parent.current_weight_kg = 0.0
         parent.status = ReelStatus.CONSUMED
+    else:
+        parent.status = ReelStatus.IN_STOCK
     db.add(
         ReelScanEvent(
             plant_id=plant_uuid,
@@ -534,17 +601,29 @@ def slit_reel(
             source=ReelScanSource.PRODUCTION,
             operator_id=None,
             event_metadata={
-                "child_reel_ids": [str(value) for value in child_ids],
-                "total_child_weight_kg": total_child_weight,
+                "slit_issue_id": str(issue.id),
+                "child_reel_ids": [str(row.id) for row in children],
+                "slit_reels_kg": child_total,
+                "trim_wastage_kg": float(payload.trim_wastage_kg or 0.0),
                 "remaining_weight_kg": parent.current_weight_kg,
+                "remarks": payload.remarks,
+                "actor": current_user.get("sub"),
             },
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="A slit reel number already exists; refresh and retry") from exc
     return ReelSlitResponse(
         parent_reel_id=parent.id,
+        parent_reel_code=parent.reel_code,
+        issue_id=issue.id,
         remaining_weight_kg=float(parent.current_weight_kg or 0.0),
-        child_reel_ids=child_ids,
+        trim_wastage_kg=float(payload.trim_wastage_kg or 0.0),
+        child_reel_ids=[row.id for row in children],
+        children=children,
     )
 
 

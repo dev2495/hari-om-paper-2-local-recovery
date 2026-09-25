@@ -45,6 +45,18 @@ def ensure_runtime_schema() -> None:
         "END $$;"
       )
     )
+    # Slitting and location moves write these scan types; the 004 migration
+    # created the enum with only inward/issue/close, so slitting failed on insert.
+    connection.execute(
+      text(
+        "DO $$ BEGIN "
+        "IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'reelscaneventtype') THEN "
+        "BEGIN ALTER TYPE reelscaneventtype ADD VALUE IF NOT EXISTS 'MOVE_SCAN'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "BEGIN ALTER TYPE reelscaneventtype ADD VALUE IF NOT EXISTS 'SLIT_SCAN'; EXCEPTION WHEN duplicate_object THEN NULL; END; "
+        "END IF; "
+        "END $$;"
+      )
+    )
     connection.execute(
       text(
         "DO $$ BEGIN "

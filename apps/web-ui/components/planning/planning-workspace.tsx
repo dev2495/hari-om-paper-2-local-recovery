@@ -246,6 +246,20 @@ function CarryForwardBadge({ job }: { job: any }) {
   )
 }
 
+function StaleSlotBadge({ job }: { job: any }) {
+  if (!job?.stale_slot) return null
+  const was = job?.stale_plan_date ? dayjs(job.stale_plan_date).format("DD MMM") : ""
+  return (
+    <span
+      title="This card's planner slot is in the past. Drag it into the next three days before floor entry."
+      data-testid="planner-stale-slot"
+      className="shrink-0 rounded-full border border-signal-rose-line bg-signal-rose-soft px-1.5 py-0.5 text-[9px] font-bold text-signal-rose-ink"
+    >
+      Missed slot{was ? ` · ${was}` : ""}
+    </span>
+  )
+}
+
 type DropTarget = {
   machine_id: string | null
   plan_date: string | null
@@ -393,10 +407,21 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   )
 
   const queueGroups = useMemo(() => {
+    const staleJobs = queuedJobs.filter((job: any) => job?.stale_slot)
+    const staleGroup = staleJobs.length
+      ? [{
+          key: "stale",
+          title: "Missed slot · re-plan",
+          subtitle: "Slotted on a past date and not finished. Drag into the next three days.",
+          jobs: staleJobs,
+        }]
+      : []
+    const liveJobs = queuedJobs.filter((job: any) => !job?.stale_slot)
     if (section !== "winder") {
-      const readyNow = queuedJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() === stage)
-      const waitingOnUpstream = queuedJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() !== stage)
+      const readyNow = liveJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() === stage)
+      const waitingOnUpstream = liveJobs.filter((job: any) => String(job.current_stage || "").toUpperCase() !== stage)
       return [
+        ...staleGroup,
         {
           key: "ready",
           title: "Ready to schedule",
@@ -412,7 +437,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       ].filter((group) => group.jobs.length > 0)
     }
     const grouped = new Map<string, { key: string; title: string; subtitle: string; jobs: any[] }>()
-    for (const job of queuedJobs) {
+    for (const job of liveJobs) {
       const machineId = String(job?.assigned_winder_machine_id || "unassigned")
       const title =
         machineId === "unassigned"
@@ -427,7 +452,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       bucket.jobs.push(job)
       grouped.set(machineId, bucket)
     }
-    return Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title))
+    return [...staleGroup, ...Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title))]
   }, [machineLabelMap, queuedJobs, section, stage])
 
   const queueFilterOptions = useMemo(
@@ -1495,6 +1520,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                     </span>
                                   </p>
                                   <CarryForwardBadge job={job} />
+                                  <StaleSlotBadge job={job} />
                                   <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">
                                     {formatWhole(job.segment_planned_qty)}
                                   </span>
@@ -1718,6 +1744,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                           </span>
                                         </p>
                                         <CarryForwardBadge job={job} />
+                                        <StaleSlotBadge job={job} />
                                         <span className="shrink-0 rounded-full bg-card px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
                                           {formatWhole(job.segment_planned_qty)}
                                         </span>

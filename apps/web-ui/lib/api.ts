@@ -542,6 +542,7 @@ export const inventoryApi = {
   createReelIssue: (data: any) => api.post("/api/inventory/reel-issues", data),
   getReelIssues: (params?: any) => api.get("/api/inventory/reel-issues", { params }),
   closeReelIssue: (id: string, data: any) => api.post(`/api/inventory/reel-issues/${id}/close`, data),
+  slitCoil: (data: any) => api.post("/api/inventory/reels/slit", data),
   getQualityTemplates: (params?: any) => api.get("/api/inventory/quality/templates", { params }),
   upsertQualityTemplate: (data: any) => api.post("/api/inventory/quality/templates", data),
   getPendingQuality: () => api.get("/api/inventory/quality/pending"),
