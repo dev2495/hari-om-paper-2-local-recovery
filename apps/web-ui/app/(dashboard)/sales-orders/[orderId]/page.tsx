@@ -75,6 +75,16 @@ export default function SalesOrderDetailPage() {
     [order?.lines],
   )
 
+  const unsyncedReleaseLots = useMemo(
+    () =>
+      (order?.lines || []).flatMap((line: any) =>
+        (Array.isArray(line.release_lots) ? line.release_lots : []).filter(
+          (lot: any) => !lot.job_card_id && String(lot.status || "").toLowerCase() !== "cancelled",
+        ),
+      ),
+    [order?.lines],
+  )
+
   const canApprove = ["draft", "submitted"].includes(String(order?.status || "").toLowerCase())
   const canRelease = ["approved", "released", "partially_released", "partially_dispatched"].includes(String(order?.status || "").toLowerCase())
 
@@ -187,7 +197,13 @@ export default function SalesOrderDetailPage() {
         <MetricCard label="Planner Cards" value={orderJobs.length} detail="Job cards already synced from this PO" icon={ScrollText} tone="violet" />
       </MetricRail>
 
-      {orderJobs.length === 0 && !jobCardsQuery.isLoading ? (
+      {unsyncedReleaseLots.length > 0 ? (
+        <div data-testid="sales-order-detail:unsynced-release-lots" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">
+          {unsyncedReleaseLots.length} released lot{unsyncedReleaseLots.length === 1 ? " is" : "s are"} not in planning yet — the job card sync did not finish. Click Approve + Release to resume; the pending lot is picked up automatically.
+        </div>
+      ) : null}
+
+      {orderJobs.length === 0 && unsyncedReleaseLots.length === 0 && !jobCardsQuery.isLoading ? (
         <div data-testid="sales-order-detail:planner-handoff-hint" className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink">
           {canApprove
             ? "No job card yet. Click Approve + Release, choose the winder queue and release quantity — the job card then appears in Winder planning's open queue."

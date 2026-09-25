@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import get_db
-from ..quality_pin import approved_profile_payload, pin_quality_profile_metadata
+from ..quality_pin import approved_profile_payload, is_missing_profile_pin, pin_quality_profile_metadata
 from ..concession_partition import (
     CONCESSION_STOCK_STATUS,
     ConcessionPartitionError,
@@ -803,6 +803,15 @@ def create_quality_inspection(
 
     # Concession gate: FAIL/INVALID/INCOMPLETE + ACCEPT cannot unrestrict on
     # the inspection write path. A second-person Owner/Admin concession is required.
+    if str(payload.disposition or "").strip().upper() == "ACCEPT" and is_missing_profile_pin(profile):
+        item_label = getattr(item, "item_code", None) or "this material"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No approved incoming QC profile for {item_label}. Approve it in the item's quality profile; "
+                "lots already received pick it up on their next inspection."
+            ),
+        )
     reject_fail_accept_shortcut("FAIL" if status in {"FAIL", "INVALID", "INCOMPLETE"} else status, payload.disposition)
 
     inspection = InventoryQualityInspection(

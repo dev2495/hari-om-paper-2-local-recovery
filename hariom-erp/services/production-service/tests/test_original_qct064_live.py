@@ -15,6 +15,11 @@ if os.environ.get("HARI_OM_LIVE_PG") != "1" or not ("hariom_nverify" in URL or (
 
 os.environ["DATABASE_URL"] = URL
 
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# Stage completion requires the Start (A)/End (B) written on the job card.
+CARD_TIMES = {"start_time": _dt.now(_tz.utc) - _td(hours=2), "end_time": _dt.now(_tz.utc) - _td(hours=1)}
+
 from src.database import Base, engine
 from src.models import JobCard, QualityHold, QualityInspection
 from src.routers.planning import (
@@ -106,7 +111,7 @@ def _record_winder(db, job):
             stage="WINDER",
             output_qty=8,
             scrap_qty=1,
-            save_mode="complete",
+            save_mode="complete", **CARD_TIMES,
             actuals={"stock_status": "UNRESTRICTED", "disposition": "RELEASED"},
             quality_checks={"overall": "PASS", "status": "PASS", "stock_status": "UNRESTRICTED"},
         ),
@@ -119,7 +124,7 @@ def _record_winder(db, job):
 def _try_oven(db, job):
     return capture_stage_output(
         job.id,
-        StageOutputPayload(stage="OVEN", output_qty=8, save_mode="complete"),
+        StageOutputPayload(stage="OVEN", output_qty=8, save_mode="complete", **CARD_TIMES),
         db=db,
         plant_id=PLANT,
         current_user=PM,

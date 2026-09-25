@@ -63,3 +63,4 @@ scripts/restart_all.sh
 scripts/run_verification 2.sh
 stop_services.sh
 setup_test_pc/db_dumps/*.dump
+hariom-erp/runtime-cc/

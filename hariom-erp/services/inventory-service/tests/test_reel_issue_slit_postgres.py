@@ -185,3 +185,40 @@ def test_coil_can_return_to_store_unslit():
         assert coil.status.value == "IN_STOCK" and float(coil.current_weight_kg) == 500
     finally:
         db.close()
+
+
+def test_lot_received_before_qc_profile_approval_attaches_it_once():
+    db = SessionLocal()
+    try:
+        item = ItemMaster(item_code=f"PAPER-NOQC-{uuid.uuid4().hex[:8]}", name="Kraft awaiting QC setup", type="RAW_PAPER",
+                          tracking_mode="REEL", uom="KG", plant_id=PLANT, active="true")
+        db.add(item)
+        db.commit()
+        with patch("src.routers.purchase.emit_audit_event"):
+            po = _approved_po(db, item, qty=800)
+        receipt = _receive(db, po, [{"source_reel_no": "NQ-1", "net_weight_kg": 800, "width_mm": 1000, "physical_form": "REEL"}])
+        reel_id = uuid.UUID(receipt["created_lots"][0]["id"])
+        assert db.get(PaperReel, reel_id).inward_metadata["quality_profile"]["status"] == "missing"
+
+        with pytest.raises(HTTPException) as no_profile:
+            _pass_incoming_qc(db, reel_id)
+        assert no_profile.value.status_code == 409 and item.item_code in no_profile.value.detail
+
+        item.quality_profile = {"status": "approved", "revision": 1, "parameters": [{"code": "gsm", "min": 200, "max": 260}]}
+        db.commit()
+        _pass_incoming_qc(db, reel_id)
+        db.expire_all()
+        reel = db.get(PaperReel, reel_id)
+        assert reel.stock_status == "UNRESTRICTED"
+        assert reel.inward_metadata["quality_profile"]["revision"] == 1
+        assert reel.inward_metadata["quality_profile_attached_after_receipt"]["previous_status"] == "missing"
+
+        # An approved pin is frozen: a later master revision does not relabel the lot.
+        item = db.get(ItemMaster, item.id)
+        item.quality_profile = {"status": "approved", "revision": 2, "parameters": [{"code": "gsm", "min": 240, "max": 250}]}
+        db.commit()
+        create_quality_inspection(QualityInspectionCreate(entity_type="REEL", entity_id=reel_id, readings={"gsm": 230}), db, PLANT, QC)
+        db.expire_all()
+        assert db.get(PaperReel, reel_id).inward_metadata["quality_profile"]["revision"] == 1
+    finally:
+        db.close()

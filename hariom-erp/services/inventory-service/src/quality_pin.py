@@ -28,12 +28,31 @@ def approved_profile_payload(profile: Any) -> Optional[dict[str, Any]]:
     return None
 
 
+def _is_missing_placeholder(pinned: dict[str, Any]) -> bool:
+    status = str(pinned.get("status") or pinned.get("setup_status") or "").strip().lower()
+    return status == "missing" and not pinned.get("parameters")
+
+
+def is_missing_profile_pin(pinned: Any) -> bool:
+    return isinstance(pinned, dict) and _is_missing_placeholder(pinned)
+
+
 def pin_quality_profile_metadata(metadata: Optional[dict[str, Any]], profile: Any) -> dict[str, Any]:
     meta = dict(metadata or {})
     existing = meta.get("quality_profile")
-    if isinstance(existing, dict) and existing:
-        return meta
     approved = approved_profile_payload(profile)
+    if isinstance(existing, dict) and existing:
+        # An approved pin is frozen: later master edits are never retroactive.
+        # A "missing" placeholder is not a profile, only the absence of one, so
+        # lots received before approval attach the approved profile once
+        # (audited) instead of being stuck on QC hold forever.
+        if not (_is_missing_placeholder(existing) and approved is not None):
+            return meta
+        meta["quality_profile_attached_after_receipt"] = {
+            "attached_at": datetime.utcnow().isoformat(),
+            "revision": approved.get("revision"),
+            "previous_status": existing.get("status") or existing.get("setup_status"),
+        }
     payload = (
         approved
         if approved is not None

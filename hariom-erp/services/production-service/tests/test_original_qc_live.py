@@ -17,6 +17,11 @@ os.environ["DATABASE_URL"] = URL
 from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy.orm import sessionmaker
 
+from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+
+# Stage completion requires the Start (A)/End (B) written on the job card.
+CARD_TIMES = {"start_time": _dt.now(_tz.utc) - _td(hours=2), "end_time": _dt.now(_tz.utc) - _td(hours=1)}
+
 from src.database import Base, engine
 from src.models import JobCard, JobCardStage, PLANT_A_UUID, QualityHold, QualityInspection, SalesOrder
 from src.routers.planning import _ensure_job_card_stages, _routing_stages_from_snapshot, capture_stage_output
@@ -314,7 +319,7 @@ def test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_c
             StageOutputPayload(
                 stage="WINDER",
                 output_qty=1,
-                save_mode="complete",
+                save_mode="complete", **CARD_TIMES,
                 actuals={"stock_status": "UNRESTRICTED", "disposition": "RELEASED"},
             ),
             db=db,
@@ -339,7 +344,7 @@ def test_qc08_fail_blocks_movement_retest_does_not_release_and_old_pass_cannot_c
         with pytest.raises(HTTPException) as blocked:
             capture_stage_output(
                 job.id,
-                StageOutputPayload(stage="OVEN", output_qty=1, save_mode="complete"),
+                StageOutputPayload(stage="OVEN", output_qty=1, save_mode="complete", **CARD_TIMES),
                 db=db,
                 plant_id=str(PLANT_A_UUID),
                 current_user={"sub": "pm-1", "roles": ["PlantManager"]},

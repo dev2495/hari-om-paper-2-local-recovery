@@ -109,7 +109,33 @@ export function ReleaseToQueueDialog({
     winderMachineId: string
     lotIds: string[]
     syncPending: boolean
+    syncError?: string | null
+    syncPayload?: any
   } | null>(null)
+
+  // Release lots are saved in sales first; the job card only exists after the
+  // production sync. A failed sync must say why and be retryable here, or the
+  // released quantity never reaches the planner's open queue.
+  const runSync = async (payload: any): Promise<{ pending: boolean; error: string | null }> => {
+    try {
+      const response = await releaseSync.mutateAsync({ salesOrderId: String(order.id), plantId: orderPlantId(order), data: payload })
+      const jobCardIds = Array.isArray(response?.data?.line_results)
+        ? response.data.line_results.map((row: any) => String(row.job_card_id)).filter(Boolean)
+        : []
+      return { pending: jobCardIds.length === 0, error: jobCardIds.length ? null : "Planning returned no job card." }
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      const text = typeof detail === "string" ? detail : detail?.message || error?.message || "Planning service did not respond."
+      return { pending: true, error: text }
+    }
+  }
+
+  const retrySync = async () => {
+    if (!outcome?.syncPayload) return
+    const result = await runSync(outcome.syncPayload)
+    setOutcome({ ...outcome, syncPending: result.pending, syncError: result.error })
+    showToast(result.pending ? `Planning sync still pending: ${result.error}` : "Job card created in the winder queue.", result.pending ? "error" : "success")
+  }
 
   const hydrate = async () => {
     const draftRows = buildReleaseRows(order, selectedLineIds)
@@ -168,37 +194,27 @@ export function ReleaseToQueueDialog({
       })
       persisted.push({ ...row, release_lot_id: String(response?.data?.release_lot_id || row.release_lot_id) })
     }
-    let syncPending = false
-    try {
-      const response = await releaseSync.mutateAsync({
-        salesOrderId: String(order.id),
-        plantId: orderPlantId(order),
-        data: {
-          line_ids: persisted.map((row) => row.sales_order_line_id),
-          release_rows: persisted.map((row) => ({
-            release_lot_id: row.release_lot_id,
-            sales_order_line_id: row.sales_order_line_id,
-            release_qty: row.release_qty,
-            winder_machine_id: row.winder_machine_id,
-            product_code: row.product_code || null,
-          })),
-        },
-      })
-      const jobCardIds = Array.isArray(response?.data?.line_results)
-        ? response.data.line_results.map((row: any) => String(row.job_card_id)).filter(Boolean)
-        : []
-      syncPending = jobCardIds.length === 0
-    } catch {
-      syncPending = true
+    const syncPayload = {
+      line_ids: persisted.map((row) => row.sales_order_line_id),
+      release_rows: persisted.map((row) => ({
+        release_lot_id: row.release_lot_id,
+        sales_order_line_id: row.sales_order_line_id,
+        release_qty: row.release_qty,
+        winder_machine_id: row.winder_machine_id,
+        product_code: row.product_code || null,
+      })),
     }
+    const { pending: syncPending, error: syncError } = await runSync(syncPayload)
     const plantId = orderPlantId(order)
     if (plantId) setActivePlant(plantId)
     setOutcome({
       winderMachineId: String(persisted[0]?.winder_machine_id || ""),
       lotIds: persisted.map((row) => String(row.release_lot_id)),
       syncPending,
+      syncError,
+      syncPayload,
     })
-    showToast(syncPending ? "Release recorded — planning synchronization pending." : "Released into the selected winder queue.", syncPending ? "error" : "success")
+    showToast(syncPending ? `Release recorded — planning sync pending: ${syncError}` : "Released into the selected winder queue.", syncPending ? "error" : "success")
   }
 
   const totalQty = useMemo(() => rows.reduce((sum, row) => sum + Number(row.release_qty || 0), 0), [rows])
@@ -236,7 +252,21 @@ export function ReleaseToQueueDialog({
           {outcome ? (
             <div className="space-y-4" data-testid="sales-order-detail:release-next-step">
               <div className={`rounded-2xl border px-4 py-3 text-sm ${outcome.syncPending ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"}`}>
-                {outcome.syncPending ? "Release recorded — planning synchronization pending." : "Job card created. The release winder is a hint; schedule on any available winder."}
+                {outcome.syncPending ? (
+                  <>
+                    <p className="font-semibold">Release recorded, but the job card is not in planning yet.</p>
+                    {outcome.syncError ? <p className="mt-1" data-testid="sales-order-detail:release-sync-error">Reason: {outcome.syncError}</p> : null}
+                    <button
+                      type="button"
+                      onClick={() => { void retrySync() }}
+                      disabled={releaseSync.isPending}
+                      className="mt-2 rounded-lg border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-foreground"
+                      data-testid="sales-order-detail:release-sync-retry"
+                    >
+                      {releaseSync.isPending ? "Retrying…" : "Retry planning sync"}
+                    </button>
+                  </>
+                ) : "Job card created. The release winder is a hint; schedule on any available winder."}
               </div>
               <a
                 href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`}
