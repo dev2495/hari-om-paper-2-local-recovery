@@ -139,7 +139,11 @@ function CardLink({ href, children }: { href: string; children: ReactNode }) {
  * from a server aggregate or the analytics owner pack for the chosen period; a failed
  * source renders "Not reported", never zero.
  */
-export function CommandCenter({ role, testId }: { role: LandingRole; testId?: string }) {
+const ANALYTICS_KPIS: KpiKey[] = ["orderBook", "dispatchedValue", "otif", "leadTime", "dispatchQty", "produced", "activeCards", "overdue", "adherence", "utilization", "qcPass", "inventoryValue"]
+const ANALYTICS_CHARTS: ChartKey[] = ["orderFlow", "output", "pipeline", "machines", "quality", "inventory", "customers"]
+
+export function CommandCenter({ role, testId, variant = "landing", header }: { role: LandingRole; testId?: string; variant?: "landing" | "analytics"; header?: ReactNode }) {
+  const analytics = variant === "analytics"
   const { user, activePlant } = useAuth()
   const [period, setPeriod] = useState<Period>("30d")
   const range = useMemo(() => periodRange(period), [period])
@@ -207,8 +211,8 @@ export function CommandCenter({ role, testId }: { role: LandingRole; testId?: st
     return rows
   }, [pack])
 
-  const charts = ROLE_CHARTS[role]
-  const kpiKeys = ROLE_KPIS[role]
+  const charts = analytics ? ANALYTICS_CHARTS : ROLE_CHARTS[role]
+  const kpiKeys = analytics ? ANALYTICS_KPIS : ROLE_KPIS[role]
   const firstName = String(user?.name || "").split(/\s+/)[0]
   const inboxItems = (Array.isArray(inbox.data?.items) ? inbox.data.items : []) as InboxNotification[]
   const quick = LANDING_QUICK_ACTIONS[role] || []
@@ -384,6 +388,22 @@ export function CommandCenter({ role, testId }: { role: LandingRole; testId?: st
 
   return (
     <div className="space-y-5" data-testid={testId || "workspace-role-landing"} data-role={role}>
+      {analytics ? (
+        <>
+          {header}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="tube-segment" role="group" aria-label="Period">
+              {PERIODS.map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={period === value} onClick={() => setPeriod(value)}>{label}</button>
+              ))}
+            </div>
+            <span className="text-[12.5px] text-muted-foreground">{dayjs(range.start_date).format("D MMM")} – {dayjs(range.end_date).format("D MMM YYYY")} · {displayPlantScope(activePlant, "all plants")}</span>
+            <button type="button" className="tube-icon-button ml-auto border !border-border bg-card" aria-label="Refresh" title="Refresh" onClick={() => { void packQuery.refetch(); void salesQuery.refetch(); void jobsQuery.refetch() }}>
+              <RefreshCw className={cn(fetching && "animate-spin")} />
+            </button>
+          </div>
+        </>
+      ) : (
       <section data-testid="page-header" className="cc-hero relative overflow-hidden rounded-2xl border border-border bg-card px-5 py-5 shadow-[var(--shadow-premium)] animate-enter-up sm:px-6">
         <div className="relative flex flex-wrap items-end justify-between gap-4">
           <div className="min-w-0">
@@ -407,10 +427,13 @@ export function CommandCenter({ role, testId }: { role: LandingRole; testId?: st
           </div>
         </div>
       </section>
+      )}
 
-      <section aria-label="Waiting on you">
-        <WorkQueue />
-      </section>
+      {analytics ? null : (
+        <section aria-label="Waiting on you">
+          <WorkQueue />
+        </section>
+      )}
 
       <section className={cn("stagger grid gap-3 sm:grid-cols-2", kpiKeys.length > 4 ? "xl:grid-cols-4" : "xl:grid-cols-4")} aria-label="Key figures">
         {kpiKeys.map((key) => {
@@ -462,6 +485,24 @@ export function CommandCenter({ role, testId }: { role: LandingRole; testId?: st
             </div>
           )}
         </Card>
+        {analytics ? (
+          <Card title="Exception streams" subtitle="Live counts behind the attention list">
+            <dl className="divide-y divide-border overflow-hidden rounded-lg border border-border text-[13px]">
+              {[
+                ["Late customer orders", Number(pack.sales?.summary?.delayed_orders || 0), "/reports/sales"],
+                ["Blocked job cards", Number(pack.production?.summary?.blocked_jobs || 0), "/reports/operations"],
+                ["Active QC holds", Number(pack.headline?.active_qc_holds || 0), "/reports/quality"],
+                ["Materials below reorder", Number(inv.low_stock_count || 0), "/analytics/mrp"],
+                ["Expired sales orders", Number(sales.expired_open_count || 0), "/sales-orders"],
+              ].map(([label, value, href]) => (
+                <Link key={String(label)} href={String(href)} className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-foreground/[.025]">
+                  <dt className="text-foreground/85">{label}</dt>
+                  <dd className={cn("rounded-full px-2 py-0.5 text-[12px] font-semibold tabular-nums", Number(value) ? "bg-signal-amber-soft text-signal-amber-ink" : "bg-signal-emerald-soft text-signal-emerald-ink")}>{num(Number(value))}</dd>
+                </Link>
+              ))}
+            </dl>
+          </Card>
+        ) : (
         <Card title="Latest for you" subtitle="Handoffs and alerts routed to your role" action={<CardLink href="/inbox">Inbox</CardLink>}>
           {inboxItems.length ? (
             <div className="-mx-2">
@@ -473,6 +514,7 @@ export function CommandCenter({ role, testId }: { role: LandingRole; testId?: st
             </div>
           ) : <p className="py-8 text-center text-[13px] text-muted-foreground">{inbox.isLoading ? "Loading…" : "No notifications yet."}</p>}
         </Card>
+        )}
       </div>
 
       {charts.length > 2 ? (
@@ -482,7 +524,7 @@ export function CommandCenter({ role, testId }: { role: LandingRole; testId?: st
       ) : null}
       {charts.length > 5 ? <div className="grid gap-4 xl:grid-cols-2">{charts.slice(5).map((key) => chart[key])}</div> : null}
 
-      {quick.length ? (
+      {!analytics && quick.length ? (
         <section aria-label="Shortcuts" className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
           {quick.map((action) => (
             <Link key={`${action.href}:${action.label}`} href={action.href} className="group flex items-start gap-3 rounded-xl border border-border bg-card px-3.5 py-3 shadow-[var(--shadow-xs)] transition hover:border-primary/30 hover:shadow-[var(--shadow-premium)]">

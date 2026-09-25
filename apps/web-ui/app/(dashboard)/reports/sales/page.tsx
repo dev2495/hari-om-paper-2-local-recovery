@@ -1,7 +1,9 @@
 "use client"
 
 import { useMemo } from "react"
-import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+
+import { ChartTooltip } from "@/components/erp/charts"
 
 import { RoleGate } from "@/components/workspace/role-gate"
 import {
@@ -50,20 +52,21 @@ function SalesPulsePage() {
   const ordersCreated = series.reduce((a: number, r: any) => a + Number(r.orders_created || 0), 0)
   const released = series.reduce((a: number, r: any) => a + Number(r.released_or_better || 0), 0)
   const closed = series.reduce((a: number, r: any) => a + Number(r.orders_closed || 0), 0)
-  const dispatched = Math.max(0, closed - Number((salesReport as any)?.summary?.delayed_orders || 0))
+  const dispatchedPcs = series.reduce((a: number, r: any) => a + Number(r.dispatch_qty || 0), 0)
 
   const funnelStages = [
     { label: "Orders created", value: ordersCreated || Number((salesReport as any)?.summary?.closed_orders || 0) + Number((salesReport as any)?.summary?.backlog_orders || 0) },
     { label: "Released or better", value: released || ordersCreated },
-    { label: "Closed", value: closed || 0 },
-    { label: "Dispatched", value: dispatched || closed || 0 },
+    { label: "Closed (fully dispatched)", value: closed || 0 },
   ]
 
-  const otifData = useMemo(
+  const flowData = useMemo(
     () =>
       series.map((r: any, i: number) => ({
-        label: r.label || r.date || `D${i + 1}`,
-        otif: Number(r.otif_percent || r.otif || 0),
+        label: String(r.bucket || r.label || `D${i + 1}`).slice(5),
+        booked: Number(r.orders_created || 0),
+        closed: Number(r.orders_closed || 0),
+        dispatched: Number(r.dispatch_qty || 0),
       })),
     [series],
   )
@@ -78,11 +81,12 @@ function SalesPulsePage() {
   const leadStages: any[] = Array.isArray((leadtime as any)?.stages) ? (leadtime as any).stages : []
   const totalAvgDays = Number((leadtime as any)?.total_average_days || 0)
 
-  const otifValue = Number(headline.otif_percent || sales.summary?.otif_percent || 0)
-  const backlogValue = Number(headline.backlog_value || sales.summary?.backlog_value || (salesReport as any)?.summary?.backlog_value || 0)
+  const otifValue = Number((salesReport as any)?.summary?.otif_percent ?? headline.otif_percent ?? 0)
+  const closedMeasured = Number((salesReport as any)?.summary?.closed_orders || 0)
+  const backlogOrders = Number((salesReport as any)?.summary?.backlog_orders ?? headline.backlog_orders ?? 0)
 
   return (
-    <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-sales-page">
+    <div className="space-y-5 pb-10" data-testid="reports-sales-page">
       <ReportHero
         eyebrow="Sales & commercial pulse"
         title="Funnel, OTIF, customer 360, top SKUs, lead-time anatomy."
@@ -90,7 +94,7 @@ function SalesPulsePage() {
         accent="emerald"
         chips={[
           { label: `${formatNumber(ordersCreated)} orders this window`, tone: "neutral" },
-          { label: `OTIF ${formatPct(otifValue)}`, tone: otifValue >= 92 ? "ok" : "warn" },
+          { label: closedMeasured ? `OTIF ${formatPct(otifValue)} of ${formatNumber(closedMeasured)} closed` : "No closed orders to measure OTIF", tone: "neutral" },
           { label: `${customerRows.length} customers tracked`, tone: "neutral" },
           { label: `Lead ${formatNumber(totalAvgDays, 1)} d`, tone: totalAvgDays > 21 ? "warn" : "neutral" },
         ]}
@@ -110,8 +114,8 @@ function SalesPulsePage() {
           { label: "Orders created", value: formatNumber(ordersCreated), tone: "cyan" },
           { label: "Released %", value: ordersCreated ? formatPct((released / ordersCreated) * 100) : "—", tone: "violet" },
           { label: "Closed", value: formatNumber(closed), tone: "emerald" },
-          { label: "Backlog", value: formatCurrency(backlogValue), tone: "amber" },
-          { label: "OTIF", value: formatPct(otifValue), tone: otifValue >= 92 ? "emerald" : "rose" },
+          { label: "Released backlog", value: formatNumber(backlogOrders), tone: "amber", detail: "Released, not yet fully dispatched" },
+          { label: "OTIF", value: closedMeasured ? formatPct(otifValue) : "—", tone: "emerald", detail: `${formatNumber(closedMeasured)} closed orders measured` },
           {
             label: "Lead time",
             value: `${formatNumber(totalAvgDays, 1)} d`,
@@ -125,25 +129,24 @@ function SalesPulsePage() {
         <Panel eyebrow="Order funnel" title="From created to dispatched" description="Each drop arrow shows the % lost between stages.">
           {funnelStages[0].value > 0 ? <Funnel stages={funnelStages} /> : <NoteCallout tone="neutral">No order activity in this window.</NoteCallout>}
         </Panel>
-        <Panel eyebrow="OTIF trend" title="Daily OTIF with 92% target" description="Where the SLA is bending.">
-          <div className="h-[260px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={otifData}>
-                <defs>
-                  <linearGradient id="otifFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="hsl(var(--chart-7))" stopOpacity={0.4} />
-                    <stop offset="100%" stopColor="hsl(var(--chart-7))" stopOpacity={0.05} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-                <ReferenceLine y={92} stroke="hsl(var(--chart-5))" strokeDasharray="6 6" />
-                <Tooltip formatter={(v: number) => [`${formatPct(v)}`, "OTIF"]} contentStyle={{ borderRadius: 14, border: "1px solid hsl(var(--chart-grid))" }} />
-                <Area type="monotone" dataKey="otif" stroke="hsl(var(--chart-7))" strokeWidth={2.4} fill="url(#otifFill)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+        <Panel eyebrow="Order flow" title="Booked, closed and dispatched" description="Orders booked and closed per day (bars) with pieces dispatched (line).">
+          {flowData.some((row: any) => row.booked + row.closed + row.dispatched > 0) ? (
+            <div className="h-[260px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={flowData}>
+                  <CartesianGrid vertical={false} strokeDasharray="3 3" />
+                  <XAxis dataKey="label" tickLine={false} axisLine={false} minTickGap={14} />
+                  <YAxis yAxisId="o" tickLine={false} axisLine={false} width={30} allowDecimals={false} />
+                  <YAxis yAxisId="p" orientation="right" tickLine={false} axisLine={false} width={44} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar yAxisId="o" dataKey="booked" name="Booked" fill="hsl(var(--chart-2))" radius={[3, 3, 0, 0]} maxBarSize={12} />
+                  <Bar yAxisId="o" dataKey="closed" name="Closed" fill="hsl(var(--chart-7))" radius={[3, 3, 0, 0]} maxBarSize={12} />
+                  <Line yAxisId="p" type="monotone" dataKey="dispatched" name="Dispatched pcs" stroke="hsl(var(--chart-1))" strokeWidth={2} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          ) : <NoteCallout tone="neutral">No orders booked, closed or dispatched in this window.</NoteCallout>}
+          <p className="mt-2 text-[12px] text-muted-foreground">{formatNumber(dispatchedPcs)} pcs dispatched in the window.</p>
         </Panel>
       </div>
 
