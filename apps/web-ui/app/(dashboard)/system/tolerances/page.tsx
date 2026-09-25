@@ -214,7 +214,7 @@ function TolerancesPage() {
 
       <ReportHero
         eyebrow="System · per-plant tolerances"
-        title="Variance tolerance editor"
+        title="Variance tolerances"
         description="Set the per-item-type variance bands used by reconciliation. Saved values apply to the selected plant on the next math refresh. Leave a band blank to keep the global default."
         accent="cyan"
         chips={[

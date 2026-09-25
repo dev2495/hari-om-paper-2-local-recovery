@@ -102,7 +102,7 @@ function InventoryIntelligencePage() {
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-inventory-page">
       <ReportHero
         eyebrow="Inventory intelligence"
-        title="Valuation, days-on-hand, aging, velocity — the answer layer for stock decisions."
+        title="Inventory intelligence"
         description="Same data spine as the close ritual. Click any row to drill into the underlying ledger, batches, reels."
         accent="amber"
         chips={[

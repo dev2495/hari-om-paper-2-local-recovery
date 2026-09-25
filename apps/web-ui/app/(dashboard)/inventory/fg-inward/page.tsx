@@ -86,7 +86,7 @@ export default function ManualFgInwardPage() {
       <ExecutiveHero
         testId="manual-fg-hero"
         badge="Manual FG inward"
-        title="Post finished goods that didn't come from a job close"
+        title="Manual FG inward"
         description="Rework yield, customer returns, manual adjustments — anything that lands FG in stock without a production job behind it. Every post is audit-logged and idempotent on the optional reference."
         actions={
           <>

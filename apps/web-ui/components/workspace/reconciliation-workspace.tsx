@@ -175,7 +175,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
       <ExecutiveHero
         testId="reconciliation-hero"
         badge="Month-end close"
-        title="Reconcile theoretical, ledger, and actual consumption — then lock the month"
+        title="Monthly reconciliation"
         description="Theoretical comes from job-card BOM snapshots. Ledger is daily issues. Actual is the plant-register import. Variance is the gap we explain before close."
         actions={
           <>

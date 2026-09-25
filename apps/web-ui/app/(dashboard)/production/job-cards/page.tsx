@@ -3,7 +3,9 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dayjs from "dayjs"
-import { ArrowRight, ClipboardCheck, Factory, PackageCheck, Search, ShieldCheck, TimerReset, Truck } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Factory, GitBranch, PackageCheck, Printer, Search, ShieldCheck, ShoppingCart, TimerReset, Truck } from "lucide-react"
+import { HoverCard } from "@/components/common/hover-card"
+import { RowMenu } from "@/components/common/row-menu"
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
@@ -15,6 +17,30 @@ import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
 import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
 const STAGE_TILES = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC", "DISPATCH"]
+
+/** Turn the planner gate's reason into plain language and the next action. */
+function gateInfo(job: any): { blocked: boolean; short: string; reason: string; fix: string; cta: string; href?: string } {
+  const reason = String(job.blocked_reason || job.planner_gate_reason || "").trim()
+  const blocked = job.planner_gate_ready === false || Boolean(job.blocked_reason)
+  if (!blocked) return { blocked: false, short: "", reason: "", fix: "", cta: "" }
+  const text = reason.toLowerCase()
+  if (text.includes("stale")) {
+    return { blocked, short: "Planned slot has passed", reason: reason || "The planned slot is in the past.", fix: "Move this stage to a machine slot within the next 3 plant days. The floor can't record output against an expired plan.", cta: "Reschedule in planner" }
+  }
+  if (text.includes("open segment")) {
+    return { blocked, short: reason.replace(" still need stage completion", " to finish"), reason, fix: "This stage was split. Record output for each open segment (or cancel unused ones in the planner) before the card moves on.", cta: "Record stage output", href: `/production/supervisor-entry?job_card_id=${job.id}` }
+  }
+  if (text.includes("hold") || text.includes("qc")) {
+    return { blocked, short: "Quality hold", reason, fix: "QC must release or disposition the hold before work continues.", cta: "Open quality desk", href: "/quality/results" }
+  }
+  if (text.includes("material") || text.includes("reel") || text.includes("issue")) {
+    return { blocked, short: "Material not issued", reason, fix: "Issue the required reels or paper to this card from stores.", cta: "Issue material", href: "/inventory/production-issue" }
+  }
+  if (text.includes("machine") || text.includes("assign") || text.includes("slot") || !reason) {
+    return { blocked, short: reason ? "Needs a machine slot" : "Not scheduled", reason: reason || "No machine, date and shift are assigned for the current stage.", fix: "Assign a machine, date and shift for the current stage in the planner.", cta: "Schedule in planner" }
+  }
+  return { blocked, short: reason.length > 34 ? `${reason.slice(0, 34)}…` : reason, reason, fix: "Open the planner or the job card to resolve this gate.", cta: "Open planner" }
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "-"
@@ -37,6 +63,7 @@ export default function JobCardsPage() {
   const dueRiskParam = dueFilter === "priority" ? "PRIORITY" : dueFilter === "overdue" ? "OVERDUE" : undefined
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("ALL")
+  const [gateFilter, setGateFilter] = useState<"all" | "blocked" | "ready">("all")
   const deferredSearch = useDeferredValue(search.trim())
   const machinesQuery = useMachines()
   const aggregatesQuery = useJobCardAggregates()
@@ -82,6 +109,8 @@ export default function JobCardsPage() {
   }
 
   const visibleCards = jobCards.length
+  const blockedCount = jobCards.filter((job: any) => gateInfo(job).blocked).length
+  const visibleJobCards = jobCards.filter((job: any) => gateFilter === "all" || (gateFilter === "blocked") === gateInfo(job).blocked)
   const priorityCount = Number(aggregates.due_priority || 0)
   const overdueCount = Number(aggregates.due_overdue || 0)
   const priorityDetail = aggregates.priority_label || dueRiskLabel()
@@ -108,7 +137,7 @@ export default function JobCardsPage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.jobCards}
         badge="Job Card Truth"
-        title="Execution-ready job cards, planner truth, and downstream floor visibility"
+        title="Job cards"
         description="Stage and due-risk tiles are server totals for the authorized plant, not a page-sized sample. Click a stage to open that exact set."
         aside={
           <div className="space-y-3">
@@ -202,6 +231,11 @@ export default function JobCardsPage() {
                 {dueRiskParam === "PRIORITY" ? "Priority 3-day" : "Overdue"} ×
               </button>
             ) : null}
+            <div className="tube-segment" role="group" aria-label="Floor gate filter">
+              {([["all", `All ${visibleCards}`], ["blocked", `Blocked ${blockedCount}`], ["ready", `Ready ${visibleCards - blockedCount}`]] as const).map(([value, label]) => (
+                <button key={value} type="button" aria-pressed={gateFilter === value} onClick={() => setGateFilter(value)}>{label}</button>
+              ))}
+            </div>
             <button type="button" onClick={() => exportCards().catch(() => undefined)} className="rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
               Export CSV
             </button>
@@ -245,70 +279,87 @@ export default function JobCardsPage() {
             {null}
           </QuerySwitch>
         ) : (
-          <div className="overflow-x-auto rounded-[1.35rem] border border-border">
-            <table className="min-w-full">
-              <thead className="bg-muted text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="max-h-[calc(100dvh-220px)] overflow-auto rounded-xl border border-border">
+            <table className="tube-grid" data-testid="job-cards:table">
+              <thead>
                 <tr>
-                  <th className="px-4 py-3 text-left">Job Card</th>
-                  <th className="px-4 py-3 text-left">Order / Customer</th>
-                  <th className="px-4 py-3 text-left">Release / Winder</th>
-                  <th className="px-4 py-3 text-left">Current Stage</th>
-                  <th className="px-4 py-3 text-right">Planned Qty</th>
-                  <th className="px-4 py-3 text-left">Machine / Shift</th>
-                  <th className="px-4 py-3 text-left">Due / Alerts</th>
+                  <th>Job card</th>
+                  <th className="hidden md:table-cell">Customer · order</th>
+                  <th className="num">Qty</th>
+                  <th>Stage</th>
+                  <th className="hidden lg:table-cell">Plan</th>
+                  <th>Due</th>
+                  <th>Floor gate</th>
+                  <th className="text-right"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border bg-card">
-                {jobCards.map((job: any) => (
-                  <tr key={job.id} data-due-risk={job.due_risk_bucket || ""}>
-                    <td className="px-4 py-4">
-                      <div className="space-y-2">
-                        <Link href={`/production/job-cards/${job.id}`} className="text-sm font-semibold text-foreground hover:text-signal-cyan-ink">
-                          {jobCardRef(job)}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">
-                          Release lot {job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "-"}
+              <tbody>
+                {visibleJobCards.map((job: any) => {
+                  const gate = gateInfo(job)
+                  const stage = String(job.current_stage || "").toLowerCase()
+                  const planHref = ["winder", "oven", "process", "slitting"].includes(stage) ? `/planning/${stage}?order_id=${job.sales_order_id}` : `/planning/board?order_id=${job.sales_order_id}`
+                  const dueDays = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
+                  return (
+                    <tr key={job.id} data-due-risk={job.due_risk_bucket || ""} data-state={gate.blocked ? undefined : undefined}>
+                      <td className="max-w-[220px]">
+                        <Link href={`/production/job-cards/${job.id}`} className="font-semibold text-foreground hover:text-primary">{jobCardRef(job)}</Link>
+                        <span className="block truncate text-[11.5px] text-muted-foreground">{job.product_size_label || job.product_code || "—"}{job.parchment_color ? ` · ${job.parchment_color}` : ""}</span>
+                      </td>
+                      <td className="hidden max-w-[240px] md:table-cell">
+                        <span className="block truncate text-foreground/90">{job.customer_name || "—"}</span>
+                        <span className="block truncate text-[11.5px] text-muted-foreground">SO {job.sales_order_ref || compactRef(job.sales_order_id, "SO")} · {job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "no lot"}</span>
+                      </td>
+                      <td className="num">
+                        <span className="font-semibold">{Number(job.planned_qty || 0).toLocaleString("en-IN")}</span>
+                        {job.planned_weight_kg ? <span className="block text-[11px] text-muted-foreground">{Number(job.planned_weight_kg).toLocaleString("en-IN", { maximumFractionDigits: 1 })} kg</span> : null}
+                      </td>
+                      <td><div className="flex flex-col items-start gap-1"><StatusBadge value={job.current_stage} /><span className="text-[11px] text-muted-foreground">{String(job.status || "").replaceAll("_", " ").toLowerCase()}</span></div></td>
+                      <td className="hidden whitespace-nowrap lg:table-cell">
+                        <span className="block text-foreground/90">{job.current_machine_id ? machineLabelMap.get(String(job.current_machine_id)) || compactRef(job.current_machine_id, "MC") : <span className="text-muted-foreground">Unassigned</span>}</span>
+                        <span className="block text-[11.5px] text-muted-foreground">{job.current_plan_date ? formatDate(job.current_plan_date) : "No date"}{job.current_shift_code ? ` · ${String(job.current_shift_code).replace("SHIFT_", "Shift ")}` : ""}</span>
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <span className="block tabular-nums text-foreground/90">{formatDate(job.due_date)}</span>
+                        {dueDays !== null ? <span className={`text-[11.5px] font-medium ${dueDays < 0 ? "text-signal-rose-ink" : dueDays <= 3 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>{dueDays < 0 ? `${Math.abs(dueDays)}d late` : dueDays === 0 ? "Due today" : `in ${dueDays}d`}</span> : null}
+                      </td>
+                      <td className="max-w-[240px]">
+                        {gate.blocked ? (
+                          <HoverCard
+                            label={`Why ${jobCardRef(job)} is blocked`}
+                            trigger={
+                              <button type="button" className="group inline-flex max-w-full items-center gap-1.5 rounded-full border border-signal-rose-line bg-signal-rose-soft px-2 py-0.5 text-left text-[11.5px] font-medium text-signal-rose-ink">
+                                <AlertTriangle className="h-3 w-3 shrink-0" />
+                                <span className="truncate">{gate.short}</span>
+                              </button>
+                            }
+                          >
+                            <p className="font-semibold text-foreground">Why it&apos;s blocked</p>
+                            <p className="mt-1 text-muted-foreground">{gate.reason}</p>
+                            <p className="mt-2 font-semibold text-foreground">How to clear it</p>
+                            <p className="mt-0.5 text-muted-foreground">{gate.fix}</p>
+                            <Link href={gate.href || planHref} className="erp-btn-primary mt-3 !h-8 w-full">{gate.cta}<ArrowRight className="h-3.5 w-3.5" /></Link>
+                          </HoverCard>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-signal-emerald-line bg-signal-emerald-soft px-2 py-0.5 text-[11.5px] font-medium text-signal-emerald-ink"><CheckCircle2 className="h-3 w-3" />Ready for floor</span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex justify-end">
+                          <RowMenu
+                            items={[
+                              { label: "Open job card", href: `/production/job-cards/${job.id}`, icon: ClipboardCheck },
+                              { label: "Plan / reschedule", href: planHref, icon: CalendarClock },
+                              { label: "Stage entry", href: `/production/supervisor-entry?job_card_id=${job.id}`, icon: Factory },
+                              { label: "Print card (A4)", href: `/production/job-cards/${job.id}/print`, icon: Printer },
+                              { label: "Material genealogy", href: `/inventory/genealogy?job_card_id=${job.id}`, icon: GitBranch },
+                              { label: "Sales order", href: `/sales-orders/${job.sales_order_id}`, icon: ShoppingCart },
+                            ]}
+                          />
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-muted-foreground">
-                      <div className="font-semibold text-foreground">{job.customer_name || String(job.customer_id || "-")}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        SO {job.sales_order_ref || (job.sales_order_id ? compactRef(job.sales_order_id, "SO") : "-")} · Spec {job.spec_reference || compactRef(job.spec_id, "SPEC")}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-muted-foreground">
-                      <div>{job.release_lot_id ? compactRef(job.release_lot_id, "LOT") : "-"}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {job.assigned_winder_machine_id
-                          ? machineLabelMap.get(String(job.assigned_winder_machine_id)) || String(job.assigned_winder_machine_id).slice(0, 8)
-                          : "No target winder"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="space-y-2">
-                        <StatusBadge value={job.current_stage} />
-                        <StatusBadge value={job.status} />
-                        <StatusBadge value={job.planner_gate_ready ? "READY" : "BLOCKED"} label={job.planner_gate_ready ? "Planner ready" : "Planner gate"} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-right text-sm font-semibold text-foreground">
-                      {Number(job.planned_qty || 0).toFixed(0)}
-                    </td>
-                    <td className="px-4 py-4 text-sm text-muted-foreground">
-                      <div>{job.current_machine_id ? machineLabelMap.get(String(job.current_machine_id)) || compactRef(job.current_machine_id, "MC") : "Unassigned"}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {job.current_shift_code || "No shift"} · {job.current_plan_date ? formatDate(job.current_plan_date) : "No plan date"}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-sm text-muted-foreground">
-                      <div>Due {formatDate(job.due_date)}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {dueBucketLabel(job.due_risk_bucket) || job.blocked_reason || job.planner_gate_reason || `${job.open_segment_count || 0} open segment(s)`}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

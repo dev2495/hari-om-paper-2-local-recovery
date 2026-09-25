@@ -59,7 +59,7 @@ function Customer360Page() {
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-customer-360-page">
       <ReportHero
         eyebrow="Customer 360"
-        title="Every customer · open ₹ · dispatched ₹ · OTIF · risk."
+        title="Customer 360"
         description="One row per customer, sorted by total value. Risk band is computed from delayed orders + OTIF posture."
         accent="emerald"
         chips={[

@@ -140,7 +140,7 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                 }`}
             >
                 <Building2 className="h-3 w-3" />
-                <span className="max-w-[180px] truncate uppercase tracking-[0.18em] max-[480px]:max-w-[7rem]">{currentPlantName}</span>
+                <span className="max-w-[160px] truncate max-[480px]:max-w-[6.5rem]">{currentPlantName}</span>
             </div>
         )
     }
@@ -152,22 +152,18 @@ export function PlantSwitcher({ compact = false }: { compact?: boolean }) {
                 ref={triggerRef}
                 aria-expanded={isOpen}
                 onClick={() => setIsOpen(!isOpen)}
-                className={`relative z-20 flex items-center gap-2 rounded-full border px-3 py-2 text-[11px] font-semibold shadow-sm transition ${
-                    compact
-                        ? "border-border bg-card text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
-                        : "border-border/70 bg-card/92 text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink"
-                }`}
+                className={`relative z-20 flex h-[34px] items-center gap-2 rounded-lg border border-border bg-card px-2.5 text-[12.5px] font-medium text-foreground/85 shadow-[var(--shadow-xs)] transition hover:border-input hover:bg-muted ${compact ? "" : ""}`}
             >
                 <Building2 className="h-3 w-3" />
-                <span className="max-w-[180px] truncate uppercase tracking-[0.18em] max-[480px]:max-w-[7rem]">{currentPlantName}</span>
+                <span className="max-w-[160px] truncate max-[480px]:max-w-[6.5rem]">{currentPlantName}</span>
                 <ChevronDown className={`h-3 w-3 transition-transform ${isOpen ? "rotate-180" : ""}`} />
             </button>
 
             {isOpen && (
                 <>
                     <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
-                    <div className="absolute right-0 z-20 mt-2 w-64 rounded-2xl border border-border/70 bg-card/95 p-2 shadow-2xl backdrop-blur">
-                        <p className="px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">
+                    <div className="tube-popover absolute right-0 z-20 mt-2 w-64">
+                        <p className="px-3 py-2 text-[11px] font-semibold text-muted-foreground">
                             Select Plant
                         </p>
                         {canReadAllPlants ? (

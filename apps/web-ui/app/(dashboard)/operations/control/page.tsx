@@ -296,7 +296,7 @@ function OperationsControlPage() {
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="operations-control-page">
       <ReportHero
         eyebrow="Operations control"
-        title="Short-close job cards · log downtime · keep the audit trail honest"
+        title="Operations control"
         description="Every short-close needs a reason code and a decision (carry-forward / short-close SO / hold). Every downtime event needs a reason code. The reports surface them — this is where they're recorded."
         accent="cyan"
         chips={[

@@ -66,7 +66,7 @@ export default function MasterOverviewPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Foundation Workspace"
-        title="Master and system setup"
+        title="Masters & setup"
         description="Use this as the clean switchboard for master truth and system setup. The goal is no dead routes, no hidden setup pages, and no need to bounce back through the sidebar just to move between papers, plants, or machines."
       />
 

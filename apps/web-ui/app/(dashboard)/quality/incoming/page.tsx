@@ -79,7 +79,7 @@ export default function IncomingQualityPage() {
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}
           badge="Incoming QC"
-          title="Inspect receipt lots against the item quality profile."
+          title="Incoming inspection"
           description="The measured result is computed from owned item rules. A client-authored PASS, FAIL, or disposition cannot decide the verdict."
         />
         <QualityDeskNav />

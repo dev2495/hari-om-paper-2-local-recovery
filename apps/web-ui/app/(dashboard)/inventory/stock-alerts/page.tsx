@@ -14,7 +14,7 @@ export default function StockAlertInboxPage() {
   const client = useQueryClient(); const query = useQuery({ queryKey: ["purchase-v2", "stock-alerts", activePlant], enabled: Boolean(activePlant && activePlant !== "ALL"), queryFn: () => purchaseApi.getStockAlerts() })
   const rows: any[] = query.data?.data?.items || []; const open = rows.filter((row) => row.status !== "RECOVERED"); const critical = open.filter((row) => row.severity === "CRITICAL").length
   const action = useMutation({ mutationFn: (id: string) => purchaseApi.actOnStockAlert(id, { action: "ACKNOWLEDGE" }), onSuccess: () => client.invalidateQueries({ queryKey: ["purchase-v2"] }) })
-  return <ProcurementShell eyebrow="Stock exception inbox" title="Act on one stock breach episode until it recovers."
+  return <ProcurementShell eyebrow="Stock exception inbox" title="Stock alerts"
     description="Acknowledging records ownership; it does not change stock. Each alert shows the effective policy version and links to existing PO coverage before new buying.">
     <RequestErrors errors={[action.error, query.error]} />
     <section className="grid gap-3 sm:grid-cols-3"><SummaryCard label="Open episodes" value={open.length} detail="Warning, acknowledged or snoozed" icon={BellRing} tone="amber" /><SummaryCard label="Critical" value={critical} detail="At or below safety stock" icon={AlertTriangle} tone="rose" /><SummaryCard label="Recovered" value={rows.length - open.length} detail="Closed after recovery margin" icon={CheckCircle2} tone="emerald" /></section>

@@ -193,7 +193,7 @@ export default function InventoryGenealogyPage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.inventory}
         badge="Full Genealogy"
-        title="Sales-to-dispatch genealogy with job output, quality, FG, and reel proof."
+        title="Genealogy & traceability"
         description="Trace one job from sales release to planner schedule, production output logs, quality hold/inspection, packed FG stock, dispatch, sales fulfillment, and material reel consumption."
         aside={
           <div className="space-y-4">

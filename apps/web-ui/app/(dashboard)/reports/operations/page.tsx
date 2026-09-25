@@ -79,7 +79,7 @@ function OperationsCommandPage() {
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-operations-page">
       <ReportHero
         eyebrow="Operations command"
-        title="Where the plant is right now."
+        title="Operations command"
         description="Plant manager + planner shared lens. Machine heatmap, stage throughput, schedule adherence, operator productivity, and live blockers."
         accent="cyan"
         chips={[

@@ -80,7 +80,7 @@ function VarianceBridgePage() {
     <div className="space-y-5 px-6 pb-10 pt-2" data-testid="reports-variance-page">
       <ReportHero
         eyebrow="Quality & variance bridge"
-        title="Where did the kg go — theoretical → ledger drift → recovery → actual."
+        title="Material variance"
         description="Full 6-bar waterfall, 3-stream item table, QC Pareto, scrap ladder. Same data as the close ritual, prettier shape."
         accent="violet"
         chips={[

@@ -120,7 +120,7 @@ export default function PendingOrdersWorkspacePage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.sales}
         badge="Pending orders"
-        title="All in-scope pending demand, not the first page"
+        title="Pending orders"
         description="Filters, sort, counts and export run on the server for the authorized plant. Production status comes from linked job cards. Open the material plan for residual BOM requirements and dated purchasing coverage."
         actions={
           <div className="flex flex-wrap items-center gap-2">

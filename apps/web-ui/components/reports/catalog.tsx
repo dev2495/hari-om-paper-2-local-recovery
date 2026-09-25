@@ -125,7 +125,7 @@ export function IntelligenceReportCatalog() {
     <section className="space-y-4" data-testid="intelligence-report-catalog">
       <PageHeader
         eyebrow="Finished reports"
-        title="Open a finished report from this intelligence home."
+        title="Report library"
         description="KPIs live on this page. Each tile opens the canonical report route. Duplicate analytics/report URLs redirect here or to the matching report."
       />
       <div className="flex flex-wrap gap-2" role="tablist" aria-label="Report audience">

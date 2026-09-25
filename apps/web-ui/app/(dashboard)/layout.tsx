@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { AlertTriangle, CheckCircle2, Inbox, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
+import { AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -16,6 +16,11 @@ import { useAuth } from "@/context/AuthContext"
 import { MODULE_NAVIGATION } from "@/lib/module-navigation"
 import { searchWorkspaceJumps } from "@/lib/workspace-jump"
 import { RouteProgress } from "@/components/workspace/route-progress"
+import { SidebarNav } from "@/components/workspace/sidebar-nav"
+import { BreadcrumbCapsule } from "@/components/workspace/breadcrumb-capsule"
+import { useNotificationSummary } from "@/hooks/use-workspace"
+import { useSalesOrderAggregates } from "@/hooks/use-sales"
+import { useJobCardAggregates } from "@/hooks/use-production"
 
 type NavLink = {
   name: string
@@ -221,15 +226,19 @@ const navigationUnits: NavGroup[] = [
     ],
   },
   {
-    title: "Intelligence",
+    title: "Reports",
     items: [
-      {
-        name: "Intelligence",
-        href: "/analytics",
-        icon: LineChart,
-        description: "Live KPIs and finished reports in one home.",
-        roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales", "QC"],
-      },
+      { name: "Intelligence", href: "/analytics", icon: LineChart, description: "Live KPIs for the period and the full report catalog.", roles: ["Owner", "Admin", "Planner", "PlantManager", "Store", "Dispatch", "Sales", "QC"] },
+      { name: "Owner daily pack", href: "/reports/owner", icon: Gauge, description: "Board pack: order book, dispatch, OTIF, production, stock.", roles: ["Owner", "Admin"] },
+      { name: "Operations command", href: "/reports/operations", icon: Factory, description: "Stage throughput, adherence and blockers.", roles: ["PlantManager", "Planner"] },
+      { name: "Throughput", href: "/reports/production", icon: BarChart3, description: "Per-stage and per-machine output.", roles: ["PlantManager", "Planner"] },
+      { name: "Sales pulse", href: "/reports/sales", icon: TrendingUp, description: "Order flow, OTIF, lead time and customers.", roles: ["Sales", "PlantManager"] },
+      { name: "Customer 360", href: "/reports/customer-360", icon: Users, description: "Per-customer demand, delivery and risk.", roles: ["Sales"] },
+      { name: "Inventory intelligence", href: "/reports/inventory", icon: Boxes, description: "Stock value, ageing and velocity.", roles: ["Store", "Planner", "PlantManager"] },
+      { name: "Supplier & reels", href: "/reports/loss", icon: Package, description: "Supplier and reel performance, losses.", roles: ["Store", "PlantManager"] },
+      { name: "Quality & variance", href: "/reports/quality", icon: ShieldCheck, description: "Inspections, fail causes and variance.", roles: ["QC", "PlantManager"] },
+      { name: "Dispatch & SLA", href: "/reports/dispatch", icon: Truck, description: "Dispatch volume, readiness and SLA.", roles: ["Dispatch", "Sales"] },
+      { name: "Tooling ledger", href: "/reports/tooling", icon: Wrench, description: "Tool assets, grinding and usage trail.", roles: ["PlantManager"] },
     ],
   },
   {
@@ -285,10 +294,36 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }) })).filter(group => group.items.length)
   }, [userRoles])
   const flatLinks = useMemo(() => groups.flatMap(group => group.items), [groups])
+  const visibleHrefs = useMemo(() => new Set(flatLinks.map(link => link.href)), [flatLinks])
+  const inboxSummary = useNotificationSummary(Boolean(user))
+  const salesBadge = useSalesOrderAggregates(Boolean(user) && visibleHrefs.has("/sales-orders"))
+  const jobsBadge = useJobCardAggregates(Boolean(user) && (visibleHrefs.has("/production/job-cards") || visibleHrefs.has("/quality")))
+  const navBadges = useMemo(() => ({
+    "/inbox": inboxSummary.data?.unread ? { count: Number(inboxSummary.data.unread), tone: inboxSummary.data.by_priority?.critical ? "rose" as const : "primary" as const } : undefined,
+    "/sales-orders": salesBadge.data?.draft_count ? { count: Number(salesBadge.data.draft_count), tone: "amber" as const } : undefined,
+    "/production/job-cards": jobsBadge.data?.due_overdue ? { count: Number(jobsBadge.data.due_overdue), tone: "rose" as const } : undefined,
+    "/quality": jobsBadge.data?.qc_holds ? { count: Number(jobsBadge.data.qc_holds), tone: "amber" as const } : undefined,
+  }), [inboxSummary.data, salesBadge.data, jobsBadge.data])
   const navigationPath = pathname.startsWith("/landing/") ? "/dashboard" : pathname
   const current = useMemo(() => flatLinks.filter(item => navigationPath === item.href || navigationPath.startsWith(item.href + "/") || MODULE_NAVIGATION[item.href]?.some(child => pathname === child.href || pathname.startsWith(child.href + "/")))
     .sort((a,b) => b.href.length - a.href.length)[0], [pathname, navigationPath, flatLinks])
   const groupName = groups.find(group => group.items.some(item => item.href === current?.href))?.title
+  const crumbs = useMemo(() => {
+    const list: Array<{ label: string; href?: string; icon?: any }> = []
+    const group = groups.find(entry => entry.title === groupName)
+    if (group) list.push({ label: group.title, href: group.items[0]?.href, icon: current?.icon })
+    if (current) list.push({ label: current.name, href: current.href })
+    const child = MODULE_NAVIGATION[current?.href || ""]?.find(item => pathname === item.href || pathname.startsWith(item.href + "/"))
+    if (child && child.name !== current?.name) list.push({ label: child.name, href: child.href })
+    const base = child?.href || current?.href || ""
+    const deeper = base && pathname.startsWith(base + "/") ? pathname.slice(base.length).split("/").filter(Boolean) : []
+    if (current && deeper.length) {
+      const last = deeper[deeper.length - 1]
+      const label = /^[0-9a-f-]{20,}$/i.test(last) ? "Detail" : last.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase())
+      list.push({ label: deeper.length > 1 && /^[0-9a-f-]{20,}$/i.test(deeper[0]) ? `Detail · ${label}` : label })
+    }
+    return list.length ? list : [{ label: "Workspace" }]
+  }, [groups, groupName, current, pathname])
   const matches = useMemo(() => searchWorkspaceJumps(searchQuery, 100).filter(item => {
     const parent = navigationUnits.flatMap(group => group.items).filter(link => item.href === link.href || item.href.startsWith(link.href + "/") || MODULE_NAVIGATION[link.href]?.some(child => item.href === child.href || item.href.startsWith(child.href + "/"))).sort((a,b) => b.href.length-a.href.length)[0]
     return parent ? canSeeLink(parent, userRoles) : userRoles.has("Owner") || userRoles.has("Admin")
@@ -322,27 +357,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     try { localStorage.setItem(GROUPS_STORAGE_KEY, JSON.stringify(Array.from(next))) } catch { /* Session-only layout. */ }
     return next
   })
-  const navigation = (mobile = false) => <nav className="tube-navigation" aria-label={mobile ? "Mobile workspaces" : "Workspaces"}>
-    {groups.map(group => {
-      const open = isGroupOpen(group.title, mobile)
-      const groupId = `nav-group-${group.title.replace(/[^a-z]+/gi, "-").toLowerCase()}${mobile ? "-m" : ""}`
-      return <div className="tube-nav-group" key={group.title} data-open={open}>
-        <button type="button" className="tube-nav-group-toggle" aria-expanded={open} aria-controls={groupId} onClick={() => toggleGroup(group.title)}>
-          <span>{group.title}</span><ChevronRight size={12} aria-hidden="true" />
-        </button>
-        <div className="tube-nav-items" id={groupId}><div>
-          {group.items.map(item => <div key={item.href}>
-            <Link href={item.href} className="tube-nav-link" aria-label={item.name} data-tip={item.name} aria-current={current?.href === item.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}>
-              <item.icon aria-hidden="true" /><span>{item.name}</span>
-            </Link>
-            {current?.href === item.href && MODULE_NAVIGATION[item.href] ? <div className="tube-subnav">
-              {MODULE_NAVIGATION[item.href].map(child => <Link key={child.href} href={child.href} className="tube-nav-link" aria-current={pathname === child.href ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><span>{child.name}</span></Link>)}
-            </div> : null}
-          </div>)}
-        </div></div>
-      </div>
-    })}
-  </nav>
+  const navigation = (mobile = false) => <SidebarNav
+    groups={groups}
+    currentHref={current?.href}
+    pathname={pathname}
+    mobile={mobile}
+    compact={!sidebarPinned && !mobile}
+    isOpen={(title) => isGroupOpen(title, mobile)}
+    onToggle={toggleGroup}
+    onNavigate={() => setMobileNavOpen(false)}
+    subnav={MODULE_NAVIGATION}
+    badges={navBadges}
+  />
   if (isLoading) return <div className="tube-shell" role="status" aria-label="Loading workspace">
     <aside className="tube-rail"><div className="tube-brand"><span className="tube-mark"><CircleDot size={18} strokeWidth={1.75} /></span><span className="tube-brand-label"><strong>Hari Om <span className="text-primary">TubeOS</span></strong><small>Paper tube manufacturing</small></span></div><div className="space-y-2 p-3">{Array.from({ length: 9 }, (_, n) => <div key={n} className="skeleton h-7" style={{ width: `${60 + ((n * 17) % 35)}%` }} />)}</div></aside>
     <div className="tube-workspace"><div className="tube-topbar"><div className="skeleton h-4 w-40" /></div><div className="tube-content space-y-5"><div className="skeleton h-8 w-72" /><div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{[0,1,2,3].map(n => <div key={n} className="skeleton h-28 rounded-xl" />)}</div><div className="skeleton h-80 rounded-xl" /></div></div>
@@ -366,7 +392,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border p-4"><RoleSwitcher mobile /><button className="erp-btn-secondary" onClick={signOut}><LogOut size={16} />Logout</button></div>
           </DialogContent>
         </Dialog>
-        <div className="tube-context"><span>{groupName || "Workspace"}</span><ChevronRight size={13} /><strong>{Object.values(MODULE_NAVIGATION).flat().find(item => item.href === pathname)?.name || current?.name || "Detail"}</strong></div>
+        <div className="tube-context"><BreadcrumbCapsule routeKey={pathname} crumbs={crumbs} backHref={current?.href && current.href !== pathname ? current.href : undefined} /></div>
         <Dialog open={searchOpen} onOpenChange={setSearchOpen}>
           <DialogTrigger asChild><button className="tube-command sm:ml-auto" aria-label="Jump to workspace"><Search size={16} /><span>Jump to workspace</span><kbd>⌘ K</kbd></button></DialogTrigger>
           <DialogContent className="!top-[14vh] !translate-y-0 gap-0 overflow-hidden !p-0 sm:max-w-xl">

@@ -129,7 +129,7 @@ export default function QualityResultsPage() {
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}
           badge="Results / holds"
-          title="Inspections, holds, and dispositions stay off the measurement form."
+          title="Results & dispositions"
           description="This desk does not author a measured PASS. Release and customer dispositions are separate from incoming and stage readings."
         />
         <QualityDeskNav />

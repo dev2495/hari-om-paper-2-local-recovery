@@ -43,7 +43,7 @@ export default function RmCostingPage() {
   const configured = rows.filter((row) => row.active_version).length; const missing = rows.length - configured
 
   return <RoleGate allow={["Owner", "Admin"]} omitOwnerAdmin>
-    <ProcurementShell eyebrow="Owner / Admin cost authority" title="Change RM planning cost easily, with every version preserved."
+    <ProcurementShell eyebrow="Owner / Admin cost authority" title="RM costing"
       description="Owner and Admin can directly activate a reviewed standard cost. This planning cost stays separate from approved PO rates, supplier invoice rates and actual received-lot costs; activation never creates a discrepancy or revaluation.">
       <RequestErrors errors={[restore.error, query.error, history.error]} />
     {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}

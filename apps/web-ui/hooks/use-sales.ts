@@ -149,8 +149,9 @@ export function useSalesOrders(params?: any) {
   })
 }
 
-export function useSalesOrderAggregates() {
+export function useSalesOrderAggregates(enabled = true) {
   return useQuery({
+    enabled,
     queryKey: ["sales", "order-aggregates"],
     queryFn: async () => {
       const { data } = await salesApi.getOrderAggregates()

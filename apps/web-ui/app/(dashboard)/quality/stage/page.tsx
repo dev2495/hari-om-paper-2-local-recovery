@@ -403,7 +403,7 @@ export default function StageQualityPage() {
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}
           badge="Stage QC"
-          title="Exact winding, oven, and process fields against frozen Allowed ranges."
+          title="Production inspection"
           description="Winding uses Height, not Length. Oven pre/post pairs share one sample ID. Process notch fields appear only when applicable. Verdicts are never taken from the client."
         />
         <QualityDeskNav />

@@ -94,7 +94,7 @@ export default function PlanningTrackerPage() {
       <ExecutiveHero
         appearance={MODULE_APPEARANCES.planning}
         badge="Sales Order Tracker"
-        title="Customer order to dispatch tracker"
+        title="Order tracker"
         description="Counts come from the pending-orders server workspace and a server job-card grouping. This page no longer joins hundreds of job cards in the browser."
         actions={
           <div className="flex flex-wrap items-center gap-2">

@@ -97,7 +97,7 @@ export default function UsersPage() {
       ) : null}
       <PageHeader
         eyebrow="System Admin"
-        title="Users, plants, and machine governance"
+        title="Users & access"
         description="Resolve user access, plant scope, and machine setup from one workspace. This surface now reads the actual auth payload instead of legacy placeholders."
         actions={
           <Button asChild className="rounded-full">

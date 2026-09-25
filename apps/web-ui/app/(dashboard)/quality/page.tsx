@@ -39,7 +39,7 @@ export default function QualityDeskHubPage() {
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}
           badge="Quality Desk"
-          title="Incoming, stage, and results are separate QC contexts."
+          title="Quality control"
           description="Incoming material uses the item quality profile. Winding, oven, and process use frozen spec ranges. Holds and dispositions stay on the results desk. The server computes every verdict."
           aside={
             <div className="space-y-3">

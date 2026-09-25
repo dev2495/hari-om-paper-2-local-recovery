@@ -23,7 +23,7 @@ export default function DebitNotesPage() {
   const settle = useMutation({ mutationFn: (note: any) => purchaseApi.settleDebitNote(note.id, { amount: Number(settlements[note.id]), settlement_date: today(), reference: `SETTLEMENT-${today()}` }), onSuccess: ({ data }) => { setNotice(`${data.debit_note_no} settlement saved; ₹${data.open_amount.toLocaleString("en-IN")} remains open.`); refresh() } })
   const total = notes.reduce((sum, row) => sum + Number(row.total_amount || 0), 0); const open = notes.reduce((sum, row) => sum + Number(row.open_amount || 0), 0)
 
-  return <ProcurementShell eyebrow="Commercial claims" title="Debit notes remain traceable from invoice difference to settlement."
+  return <ProcurementShell eyebrow="Commercial claims" title="Debit notes"
     description="Draft, approval, issue and settlement are separate states. Issuing a note does not mark cash or credit as settled, and no claim action moves physical stock.">
     <RequestErrors errors={[action.error, settle.error, query.error]} />
     {notice ? <MessageBar tone="success">{notice}</MessageBar> : null}

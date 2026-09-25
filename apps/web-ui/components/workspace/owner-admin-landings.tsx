@@ -95,7 +95,7 @@ export function AdminLandingPage() {
     <div className="space-y-5" data-testid="landing-admin-page">
       <PageIntro
         eyebrow="Admin Landing"
-        title="System health, integrity checks, session visibility, and fast-control actions for the ERP platform."
+        title="System health"
         description="This is the admin control surface: service posture, data integrity, jobs, sessions, and the audit trail that proves what changed."
         actions={
           <>

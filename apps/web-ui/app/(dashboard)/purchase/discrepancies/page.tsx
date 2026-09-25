@@ -24,7 +24,7 @@ export default function PurchaseDiscrepanciesPage() {
   const positiveOpen = rows.filter((row) => row.claimable_amount > 0 && ["OPEN", "UNDER_REVIEW"].includes(row.status))
   const favorable = rows.filter((row) => row.signed_amount < 0).reduce((sum, row) => sum + Math.abs(row.signed_amount), 0)
 
-  return <ProcurementShell eyebrow="Invoice difference register" title="Review every invoice rate against its approved PO revision."
+  return <ProcurementShell eyebrow="Invoice difference register" title="Invoice differences"
     description="Positive and favorable differences stay visible separately. Accepting a variance, keeping a claim open and releasing stock are explicit actions; none rewrite the PO or invoice rate.">
     <RequestErrors errors={[mutate.error, createNote.error, query.error]} />
     {notice ? <MessageBar tone="success">{notice}</MessageBar> : null}

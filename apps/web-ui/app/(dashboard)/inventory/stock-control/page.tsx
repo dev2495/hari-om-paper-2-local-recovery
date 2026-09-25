@@ -320,7 +320,7 @@ export default function InventoryStockControlPage() {
     <div className="space-y-5" data-testid="inventory-stock-control-page">
       <PageIntro
         eyebrow="Stock close control"
-        title="Opening stock, closing certification, and formal year carry-forward."
+        title="Stock control"
         description="One audit cockpit for book stock, physical counts, bootstrap opening loads, certification proof, and next-year opening carry-forward without double-posting the running ledger."
         actions={
           <>

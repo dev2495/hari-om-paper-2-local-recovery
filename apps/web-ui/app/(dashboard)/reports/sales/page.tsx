@@ -89,7 +89,7 @@ function SalesPulsePage() {
     <div className="space-y-5 pb-10" data-testid="reports-sales-page">
       <ReportHero
         eyebrow="Sales & commercial pulse"
-        title="Funnel, OTIF, customer 360, top SKUs, lead-time anatomy."
+        title="Sales pulse"
         description="Every customer-facing signal on one page. Click a row to drill into the order, customer, or specification."
         accent="emerald"
         chips={[

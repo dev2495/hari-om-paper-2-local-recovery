@@ -23,7 +23,7 @@ export default function PurchaseApprovalsPage() {
   const value = orders.reduce((sum, order) => sum + order.lines.reduce((lineSum, line) => lineSum + line.qty_ordered * line.unit_cost, 0), 0)
 
   return <RoleGate allow={["PlantManager"]}>
-    <ProcurementShell eyebrow="Independent checker" title="Approve the exact PO revision you reviewed."
+    <ProcurementShell eyebrow="Independent checker" title="PO approvals"
       description="Content and version checks prevent stale decisions. The revision maker or submitter cannot approve it by switching roles.">
       <RequestErrors errors={[approve.error, reject.error, query.error]} />
     {notice ? <MessageBar tone="success">{notice}</MessageBar> : null}

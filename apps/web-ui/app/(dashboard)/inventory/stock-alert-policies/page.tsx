@@ -26,7 +26,7 @@ export default function StockAlertPoliciesPage() {
   const valid = Number(form.target) >= Number(form.reorder) && Number(form.reorder) >= Number(form.safety) && Boolean(form.item_id) && form.reason.trim().length >= 3
 
   return <RoleGate allow={["PlantManager", "Store"]}>
-    <ProcurementShell eyebrow="Stock policy authority" title="Set one explainable stock alert policy per material."
+    <ProcurementShell eyebrow="Stock policy authority" title="Stock alert policies"
       description="Safety, reorder, target, lead time, MOQ and order multiple drive the same alert and MRP calculations. Previewing saves nothing and sends nothing; evaluation creates deduplicated breach episodes.">
       <RequestErrors errors={[create.error, activate.error, evaluate.error, query.error]} />
     {notice ? <MessageBar tone={notice.includes("error") || notice.includes("must") ? "error" : "success"}>{notice}</MessageBar> : null}
