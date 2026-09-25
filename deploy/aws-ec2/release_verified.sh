@@ -14,7 +14,10 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 work="/opt/hariom/releases/$stamp-$release"
 mkdir -p "$work/source"
 compose() { docker compose --env-file "$deploy/.env" --project-directory "$deploy" "$@"; }
-old_image="$(docker inspect --format '{{.Image}}' "$(compose ps -q erp-app)")"
+old_container="$(compose ps -q erp-app)"
+old_image="$(docker inspect --format '{{.Image}}' "$old_container")"
+# The repository:tag compose runs erp-app under (e.g. hariom-release:<tag>); rollback must retag this name.
+app_image_ref="$(docker inspect --format '{{.Config.Image}}' "$old_container")"
 docker image tag "$old_image" "hariom-rollback:$stamp"
 printf '%s\n' "$old_image" > "$work/previous-image"
 cp /opt/hariom/DEPLOYED_COMMIT "$work/previous-commit"
@@ -29,8 +32,12 @@ rollback() {
   code=$?
   trap - ERR
   if [[ "$activated" == 1 ]]; then
-    docker image tag "$old_image" hariom-erp-production-erp-app:latest
-    compose up -d --no-deps erp-app || true
+    current_ref="$(docker inspect --format '{{.Config.Image}}' "$(compose ps -q erp-app)" 2>/dev/null || echo "$app_image_ref")"
+    for ref in "$app_image_ref" "$current_ref"; do docker image tag "$old_image" "$ref" || true; done
+    compose up -d --no-deps --no-build --force-recreate erp-app || true
+    [[ "$(docker inspect --format '{{.Image}}' "$(compose ps -q erp-app)")" == "$old_image" ]] \
+      && echo "Rollback: erp-app is running the previous image $old_image" >&2 \
+      || echo "Rollback WARNING: erp-app is not on the previous image; run: docker image tag $old_image <compose image> && docker compose up -d --no-build erp-app" >&2
   fi
   tar -xzf "$work/previous-source.tar.gz" -C "$app"
   compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
