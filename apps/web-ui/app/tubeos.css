@@ -306,3 +306,13 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
 .tube-header-aside [class*="bg-card/1"], .tube-header-aside [class*="bg-card/2"] { background: hsl(var(--muted)); }
 .tube-header-aside [class*="border-border/"] { border-color: hsl(var(--border)); }
 .tube-header-aside .text-2xl, .tube-header-aside .text-3xl { font-size: 1.375rem; line-height: 1.2; }
+
+/* ───────────────────────── Login ───────────────────────── */
+.login-glow { position: absolute; inset: -20% -10% auto -10%; height: 80vh; pointer-events: none;
+  background: radial-gradient(40% 50% at 20% 30%, hsl(var(--primary) / .14), transparent 70%), radial-gradient(35% 45% at 80% 10%, hsl(var(--chart-2) / .12), transparent 70%), radial-gradient(30% 40% at 60% 70%, hsl(var(--chart-3) / .08), transparent 70%);
+  animation: glow-drift 18s ease-in-out infinite alternate; }
+@keyframes glow-drift { from { transform: translate3d(0,0,0) scale(1); } to { transform: translate3d(2%, 3%, 0) scale(1.06); } }
+.login-flow { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; max-width: 560px; }
+.login-flow::before { content: ""; position: absolute; left: 14px; right: 14px; top: 14px; height: 2px; background: linear-gradient(90deg, hsl(var(--primary) / .6), hsl(var(--chart-2) / .5)); border-radius: 2px; transform-origin: left; animation: bar-grow 1.2s var(--ease-workspace) both .1s; }
+.login-flow-step { position: relative; animation: enter-up 500ms var(--ease-workspace) both; }
+.login-flow-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 10px; border-radius: 50%; background: hsl(var(--card)); border: 2px solid hsl(var(--primary)); color: hsl(var(--primary)); font-size: 12px; font-weight: 700; box-shadow: 0 0 0 4px hsl(var(--background)); }
