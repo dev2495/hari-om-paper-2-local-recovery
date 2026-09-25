@@ -54,13 +54,24 @@ done
 compose exec -T caddy caddy validate --config /etc/caddy/Caddyfile
 compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
 site_host="$(sed -n 's/^SITE_HOST=//p' "$deploy/.env" | tail -n 1)"
-curl -fsS --max-time 20 "https://$site_host/healthz" > "$work/public-readiness.json"
+# The app restarts after activation and again inside each backup; Caddy answers
+# 502 until it is back. Wait for the public route instead of failing on one probe.
+wait_public() {
+  local attempt
+  for attempt in $(seq 1 60); do
+    if curl -fsS --max-time 20 "https://$site_host/healthz" > "$work/public-readiness.json" 2>/dev/null; then return 0; fi
+    sleep 5
+  done
+  curl -fsS --max-time 20 "https://$site_host/healthz" > "$work/public-readiness.json"
+}
+wait_public
 curl -fsS --max-time 20 "https://$site_host/login" > "$work/login.html"
 install -m 0644 "$deploy/hariom-backup.service" "$deploy/hariom-health-metrics.service" "$deploy/hariom-restore-drill.service" /etc/systemd/system/
 systemctl daemon-reload
 # Acceptance uses a backup of the new schemas, then a separate restore container.
 bash "$deploy/backup_databases.sh"
 bash "$deploy/restore_drill.sh" > "$work/restore-result.txt"
+wait_public
 bash "$deploy/publish_health_metrics.sh"
 printf '%s\n' "$release" > /opt/hariom/DEPLOYED_COMMIT
 trap - ERR
