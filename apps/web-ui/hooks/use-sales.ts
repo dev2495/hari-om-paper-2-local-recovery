@@ -170,6 +170,22 @@ export function usePendingSalesOrders(params?: any) {
   })
 }
 
+export function useHoldSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId, reason }: { orderId: string; reason: string }) => salesApi.holdOrder(orderId, reason),
+    onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
+  })
+}
+
+export function useResumeSalesOrder() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ orderId }: { orderId: string }) => salesApi.resumeOrder(orderId),
+    onSuccess: (_response, variables) => invalidateSalesQueries(queryClient, variables.orderId),
+  })
+}
+
 export function useDeliveryCalendar(params: { start: string; end: string; customer_id?: string; search?: string }, enabled = true) {
   return useQuery({
     queryKey: ["sales", "delivery-calendar", params],

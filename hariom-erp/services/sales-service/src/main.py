@@ -48,6 +48,20 @@ def _ensure_schema_compatibility():
         connection.execute(
             text("ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS schedule_revision INTEGER DEFAULT 0")
         )
+        for statement in (
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS expiry_date DATE",
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS hold_reason TEXT",
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS held_at TIMESTAMP",
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS held_by VARCHAR(200)",
+            "ALTER TABLE sales_orders ADD COLUMN IF NOT EXISTS hold_prev_status VARCHAR(40)",
+            "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS hold_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
+            "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS size_label VARCHAR(160)",
+            "CREATE INDEX IF NOT EXISTS ix_sales_orders_expiry_date ON sales_orders (expiry_date)",
+            # Default validity for orders created before expiry existed: PO/order date + 45 days.
+            "UPDATE sales_orders SET expiry_date = COALESCE(po_date, internal_order_date, created_at::date) + 45 "
+            "WHERE expiry_date IS NULL AND COALESCE(po_date, internal_order_date, created_at::date) IS NOT NULL",
+        ):
+            connection.execute(text(statement))
         # Historical origin: a blank PO number is not evidence the order was internal.
         connection.execute(
             text(

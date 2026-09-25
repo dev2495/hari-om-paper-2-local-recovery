@@ -1,10 +1,11 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { ArrowDownRight, ArrowUpRight, type LucideIcon } from "lucide-react"
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
+import { AlertOctagon, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2, ChevronRight, type LucideIcon } from "lucide-react"
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts"
 
 import { PageHeader } from "@/components/workspace/page-header"
+import { ChartTooltip } from "@/components/erp/charts"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -28,21 +29,21 @@ type KpiCardProps = {
 }
 
 const toneClasses: Record<NonNullable<KpiCardProps["tone"]>, string> = {
-  slate: "border-border bg-card text-foreground",
-  cyan: "border-signal-cyan-line bg-signal-cyan-soft/80 text-signal-cyan-ink",
-  amber: "border-signal-amber-line bg-signal-amber-soft/85 text-signal-amber-ink",
-  emerald: "border-signal-emerald-line bg-signal-emerald-soft/85 text-signal-emerald-ink",
-  rose: "border-signal-rose-line bg-signal-rose-soft/85 text-signal-rose-ink",
-  violet: "border-signal-violet-line bg-signal-violet-soft/85 text-signal-violet-ink",
+  slate: "bg-muted text-muted-foreground ring-border",
+  cyan: "bg-signal-cyan-soft text-signal-cyan-ink ring-signal-cyan-line",
+  amber: "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line",
+  emerald: "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line",
+  rose: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line",
+  violet: "bg-signal-violet-soft text-signal-violet-ink ring-signal-violet-line",
 }
 
 const lineColors: Record<NonNullable<KpiCardProps["tone"]>, string> = {
-  slate: "hsl(var(--foreground))",
-  cyan: "hsl(var(--primary))",
-  amber: "hsl(var(--brass))",
-  emerald: "hsl(var(--signal-emerald-ink))",
-  rose: "hsl(var(--signal-rose-ink))",
-  violet: "hsl(var(--signal-violet-ink))",
+  slate: "hsl(var(--chart-axis))",
+  cyan: "hsl(var(--chart-1))",
+  amber: "hsl(var(--chart-6))",
+  emerald: "hsl(var(--chart-7))",
+  rose: "hsl(var(--chart-5))",
+  violet: "hsl(var(--chart-3))",
 }
 
 export function formatCompactCurrency(value: number) {
@@ -97,10 +98,10 @@ export function FilterChip({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full border px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] transition",
+        "inline-flex h-8 items-center rounded-full border px-3 text-[12.5px] font-medium transition",
         active
-          ? "border-primary bg-primary text-primary-foreground"
-          : "border-border bg-card text-muted-foreground hover:border-signal-cyan-line hover:text-signal-cyan-ink",
+          ? "border-foreground/10 bg-foreground text-background shadow-sm"
+          : "border-border bg-card text-muted-foreground hover:border-input hover:text-foreground",
       )}
     >
       {children}
@@ -126,23 +127,23 @@ export function KpiCard({
       type={isClickable ? "button" : undefined}
       onClick={onClick}
       className={cn(
-        "tube-kpi group flex min-h-[154px] flex-col justify-between overflow-hidden text-left transition-colors duration-150",
-        isClickable && "hover:border-primary focus-visible:ring-2 focus-visible:ring-ring",
+        "tube-kpi group flex min-h-[132px] flex-col justify-between overflow-hidden text-left",
+        isClickable && "cursor-pointer hover:border-primary/40 focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="tube-kpi-label">{label}</p>
           <p className="tube-kpi-value">{value}</p>
-          {detail ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</p> : null}
+          {detail ? <p className="mt-1.5 line-clamp-2 text-[12.5px] leading-5 text-muted-foreground">{detail}</p> : null}
         </div>
         {Icon ? (
-          <div className="mt-1 text-muted-foreground">
-            <Icon className="h-4 w-4 opacity-75" />
-          </div>
+          <span className={cn("tube-kpi-icon ring-1 ring-inset", toneClasses[tone])}>
+            <Icon aria-hidden="true" />
+          </span>
         ) : null}
       </div>
-      <div className="mt-4 space-y-3">
+      <div className="mt-3 space-y-2">
         {delta ? (
           <div className="flex items-center justify-between gap-3 text-xs font-semibold">
             <span className={cn("inline-flex items-center gap-1", delta.positive ? "text-signal-emerald-ink" : "text-signal-rose-ink")}>
@@ -154,16 +155,22 @@ export function KpiCard({
           </div>
         ) : null}
         {sparkline?.length ? (
-          <div className="h-14">
+          <div className="h-12">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={sparkline}>
-                <Tooltip formatter={(point: number) => [formatCompactNumber(point, 0), label]} contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--foreground))" }} />
-                <Line type="monotone" dataKey="value" stroke={lineColors[tone]} strokeWidth={2.4} dot={false} />
-              </LineChart>
+              <AreaChart data={sparkline} margin={{ top: 4, right: 2, bottom: 0, left: 2 }}>
+                <defs>
+                  <linearGradient id={`kpi-${tone}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={lineColors[tone]} stopOpacity={0.22} />
+                    <stop offset="100%" stopColor={lineColors[tone]} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--foreground) / .15)" }} />
+                <Area type="monotone" dataKey="value" name={label} stroke={lineColors[tone]} fill={`url(#kpi-${tone})`} strokeWidth={1.8} dot={false} animationDuration={700} />
+              </AreaChart>
             </ResponsiveContainer>
           </div>
         ) : null}
-        {hrefLabel ? <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{hrefLabel}</p> : null}
+        {hrefLabel ? <p className="inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground transition-colors group-hover:text-primary">{hrefLabel}<ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></p> : null}
       </div>
     </Wrapper>
   )
@@ -185,12 +192,12 @@ export function ChartCard({
   className?: string
 }) {
   return (
-    <section className={cn("erp-panel min-w-0 rounded-xl p-5", className)}>
+    <section className={cn("erp-panel min-w-0 rounded-xl p-4 sm:p-5", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="sr-only">{eyebrow}</p>
-          <h2 className="mt-1 text-xl font-semibold tracking-tight text-foreground">{title}</h2>
-          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+          <h2 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>
+          {description ? <p className="mt-0.5 text-[12.5px] leading-5 text-muted-foreground">{description}</p> : null}
         </div>
         {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
       </div>
@@ -206,23 +213,27 @@ export function InsightStrip({
 }) {
   if (!items.length) return null
   return (
-    <section className="space-y-3">
-      {items.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={item.onClick}
-          className={cn(
-            "flex w-full items-center justify-between gap-3 rounded-[1.35rem] border px-4 py-3 text-left shadow-sm transition",
-            item.tone === "critical" && "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
-            item.tone === "warn" && "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
-            (!item.tone || item.tone === "good") && "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
-          )}
-        >
-          <span className="text-sm font-medium">{item.title}</span>
-          {item.action ? <span className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-70">{item.action}</span> : null}
-        </button>
-      ))}
+    <section className="stagger grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+      {items.map((item) => {
+        const Icon = item.tone === "critical" ? AlertOctagon : item.tone === "warn" ? AlertTriangle : CheckCircle2
+        return (
+          <button
+            key={item.id}
+            type="button"
+            onClick={item.onClick}
+            className={cn(
+              "group flex w-full items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition hover:shadow-[var(--shadow-premium)]",
+              item.tone === "critical" && "border-signal-rose-line bg-signal-rose-soft text-signal-rose-ink",
+              item.tone === "warn" && "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink",
+              (!item.tone || item.tone === "good") && "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink",
+            )}
+          >
+            <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span className="min-w-0 flex-1 text-[13px] font-medium leading-5">{item.title}</span>
+            {item.action ? <span className="inline-flex shrink-0 items-center gap-0.5 text-[12px] font-semibold opacity-80">{item.action}<ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" /></span> : null}
+          </button>
+        )
+      })}
     </section>
   )
 }
@@ -236,17 +247,17 @@ export function MiniBarList({
 }) {
   const max = Math.max(1, ...rows.map((row) => row.value || 0))
   return (
-    <div className="space-y-3">
-      {rows.map((row) => (
-        <div key={row.label} className="space-y-1.5">
+    <div className="space-y-2.5">
+      {rows.map((row, index) => (
+        <div key={row.label} className="space-y-1">
           <div className="flex items-center justify-between gap-3">
-            <p className="truncate text-sm font-medium text-muted-foreground">{row.label}</p>
-            <p className="shrink-0 text-sm font-semibold text-foreground">
+            <p className="truncate text-[13px] text-foreground/80">{row.label}</p>
+            <p className="shrink-0 text-[13px] font-semibold tabular-nums text-foreground">
               {formatter ? formatter(row.value) : formatCompactNumber(row.value)}
             </p>
           </div>
-          <div className="h-2 rounded-full bg-muted">
-            <div className="h-2 rounded-full bg-primary" style={{ width: `${Math.max(0, (row.value / max) * 100)}%` }} />
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div className="h-full origin-left rounded-full bg-gradient-to-r from-primary/70 to-primary animate-[bar-grow_700ms_var(--ease-workspace)_both]" style={{ width: `${Math.max(0, (row.value / max) * 100)}%`, animationDelay: `${index * 50}ms` }} />
           </div>
           {row.hint ? <p className="text-xs text-muted-foreground">{row.hint}</p> : null}
         </div>
@@ -265,12 +276,12 @@ export function CompactTable({
   emptyLabel?: string
 }) {
   return (
-    <div className="max-w-full overflow-x-auto rounded-[1.4rem] border border-border">
+    <div className="max-w-full overflow-x-auto rounded-xl border border-border">
       <table className="min-w-full text-left text-sm">
         <thead className="bg-[hsl(var(--surface-2))] text-muted-foreground">
           <tr>
             {columns.map((column) => (
-              <th key={column.key} className="px-4 py-3 text-[10px] font-semibold uppercase tracking-[0.18em]">
+              <th key={column.key} className="h-9 whitespace-nowrap px-3 text-[11.5px] font-semibold">
                 {column.label}
               </th>
             ))}
@@ -279,9 +290,9 @@ export function CompactTable({
         <tbody className="bg-card">
           {rows.length ? (
             rows.map((row, index) => (
-              <tr key={String(row.id || row.key || row.code || index)} className="border-t border-border">
+              <tr key={String(row.id || row.key || row.code || index)} className="border-t border-border transition-colors hover:bg-foreground/[.025]">
                 {columns.map((column) => (
-                  <td key={column.key} className="px-4 py-3 text-muted-foreground">
+                  <td key={column.key} className="px-3 py-2 text-[13px] text-foreground/85">
                     {column.render ? column.render(row) : String(row[column.key] ?? "-")}
                   </td>
                 ))}
@@ -313,10 +324,10 @@ export function TrendBars({
         <BarChart data={rows}>
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--foreground))" }} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+          <Tooltip content={<ChartTooltip />} cursor={{ fill: "hsl(var(--foreground) / .04)" }} />
           {keys.map((entry) => (
-            <Bar key={entry.key} dataKey={entry.key} fill={entry.color} radius={[6, 6, 0, 0]} />
+            <Bar key={entry.key} dataKey={entry.key} name={entry.label} fill={entry.color} radius={[4, 4, 0, 0]} maxBarSize={28} />
           ))}
         </BarChart>
       </ResponsiveContainer>
@@ -339,15 +350,15 @@ export function AreaTrend({
         <AreaChart data={rows}>
           <defs>
             <linearGradient id={`gradient-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-              <stop offset="100%" stopColor={color} stopOpacity={0.05} />
+              <stop offset="0%" stopColor={color} stopOpacity={0.24} />
+              <stop offset="100%" stopColor={color} stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid vertical={false} strokeDasharray="3 3" stroke="hsl(var(--chart-grid))" />
           <XAxis dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-          <Tooltip contentStyle={{ borderRadius: 10, border: "1px solid hsl(var(--border))", background: "hsl(var(--popover))", color: "hsl(var(--foreground))" }} />
-          <Area type="monotone" dataKey={dataKey} stroke={color} fill={`url(#gradient-${dataKey})`} strokeWidth={2.5} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+          <Tooltip content={<ChartTooltip />} cursor={{ stroke: "hsl(var(--foreground) / .15)" }} />
+          <Area type="monotone" dataKey={dataKey} stroke={color} fill={`url(#gradient-${dataKey})`} strokeWidth={2} activeDot={{ r: 4, strokeWidth: 2, stroke: "hsl(var(--card))" }} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -362,7 +373,7 @@ export function ActionButtonRow({
   return (
     <div className="flex flex-wrap items-center gap-2">
       {items.map((item) => (
-        <Button key={item.label} variant={item.variant || "outline"} className="rounded-full" onClick={item.onClick}>
+        <Button key={item.label} variant={item.variant || "outline"} onClick={item.onClick}>
           {item.label}
         </Button>
       ))}

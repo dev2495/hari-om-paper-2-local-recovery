@@ -66,6 +66,7 @@ class SalesOrderLineInput(BaseModel):
     approved_spec_id: uuid.UUID
     line_no: Optional[int] = None
     product_code: Optional[str] = None
+    size_label: Optional[str] = Field(default=None, max_length=160)
     parchment_required: Optional[bool] = None
     parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str] = None
@@ -95,6 +96,7 @@ class SalesOrderCreate(BaseModel):
     po_date: Optional[date] = None
     internal_order_date: Optional[date] = None
     notes: Optional[str] = None
+    expiry_date: Optional[date] = None
     lines: List[SalesOrderLineInput] = Field(..., min_length=1)
     delivery_schedules: Optional[List[DeliveryScheduleInput]] = None
 
@@ -106,6 +108,7 @@ class SalesOrderUpdate(BaseModel):
     po_date: Optional[date] = None
     internal_order_date: Optional[date] = None
     notes: Optional[str] = None
+    expiry_date: Optional[date] = None
     status: Optional[str] = None
     lines: Optional[List[SalesOrderLineInput]] = None
     delivery_schedules: Optional[List[DeliveryScheduleInput]] = None
@@ -202,6 +205,7 @@ class SalesOrderLineResponse(BaseModel):
     line_no: int
     approved_spec_id: uuid.UUID
     product_code: Optional[str]
+    size_label: Optional[str] = None
     parchment_required: bool = False
     parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str]
@@ -213,6 +217,8 @@ class SalesOrderLineResponse(BaseModel):
     fulfilled_qty: float
     remaining_qty: float
     release_remaining_qty: float
+    hold_qty: float = 0.0
+    pending_qty: float = 0.0
     release_lots: List[SalesOrderReleaseLotResponse] = Field(default_factory=list)
     dispatch_logs: List[dict] = Field(default_factory=list)
     delivery_schedules: List[dict] = Field(default_factory=list)
@@ -238,6 +244,11 @@ class SalesOrderResponse(BaseModel):
     approved_at: Optional[datetime]
     released_at: Optional[datetime]
     schedule_revision: int = 0
+    expiry_date: Optional[date] = None
+    is_held: bool = False
+    hold_reason: Optional[str] = None
+    held_at: Optional[datetime] = None
+    held_by: Optional[str] = None
     lines: List[SalesOrderLineResponse]
 
 
@@ -295,6 +306,7 @@ def _serialize_line(line: SalesOrderLine) -> dict:
         "line_no": int(line.line_no or 1),
         "approved_spec_id": line.approved_spec_id,
         "product_code": line.product_code,
+        "size_label": getattr(line, "size_label", None),
         "parchment_required": parchment_required,
         "parchment_color_id": parchment_color_id,
         "parchment_color": parchment_color,
@@ -306,6 +318,8 @@ def _serialize_line(line: SalesOrderLine) -> dict:
         "fulfilled_qty": line.fulfilled_qty,
         "remaining_qty": max(0.0, line.qty - line.fulfilled_qty),
         "release_remaining_qty": max(0.0, line.qty - released_qty),
+        "hold_qty": round(float(getattr(line, "hold_qty", 0.0) or 0.0), 2),
+        "pending_qty": round(max(0.0, float(line.qty or 0.0) - float(line.fulfilled_qty or 0.0) - float(getattr(line, "hold_qty", 0.0) or 0.0)), 2),
         "remaining_to_schedule_qty": remaining_to_schedule(line, schedules),
         "delivery_schedules": [
             serialize_schedule_row(row)
@@ -360,6 +374,11 @@ def _serialize_order(order: SalesOrder) -> dict:
         "approved_at": order.approved_at,
         "released_at": order.released_at,
         "schedule_revision": int(getattr(order, "schedule_revision", 0) or 0),
+        "expiry_date": getattr(order, "expiry_date", None),
+        "is_held": getattr(order, "held_at", None) is not None,
+        "hold_reason": getattr(order, "hold_reason", None),
+        "held_at": getattr(order, "held_at", None),
+        "held_by": getattr(order, "held_by", None),
         "plant_id": str(order.plant_id),
         "lines": [
             _serialize_line(line)
@@ -411,6 +430,15 @@ def _next_order_no(db: Session) -> str:
     )
     seq = db.execute(stmt).scalar_one()
     return f"SO-{date_part}-{int(seq):04d}"
+
+
+DEFAULT_EXPIRY_DAYS = 45
+
+
+def default_expiry_date(po_date: Optional[date], internal_order_date: Optional[date], today: Optional[date] = None) -> date:
+    """Commercial validity: PO (or internal order) date + 45 days."""
+    base = po_date or internal_order_date or today or date.today()
+    return base + timedelta(days=DEFAULT_EXPIRY_DAYS)
 
 
 def _sync_order_status(order: SalesOrder):
@@ -465,6 +493,7 @@ def _apply_line_fields(target: SalesOrderLine, incoming: SalesOrderLineInput, in
     target.line_no = incoming.line_no or index
     target.approved_spec_id = incoming.approved_spec_id
     target.product_code = (incoming.product_code or "").strip() or None
+    target.size_label = (incoming.size_label or "").strip() or None
     target.parchment_required = required
     target.parchment_color_id = color_id
     target.parchment_color = color
@@ -571,6 +600,7 @@ def create_sales_order(
         plant_id=plant_id,
         status=SalesOrderStatus.DRAFT,
         created_by=current_user.get("sub", "unknown"),
+        expiry_date=payload.expiry_date or default_expiry_date(po_date, internal_order_date),
     )
     db.add(order)
     db.flush()
@@ -1463,6 +1493,8 @@ def update_sales_order(
         order.customer_id = payload.customer_id
     if payload.notes is not None:
         order.notes = payload.notes
+    if payload.expiry_date is not None:
+        order.expiry_date = payload.expiry_date
 
     if payload.status is not None:
         try:
@@ -1487,6 +1519,114 @@ def update_sales_order(
     db.commit()
     db.refresh(order)
     return _serialize_order(order)
+
+
+class SalesOrderHoldPayload(BaseModel):
+    reason: str = Field(..., min_length=3, max_length=500)
+
+
+def _load_scoped_order(db: Session, order_id: uuid.UUID, plant_id: str) -> SalesOrder:
+    order = (
+        db.query(SalesOrder)
+        .options(
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots),
+            joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules),
+        )
+        .filter(SalesOrder.id == order_id, SalesOrder.plant_id == plant_id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Sales order not found")
+    return order
+
+
+@router.post("/{order_id}/hold", response_model=SalesOrderResponse)
+def hold_sales_order(
+    order_id: uuid.UUID,
+    payload: SalesOrderHoldPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Sales"])),
+):
+    """Customer hold: freeze the undelivered balance as hold qty and close the PO.
+
+    Used when a customer stops lifting material (typically 2–3 months). Delivered
+    quantities and release lots are untouched; resume restores the prior status.
+    """
+    order = _load_scoped_order(db, order_id, plant_id)
+    if order.held_at is not None:
+        raise HTTPException(status_code=409, detail="This order is already on customer hold")
+    if order.status == SalesOrderStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Closed orders have no open balance to hold")
+    held_total = 0.0
+    for line in order.lines:
+        balance = max(0.0, float(line.qty or 0.0) - float(line.fulfilled_qty or 0.0))
+        line.hold_qty = round(balance, 4)
+        held_total += balance
+    if held_total <= 0:
+        raise HTTPException(status_code=400, detail="Nothing is pending on this order, so there is nothing to hold")
+    order.hold_prev_status = order.status.value
+    order.hold_reason = payload.reason.strip()
+    order.held_at = datetime.utcnow()
+    order.held_by = current_user.get("sub", "unknown")
+    order.status = SalesOrderStatus.CLOSED
+    db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_customer_hold",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role="Sales",
+            actor_email=current_user.get("sub"),
+            summary=f"Sales order {order.order_no} put on customer hold and closed ({held_total:,.0f} pcs held)",
+            payload={"order_no": order.order_no, "hold_qty": held_total, "reason": order.hold_reason},
+        )
+    except Exception:
+        pass
+    return _serialize_order(_load_scoped_order(db, order_id, plant_id))
+
+
+@router.post("/{order_id}/resume", response_model=SalesOrderResponse)
+def resume_sales_order(
+    order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Admin", "Sales"])),
+):
+    """Lift a customer hold: clear hold qty and restore the status the order had."""
+    order = _load_scoped_order(db, order_id, plant_id)
+    if order.held_at is None:
+        raise HTTPException(status_code=409, detail="This order is not on customer hold")
+    for line in order.lines:
+        line.hold_qty = 0.0
+    try:
+        order.status = SalesOrderStatus(order.hold_prev_status or SalesOrderStatus.APPROVED.value)
+    except ValueError:
+        order.status = SalesOrderStatus.APPROVED
+    order.hold_reason = None
+    order.held_at = None
+    order.held_by = None
+    order.hold_prev_status = None
+    db.commit()
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_hold_lifted",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role="Sales",
+            actor_email=current_user.get("sub"),
+            summary=f"Customer hold lifted on sales order {order.order_no}",
+            payload={"order_no": order.order_no},
+        )
+    except Exception:
+        pass
+    return _serialize_order(_load_scoped_order(db, order_id, plant_id))
 
 
 @router.post("/{order_id}/approve", response_model=ActionResponse)

@@ -9,8 +9,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
+  Eye,
   Factory,
   History,
+  PauseCircle,
+  PlayCircle,
   ListChecks,
   LoaderCircle,
   Plus,
@@ -28,6 +31,7 @@ import {
 } from "@/components/erp/shell"
 import { DeliveryCalendarBoard } from "@/components/sales/delivery-calendar-board"
 import { PageHeader } from "@/components/workspace/page-header"
+import { RowMenu } from "@/components/common/row-menu"
 import { QuerySwitch } from "@/components/workspace/query-state"
 import {
   Dialog,
@@ -47,6 +51,8 @@ import {
 } from "@/hooks/use-production"
 import {
   useApproveSalesOrder,
+  useHoldSalesOrder,
+  useResumeSalesOrder,
   useReleaseSalesOrderLine,
   useSalesOrderAggregates,
   useSalesOrders,
@@ -180,6 +186,10 @@ export default function SalesOrdersPage() {
   const [statusFilter, setStatusFilter] = useState(() => searchParams?.get("status") || "open")
   const [view, setViewState] = useState<"orders" | "calendar">(() => (searchParams?.get("view") === "calendar" ? "calendar" : "orders"))
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [holdOrder, setHoldOrder] = useState<any | null>(null)
+  const [holdReason, setHoldReason] = useState("")
+  const holdSalesOrder = useHoldSalesOrder()
+  const resumeSalesOrder = useResumeSalesOrder()
   const setView = (next: "orders" | "calendar") => {
     setViewState(next)
     const params = new URLSearchParams(window.location.search)
@@ -326,6 +336,28 @@ export default function SalesOrdersPage() {
       showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
     } finally {
       setReleaseMachinesLoadingOrderId(null)
+    }
+  }
+
+  const handleHold = async () => {
+    if (!holdOrder || holdReason.trim().length < 3) return
+    try {
+      await holdSalesOrder.mutateAsync({ orderId: String(holdOrder.id), reason: holdReason.trim() })
+      showToast(`${holdOrder.order_no || "Order"} is on customer hold. The pending balance is held and the PO closed.`, "success")
+      setHoldOrder(null)
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Could not put the order on hold."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+    }
+  }
+
+  const handleResume = async (order: any) => {
+    try {
+      await resumeSalesOrder.mutateAsync({ orderId: String(order.id) })
+      showToast(`Customer hold lifted on ${order.order_no || "the order"}.`, "success")
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail || error?.message || "Could not lift the hold."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
     }
   }
 
@@ -617,22 +649,29 @@ export default function SalesOrdersPage() {
             </div>
           ) : (
             <div className="max-h-[calc(100dvh-240px)] min-h-[320px] overflow-auto">
-              <table className="tube-grid">
+              <table className="tube-grid" data-testid="sales-orders:register">
                 <thead>
                   <tr>
-                    <th className="w-[72px] !pr-0"><span className="sr-only">Select and expand</span></th>
-                    <th>Order</th>
+                    <th className="w-[64px] !pr-0"><span className="sr-only">Select and expand</span></th>
+                    <th>SO No.</th>
                     <th className="hidden lg:table-cell">Customer</th>
-                    <th>Next delivery</th>
-                    <th className="num hidden sm:table-cell">Ordered</th>
-                    <th className="hidden md:table-cell min-w-[170px]">Released · Fulfilled</th>
+                    <th className="hidden md:table-cell">PO date</th>
+                    <th>PO No.</th>
+                    <th className="hidden xl:table-cell">Size</th>
+                    <th className="hidden xl:table-cell">Color</th>
+                    <th className="num">PO qty</th>
+                    <th className="num hidden md:table-cell">Released</th>
+                    <th className="num hidden md:table-cell">Delivered</th>
+                    <th className="num">Pending</th>
+                    <th className="num hidden sm:table-cell">Hold</th>
+                    <th className="hidden lg:table-cell">Expiry</th>
                     <th>Status</th>
-                    <th className="hidden xl:table-cell">Job cards</th>
                     <th className="text-right">Actions</th>
                   </tr>
                 </thead>
                 {orders.map((order: any) => {
                   const orderId = String(order.id)
+                  const lines: any[] = order.lines || []
                   const selectedLineIds = selectedLines[orderId] || []
                   const linkedJobs = jobsByOrderId.get(orderId) || []
                   const locallySynced = syncResults[orderId] || []
@@ -641,29 +680,31 @@ export default function SalesOrdersPage() {
                   const allSelected = releasable.length > 0 && releasable.every((id: string) => selectedLineIds.includes(id))
                   const someSelected = selectedLineIds.length > 0 && !allSelected
                   const isOpen = expanded.has(orderId)
-                  const ordered = Number(order.total_qty || 0)
-                  const released = Number(order.released_qty || 0)
-                  const fulfilled = Number(order.fulfilled_qty || 0)
-                  const nextDue = [...(order.lines || [])]
-                    .map((line: any) => line.earliest_delivery_date ?? line.due_date)
-                    .filter(Boolean)
-                    .sort()[0]
-                  const dueDays = nextDue ? dayjs(nextDue).startOf("day").diff(dayjs().startOf("day"), "day") : null
-                  const outstanding = ordered - fulfilled > 0.5
+                  const sum = (key: string) => lines.reduce((total, line) => total + Number(line[key] || 0), 0)
+                  const ordered = sum("qty")
+                  const released = sum("released_qty")
+                  const delivered = sum("fulfilled_qty")
+                  const hold = sum("hold_qty")
+                  const pending = lines.reduce((total, line) => total + Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0))), 0)
+                  const sizes = Array.from(new Set(lines.map((line) => String(line.size_label || line.product_code || "").trim()).filter(Boolean)))
+                  const colors = Array.from(new Set(lines.filter((line) => line.parchment_required && line.parchment_color).map((line) => String(line.parchment_color))))
+                  const expiryDays = order.expiry_date ? dayjs(order.expiry_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
+                  const isHeld = Boolean(order.is_held)
                   const canApprove = order.status === "draft" || order.status === "submitted"
-                  const canRelease = releasableStatuses.includes(order.status)
+                  const canRelease = releasableStatuses.includes(order.status) && !isHeld
                   const releaseBusy = releaseMachinesLoadingOrderId === orderId
+                  const fmt = (value: number) => value.toLocaleString("en-IN", { maximumFractionDigits: 0 })
                   return (
                     <tbody key={order.id} data-order-id={order.id} className="group/order">
                       <tr data-state={selectedLineIds.length ? "selected" : undefined} data-expanded={isOpen || undefined}>
                         <td className="!pr-0">
-                          <div className="flex items-center gap-1">
+                          <div className="flex items-center gap-0.5">
                             <input
                               type="checkbox"
                               aria-label={`Select releasable lines of ${salesOrderReferenceLabel(order)}`}
                               checked={allSelected}
                               ref={(element) => { if (element) element.indeterminate = someSelected }}
-                              disabled={!releasable.length}
+                              disabled={!releasable.length || isHeld}
                               onChange={(event) => toggleAllLines(order, event.target.checked)}
                               className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
                             />
@@ -671,63 +712,57 @@ export default function SalesOrdersPage() {
                               type="button"
                               onClick={() => toggleExpanded(orderId)}
                               aria-expanded={isOpen}
-                              aria-label={`${isOpen ? "Hide" : "Show"} ${order.lines?.length || 0} lines`}
+                              aria-label={`${isOpen ? "Hide" : "Show"} ${lines.length} lines`}
                               className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground"
                             >
                               <ChevronRight className={`h-4 w-4 transition-transform duration-200 ${isOpen ? "rotate-90" : ""}`} />
                             </button>
                           </div>
                         </td>
-                        <td className="max-w-[260px]">
-                          <Link href={`/sales-orders/${order.id}`} data-testid="sales-orders:detail-link" className="block truncate font-semibold text-foreground transition-colors hover:text-primary">
-                            {salesOrderReferenceLabel(order)}
-                          </Link>
-                          <span className="mt-0.5 block truncate text-[11.5px] text-muted-foreground">
-                            {salesOrderOriginLabel(order.origin)} · {order.order_no || orderId.slice(0, 8)} · {order.lines?.length || 0} line{order.lines?.length === 1 ? "" : "s"}
-                            <span className="lg:hidden"> · {resolveCustomerLabel(order, customerMap)}</span>
-                          </span>
-                        </td>
-                        <td className="hidden max-w-[240px] lg:table-cell">
-                          <span className="block truncate text-foreground/90">{resolveCustomerLabel(order, customerMap)}</span>
-                          <span className="block text-[11.5px] text-muted-foreground">
-                            {isInternalOrigin(order.origin) ? `Internal ${formatDate(order.internal_order_date)}` : `PO ${formatDate(order.po_date)}`}
-                          </span>
-                        </td>
                         <td className="whitespace-nowrap">
-                          <span className="block tabular-nums text-foreground/90">{formatDate(nextDue)}</span>
-                          {dueDays !== null && outstanding ? (
-                            <span className={`text-[11.5px] font-medium ${dueDays < 0 ? "text-signal-rose-ink" : dueDays <= 3 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>
-                              {dueDays < 0 ? `${Math.abs(dueDays)}d late` : dueDays === 0 ? "Due today" : `in ${dueDays}d`}
-                            </span>
-                          ) : null}
+                          <Link href={`/sales-orders/${order.id}`} data-testid="sales-orders:detail-link" className="font-semibold text-foreground transition-colors hover:text-primary">
+                            {order.order_no || orderId.slice(0, 8)}
+                          </Link>
+                          <span className="block text-[11px] text-muted-foreground">{lines.length} line{lines.length === 1 ? "" : "s"}<span className="lg:hidden"> · {resolveCustomerLabel(order, customerMap)}</span></span>
                         </td>
-                        <td className="num hidden sm:table-cell">{ordered.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
-                        <td className="hidden md:table-cell">
-                          <div className="relative h-1.5 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                            <div className="absolute inset-y-0 left-0 rounded-full bg-signal-blue-ink/35 transition-[width] duration-700" style={{ width: `${ordered ? Math.min(100, (released / ordered) * 100) : 0}%` }} />
-                            <div className="absolute inset-y-0 left-0 rounded-full bg-signal-emerald-ink/80 transition-[width] duration-700" style={{ width: `${ordered ? Math.min(100, (fulfilled / ordered) * 100) : 0}%` }} />
-                          </div>
-                          <span className="mt-1 block text-[11.5px] tabular-nums text-muted-foreground">
-                            {released.toLocaleString("en-IN", { maximumFractionDigits: 0 })} · {fulfilled.toLocaleString("en-IN", { maximumFractionDigits: 0 })}
-                          </span>
+                        <td className="hidden max-w-[220px] lg:table-cell"><span className="block truncate text-foreground/90" title={resolveCustomerLabel(order, customerMap)}>{resolveCustomerLabel(order, customerMap)}</span></td>
+                        <td className="hidden whitespace-nowrap tabular-nums text-foreground/85 md:table-cell">{isInternalOrigin(order.origin) ? formatDate(order.internal_order_date) : formatDate(order.po_date)}</td>
+                        <td className="max-w-[160px]">
+                          <span className="block truncate text-foreground/90" title={order.po_number || undefined}>{isInternalOrigin(order.origin) ? <span className="text-muted-foreground">Internal</span> : order.po_number || "—"}</span>
                         </td>
-                        <td><StatusBadge value={order.status} /></td>
-                        <td className="hidden xl:table-cell">
-                          {jobIds.length ? (
-                            <div className="flex max-w-[180px] flex-wrap gap-1">
-                              {jobIds.slice(0, 2).map((jobCardId) => (
-                                <Link key={jobCardId} href={`/production/job-cards/${jobCardId}`} className="rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-1.5 py-0.5 font-mono text-[11px] text-signal-emerald-ink hover:underline">
-                                  {jobCardId.slice(0, 8)}
-                                </Link>
-                              ))}
-                              {jobIds.length > 2 ? <span className="px-1 text-[11px] text-muted-foreground">+{jobIds.length - 2}</span> : null}
-                            </div>
-                          ) : (
-                            <span className="text-[12px] text-muted-foreground">—</span>
-                          )}
+                        <td className="hidden max-w-[170px] xl:table-cell">
+                          <span className="block truncate text-foreground/85" title={sizes.join(", ")}>{sizes[0] || "—"}{sizes.length > 1 ? <span className="text-muted-foreground"> +{sizes.length - 1}</span> : null}</span>
+                        </td>
+                        <td className="hidden max-w-[120px] xl:table-cell"><span className="block truncate text-foreground/85" title={colors.join(", ")}>{colors.length ? colors.join(", ") : <span className="text-muted-foreground">—</span>}</span></td>
+                        <td className="num font-medium">{fmt(ordered)}</td>
+                        <td className="num hidden text-foreground/85 md:table-cell">{fmt(released)}</td>
+                        <td className="num hidden text-foreground/85 md:table-cell">
+                          {fmt(delivered)}
+                          {ordered > 0 ? <div className="ml-auto mt-1 h-1 w-14 overflow-hidden rounded-full bg-muted" aria-hidden="true"><div className="h-full rounded-full bg-signal-emerald-ink/70" style={{ width: `${Math.min(100, (delivered / ordered) * 100)}%` }} /></div> : null}
+                        </td>
+                        <td className={`num font-semibold ${pending > 0 ? "text-foreground" : "text-muted-foreground"}`}>{fmt(pending)}</td>
+                        <td className={`num hidden sm:table-cell ${hold > 0 ? "font-semibold text-signal-amber-ink" : "text-muted-foreground"}`}>{hold > 0 ? fmt(hold) : "—"}</td>
+                        <td className="hidden whitespace-nowrap lg:table-cell">
+                          {order.expiry_date ? (
+                            <>
+                              <span className="block tabular-nums text-foreground/85">{formatDate(order.expiry_date)}</span>
+                              {pending > 0 && !isHeld && order.status !== "closed" && expiryDays !== null ? (
+                                <span className={`text-[11px] font-medium ${expiryDays < 0 ? "text-signal-rose-ink" : expiryDays <= 7 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>
+                                  {expiryDays < 0 ? `Expired ${Math.abs(expiryDays)}d ago` : expiryDays === 0 ? "Expires today" : `${expiryDays}d left`}
+                                </span>
+                              ) : null}
+                            </>
+                          ) : <span className="text-muted-foreground">—</span>}
                         </td>
                         <td>
-                          <div className="flex items-center justify-end gap-1.5">
+                          {isHeld ? (
+                            <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[11.5px] font-medium text-signal-amber-ink" title={order.hold_reason || undefined}>
+                              <PauseCircle className="h-3 w-3" />Customer hold
+                            </span>
+                          ) : <StatusBadge value={order.status} />}
+                        </td>
+                        <td>
+                          <div className="flex items-center justify-end gap-1">
                             {canApprove ? (
                               <button
                                 type="button"
@@ -744,7 +779,7 @@ export default function SalesOrdersPage() {
                               type="button"
                               onClick={() => openReleaseDialog(order)}
                               aria-label="Release selected lines to planner"
-                              title={!canRelease ? "Approve the order before releasing" : !selectedLineIds.length ? "Select lines to release" : undefined}
+                              title={isHeld ? "Lift the customer hold to release" : !canRelease ? "Approve the order before releasing" : !selectedLineIds.length ? "Select lines to release" : undefined}
                               disabled={releaseSync.isPending || releasePreflight.isPending || releaseBusy || selectedLineIds.length === 0 || !canRelease}
                               className="inline-flex h-8 items-center gap-1 rounded-md bg-primary px-2.5 text-[12.5px] font-semibold text-primary-foreground shadow-sm transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
                             >
@@ -752,77 +787,79 @@ export default function SalesOrdersPage() {
                               <span className="hidden sm:inline">Release</span>
                               {selectedLineIds.length ? <span className="rounded bg-primary-foreground/20 px-1 text-[11px] tabular-nums">{selectedLineIds.length}</span> : null}
                             </button>
-                            <Link href={`/sales-orders/${order.id}`} data-testid="sales-orders:view-link" className="hidden h-8 items-center rounded-md px-2 text-[12.5px] font-medium text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground md:inline-flex">
-                              View
-                            </Link>
-                            <Link href={`/sales-orders/${order.id}/audit`} aria-label="Audit trail" title="Audit trail" className="hidden h-8 w-8 place-items-center rounded-md text-muted-foreground transition hover:bg-foreground/[.06] hover:text-foreground md:grid">
-                              <History className="h-3.5 w-3.5" />
-                            </Link>
+                            <RowMenu
+                              items={[
+                                { label: "View order", href: `/sales-orders/${order.id}`, icon: Eye, testId: "sales-orders:view-link" },
+                                { label: "Audit trail", href: `/sales-orders/${order.id}/audit`, icon: History },
+                                ...(isHeld
+                                  ? [{ label: "Lift customer hold", icon: PlayCircle, onSelect: () => void handleResume(order) }]
+                                  : pending > 0 && order.status !== "closed"
+                                    ? [{ label: "Customer hold & close…", icon: PauseCircle, tone: "warn" as const, onSelect: () => { setHoldOrder(order); setHoldReason("") } }]
+                                    : []),
+                              ]}
+                            />
                           </div>
                         </td>
                       </tr>
-                      {isOpen ? (
-                        <tr className="sub-row">
-                          <td colSpan={9}>
-                            <div className="animate-slide-down px-3 py-2.5 sm:pl-[72px]">
-                              <table className="w-full text-[12.5px]">
-                                <thead>
-                                  <tr className="text-left text-[11px] text-muted-foreground">
-                                    <th className="w-8 py-1 font-medium"><span className="sr-only">Select line</span></th>
-                                    <th className="py-1 font-medium">Line · Product</th>
-                                    <th className="py-1 text-right font-medium">Ordered</th>
-                                    <th className="py-1 text-right font-medium">To release</th>
-                                    <th className="hidden py-1 pl-4 font-medium sm:table-cell">Delivery</th>
-                                    <th className="hidden py-1 pl-4 font-medium md:table-cell">Parchment</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {(order.lines || []).map((line: any) => {
-                                    const checked = selectedLineIds.includes(String(line.id))
-                                    const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? 0)
-                                    const lineReleasable = releaseRemainingQty > 0
-                                    return (
-                                      <tr key={line.id} className={`border-t border-border/70 ${checked ? "bg-primary/[.05]" : ""} ${!lineReleasable ? "opacity-60" : ""}`}>
-                                        <td className="py-1.5">
-                                          <input
-                                            type="checkbox"
-                                            aria-label={`Select line ${line.line_no || "-"} ${line.product_code || ""}`}
-                                            checked={checked}
-                                            disabled={!lineReleasable}
-                                            onChange={(event) => updateSelectedLines(orderId, String(line.id), event.target.checked)}
-                                            className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
-                                          />
-                                        </td>
-                                        <td className="py-1.5">
-                                          <span className="font-medium text-foreground">L{line.line_no || "-"}</span>
-                                          <span className="text-muted-foreground"> · {line.product_code || "No product code"}</span>
-                                        </td>
-                                        <td className="py-1.5 text-right tabular-nums">{Number(line.qty || 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
-                                        <td className={`py-1.5 text-right font-semibold tabular-nums ${lineReleasable ? "text-foreground" : "text-muted-foreground"}`}>{releaseRemainingQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })}</td>
-                                        <td className="hidden py-1.5 pl-4 tabular-nums text-muted-foreground sm:table-cell">{formatDate(line.due_date)}</td>
-                                        <td className="hidden py-1.5 pl-4 text-muted-foreground md:table-cell">{parchmentLineLabel(line)}</td>
-                                      </tr>
-                                    )
-                                  })}
-                                </tbody>
-                              </table>
-                              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-border/70 pt-2 text-[12px] text-muted-foreground">
-                                {canRelease ? (
-                                  <span>{selectedLineIds.length ? `${selectedLineIds.length} line${selectedLineIds.length === 1 ? "" : "s"} selected — use Release to open the winder planner.` : "Tick the lines production needs now. A PO can release many times over its life."}</span>
-                                ) : (
-                                  <span>Approve this order to release its lines to planning.</span>
-                                )}
-                                {jobIds.length ? (
-                                  <span className="ml-auto flex flex-wrap items-center gap-1">
-                                    Job cards:
-                                    {jobIds.slice(0, 6).map((jobCardId) => (
-                                      <Link key={jobCardId} href={`/production/job-cards/${jobCardId}`} className="rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-1.5 py-0.5 font-mono text-[11px] text-signal-emerald-ink hover:underline">
-                                        {jobCardId.slice(0, 8)}
-                                      </Link>
-                                    ))}
-                                  </span>
-                                ) : null}
+                      {isOpen ? lines.map((line: any) => {
+                        const checked = selectedLineIds.includes(String(line.id))
+                        const releaseRemainingQty = Number(line.release_remaining_qty ?? line.remaining_qty ?? 0)
+                        const lineReleasable = releaseRemainingQty > 0 && !isHeld
+                        const linePending = Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0)))
+                        return (
+                          <tr key={line.id} className="sub-line animate-fade-in bg-[hsl(var(--surface-sunken))] text-[12.5px]" data-state={checked ? "selected" : undefined}>
+                            <td className="!pr-0">
+                              <div className="flex justify-end pr-2">
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Select line ${line.line_no || "-"} ${line.product_code || ""}`}
+                                  checked={checked}
+                                  disabled={!lineReleasable}
+                                  onChange={(event) => updateSelectedLines(orderId, String(line.id), event.target.checked)}
+                                  className="h-3.5 w-3.5 cursor-pointer disabled:cursor-not-allowed"
+                                />
                               </div>
+                            </td>
+                            <td className="whitespace-nowrap text-muted-foreground">
+                              <span className="font-medium text-foreground/90">Line {line.line_no || "-"}</span>
+                              <span className="block text-[11px]">Due {formatDate(line.due_date)}</span>
+                            </td>
+                            <td className="hidden lg:table-cell" />
+                            <td className="hidden md:table-cell" />
+                            <td className="max-w-[160px]"><span className="block truncate text-muted-foreground" title={line.product_code || undefined}>{line.product_code || "—"}</span></td>
+                            <td className="hidden max-w-[170px] xl:table-cell"><span className="block truncate text-foreground/85">{line.size_label || line.product_code || "—"}</span></td>
+                            <td className="hidden xl:table-cell text-foreground/85">{line.parchment_required ? line.parchment_color || "—" : <span className="text-muted-foreground">—</span>}</td>
+                            <td className="num">{fmt(Number(line.qty || 0))}</td>
+                            <td className="num hidden md:table-cell">{fmt(Number(line.released_qty || 0))}</td>
+                            <td className="num hidden md:table-cell">{fmt(Number(line.fulfilled_qty || 0))}</td>
+                            <td className="num font-medium">{fmt(linePending)}</td>
+                            <td className={`num hidden sm:table-cell ${Number(line.hold_qty || 0) > 0 ? "text-signal-amber-ink" : "text-muted-foreground"}`}>{Number(line.hold_qty || 0) > 0 ? fmt(Number(line.hold_qty)) : "—"}</td>
+                            <td className="hidden lg:table-cell text-muted-foreground">{releaseRemainingQty > 0 ? `${fmt(releaseRemainingQty)} to release` : "Fully released"}</td>
+                            <td colSpan={2} className="text-muted-foreground">{parchmentLineLabel(line)}</td>
+                          </tr>
+                        )
+                      }) : null}
+                      {isOpen ? (
+                        <tr className="sub-line bg-[hsl(var(--surface-sunken))]">
+                          <td colSpan={15} className="!py-2">
+                            <div className="flex flex-wrap items-center gap-2 pl-[64px] text-[12px] text-muted-foreground">
+                              {isHeld ? (
+                                <span className="text-signal-amber-ink">On customer hold since {formatDate(order.held_at)}{order.hold_reason ? ` — ${order.hold_reason}` : ""}.</span>
+                              ) : canRelease ? (
+                                <span>{selectedLineIds.length ? `${selectedLineIds.length} line${selectedLineIds.length === 1 ? "" : "s"} selected. Use Release to open the winder planner.` : "Tick the lines production needs now. A PO can release many times over its life."}</span>
+                              ) : (
+                                <span>Approve this order to release its lines to planning.</span>
+                              )}
+                              {jobIds.length ? (
+                                <span className="ml-auto flex flex-wrap items-center gap-1">
+                                  Job cards:
+                                  {jobIds.slice(0, 6).map((jobCardId) => (
+                                    <Link key={jobCardId} href={`/production/job-cards/${jobCardId}`} className="rounded-md border border-signal-emerald-line bg-signal-emerald-soft px-1.5 py-0.5 font-mono text-[11px] text-signal-emerald-ink hover:underline">
+                                      {jobCardId.slice(0, 8)}
+                                    </Link>
+                                  ))}
+                                </span>
+                              ) : null}
                             </div>
                           </td>
                         </tr>
@@ -875,6 +912,48 @@ export default function SalesOrdersPage() {
         </section>
         )}
       </div>
+
+      <Dialog open={Boolean(holdOrder)} onOpenChange={(open) => (!open ? setHoldOrder(null) : null)}>
+        <DialogContent data-testid="sales-orders:hold-dialog" className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Customer hold &amp; close</DialogTitle>
+            <DialogDescription>
+              Use this when the customer is not lifting material. The undelivered balance becomes hold qty and the PO closes. Delivered quantities and job cards are not changed, and you can lift the hold later.
+            </DialogDescription>
+          </DialogHeader>
+          {holdOrder ? (
+            <div className="grid grid-cols-3 overflow-hidden rounded-lg border border-border text-center">
+              {[
+                ["SO", holdOrder.order_no || "—"],
+                ["PO", holdOrder.po_number || "Internal"],
+                ["Will hold", `${(holdOrder.lines || []).reduce((total: number, line: any) => total + Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0)), 0).toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`],
+              ].map(([label, value], index) => (
+                <div key={label} className={`px-3 py-2 ${index ? "border-l border-border" : ""}`}>
+                  <p className="text-[11px] text-muted-foreground">{label}</p>
+                  <p className="truncate text-[13px] font-semibold">{value}</p>
+                </div>
+              ))}
+            </div>
+          ) : null}
+          <label className="grid gap-1.5 text-[13px] font-medium">
+            Reason
+            <textarea
+              value={holdReason}
+              onChange={(event) => setHoldReason(event.target.value)}
+              rows={3}
+              maxLength={500}
+              placeholder="e.g. Customer has not lifted material since July; confirmed on call."
+              className="rounded-lg border border-input bg-card px-3 py-2 text-[13px] font-normal"
+            />
+          </label>
+          <DialogFooter>
+            <button type="button" className="erp-btn-secondary" onClick={() => setHoldOrder(null)}>Cancel</button>
+            <button type="button" className="erp-btn-primary !bg-signal-amber-ink !text-background" disabled={holdReason.trim().length < 3 || holdSalesOrder.isPending} onClick={() => void handleHold()}>
+              {holdSalesOrder.isPending ? "Holding…" : "Hold & close PO"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={Boolean(releaseDialogOrder)} onOpenChange={(open) => (!open ? closeReleaseDialog() : null)}>
         <DialogContent

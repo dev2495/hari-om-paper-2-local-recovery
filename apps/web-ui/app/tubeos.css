@@ -282,3 +282,18 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
 .bg-foreground .text-foreground { color: hsl(var(--background)); }
 .bg-primary .text-muted-foreground { color: hsl(var(--primary-foreground) / .75); }
 .bg-foreground [class*="text-signal-"] { color: hsl(var(--background) / .82); }
+
+/* Recharts: theme-aware defaults so every chart matches without per-chart styling */
+.recharts-cartesian-grid line { stroke: hsl(var(--chart-grid)); }
+.recharts-cartesian-axis-tick-value, .recharts-cartesian-axis-tick text { fill: hsl(var(--chart-axis)); font-size: 11px; }
+.recharts-cartesian-axis-line, .recharts-cartesian-axis-tick-line { stroke: hsl(var(--chart-grid)); }
+.recharts-legend-item-text { color: hsl(var(--muted-foreground)) !important; font-size: 12px; }
+.recharts-tooltip-cursor { fill: hsl(var(--foreground) / .04); stroke: hsl(var(--foreground) / .12); }
+.recharts-default-tooltip { background: hsl(var(--popover)) !important; border: 1px solid hsl(var(--border)) !important; border-radius: 8px !important; box-shadow: var(--shadow-pop); color: hsl(var(--popover-foreground)); }
+.recharts-polar-grid line, .recharts-polar-grid circle, .recharts-polar-grid polygon { stroke: hsl(var(--chart-grid)); }
+.recharts-pie-sector path, .recharts-sector { stroke: hsl(var(--card)); }
+.recharts-surface { overflow: visible; }
+.recharts-bar-rectangle path, .recharts-area-area, .recharts-line-curve { transition: opacity 160ms ease; }
+@keyframes bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.tube-grid tr.sub-line > td { padding-top: 5px; padding-bottom: 5px; border-bottom-color: hsl(var(--border) / .55); }
+.tube-grid tbody[data-order-id]:hover > tr:first-child > td { background: hsl(var(--foreground) / .02); }

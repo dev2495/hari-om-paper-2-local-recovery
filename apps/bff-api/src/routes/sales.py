@@ -130,6 +130,41 @@ async def update_order(order_id: str, request: Request, token: str = Depends(get
     return response
 
 
+@router.post("/orders/{order_id}/hold")
+async def hold_order(order_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/hold", request, token)
+    payload = response_body_json(response) or {}
+    held = sum(float(line.get("hold_qty") or 0) for line in payload.get("lines") or [] if isinstance(line, dict))
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="SALES_ORDER_HELD",
+        title=f"Customer hold: {payload.get('po_number') or payload.get('order_no') or order_id}",
+        message=f"{held:,.0f} pcs held and the PO closed. Stop further releases and dispatch planning for it. Reason: {payload.get('hold_reason') or '-'}",
+        href=f"/sales-orders/{order_id}",
+        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Dispatch"],
+        payload={"order_id": order_id, "priority": "action", "action": "review"},
+    )
+    return response
+
+
+@router.post("/orders/{order_id}/resume")
+async def resume_order(order_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/resume", request, token)
+    payload = response_body_json(response) or {}
+    await emit_from_response(
+        response,
+        token=token,
+        event_type="SALES_ORDER_HOLD_LIFTED",
+        title=f"Customer hold lifted: {payload.get('po_number') or payload.get('order_no') or order_id}",
+        message="The order is open again with its previous status. Releases and dispatch can continue.",
+        href=f"/sales-orders/{order_id}",
+        recipient_roles=["Owner", "Admin", "Sales", "Planner", "PlantManager", "Dispatch"],
+        payload={"order_id": order_id},
+    )
+    return response
+
+
 @router.post("/orders/{order_id}/approve")
 async def approve_order(order_id: str, request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/{order_id}/approve", request, token)

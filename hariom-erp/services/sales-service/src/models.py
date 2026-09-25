@@ -47,6 +47,13 @@ class SalesOrder(Base):
     approved_at = Column(DateTime, nullable=True)
     released_at = Column(DateTime, nullable=True)
     schedule_revision = Column(Integer, nullable=False, default=0)
+    # Commercial validity. Defaults to PO/order date + 45 days; editable on create/edit.
+    expiry_date = Column(Date, nullable=True, index=True)
+    # Customer hold: the customer stopped lifting material, so the open balance is held and the PO closed.
+    hold_reason = Column(Text, nullable=True)
+    held_at = Column(DateTime, nullable=True)
+    held_by = Column(String(200), nullable=True)
+    hold_prev_status = Column(String(40), nullable=True)
 
     lines = relationship("SalesOrderLine", back_populates="sales_order", cascade="all, delete-orphan")
 
@@ -60,6 +67,7 @@ class SalesOrderLine(Base):
     line_no = Column(Float, nullable=False, default=1)
     approved_spec_id = Column(UUID(as_uuid=True), nullable=False)
     product_code = Column(String(120), nullable=True)
+    size_label = Column(String(160), nullable=True)
     parchment_required = Column(Boolean, nullable=False, default=False)
     parchment_color_id = Column(UUID(as_uuid=True), nullable=True)
     parchment_color = Column(String(100), nullable=True)
@@ -67,6 +75,7 @@ class SalesOrderLine(Base):
     qty = Column(Float, nullable=False)
     due_date = Column(Date, nullable=False)
     fulfilled_qty = Column(Float, nullable=False, default=0.0)
+    hold_qty = Column(Float, nullable=False, default=0.0)
 
     sales_order = relationship("SalesOrder", back_populates="lines")
     dispatch_logs = relationship("SalesOrderDispatchLog", back_populates="line", cascade="all, delete-orphan")

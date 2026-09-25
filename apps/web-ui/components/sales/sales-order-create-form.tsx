@@ -38,9 +38,13 @@ type SalesOrderForm = {
   po_number: string
   po_date: string
   internal_order_date: string
+  /** Blank means "use the default": order date + 45 days. */
+  expiry_date: string
   notes: string
   lines: SalesLineForm[]
 }
+
+const DEFAULT_EXPIRY_DAYS = 45
 
 function createLine(seed = 1): SalesLineForm {
   return {
@@ -63,6 +67,7 @@ const INITIAL_FORM: SalesOrderForm = {
   po_number: "",
   po_date: "",
   internal_order_date: "",
+  expiry_date: "",
   notes: "",
   lines: [createLine()],
 }
@@ -155,6 +160,8 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
 
   const customerPoMode = isCustomerPoOrigin(form.origin)
   const deliveryMinDate = customerPoMode && form.po_date ? addCalendarDays(form.po_date, 1) : undefined
+  const orderBaseDate = customerPoMode ? form.po_date : form.internal_order_date
+  const defaultExpiry = addCalendarDays(orderBaseDate || new Date().toISOString().slice(0, 10), DEFAULT_EXPIRY_DAYS)
 
   useEffect(() => {
     if (!orderId || !existingOrder.data || hydratedOrderId === orderId) return
@@ -168,6 +175,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
       po_number: origin === ORDER_ORIGIN_CUSTOMER_PO ? String(order.po_number || "") : "",
       po_date: origin === ORDER_ORIGIN_CUSTOMER_PO ? isoDate(order.po_date) : "",
       internal_order_date: origin === ORDER_ORIGIN_INTERNAL ? isoDate(order.internal_order_date || order.created_at) : "",
+      expiry_date: isoDate(order.expiry_date),
       notes: String(order.notes || ""),
       lines: (order.lines || []).length
         ? order.lines.map((line: any, index: number) => ({
@@ -330,6 +338,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
       po_number: customerPoMode ? form.po_number : null,
       po_date: customerPoMode ? form.po_date || null : null,
       internal_order_date: customerPoMode ? null : form.internal_order_date || null,
+      expiry_date: form.expiry_date || defaultExpiry || null,
       notes: form.notes || null,
       lines: form.lines.map((line, index) => ({
         id: line.persistedId || undefined,
@@ -471,6 +480,23 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                   {fieldErrors.internal_order_date ? <p className="text-xs text-signal-rose-ink">{fieldErrors.internal_order_date}</p> : null}
                 </div>
               )}
+              <div className="space-y-1">
+                <label htmlFor="sales-order-expiry" className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">SO expiry date</label>
+                <input
+                  id="sales-order-expiry"
+                  data-testid="sales-orders:expiry-date"
+                  type="date"
+                  value={form.expiry_date || defaultExpiry}
+                  min={orderBaseDate || undefined}
+                  onChange={(event) => updateHeader("expiry_date", event.target.value)}
+                  className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm"
+                />
+                <p className="text-xs text-muted-foreground">
+                  {form.expiry_date && form.expiry_date !== defaultExpiry
+                    ? <>Custom date. <button type="button" className="font-medium text-primary underline-offset-2 hover:underline" onClick={() => updateHeader("expiry_date", "")}>Reset to {DEFAULT_EXPIRY_DAYS} days</button></>
+                    : `Default: ${DEFAULT_EXPIRY_DAYS} days from the ${customerPoMode ? "PO" : "order"} date.`}
+                </p>
+              </div>
               <div className="space-y-1 md:col-span-2 xl:col-span-1">
                 <label className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Notes</label>
                 <textarea
