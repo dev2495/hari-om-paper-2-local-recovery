@@ -61,7 +61,7 @@ test("tracker no longer joins a capped job-card page in the browser", () => {
 })
 
 test("owner landing rupee totals come from the sales aggregate endpoint", () => {
-  const page = readFileSync(resolve(process.cwd(), "components/workspace/owner-admin-landings.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "components/workspace/command-center.tsx"), "utf8")
   assert.match(page, /salesAggregates\?\.booked_value/)
   assert.match(page, /salesAggregates\?\.open_order_book_value/)
   assert.doesNotMatch(page, /useSalesOrders\(\)/)

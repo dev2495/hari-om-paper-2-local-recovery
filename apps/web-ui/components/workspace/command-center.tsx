@@ -74,7 +74,7 @@ function greeting() {
 }
 
 type KpiKey =
-  | "orderBook" | "dispatchedValue" | "dispatchQty" | "otif" | "leadTime" | "activeCards" | "blocked" | "adherence"
+  | "orderBook" | "bookedValue" | "dispatchedValue" | "dispatchQty" | "otif" | "leadTime" | "activeCards" | "blocked" | "adherence"
   | "utilization" | "qcPass" | "qcHolds" | "inventoryValue" | "lowStock" | "dispatchReady" | "expired" | "holdQty" | "produced" | "overdue"
 
 const ROLE_KPIS: Record<LandingRole, KpiKey[]> = {
@@ -139,7 +139,7 @@ function CardLink({ href, children }: { href: string; children: ReactNode }) {
  * from a server aggregate or the analytics owner pack for the chosen period; a failed
  * source renders "Not reported", never zero.
  */
-const ANALYTICS_KPIS: KpiKey[] = ["orderBook", "dispatchedValue", "otif", "leadTime", "dispatchQty", "produced", "activeCards", "overdue", "adherence", "utilization", "qcPass", "inventoryValue"]
+const ANALYTICS_KPIS: KpiKey[] = ["orderBook", "bookedValue", "dispatchedValue", "otif", "leadTime", "dispatchQty", "produced", "activeCards", "overdue", "adherence", "utilization", "qcPass", "inventoryValue", "blocked"]
 const ANALYTICS_CHARTS: ChartKey[] = ["orderFlow", "output", "pipeline", "machines", "quality", "inventory", "customers"]
 
 export function CommandCenter({ role, testId, variant = "landing", header }: { role: LandingRole; testId?: string; variant?: "landing" | "analytics"; header?: ReactNode }) {
@@ -156,13 +156,13 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
   const customerNames = useMemo(() => new Map((Array.isArray(customersQuery.data) ? customersQuery.data : []).map((row: any) => [String(row.id), String(row.name || row.customer_name || row.customer_code || "")])), [customersQuery.data])
 
   const pack: any = useMemo(() => packQuery.data || {}, [packQuery.data])
-  const sales: any = salesQuery.data || {}
+  const salesAggregates: any = salesQuery.data || {}
   const jobs: any = jobsQuery.data || {}
   const packReady = Boolean(packQuery.data)
   const fetching = packQuery.isFetching || salesQuery.isFetching || jobsQuery.isFetching
 
   const productionSeries: any[] = Array.isArray(pack.production?.series) ? pack.production.series : []
-  const orderSeries: any[] = Array.isArray(pack.sales?.series) ? pack.sales.series : []
+  const orderSeries: any[] = Array.isArray(pack.sales?.series) ? pack.salesAggregates?.series : []
   const qualitySeries: any[] = Array.isArray(pack.quality?.series) ? pack.quality.series : []
   const outputRows = productionSeries.map((row) => ({ label: bucketLabel(row.bucket), winder_qty: Number(row.winder_qty || 0), oven_qty: Number(row.oven_qty || 0), process_qty: Number(row.process_qty || 0), packing_qty: Number(row.packing_qty || 0) }))
   const produced = outputRows.reduce((total, row) => total + row.packing_qty, 0)
@@ -178,15 +178,16 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
     { name: "Work in progress", value: Number(inv.wip_value || 0), color: "hsl(var(--chart-6))" },
     { name: "Finished goods", value: Number(inv.fg_value || 0), color: "hsl(var(--chart-7))" },
   ].filter((row) => row.value > 0)
-  const customers = (Array.isArray(sales.open_value_by_customer) ? sales.open_value_by_customer : []).slice(0, 6)
+  const customers = (Array.isArray(salesAggregates?.open_value_by_customer) ? salesAggregates?.open_value_by_customer : []).slice(0, 6)
 
   const spark = (key: string, rows: any[]) => rows.map((row) => Number(row[key] || 0))
   const kpis: Record<KpiKey, { label: string; value: string; detail: string; icon: LucideIcon; tone: MetricTone; href?: string; spark?: number[]; progress?: number | null; ready: boolean }> = {
-    orderBook: { label: "Open order book", value: inr(Number(sales.open_order_book_value)), detail: `${num(sales.open_order_count)} open orders · ${num(sales.open_qty)} pcs`, icon: IndianRupee, tone: "teal", href: "/sales-orders/pending", ready: has(sales.open_order_book_value) },
-    dispatchedValue: { label: "Dispatched value", value: inr(Number(sales.dispatched_value)), detail: "Fulfilled quantity × line rate, all time", icon: Truck, tone: "emerald", href: "/reports/dispatch", ready: has(sales.dispatched_value) },
+    orderBook: { label: "Open order book", value: inr(Number(salesAggregates?.open_order_book_value)), detail: `${num(salesAggregates?.open_order_count)} open orders · ${num(salesAggregates?.open_qty)} pcs`, icon: IndianRupee, tone: "teal", href: "/sales-orders/pending", ready: has(salesAggregates?.open_order_book_value) },
+    bookedValue: { label: "Booked value", value: inr(Number(salesAggregates?.booked_value)), detail: `${num(salesAggregates?.total_order_count)} orders booked, all time`, icon: IndianRupee, tone: "blue", href: "/sales-orders?status=all", ready: has(salesAggregates?.booked_value) },
+    dispatchedValue: { label: "Dispatched value", value: inr(Number(salesAggregates?.dispatched_value)), detail: "Fulfilled quantity × line rate, all time", icon: Truck, tone: "emerald", href: "/reports/dispatch", ready: has(salesAggregates?.dispatched_value) },
     dispatchQty: { label: "Dispatched in period", value: `${num(pack.dispatch?.summary?.dispatch_qty)} pcs`, detail: `${num(pack.dispatch?.summary?.closed_orders)} orders closed`, icon: PackageCheck, tone: "cyan", spark: spark("dispatch_qty", orderSeries), href: "/reports/dispatch", ready: packReady },
-    otif: { label: "On time, in full", value: pack.sales?.summary?.closed_orders ? pct(Number(pack.sales.summary.otif_percent)) : "No closures", detail: `${num(pack.sales?.summary?.closed_orders)} closed orders measured`, icon: Gauge, tone: "violet", progress: pack.sales?.summary?.closed_orders ? Number(pack.sales.summary.otif_percent) : null, href: "/reports/sales", ready: packReady },
-    leadTime: { label: "Release → dispatch", value: pack.sales?.summary?.release_to_dispatch_days ? `${num(pack.sales.summary.release_to_dispatch_days, 1)} days` : "—", detail: "Average order lead time on closed orders", icon: CalendarClock, tone: "blue", ready: packReady },
+    otif: { label: "On time, in full", value: pack.sales?.summary?.closed_orders ? pct(Number(pack.salesAggregates?.summary.otif_percent)) : "No closures", detail: `${num(pack.sales?.summary?.closed_orders)} closed orders measured`, icon: Gauge, tone: "violet", progress: pack.sales?.summary?.closed_orders ? Number(pack.salesAggregates?.summary.otif_percent) : null, href: "/reports/sales", ready: packReady },
+    leadTime: { label: "Release → dispatch", value: pack.sales?.summary?.release_to_dispatch_days ? `${num(pack.salesAggregates?.summary.release_to_dispatch_days, 1)} days` : "—", detail: "Average order lead time on closed orders", icon: CalendarClock, tone: "blue", ready: packReady },
     activeCards: { label: "Open job cards", value: num(jobs.open_cards), detail: `${num(jobs.due_priority)} due soon · ${num(jobs.completed_cards)} completed`, icon: Factory, tone: "blue", href: "/production/job-cards", ready: has(jobs.open_cards) },
     overdue: { label: "Overdue job cards", value: num(jobs.due_overdue), detail: jobs.overdue_label || "Past their promised date", icon: TimerOff, tone: Number(jobs.due_overdue) ? "rose" : "slate", href: "/production/job-cards?due=overdue", ready: has(jobs.due_overdue) },
     blocked: { label: "Blocked cards", value: num(jobs.blocked), detail: "Waiting on material, machine or a decision", icon: ShieldAlert, tone: Number(jobs.blocked) ? "rose" : "slate", href: "/planning/tracker", ready: has(jobs.blocked) },
@@ -197,8 +198,8 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
     inventoryValue: { label: "Inventory value", value: inr(Number(inv.total_value)), detail: `RM ${inr(Number(inv.rm_value))} · WIP ${inr(Number(inv.wip_value))} · FG ${inr(Number(inv.fg_value))}`, icon: Warehouse, tone: "violet", href: "/inventory", ready: packReady },
     lowStock: { label: "Low-stock materials", value: num(inv.low_stock_count), detail: `${num(inv.overstock_count)} overstocked`, icon: Boxes, tone: Number(inv.low_stock_count) ? "amber" : "slate", href: "/inventory/stock-alerts", ready: packReady },
     dispatchReady: { label: "Ready to dispatch", value: num(jobs.dispatch_ready), detail: "Finished and cleared job cards", icon: Truck, tone: "emerald", href: "/logistics/dispatch", ready: has(jobs.dispatch_ready) },
-    expired: { label: "Expired sales orders", value: num(sales.expired_open_count), detail: `${num(sales.expiring_7d_count)} more expire within 7 days`, icon: TimerOff, tone: Number(sales.expired_open_count) ? "rose" : "slate", href: "/sales-orders", ready: has(sales.expired_open_count) },
-    holdQty: { label: "On customer hold", value: `${num(sales.hold_qty)} pcs`, detail: `${num(sales.held_order_count)} POs held and closed`, icon: PauseCircle, tone: "amber", href: "/sales-orders?status=closed", ready: has(sales.hold_qty) },
+    expired: { label: "Expired sales orders", value: num(salesAggregates?.expired_open_count), detail: `${num(salesAggregates?.expiring_7d_count)} more expire within 7 days`, icon: TimerOff, tone: Number(salesAggregates?.expired_open_count) ? "rose" : "slate", href: "/sales-orders", ready: has(salesAggregates?.expired_open_count) },
+    holdQty: { label: "On customer hold", value: `${num(salesAggregates?.hold_qty)} pcs`, detail: `${num(salesAggregates?.held_order_count)} POs held and closed`, icon: PauseCircle, tone: "amber", href: "/sales-orders?status=closed", ready: has(salesAggregates?.hold_qty) },
     produced: { label: "Packed in period", value: `${num(produced)} pcs`, detail: "Finished output recorded at packing", icon: PackageCheck, tone: "teal", spark: outputRows.map((row) => row.packing_qty), href: "/reports/production", ready: packReady },
   }
 
@@ -438,7 +439,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       <section className={cn("stagger grid gap-3 sm:grid-cols-2", kpiKeys.length > 4 ? "xl:grid-cols-4" : "xl:grid-cols-4")} aria-label="Key figures">
         {kpiKeys.map((key) => {
           const kpi = kpis[key]
-          const failed = (key in { orderBook: 1, dispatchedValue: 1, expired: 1, holdQty: 1 } && salesQuery.isError) || (["activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && jobsQuery.isError) || (!["orderBook", "dispatchedValue", "expired", "holdQty", "activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && packQuery.isError)
+          const failed = (key in { orderBook: 1, bookedValue: 1, dispatchedValue: 1, expired: 1, holdQty: 1 } && salesQuery.isError) || (["activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && jobsQuery.isError) || (!["orderBook", "bookedValue", "dispatchedValue", "expired", "holdQty", "activeCards", "overdue", "blocked", "qcHolds", "dispatchReady"].includes(key) && packQuery.isError)
           const loading = !kpi.ready && !failed
           return (
             <MetricCard
@@ -493,7 +494,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
                 ["Blocked job cards", Number(pack.production?.summary?.blocked_jobs || 0), "/reports/operations"],
                 ["Active QC holds", Number(pack.headline?.active_qc_holds || 0), "/reports/quality"],
                 ["Materials below reorder", Number(inv.low_stock_count || 0), "/analytics/mrp"],
-                ["Expired sales orders", Number(sales.expired_open_count || 0), "/sales-orders"],
+                ["Expired sales orders", Number(salesAggregates?.expired_open_count || 0), "/sales-orders"],
               ].map(([label, value, href]) => (
                 <Link key={String(label)} href={String(href)} className="flex items-center justify-between gap-3 px-3 py-2.5 transition-colors hover:bg-foreground/[.025]">
                   <dt className="text-foreground/85">{label}</dt>

@@ -316,3 +316,27 @@ table { font-variant-numeric: tabular-nums; border-collapse: separate; border-sp
 .login-flow::before { content: ""; position: absolute; left: 14px; right: 14px; top: 14px; height: 2px; background: linear-gradient(90deg, hsl(var(--primary) / .6), hsl(var(--chart-2) / .5)); border-radius: 2px; transform-origin: left; animation: bar-grow 1.2s var(--ease-workspace) both .1s; }
 .login-flow-step { position: relative; animation: enter-up 500ms var(--ease-workspace) both; }
 .login-flow-dot { position: relative; z-index: 1; display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 10px; border-radius: 50%; background: hsl(var(--card)); border: 2px solid hsl(var(--primary)); color: hsl(var(--primary)); font-size: 12px; font-weight: 700; box-shadow: 0 0 0 4px hsl(var(--background)); }
+
+/* ───────────────────────── Depth ───────────────────────── */
+.tube-workspace { position: relative; isolation: isolate; }
+.tube-workspace::before {
+  content: ""; position: absolute; inset: 0 0 auto 0; height: 420px; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(60% 100% at 15% 0%, hsl(var(--primary) / .07), transparent 70%),
+    radial-gradient(50% 90% at 90% 0%, hsl(var(--chart-2) / .05), transparent 70%);
+}
+.erp-panel, .tube-kpi { box-shadow: 0 1px 0 hsl(0 0% 100% / .5) inset, var(--shadow-premium); }
+:root[data-theme="dark"] .erp-panel, :root[data-theme="dark"] .tube-kpi { box-shadow: 0 1px 0 hsl(0 0% 100% / .04) inset, var(--shadow-premium); }
+a.tube-kpi, button > .tube-kpi, a.erp-metric-card { will-change: transform; }
+a.tube-kpi:hover, button:hover > .tube-kpi, a.erp-metric-card:hover { transform: translateY(-2px); box-shadow: 0 1px 0 hsl(0 0% 100% / .5) inset, var(--shadow-premium-hover); }
+a.tube-kpi:active, button:active > .tube-kpi { transform: translateY(0) scale(.995); }
+.tube-kpi-icon { box-shadow: 0 1px 2px hsl(222 30% 12% / .06); transition: transform 240ms var(--ease-spring); }
+a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { transform: scale(1.08) rotate(-3deg); }
+.tube-rail { box-shadow: inset -1px 0 0 hsl(var(--border)), 1px 0 0 hsl(0 0% 100% / .4); border-right: 0; }
+:root[data-theme="dark"] .tube-rail { box-shadow: inset -1px 0 0 hsl(var(--border)); }
+.tube-topbar { box-shadow: 0 1px 0 hsl(var(--border)), 0 6px 20px -18px hsl(222 30% 12% / .35); border-bottom: 0; }
+.cc-hero::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: radial-gradient(70% 140% at 0% 0%, hsl(var(--primary) / .10), transparent 60%), radial-gradient(50% 120% at 100% 0%, hsl(var(--chart-3) / .07), transparent 60%); }
+.cc-hero > * { position: relative; z-index: 1; }
+.tube-grid tbody tr > td:first-child { box-shadow: inset 2px 0 0 transparent; transition: box-shadow 140ms ease, background-color 120ms ease; }
+.tube-grid tbody[data-order-id]:hover > tr:first-child > td:first-child, .tube-grid tbody tr[data-state="selected"] > td:first-child { box-shadow: inset 2px 0 0 hsl(var(--primary)); }
+@media (prefers-reduced-motion: reduce) { a.tube-kpi:hover, button:hover > .tube-kpi { transform: none; } }
