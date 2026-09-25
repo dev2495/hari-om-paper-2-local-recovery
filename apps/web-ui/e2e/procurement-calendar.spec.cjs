@@ -15,7 +15,7 @@ test('saved monthly calendar conserves an entered arrival through reload and wor
   const check = beginCriticalMonitoring(page)
   await signIn(page)
   await page.goto('/purchase/scheduler')
-  await expect(page.getByRole('heading', { name: 'Plan daily paper arrivals on a live kg calendar.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Paper purchase planner' })).toBeVisible()
   await Promise.all([page.waitForResponse(response => response.url().includes('/api/purchase/v2/plans?month=2026-12-01') && response.ok()), page.getByLabel('Month', { exact: true }).fill('2026-12')])
   const create = page.getByRole('button', { name: 'Create month plan' })
   await expect(page.getByRole('button', { name: 'Plan arrivals 2026-12-31' })).toBeVisible()

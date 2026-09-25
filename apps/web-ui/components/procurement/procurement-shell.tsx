@@ -8,16 +8,16 @@ import { PageHeader } from "@/components/workspace/page-header"
 import { cn } from "@/lib/utils"
 
 
-export const fieldClass = "h-11 w-full rounded-lg border border-border bg-card px-3 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 focus:border-signal-cyan-ink/40 focus:ring-4 focus:ring-ring/15 disabled:bg-muted disabled:text-muted-foreground"
-export const areaClass = "w-full rounded-lg border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 focus:border-signal-cyan-ink/40 focus:ring-4 focus:ring-ring/15"
-export const primaryButton = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-[background-color,transform] duration-150 hover:bg-primary/90 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50"
-export const secondaryButton = "inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-semibold text-foreground transition-[border-color,background-color,transform] duration-150 hover:border-signal-cyan-line hover:bg-signal-cyan-soft active:scale-[0.98] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-ring/15 disabled:cursor-not-allowed disabled:opacity-50"
+export const fieldClass = "h-9 w-full rounded-lg border border-input bg-card px-3 text-[13px] text-foreground shadow-[var(--shadow-xs)] outline-none transition-[border-color,box-shadow] duration-150 hover:border-foreground/20 focus:border-ring/70 focus:ring-[3px] focus:ring-ring/15 disabled:bg-muted disabled:text-muted-foreground"
+export const areaClass = "w-full rounded-lg border border-input bg-card px-3 py-2 text-[13px] text-foreground shadow-[var(--shadow-xs)] outline-none transition-[border-color,box-shadow] duration-150 focus:border-ring/70 focus:ring-[3px] focus:ring-ring/15"
+export const primaryButton = "erp-btn-primary"
+export const secondaryButton = "erp-btn-secondary"
 
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="flex items-end justify-between gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-        {label}{hint ? <span className="normal-case tracking-normal text-muted-foreground">{hint}</span> : null}
+      <span className="flex items-end justify-between gap-2 text-[12.5px] font-medium text-foreground/80">
+        {label}{hint ? <span className="text-[11.5px] font-normal text-muted-foreground">{hint}</span> : null}
       </span>
       {children}
     </label>
@@ -41,14 +41,14 @@ export function SummaryCard({ label, value, detail, icon: Icon, tone = "cyan" }:
   label: string; value: ReactNode; detail: string; icon: LucideIcon; tone?: "cyan" | "amber" | "emerald" | "slate" | "rose"
 }) {
   const tones = {
-    cyan: "bg-signal-cyan-soft text-signal-cyan-ink", amber: "bg-signal-amber-soft text-signal-amber-ink",
-    emerald: "bg-signal-emerald-soft text-signal-emerald-ink", slate: "bg-muted text-foreground", rose: "bg-signal-rose-soft text-signal-rose-ink",
+    cyan: "bg-signal-cyan-soft text-signal-cyan-ink ring-signal-cyan-line", amber: "bg-signal-amber-soft text-signal-amber-ink ring-signal-amber-line",
+    emerald: "bg-signal-emerald-soft text-signal-emerald-ink ring-signal-emerald-line", slate: "bg-muted text-muted-foreground ring-border", rose: "bg-signal-rose-soft text-signal-rose-ink ring-signal-rose-line",
   }
   return (
     <article className="tube-kpi">
       <div className="flex items-start justify-between gap-3">
         <div><p className="tube-kpi-label">{label}</p><p className="tube-kpi-value">{value}</p></div>
-        <span className={cn("mt-1 text-muted-foreground")}><Icon className="h-5 w-5" /></span>
+        <span className={cn("tube-kpi-icon ring-1 ring-inset", tones[tone])}><Icon aria-hidden="true" /></span>
       </div>
       <p className="mt-2 text-xs leading-5 text-muted-foreground">{detail}</p>
     </article>
@@ -59,12 +59,12 @@ export function WorkPanel({ title, description, action, children, className }: {
   title: string; description?: string; action?: ReactNode; children: ReactNode; className?: string
 }) {
   return (
-    <section className={cn("erp-panel rounded-xl p-5", className)}>
+    <section className={cn("erp-panel min-w-0 rounded-xl p-4 sm:p-5", className)}>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h2 className="text-lg font-semibold text-foreground">{title}</h2>{description ? <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p> : null}</div>
+        <div className="min-w-0"><h2 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h2>{description ? <p className="mt-0.5 max-w-3xl text-[12.5px] leading-5 text-muted-foreground">{description}</p> : null}</div>
         {action ? <div className="flex max-w-full flex-wrap gap-2 [&>div]:flex-wrap [&>*]:max-w-full">{action}</div> : null}
       </div>
-      <div className="mt-5">{children}</div>
+      <div className="mt-4 min-w-0">{children}</div>
     </section>
   )
 }

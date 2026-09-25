@@ -204,12 +204,73 @@ async def procurement_v2_proxy(procurement_path: str, request: Request, token: s
             if not grouped:
                 raise HTTPException(422, "There is no residual material demand in this horizon")
             body = {**body, "items":list(grouped.values())}
-    return await proxy_to_service(
+    response = await proxy_to_service(
         INVENTORY_SERVICE_URL,
         f"/inventory/procurement/{procurement_path}",
         request,
         token,
         json_body=body,
+    )
+    if request.method == "POST":
+        await _notify_plan_handoff(procurement_path, request, response, token, plant_id)
+    return response
+
+
+_PLAN_ACTION_NOTICES = {
+    "SUBMIT": ("PURCHASE_PLAN_SUBMITTED", "RM purchase plan submitted for approval", "Review the monthly paper arrival plan and approve it so purchase orders can be raised.", ["Owner", "Admin", "PlantManager"], "approve"),
+    "APPROVE": ("PURCHASE_PLAN_APPROVED", "RM purchase plan approved", "Generate vendor PO drafts from the approved arrivals and send them to suppliers.", ["Store", "Planner", "Owner", "Admin"], "review"),
+    "REJECT": ("PURCHASE_PLAN_REJECTED", "RM purchase plan sent back", "The approver asked for a revision. Update the arrivals and resubmit.", ["Planner", "Store"], "review"),
+    "LOCK": ("PURCHASE_PLAN_LOCKED", "RM purchase plan locked", "The month's arrival plan is locked as the procurement baseline.", ["Store", "Planner", "PlantManager"], None),
+}
+
+
+async def _notify_plan_handoff(path: str, request: Request, response, token: str, plant_id: str) -> None:
+    """Tell the next role when a monthly RM plan changes hands. Best effort, 2xx only."""
+    if response.status_code >= 300:
+        return
+    parts = path.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "plans" or parts[2] not in {"action", "convert"}:
+        return
+    payload = response_body_json(response) or {}
+    plan_id = parts[1]
+    plant = plant_id if plant_id and plant_id.upper() != "ALL" else None
+    href = "/purchase/scheduler"
+    if parts[2] == "convert":
+        count = len(payload.get("purchase_order_ids") or []) if isinstance(payload, dict) else 0
+        await emit_from_response(
+            response,
+            token=token,
+            event_type="PURCHASE_PLAN_CONVERTED",
+            title=f"{count} PO draft{'s' if count != 1 else ''} created from the RM plan",
+            message="Vendor-grouped purchase orders are ready. Review rates and submit them for approval.",
+            href="/purchase",
+            recipient_roles=["Store", "Owner", "Admin", "PlantManager"],
+            role_context="Store",
+            payload={"plan_id": plan_id, "purchase_order_ids": payload.get("purchase_order_ids") if isinstance(payload, dict) else [], "action": "review", "priority": "action"},
+            plant_id=plant,
+        )
+        return
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str((body or {}).get("action") or "").upper()
+    notice = _PLAN_ACTION_NOTICES.get(action)
+    if not notice:
+        return
+    event_type, title, message, roles, cta = notice
+    month = str(payload.get("month") or "")[:7] if isinstance(payload, dict) else ""
+    await emit_from_response(
+        response,
+        token=token,
+        event_type=event_type,
+        title=f"{title}{f' · {month}' if month else ''}",
+        message=message,
+        href=href,
+        recipient_roles=roles,
+        role_context=roles[0],
+        payload={"plan_id": plan_id, **({"action": cta, "priority": "action"} if cta else {})},
+        plant_id=plant,
     )
 
 
