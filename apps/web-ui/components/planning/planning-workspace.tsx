@@ -16,8 +16,14 @@ import {
   Layers3,
   MoveHorizontal,
   Scissors,
+  Search,
+  Settings2,
   TimerReset,
 } from "lucide-react"
+import { PlannerCalendar } from "@/components/planning/planner-calendar"
+import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
+import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
+import { useMissedSlotSweep } from "@/hooks/use-lifecycle"
 
 import { KeyboardScheduleForm } from "@/components/planning/keyboard-schedule-form"
 import { EmptyState, StatusBadge } from "@/components/erp/shell"
@@ -289,10 +295,16 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const [queueFilter, setQueueFilter] = useState("all")
   const [hoverDetail, setHoverDetail] = useState<HoverDetail | null>(null)
   const [dateDraft, setDateDraft] = useState("")
+  const [queueSearch, setQueueSearch] = useState("")
+  const [queueSort, setQueueSort] = useState<"due" | "qty" | "age">("due")
+  const [sheetJobId, setSheetJobId] = useState<string | null>(null)
+  useMissedSlotSweep()
 
   const section = String(sectionOverride || searchParams?.get("section") || "winder").toLowerCase()
   const isSummaryView = section === "summary"
-  const plannerView = String(searchParams?.get("view") || "schedule").toLowerCase() === "calendar" ? "calendar" : "schedule"
+  // Landing (bare /planning/board) opens the month calendar; deep links with a section/date open the 3-day board.
+  const bareLanding = !sectionOverride && !searchParams?.get("section") && !searchParams?.get("plan_date") && !searchParams?.get("order_id") && !searchParams?.get("job_card_id")
+  const plannerView = String(searchParams?.get("view") || (bareLanding ? "calendar" : "schedule")).toLowerCase() === "calendar" ? "calendar" : "schedule"
   const stage = isSummaryView ? "WINDER" : SECTION_STAGE_MAP[section] || "WINDER"
   const startDate = searchParams?.get("plan_date") || dayjs().format("YYYY-MM-DD")
   const focusedOrderId = String(searchParams?.get("order_id") || "")
@@ -316,7 +328,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     const params = new URLSearchParams()
     params.set("section", next.section || section)
     params.set("plan_date", next.date || startDate)
-    if ((next.view || plannerView) === "calendar") params.set("view", "calendar")
+    params.set("view", (next.view || plannerView) === "calendar" ? "calendar" : "schedule")
     if (focusedOrderId) params.set("order_id", focusedOrderId)
     if (focusedJobCardId) params.set("job_card_id", focusedJobCardId)
     if (sectionOverride) {
@@ -472,10 +484,30 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     }
   }, [queueFilter, queueGroups])
 
-  const visibleQueueGroups = useMemo(
-    () => (queueFilter === "all" ? queueGroups : queueGroups.filter((group) => group.key === queueFilter)),
-    [queueFilter, queueGroups],
-  )
+  const visibleQueueGroups = useMemo(() => {
+    const needle = queueSearch.trim().toLowerCase()
+    const groups = queueFilter === "all" ? queueGroups : queueGroups.filter((group) => group.key === queueFilter)
+    return groups
+      .map((group) => ({
+        ...group,
+        jobs: group.jobs
+          .filter((job: any) =>
+            !needle ||
+            [job.job_card_no, job.job_card_ref, job.customer_name, job.product_code, job.product_size_label, job.parchment_color, job.sales_order_ref]
+              .filter(Boolean)
+              .join(" ")
+              .toLowerCase()
+              .includes(needle),
+          )
+          .sort((a: any, b: any) => {
+            if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1
+            if (queueSort === "qty") return Number(b.segment_planned_qty || 0) - Number(a.segment_planned_qty || 0)
+            if (queueSort === "age") return String(a.created_at || "").localeCompare(String(b.created_at || ""))
+            return String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))
+          }),
+      }))
+      .filter((group) => group.jobs.length > 0)
+  }, [queueFilter, queueGroups, queueSearch, queueSort])
 
   const filteredQueuedJobs = useMemo(
     () => visibleQueueGroups.flatMap((group) => group.jobs),
@@ -733,55 +765,6 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     () => allJobCards.filter((job: any) => String(job.status || "").toUpperCase() !== "COMPLETED"),
     [allJobCards],
   )
-  const monthCalendarDays = useMemo(() => {
-    const monthStart = dayjs(startDate).startOf("month")
-    const gridStart = monthStart.subtract(monthStart.day(), "day")
-    const jobsByDate = new Map<string, any[]>()
-    for (const job of activeJobCards) {
-      const planDate = job.active_segment_plan_date || job.plan_date || job.due_date || job.created_at
-      if (!planDate || !dayjs(planDate).isValid()) continue
-      const key = dayjs(planDate).format("YYYY-MM-DD")
-      const bucket = jobsByDate.get(key) || []
-      bucket.push(job)
-      jobsByDate.set(key, bucket)
-    }
-    return Array.from({ length: 42 }, (_, index) => {
-      const dateValue = gridStart.add(index, "day")
-      const key = dateValue.format("YYYY-MM-DD")
-      const jobs = jobsByDate.get(key) || []
-      const scheduled = jobs.filter((job: any) => Boolean(job.active_segment_machine_id)).length
-      const blocked = jobs.filter((job: any) => Boolean(job.blocked_reason) || !job.planner_gate_ready).length
-      const stageLoad = jobs.reduce((acc: Record<string, number>, job: any) => {
-        const stageName = String(job.current_stage || "UNKNOWN").toUpperCase()
-        acc[stageName] = (acc[stageName] || 0) + 1
-        return acc
-      }, {})
-      return {
-        date: key,
-        inMonth: dateValue.isSame(monthStart, "month"),
-        isToday: dateValue.isSame(dayjs(), "day"),
-        isBeyondPlanningLimit: dateValue.isAfter(dayjs(maxPlannerDate), "day"),
-        jobs,
-        scheduled,
-        unscheduled: Math.max(jobs.length - scheduled, 0),
-        blocked,
-        stageLoad,
-      }
-    })
-  }, [activeJobCards, maxPlannerDate, startDate])
-  const calendarMonthMetrics = useMemo(() => {
-    const currentMonthRows = monthCalendarDays.filter((row) => row.inMonth)
-    const jobs = currentMonthRows.flatMap((row) => row.jobs)
-    const scheduled = currentMonthRows.reduce((sum, row) => sum + row.scheduled, 0)
-    const blocked = currentMonthRows.reduce((sum, row) => sum + row.blocked, 0)
-    return {
-      jobs: jobs.length,
-      scheduled,
-      unscheduled: Math.max(jobs.length - scheduled, 0),
-      blocked,
-      busyDays: currentMonthRows.filter((row) => row.jobs.length > 0).length,
-    }
-  }, [monthCalendarDays])
   const completedJobCards = useMemo(
     () => allJobCards.filter((job: any) => String(job.status || "").toUpperCase() === "COMPLETED"),
     [allJobCards],
@@ -1002,114 +985,6 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         )}
       </div>
     </div>
-  )
-
-  const calendarBoard = (
-    <section className="overflow-hidden rounded-[1.65rem] border border-border bg-card shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-      <div className="border-b border-border bg-muted/70 px-4 py-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11.5px] font-semibold ${stageTheme.pill}`}>
-              <CalendarDays className="h-3.5 w-3.5" />
-              Monthly planning map
-            </div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">{monthKey(monthStartDate)}</h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
-              A month-level control surface for future planning. Pick any valid day to open its 3-day machine window.
-            </p>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-5 xl:w-[44rem]">
-            {[
-              ["Jobs", calendarMonthMetrics.jobs],
-              ["Scheduled", calendarMonthMetrics.scheduled],
-              ["Unscheduled", calendarMonthMetrics.unscheduled],
-              ["Blocked", calendarMonthMetrics.blocked],
-              ["Busy days", calendarMonthMetrics.busyDays],
-            ].map(([label, value]) => (
-              <div key={String(label)} className="rounded-[1rem] border border-border bg-card px-3 py-2 shadow-sm">
-                <p className="text-[12px] font-semibold text-muted-foreground">{label}</p>
-                <p className="mt-1 text-xl font-semibold leading-none text-foreground">{value}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="p-4">
-        <div className="grid grid-cols-7 gap-2">
-          {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
-            <div key={label} className="rounded-full bg-muted px-3 py-2 text-center text-[11.5px] font-semibold text-muted-foreground">
-              {label}
-            </div>
-          ))}
-          {monthCalendarDays.map((day) => {
-            const dominantStage = Object.entries(day.stageLoad).sort((left, right) => Number(right[1]) - Number(left[1]))[0]?.[0]
-            const canOpenDay = !day.isBeyondPlanningLimit
-            return (
-              <Link
-                key={day.date}
-                href={canOpenDay ? boardHref({ date: day.date, view: "schedule" }) : boardHref({ date: maxPlannerDate, view: "schedule" })}
-                className={`group min-h-[150px] rounded-[1.25rem] border p-3 transition-all duration-300 ${
-                  day.isToday
-                    ? "border-primary bg-primary text-primary-foreground shadow-[0_18px_44px_rgba(15,23,42,0.18)]"
-                    : day.inMonth
-                      ? "border-border bg-card hover:-translate-y-1 hover:border-border hover:shadow-[0_18px_42px_rgba(15,23,42,0.08)]"
-                      : "border-border bg-muted/70 text-muted-foreground"
-                } ${day.isBeyondPlanningLimit ? "pointer-events-none opacity-50" : ""}`}
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className={`text-[11.5px] font-semibold ${day.isToday ? "text-primary-foreground/60" : "text-muted-foreground"}`}>
-                      {dayjs(day.date).format("MMM")}
-                    </p>
-                    <p className="mt-1 text-2xl font-semibold leading-none">{dayjs(day.date).format("DD")}</p>
-                  </div>
-                  <span className={`rounded-full px-2 py-1 text-[10px] font-semibold ${day.isToday ? "bg-primary-foreground/15 text-primary-foreground" : "bg-muted text-muted-foreground"}`}>
-                    {day.jobs.length}
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-2">
-                  <div className={`h-1.5 overflow-hidden rounded-full ${day.isToday ? "bg-primary-foreground/15" : "bg-muted"}`}>
-                    <div
-                      className={`h-full rounded-full ${day.blocked ? "bg-rose-500" : day.scheduled ? "bg-emerald-500" : stageTheme.fill}`}
-                      style={{ width: `${Math.min(100, Math.max(8, day.jobs.length * 14))}%` }}
-                    />
-                  </div>
-                  <div className={`grid grid-cols-3 gap-1 text-[10px] ${day.isToday ? "text-primary-foreground/75" : "text-muted-foreground"}`}>
-                    <span>{day.scheduled} planned</span>
-                    <span>{day.unscheduled} queue</span>
-                    <span className={day.blocked ? "font-semibold text-signal-rose-ink" : ""}>{day.blocked} blocked</span>
-                  </div>
-                </div>
-
-                <div className="mt-3 space-y-1">
-                  {day.jobs.slice(0, 3).map((job: any) => (
-                    <div
-                      key={job.id || job.job_card_id || job.segment_id}
-                      className={`truncate rounded-lg px-2 py-1.5 text-[10px] font-semibold ${
-                        day.isToday ? "bg-primary-foreground/12 text-primary-foreground" : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      {jobCardRef(job)} · {String(job.current_stage || "-").toUpperCase()}
-                    </div>
-                  ))}
-                  {day.jobs.length > 3 ? (
-                    <p className={`text-[10px] font-semibold ${day.isToday ? "text-primary-foreground/55" : "text-muted-foreground"}`}>
-                      {day.jobs.length - 3} more jobs
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className={`mt-3 text-[11.5px] font-semibold ${day.isToday ? "text-primary-foreground/50" : "text-muted-foreground"}`}>
-                  {dominantStage || (day.isBeyondPlanningLimit ? "Beyond 3 months" : "Open day")}
-                </div>
-              </Link>
-            )
-          })}
-        </div>
-      </div>
-    </section>
   )
 
   if (loading) {
@@ -1394,7 +1269,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           </div>
         </section>
 
-        <KeyboardScheduleForm
+        {plannerView === "calendar" ? null : <KeyboardScheduleForm
           jobs={queuedJobs}
           machines={machineRows}
           dates={[day0, day1, day2]}
@@ -1403,9 +1278,19 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           onSelectJob={setKeyboardJob}
           onSchedule={scheduleSegment}
           busy={moveCard.isPending}
-        />
+        />}
 
-        {plannerView === "calendar" ? calendarBoard : (
+        {plannerView === "calendar" ? (
+          <PlannerCalendar
+            stage={stage}
+            jobs={allJobCards}
+            machines={machineRows.map((machine: any) => ({ id: String(machine.id), code: String(machine.code || machine.name || ""), capacity_value: machine.capacity_value, capacity_unit: machine.capacity_unit, status: machine.status }))}
+            monthDate={startDate}
+            maxPlannerDate={maxPlannerDate}
+            hrefFor={(next) => boardHref(next)}
+            onOpenCard={(id) => setSheetJobId(id)}
+          />
+        ) : (
         <div className="grid h-[calc(100vh-9rem)] min-h-[650px] min-w-0 gap-3 xl:grid-cols-[minmax(0,330px)_minmax(0,1fr)]">
           <aside className="min-h-0 min-w-0">
             <section className="flex h-full min-h-0 flex-col rounded-[1.65rem] border border-border bg-card p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
@@ -1447,6 +1332,18 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                   })}
                 </div>
               ) : null}
+
+              <div className="mt-2 flex shrink-0 items-center gap-2">
+                <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-input bg-card px-2.5 focus-within:ring-2 focus-within:ring-ring/30">
+                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <input aria-label="Search queue" value={queueSearch} onChange={(event) => setQueueSearch(event.target.value)} placeholder="Card, customer, size, color…" className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
+                </div>
+                <select aria-label="Sort queue" value={queueSort} onChange={(event) => setQueueSort(event.target.value as "due" | "qty" | "age")} className="h-9 rounded-lg border border-input bg-card px-2 text-[12px]">
+                  <option value="due">Due first</option>
+                  <option value="qty">Largest</option>
+                  <option value="age">Oldest</option>
+                </select>
+              </div>
 
               <div
                 className={`mt-3 shrink-0 rounded-[1.1rem] border border-dashed bg-muted/80 px-3 py-3 text-xs text-muted-foreground transition-all ${
@@ -1518,7 +1415,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
                                     <span data-testid={`planner-job-link:${plannerJobCardId(job)}`}>
-                                      {jobCardRef(job)}
+                                      <JobCardNo job={job} />
                                     </span>
                                   </p>
                                   <CarryForwardBadge job={job} />
@@ -1532,6 +1429,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                   <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                 </div>
                                 <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
+                                  {job.parchment_color ? <span className="h-2 w-2 shrink-0 rounded-full ring-1 ring-inset ring-black/15" style={{ background: swatchFor(job.parchment_color) }} title={job.parchment_color} /> : null}
                                   <span className="truncate font-semibold text-muted-foreground">{plannerSize(job)}</span>
                                   <span className="shrink-0 text-muted-foreground">|</span>
                                   <span className="truncate">{job.customer_name || "-"}</span>
@@ -1545,6 +1443,14 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                   </span>
                                 </div>
                                 <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-muted-foreground">
+                                  {job.parchment_color ? <ColorChip color={job.parchment_color} className="mr-auto !text-[11px]" /> : null}
+                                  <button
+                                    type="button"
+                                    onClick={(event) => { event.stopPropagation(); setHoverDetail(null); setSheetJobId(String(plannerJobCardId(job))) }}
+                                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground transition hover:bg-muted"
+                                  >
+                                    <Settings2 className="h-3 w-3" />Manage
+                                  </button>
                                   {(stage === "WINDER" || stage === "PROCESS") && Number(job.segment_planned_qty || 0) > 1 ? (
                                     <button
                                       type="button"
@@ -1743,6 +1649,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                           setKeyboardJob(job)
                                         }
                                       }}
+                                      onDoubleClick={() => { setHoverDetail(null); setSheetJobId(String(plannerJobCardId(job))) }}
                                       onMouseEnter={(event) => showJobDetail(event, job, "Pinned card")}
                                       onMouseMove={(event) => showJobDetail(event, job, "Pinned card")}
                                       onMouseLeave={() => setHoverDetail(null)}
@@ -1761,7 +1668,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                       <div className="flex min-w-0 items-center gap-2 pl-3">
                                         <p className="min-w-0 flex-1 truncate font-semibold text-foreground">
                                           <span data-testid={`planner-job-link:${plannerJobCardId(job)}`}>
-                                            {jobCardRef(job)}
+                                            <JobCardNo job={job} />
                                           </span>
                                         </p>
                                         <CarryForwardBadge job={job} />
@@ -1772,6 +1679,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                                         <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                       </div>
                                       <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-3 text-[9px] text-muted-foreground">
+                                        {job.parchment_color ? <span className="h-2 w-2 shrink-0 rounded-full ring-1 ring-inset ring-black/15" style={{ background: swatchFor(job.parchment_color) }} title={job.parchment_color} /> : null}
                                         <span className="truncate font-semibold">{plannerSize(job)}</span>
                                         <span className="shrink-0 text-muted-foreground">|</span>
                                         <span className="truncate">{job.customer_name || "-"}</span>
@@ -1819,6 +1727,8 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         </div>
         )}
       </div>
+
+      <JobCardLifecycleSheet jobCardId={sheetJobId} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) setSheetJobId(null) }} />
 
       {hoverDetail ? (
         <div

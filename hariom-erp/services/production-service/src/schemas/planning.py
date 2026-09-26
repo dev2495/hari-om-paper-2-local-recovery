@@ -148,6 +148,11 @@ class QueueJobCardItem(BaseModel):
     sales_order_id: UUID
     sales_order_line_id: Optional[UUID] = None
     release_lot_id: Optional[UUID] = None
+    job_card_no: Optional[str] = None
+    is_emergency: bool = False
+    missed_slot_open: bool = False
+    missed_slot_count: int = 0
+    split_kind: Optional[str] = None
     job_card_ref: Optional[str] = None
     stage_id: UUID
     stage_type: str

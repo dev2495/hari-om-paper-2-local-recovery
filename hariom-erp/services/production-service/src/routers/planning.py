@@ -4616,6 +4616,11 @@ def _queue_item_from_stage_row(
         else float(queue_entry.required_capacity or 0.0) if queue_entry.required_capacity is not None else None
     )
     return QueueJobCardItem(
+        job_card_no=getattr(job_card, "job_card_no", None),
+        is_emergency=bool(getattr(job_card, "is_emergency", False)),
+        missed_slot_open=bool(getattr(job_card, "missed_slot_open", False)),
+        missed_slot_count=int(getattr(job_card, "missed_slot_count", 0) or 0),
+        split_kind=getattr(job_card, "split_kind", None),
         queue_id=queue_entry.id,
         segment_id=queue_entry.id,
         job_card_id=job_card.id,
