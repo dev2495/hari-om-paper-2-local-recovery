@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dayjs from "dayjs"
-import { AlertTriangle, ClipboardList, Factory, Search, TimerReset, Truck } from "lucide-react"
+import { AlertTriangle, CalendarX2, ClipboardList, Factory, Search, TimerReset, Truck } from "lucide-react"
 import { useMemo, useState } from "react"
 
 import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
@@ -12,6 +12,9 @@ import { useCustomers } from "@/hooks/use-master-data"
 import { usePendingJobCardsByOrder } from "@/hooks/use-production"
 import { usePendingSalesOrders } from "@/hooks/use-sales"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
+import { ColorChip, JobCardNo } from "@/components/production/lifecycle-chips"
+import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
+import { useMissedSlotSweep, useMissedSlots } from "@/hooks/use-lifecycle"
 import { dueRiskLabel, overdueLabel } from "@/lib/due-risk"
 import { compactRef, jobCardRef } from "@/lib/job-card-display"
 
@@ -37,6 +40,11 @@ export default function PlanningTrackerPage() {
   const page = Math.max(0, Number(searchParams?.get("page") || 0))
   const pageSize = 25
   const [searchDraft, setSearchDraft] = useState(search)
+  const [sheetJobId, setSheetJobId] = useState<string | null>(null)
+  const [showResolvedMisses, setShowResolvedMisses] = useState(false)
+  useMissedSlotSweep()
+  const missedQuery = useMissedSlots(showResolvedMisses)
+  const missed: any[] = Array.isArray(missedQuery.data) ? missedQuery.data : []
 
   const pendingQuery = usePendingSalesOrders({
     search: search || undefined,
@@ -119,6 +127,45 @@ export default function PlanningTrackerPage() {
         <MetricCard label="Overdue" value={Number(summary.due_overdue_count || 0)} detail={summary.overdue_label || overdueLabel()} icon={TimerReset} tone="rose" />
         <MetricCard label="Dispatch Ready" value={Number(productionSummary.dispatch_ready_order_count || 0)} detail="At least one open card at dispatch" icon={Truck} tone="emerald" />
       </MetricRail>
+
+      <Panel
+        title="Missed slots"
+        subtitle="Scheduled cards with no floor entry 36 hours after their shift went back to the queue. Entering such a card later puts it back on the slot it ran in."
+        actions={
+          <label className="flex items-center gap-2 text-[12.5px] text-muted-foreground">
+            <input type="checkbox" checked={showResolvedMisses} onChange={(event) => setShowResolvedMisses(event.target.checked)} />
+            Include resolved
+          </label>
+        }
+      >
+        {missed.length ? (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="tube-grid">
+              <thead>
+                <tr><th>Job card</th><th>Customer · product</th><th>Color</th><th className="num">Qty</th><th>Missed slot</th><th className="num">Times</th><th>Now</th></tr>
+              </thead>
+              <tbody>
+                {missed.map((row) => (
+                  <tr key={row.job_card_id}>
+                    <td><button type="button" className="text-left hover:text-primary" onClick={() => setSheetJobId(row.job_card_id)}><JobCardNo job={{ ...row, id: row.job_card_id }} /></button></td>
+                    <td className="max-w-[240px] truncate">{row.customer_name || "—"} · {row.product_code || "—"}</td>
+                    <td>{row.parchment_color ? <ColorChip color={row.parchment_color} /> : "—"}</td>
+                    <td className="num">{Number(row.planned_qty || 0).toLocaleString("en-IN")}</td>
+                    <td className="whitespace-nowrap text-[12px]">
+                      <CalendarX2 className="mr-1 inline h-3.5 w-3.5 text-signal-amber-ink" />
+                      {row.last_missed_slot?.stage?.toLowerCase()} · {row.last_missed_slot?.plan_date ? dayjs(row.last_missed_slot.plan_date).format("DD MMM") : "—"} {String(row.last_missed_slot?.shift_code || "").replace("SHIFT_", "Shift ")}
+                    </td>
+                    <td className="num">{row.missed_slot_count}</td>
+                    <td className="text-[12px]">{row.missed_slot_open ? <span className="font-semibold text-signal-amber-ink">Back in queue — reschedule</span> : <span className="text-signal-emerald-ink">Resolved</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-[13px] text-muted-foreground">{missedQuery.isLoading ? "Checking slots…" : "No missed slots — every scheduled card has floor entries on time."}</p>
+        )}
+      </Panel>
 
       <Panel
         title="Sales Order Tracking Grid"
@@ -249,6 +296,7 @@ export default function PlanningTrackerPage() {
           onNext={() => replaceQuery({ page: String(page + 1) })}
         />
       </Panel>
+      <JobCardLifecycleSheet jobCardId={sheetJobId} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) setSheetJobId(null) }} />
     </div>
   )
 }

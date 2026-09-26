@@ -5,6 +5,7 @@ import { useEffect, useMemo } from "react"
 import { useParams, usePathname, useRouter } from "next/navigation"
 
 import JobCardDocument from "@/components/production/JobCardDocument"
+import { LiveFloorLog } from "@/components/production/live-floor-log"
 import { useAuth } from "@/context/AuthContext"
 
 export default function ProductionMobileEntryPage() {
@@ -73,6 +74,8 @@ export default function ProductionMobileEntryPage() {
             <Link href="/production/supervisor-entry" className="erp-btn-secondary !h-8">Scan another</Link>
           </div>
         </section>
+
+        <LiveFloorLog jobCardId={jobCardId} />
 
         <JobCardDocument jobCardId={jobCardId} mode="supervisor" />
       </div>
