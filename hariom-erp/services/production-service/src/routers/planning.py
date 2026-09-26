@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 import csv
@@ -99,6 +101,7 @@ from ..schemas.planning import (
 )
 from ..utils.auth import get_current_plant, get_current_plant_scope, require_role
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["planning"])
 settings = get_settings()
 
@@ -3100,6 +3103,9 @@ def _serialize_job_card_response(job_card: JobCard) -> JobCardResponse:
         is_emergency=bool(getattr(job_card, "is_emergency", False)),
         close_mode=getattr(job_card, "close_mode", None),
         returned_qty=float(getattr(job_card, "returned_qty", 0.0) or 0.0),
+        missed_slot_count=int(getattr(job_card, "missed_slot_count", 0) or 0),
+        missed_slot_open=bool(getattr(job_card, "missed_slot_open", False)),
+        last_missed_slot=getattr(job_card, "last_missed_slot", None),
         id=job_card.id,
         plant_id=job_card.plant_id,
         sales_order_id=job_card.sales_order_id,
@@ -3303,6 +3309,21 @@ def _move_or_split_segment(
     _sync_stage_row_from_segments(stage_row, _all_stage_segments(db, job_card.id, stage))
     open_count = len(_open_stage_segments(db, job_card.id, stage))
     return segment, open_count
+
+
+def _sweep_missed_slots_safely(db: Session, plant_id: Any) -> None:
+    """Scheduled-but-silent cards go back to the queue 36h after their shift (flagged)."""
+    from .missed_slots import sweep_missed_slots
+
+    try:
+        plant_uuid = _to_uuid(str(plant_id)) if plant_id and str(plant_id).upper() != "ALL" else None
+    except HTTPException:
+        plant_uuid = None
+    try:
+        sweep_missed_slots(db, plant_uuid)
+    except Exception as exc:  # pragma: no cover - never break a read over the sweep
+        db.rollback()
+        logger.warning("missed-slot sweep skipped: %s", exc)
 
 
 def _release_lot_color(line: dict[str, Any], release_lot_id: Optional[uuid.UUID]) -> Optional[str]:
@@ -5289,6 +5310,7 @@ def get_planning_board(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner"])),
 ):
+    _sweep_missed_slots_safely(db, None if plant_scope.get("scope_all") else plant_scope.get("selected_plant_id"))
     selected_stage = _normalize_stage(stage) if stage else None
     if plant_scope.get("scope_all"):
         return PlanningBoardResponse(
@@ -5595,6 +5617,7 @@ def list_planning_job_cards(
     plant_scope: dict = Depends(get_current_plant_scope),
     current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales", "Dispatch", "QC"])),
 ):
+    _sweep_missed_slots_safely(db, None if plant_scope.get("scope_all") else plant_scope.get("selected_plant_id"))
     query = (
         db.query(JobCard, SalesOrder)
         .options(selectinload(JobCard.stages))
@@ -5706,6 +5729,9 @@ def list_planning_job_cards(
                 is_emergency=bool(getattr(job_card, "is_emergency", False)),
                 close_mode=getattr(job_card, "close_mode", None),
                 returned_qty=float(getattr(job_card, "returned_qty", 0.0) or 0.0),
+                missed_slot_count=int(getattr(job_card, "missed_slot_count", 0) or 0),
+                missed_slot_open=bool(getattr(job_card, "missed_slot_open", False)),
+                last_missed_slot=getattr(job_card, "last_missed_slot", None),
                 id=job_card.id,
                 plant_id=job_card.plant_id,
                 sales_order_id=job_card.sales_order_id,
@@ -6063,6 +6089,9 @@ def get_planning_job_card(
         is_emergency=bool(getattr(job_card, "is_emergency", False)),
         close_mode=getattr(job_card, "close_mode", None),
         returned_qty=float(getattr(job_card, "returned_qty", 0.0) or 0.0),
+        missed_slot_count=int(getattr(job_card, "missed_slot_count", 0) or 0),
+        missed_slot_open=bool(getattr(job_card, "missed_slot_open", False)),
+        last_missed_slot=getattr(job_card, "last_missed_slot", None),
         id=job_card.id,
         plant_id=job_card.plant_id,
         sales_order_id=job_card.sales_order_id,
@@ -7221,6 +7250,9 @@ def capture_stage_output(
         if save_mode == "draft":
             raise HTTPException(status_code=400, detail="Completed stage cannot be edited")
         raise HTTPException(status_code=400, detail="Duplicate output entry is not allowed for this stage")
+    from .missed_slots import restore_missed_slot_for_late_entry
+
+    restore_missed_slot_for_late_entry(db, job_card, selected_stage, current_user.get("sub"), actor_role)
     segment = _resolve_active_segment(
         db,
         job_card=job_card,

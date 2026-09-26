@@ -80,3 +80,17 @@ def test_next_slot_rolls_shift_then_day_and_skips_holidays():
     assert next_slot(date(2026, 9, 27), "SHIFT_A") == (date(2026, 9, 27), "SHIFT_B")
     assert next_slot(date(2026, 9, 27), "SHIFT_B") == (date(2026, 9, 28), "SHIFT_A")
     assert next_slot(date(2026, 9, 27), "SHIFT_B", {date(2026, 9, 28)}) == (date(2026, 9, 29), "SHIFT_A")
+
+
+def test_missed_slot_is_36h_after_the_shift_ends_and_only_without_entries():
+    from datetime import datetime
+
+    from src.lifecycle_rules import is_missed_slot, missed_slot_deadline
+
+    # Shift A on the 25th ends 20:00 → requeue from 27th 08:00.
+    assert missed_slot_deadline(date(2026, 9, 25), "SHIFT_A") == datetime(2026, 9, 27, 8, 0)
+    # Shift B ends next morning 08:00 → requeue from 27th 20:00.
+    assert missed_slot_deadline(date(2026, 9, 25), "SHIFT_B") == datetime(2026, 9, 27, 20, 0)
+    assert not is_missed_slot(plan_date=date(2026, 9, 25), shift_code="SHIFT_A", has_any_entry=False, now_local=datetime(2026, 9, 27, 7, 59))
+    assert is_missed_slot(plan_date=date(2026, 9, 25), shift_code="SHIFT_A", has_any_entry=False, now_local=datetime(2026, 9, 27, 8, 0))
+    assert not is_missed_slot(plan_date=date(2026, 9, 25), shift_code="SHIFT_A", has_any_entry=True, now_local=datetime(2026, 9, 30))

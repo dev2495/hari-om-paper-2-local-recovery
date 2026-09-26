@@ -409,6 +409,8 @@ export const productionApi = {
   emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason: string }) =>
     api.post("/api/production/planning/emergency-insert", data),
   getWinderLoad: () => api.get("/api/production/planning/winder-load"),
+  sweepMissedSlots: () => api.post("/api/production/planning/missed-slots/sweep", {}),
+  getMissedSlots: (params?: { include_resolved?: boolean }) => api.get("/api/production/planning/missed-slots", { params }),
   reorderPlanningQueue: (data: any) => api.patch("/api/production/planning/queues/reorder", data),
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),

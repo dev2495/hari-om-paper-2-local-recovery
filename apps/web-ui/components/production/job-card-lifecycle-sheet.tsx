@@ -44,6 +44,8 @@ const EVENT_LABEL: Record<string, string> = {
   draft_saved: "Stage draft saved",
   stage_completed: "Stage completed",
   physical_output_recorded_restricted: "Output recorded under QC hold",
+  missed_slot_requeued: "Missed slot — back to queue",
+  missed_slot_late_entry: "Late entry — slot restored",
 }
 
 function eventText(event: JobCardLifecycle["events"][number]) {
@@ -59,6 +61,10 @@ function eventText(event: JobCardLifecycle["events"][number]) {
       return `Made ${fmt(p.made_qty)} · ${fmt(p.returned_qty)} pcs back to the order${p.reason ? ` — ${p.reason}` : ""}`
     case "job_card_emergency_insert":
       return `${p.plan_date} ${String(p.shift_code || "").replace("SHIFT_", "Shift ")}${Array.isArray(p.bumped) && p.bumped.length ? ` · ${p.bumped.length} card(s) pushed later` : ""}`
+    case "missed_slot_requeued":
+      return `${p.stage || ""} slot ${p.plan_date} ${String(p.shift_code || "").replace("SHIFT_", "Shift ")} had no entry for 36h`
+    case "missed_slot_late_entry":
+      return `Entered late; back on ${p.plan_date} ${String(p.shift_code || "").replace("SHIFT_", "Shift ")}`
     case "running_entry":
       return `${p.stage}: +${fmt(p.qty)} (total ${fmt(p.total)})${p.shift ? ` · ${String(p.shift).replace("SHIFT_", "Shift ")}` : ""}`
     default:
@@ -212,6 +218,15 @@ function LifecycleBody({
   return (
     <div className="space-y-4">
       <Stepper state={data.state} />
+      {data.missed_slot_open ? (
+        <div className="rounded-lg border border-signal-amber-line bg-signal-amber-soft px-3 py-2 text-[12.5px] text-signal-amber-ink">
+          <p className="font-semibold">Missed slot — back in the queue{data.missed_slot_count > 1 ? ` (${data.missed_slot_count}×)` : ""}</p>
+          <p className="mt-0.5">
+            Planned {data.last_missed_slot?.plan_date} {String(data.last_missed_slot?.shift_code || "").replace("SHIFT_", "Shift ")}, nothing was entered 36h after the shift.
+            Reschedule it on the board — or if it really ran, just enter it: the card returns to that slot automatically.
+          </p>
+        </div>
+      ) : null}
       <QtyBar data={data} />
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

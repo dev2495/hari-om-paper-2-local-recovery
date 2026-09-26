@@ -330,6 +330,18 @@ async def emergency_insert(request: Request, token: str = Depends(get_token)):
     return response
 
 
+@router.post("/planning/missed-slots/sweep")
+async def sweep_missed_slots(request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/missed-slots/sweep", request, token)
+    handoff_events.notify_missed_slots(response, request, token)
+    return response
+
+
+@router.get("/planning/missed-slots")
+async def list_missed_slots(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/missed-slots", request, token)
+
+
 @router.get("/planning/winder-load")
 async def get_winder_load(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/winder-load", request, token)

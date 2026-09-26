@@ -38,6 +38,7 @@ from ..lifecycle_rules import (
 from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment
 from ..schemas.planning import ReorderQueuePayload
 from ..utils.auth import get_current_plant, require_role
+from .missed_slots import restore_missed_slot_for_late_entry, sweep_missed_slots
 from .planning import (
     PLANT_TIMEZONE,
     _all_stage_segments,
@@ -276,6 +277,9 @@ def get_job_card_lifecycle(
         "output_tolerance_pct": round(OUTPUT_TOLERANCE * 100),
         "max_output_qty": round(float(job.planned_qty or 0.0) * (1 + OUTPUT_TOLERANCE), 2),
         "close_mode": job.close_mode,
+        "missed_slot_count": int(job.missed_slot_count or 0),
+        "missed_slot_open": bool(job.missed_slot_open),
+        "last_missed_slot": job.last_missed_slot,
         "close_reason": job.close_reason,
         "closed_at": job.closed_at,
         "closed_by": job.closed_by,
@@ -657,6 +661,8 @@ def add_running_entry(
     """Log output as it happens. Winder and oven run together on one card/lot; the oven
     can never be ahead of what was wound, and the winder may run up to +10% over plan."""
     job = _load_job(db, job_card_id, plant_id)
+    if restore_missed_slot_for_late_entry(db, job, payload.stage, current_user.get("sub"), _current_actor_role(current_user)):
+        db.flush()
     state, _ = _state(db, job)
     if state not in {"SCHEDULED", "RUNNING", "FORCE_CLOSED"}:
         raise HTTPException(status_code=409, detail="Put the card on the schedule before recording output")
@@ -779,3 +785,48 @@ def winder_queue_load(
             for key, value in sorted(machines.items())
         ],
     }
+
+
+# ── missed slots (scheduled, no entry for 36h after the shift) ─────────────
+
+
+@router.post("/planning/missed-slots/sweep")
+def run_missed_slot_sweep(
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales"])),
+):
+    """Requeue overdue silent cards now; returns the ones moved (BFF notifies the planners)."""
+    plant_uuid = None if str(plant_id).upper() == "ALL" else _to_uuid(plant_id)
+    return {"requeued": sweep_missed_slots(db, plant_uuid)}
+
+
+@router.get("/planning/missed-slots")
+def list_missed_slots(
+    include_resolved: bool = False,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales", "QC", "Store"])),
+):
+    query = db.query(JobCard).filter(JobCard.missed_slot_count > 0)
+    if str(plant_id).upper() != "ALL":
+        query = query.filter(JobCard.plant_id == _to_uuid(plant_id))
+    if not include_resolved:
+        query = query.filter(JobCard.missed_slot_open.is_(True))
+    rows = query.order_by(JobCard.created_at.desc()).limit(200).all()
+    return [
+        {
+            "job_card_id": str(row.id),
+            "job_card_no": row.job_card_no,
+            "status": row.status,
+            "planned_qty": float(row.planned_qty or 0.0),
+            "parchment_color": row.parchment_color,
+            "missed_slot_count": int(row.missed_slot_count or 0),
+            "missed_slot_open": bool(row.missed_slot_open),
+            "last_missed_slot": row.last_missed_slot,
+            "sales_order_id": str(row.sales_order_id),
+            "customer_name": (row.spec_snapshot or {}).get("customer_name_snapshot") or (row.spec_snapshot or {}).get("customer_name"),
+            "product_code": row.product_code,
+        }
+        for row in rows
+    ]

@@ -137,6 +137,10 @@ class JobCard(Base):
     returned_qty = Column(Float, nullable=False, default=0.0)
     closed_at = Column(DateTime, nullable=True)
     closed_by = Column(String(200), nullable=True)
+    # Scheduled but no floor entry 36h after the slot → put back in queue and flagged.
+    missed_slot_count = Column(Integer, nullable=False, default=0)
+    missed_slot_open = Column(Boolean, nullable=False, default=False)
+    last_missed_slot = Column(JSONB, nullable=True)
 
     sales_order = relationship("SalesOrder", back_populates="job_cards")
     stages = relationship("JobCardStage", back_populates="job_card", cascade="all, delete-orphan")

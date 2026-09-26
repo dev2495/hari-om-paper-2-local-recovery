@@ -478,3 +478,31 @@ def notify_lifecycle(response: Response, request: Request, token: str, job_card_
         await _emit(token, plant_id=str(card.get("plant_id") or plant_hint or "") or None, **spec)
 
     run_in_background(send)
+
+
+def notify_missed_slots(response: Response, request: Request, token: str) -> None:
+    """Cards put back in queue because nothing was entered 36h after their shift."""
+    if not _ok(response):
+        return
+    result = response_body_json(response) or {}
+    rows = result.get("requeued") if isinstance(result, dict) else None
+    if not rows:
+        return
+
+    async def send() -> None:
+        for row in rows[:20]:
+            slot = f"{row.get('plan_date')} {str(row.get('shift_code') or '').replace('SHIFT_', 'Shift ')}".strip()
+            await _emit(
+                token,
+                event_type="JOB_CARD_MISSED_SLOT",
+                title=f"{row.get('job_card_no') or 'Job card'} back in queue — no entry for its {row.get('stage', '').lower()} slot",
+                message=f"Scheduled {slot}, nothing recorded 36h after the shift. Reschedule it, or enter the card if it really ran (the slot is restored).",
+                href="/planning/board",
+                recipient_roles=["Planner", "PlantManager", "Operator"],
+                role_context="Planner",
+                plant_id=str(row.get("plant_id") or "") or None,
+                payload={"job_card_id": row.get("job_card_id"), "action": "reschedule", "priority": "action"},
+                event_id=f"missed-slot:{row.get('job_card_id')}:{row.get('stage')}:{row.get('count')}",
+            )
+
+    run_in_background(send)

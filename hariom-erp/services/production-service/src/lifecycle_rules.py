@@ -16,7 +16,7 @@ Output tolerance: planning is exact, but a shift may produce up to +10% over its
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Iterable, Optional, Sequence
 
 import math
@@ -156,3 +156,26 @@ def plan_bump(slot: Sequence[SegmentView], capacity: float, pinned_ids: Iterable
         moved.append(segment.id)
         load -= float(segment.load or 0.0)
     return moved
+
+
+# ── missed slots ──────────────────────────────────────────────────────────
+MISSED_SLOT_HOURS = 36
+SHIFT_START = {"SHIFT_A": time(8, 0), "SHIFT_B": time(20, 0)}
+SHIFT_HOURS = 12
+
+
+def slot_end(plan_date: date, shift_code: Optional[str]) -> datetime:
+    """Plant-local end of a planned shift (A 08:00–20:00, B 20:00–08:00)."""
+    start = datetime.combine(plan_date, SHIFT_START.get(shift_code or "", time(8, 0)))
+    return start + timedelta(hours=SHIFT_HOURS)
+
+
+def missed_slot_deadline(plan_date: date, shift_code: Optional[str], hours: int = MISSED_SLOT_HOURS) -> datetime:
+    """When a scheduled card with no floor entry at all goes back to the queue."""
+    return slot_end(plan_date, shift_code) + timedelta(hours=hours)
+
+
+def is_missed_slot(*, plan_date: Optional[date], shift_code: Optional[str], has_any_entry: bool, now_local: datetime) -> bool:
+    if plan_date is None or has_any_entry:
+        return False
+    return now_local >= missed_slot_deadline(plan_date, shift_code)

@@ -83,6 +83,9 @@ class JobCardResponse(BaseModel):
     is_emergency: bool = False
     close_mode: Optional[str] = None
     returned_qty: float = 0.0
+    missed_slot_count: int = 0
+    missed_slot_open: bool = False
+    last_missed_slot: Optional[dict[str, Any]] = None
     id: UUID
     plant_id: UUID
     sales_order_id: UUID
@@ -397,6 +400,9 @@ class JobCardPlannerSummary(BaseModel):
     is_emergency: bool = False
     close_mode: Optional[str] = None
     returned_qty: float = 0.0
+    missed_slot_count: int = 0
+    missed_slot_open: bool = False
+    last_missed_slot: Optional[dict[str, Any]] = None
     id: UUID
     plant_id: UUID
     sales_order_id: UUID
@@ -571,6 +577,9 @@ class JobCardPlanningDetail(BaseModel):
     is_emergency: bool = False
     close_mode: Optional[str] = None
     returned_qty: float = 0.0
+    missed_slot_count: int = 0
+    missed_slot_open: bool = False
+    last_missed_slot: Optional[dict[str, Any]] = None
     id: UUID
     plant_id: UUID
     sales_order_id: UUID

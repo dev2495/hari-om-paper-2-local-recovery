@@ -1,6 +1,6 @@
 "use client"
 
-import { Ban, CalendarCheck2, CheckCircle2, Clock3, Flame, Loader, Scissors, Undo2 } from "lucide-react"
+import { Ban, CalendarCheck2, CalendarX2, CheckCircle2, Clock3, Flame, Loader, Scissors, Undo2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 
@@ -82,6 +82,14 @@ export function JobCardNo({ job, className }: { job: any; className?: string }) 
       {job?.is_emergency ? (
         <span title="Emergency — runs first" className="inline-flex h-[18px] items-center gap-0.5 rounded bg-signal-rose-soft px-1 text-[10.5px] font-bold text-signal-rose-ink ring-1 ring-inset ring-signal-rose-line">
           <Flame className="h-3 w-3" />Emergency
+        </span>
+      ) : null}
+      {job?.missed_slot_open ? (
+        <span
+          title={`No floor entry 36h after its ${job?.last_missed_slot?.plan_date || ""} ${String(job?.last_missed_slot?.shift_code || "").replace("SHIFT_", "Shift ")} slot — put back in queue${Number(job?.missed_slot_count || 0) > 1 ? ` (${job.missed_slot_count} times)` : ""}`}
+          className="inline-flex h-[18px] items-center gap-0.5 rounded bg-signal-amber-soft px-1 text-[10.5px] font-bold text-signal-amber-ink ring-1 ring-inset ring-signal-amber-line"
+        >
+          <CalendarX2 className="h-3 w-3" />Missed slot{Number(job?.missed_slot_count || 0) > 1 ? ` ×${job.missed_slot_count}` : ""}
         </span>
       ) : null}
       {child ? (

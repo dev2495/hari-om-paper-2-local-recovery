@@ -12,6 +12,7 @@ import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/com
 import { QuerySwitch } from "@/components/workspace/query-state"
 import { ColorChip, JobCardNo, LifecycleBadge, lifecycleFromSummary } from "@/components/production/lifecycle-chips"
 import { JobCardLifecycleSheet, type LifecycleAction } from "@/components/production/job-card-lifecycle-sheet"
+import { useMissedSlotSweep } from "@/hooks/use-lifecycle"
 import { useMachines, useJobCardAggregates, usePlanningJobCards } from "@/hooks/use-production"
 import { productionApi } from "@/lib/api"
 import { dueRiskLabel, overdueLabel } from "@/lib/due-risk"
@@ -71,6 +72,7 @@ export default function JobCardsPage() {
   const deferredSearch = useDeferredValue(search.trim())
   const machinesQuery = useMachines()
   const aggregatesQuery = useJobCardAggregates()
+  useMissedSlotSweep()
 
   const jobCardsQuery = usePlanningJobCards(
     {

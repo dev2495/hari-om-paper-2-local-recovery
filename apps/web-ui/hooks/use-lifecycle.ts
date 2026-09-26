@@ -24,6 +24,9 @@ export type JobCardLifecycle = {
   output_tolerance_pct: number
   max_output_qty: number
   close_mode: string | null
+  missed_slot_count: number
+  missed_slot_open: boolean
+  last_missed_slot: { stage?: string; machine_id?: string | null; plan_date?: string; shift_code?: string | null; requeued_at?: string } | null
   close_reason: string | null
   closed_at: string | null
   closed_by: string | null
@@ -103,4 +106,29 @@ export function apiErrorText(error: any, fallback = "Something went wrong") {
   if (detail?.message) return String(detail.message)
   if (Array.isArray(detail)) return detail.map((row: any) => row?.msg || String(row)).join("; ")
   return error?.message || fallback
+}
+
+/** Run the 36h missed-slot sweep when a planning view opens (at most every 10 min per tab). */
+export function useMissedSlotSweep(enabled = true) {
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: ["missed-slot-sweep"],
+    queryFn: async () => {
+      const { data } = await productionApi.sweepMissedSlots()
+      if (Array.isArray(data?.requeued) && data.requeued.length) invalidateJobCardViews(queryClient)
+      return data as { requeued: any[] }
+    },
+    enabled,
+    staleTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: false,
+  })
+}
+
+export function useMissedSlots(includeResolved = false) {
+  return useQuery({
+    queryKey: ["missed-slots", includeResolved],
+    queryFn: async () => (await productionApi.getMissedSlots({ include_resolved: includeResolved })).data as any[],
+    staleTime: 60_000,
+  })
 }

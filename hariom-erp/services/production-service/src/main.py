@@ -126,6 +126,10 @@ def _ensure_schema_compatibility():
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP",
         "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS closed_by VARCHAR(200)",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_cards_job_card_no ON job_cards (job_card_no) WHERE job_card_no IS NOT NULL",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS missed_slot_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS missed_slot_open BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS last_missed_slot JSONB",
+        "CREATE INDEX IF NOT EXISTS ix_segments_missed_slot_scan ON job_card_stage_segments (status, plan_date) WHERE status = 'ASSIGNED'",
         "CREATE INDEX IF NOT EXISTS ix_job_cards_parent ON job_cards (parent_job_card_id)",
         # Carry-forward cards were minted with a deterministic uuid5; link them to their source.
         "UPDATE job_cards c SET split_kind = 'CARRY_FORWARD', parent_job_card_id = s.job_card_id "
