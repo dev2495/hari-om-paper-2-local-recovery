@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from sqlalchemy import text
 from .database import Base, engine
-from .routers import dispatch, jobs, operations, planning, quality, reconciliation, reel_issue, reports
+from .routers import dispatch, jobs, lifecycle, operations, planning, quality, reconciliation, reel_issue, reports
 
 Base.metadata.create_all(bind=engine)
 
@@ -114,6 +114,37 @@ def _ensure_schema_compatibility():
         # reconciliation report, and the per-shift capacity check that runs on
         # every stage completion.
         "CREATE INDEX IF NOT EXISTS ix_job_cards_plant_created ON job_cards (plant_id, created_at DESC)",
+        # Job card lifecycle: human number, color, split lineage, emergency, force-close.
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS job_card_no VARCHAR(24)",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS parent_job_card_id UUID",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS split_kind VARCHAR(20)",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS parchment_color VARCHAR(100)",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS is_emergency BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_mode VARCHAR(20)",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS close_reason TEXT",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS returned_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP",
+        "ALTER TABLE job_cards ADD COLUMN IF NOT EXISTS closed_by VARCHAR(200)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_job_cards_job_card_no ON job_cards (job_card_no) WHERE job_card_no IS NOT NULL",
+        "CREATE INDEX IF NOT EXISTS ix_job_cards_parent ON job_cards (parent_job_card_id)",
+        # Carry-forward cards were minted with a deterministic uuid5; link them to their source.
+        "UPDATE job_cards c SET split_kind = 'CARRY_FORWARD', parent_job_card_id = s.job_card_id "
+        "FROM job_card_short_close s WHERE s.carry_forward_job_card_id = c.id AND c.parent_job_card_id IS NULL",
+        # Color from the frozen snapshot for cards released before colors lived on the card.
+        "UPDATE job_cards SET parchment_color = NULLIF(COALESCE(spec_snapshot->>'sales_order_line_parchment_color', spec_snapshot->>'parchment_color'), '') "
+        "WHERE parchment_color IS NULL AND COALESCE(spec_snapshot->>'sales_order_line_parchment_color', '') NOT IN ('', 'Multiple colors')",
+        # Number existing root cards YY/MM/NN in creation order (series per month), then children ROOT-A, -B …
+        "WITH ranked AS (SELECT id, to_char(created_at, 'YY/MM/') AS prefix, to_char(created_at, 'YYMM') AS mk, "
+        "row_number() OVER (PARTITION BY to_char(created_at, 'YYMM') ORDER BY created_at, id) + "
+        "COALESCE((SELECT last_seq FROM job_card_number_counters k WHERE k.month_key = to_char(j.created_at, 'YYMM')), 0) AS rn "
+        "FROM job_cards j WHERE job_card_no IS NULL AND parent_job_card_id IS NULL) "
+        "UPDATE job_cards j SET job_card_no = ranked.prefix || lpad(ranked.rn::text, 2, '0') FROM ranked WHERE j.id = ranked.id",
+        "INSERT INTO job_card_number_counters (month_key, last_seq) "
+        "SELECT to_char(created_at, 'YYMM'), COUNT(*) FROM job_cards WHERE parent_job_card_id IS NULL GROUP BY 1 "
+        "ON CONFLICT (month_key) DO UPDATE SET last_seq = GREATEST(job_card_number_counters.last_seq, EXCLUDED.last_seq)",
+        "WITH kids AS (SELECT c.id, p.job_card_no AS root, row_number() OVER (PARTITION BY c.parent_job_card_id ORDER BY c.created_at, c.id) AS n "
+        "FROM job_cards c JOIN job_cards p ON p.id = c.parent_job_card_id WHERE c.job_card_no IS NULL AND p.job_card_no IS NOT NULL) "
+        "UPDATE job_cards j SET job_card_no = kids.root || '-' || chr(64 + LEAST(kids.n, 26)::int) FROM kids WHERE j.id = kids.id",
         "CREATE INDEX IF NOT EXISTS ix_job_cards_release_lot ON job_cards (release_lot_id)",
         "CREATE INDEX IF NOT EXISTS ix_job_cards_sales_order_line ON job_cards (sales_order_line_id)",
         "CREATE INDEX IF NOT EXISTS ix_job_card_stages_entered_at ON job_card_stages (entered_at)",
@@ -138,6 +169,7 @@ app = FastAPI(
 )
 
 app.include_router(jobs.router)
+app.include_router(lifecycle.router)
 app.include_router(planning.router)
 app.include_router(reel_issue.router)
 app.include_router(reports.router)

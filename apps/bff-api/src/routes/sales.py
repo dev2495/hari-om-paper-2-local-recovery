@@ -194,6 +194,11 @@ async def release_order(order_id: str, request: Request, token: str = Depends(ge
     return response
 
 
+@router.put("/orders/lines/{line_id}/colors")
+async def update_line_colors(line_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/lines/{line_id}/colors", request, token)
+
+
 @router.post("/orders/lines/{line_id}/release")
 async def release_order_line(line_id: str, request: Request, token: str = Depends(get_token)):
     response = await proxy_to_service(SALES_SERVICE_URL, f"/sales-orders/lines/{line_id}/release", request, token)

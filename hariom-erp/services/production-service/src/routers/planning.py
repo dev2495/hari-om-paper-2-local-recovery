@@ -19,6 +19,8 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
 from ..database import get_db
+from ..job_card_numbering import allocate_child_job_card_no, allocate_job_card_no
+from ..lifecycle_rules import OUTPUT_TOLERANCE, planned_in_stage_units, within_output_tolerance
 from ..models import (
     AuditEvent,
     Dispatch,
@@ -1777,13 +1779,20 @@ def _validate_execution_capacity(
             output_qty=float(output_qty or 0.0),
             spec_snapshot=stage_row.job_card.spec_snapshot or {},
         )
-        if projected > capacity:
+        # Planning is exact; the floor may beat the plan by up to +10% in a shift.
+        tolerance_cap = capacity * (1.0 + OUTPUT_TOLERANCE)
+        if projected > tolerance_cap and not override_reason:
             raise HTTPException(
                 status_code=409,
                 detail=(
-                    f"{stage} capacity exceeded for {normalized_shift}. "
-                    f"Projected {projected:.2f} {capacity_unit} > shift capacity {capacity:.2f} {capacity_unit}."
+                    f"{stage} output is past the +{int(OUTPUT_TOLERANCE * 100)}% shift tolerance for {normalized_shift}. "
+                    f"Projected {projected:.2f} {capacity_unit} > {tolerance_cap:.2f} {capacity_unit} "
+                    f"(capacity {capacity:.2f}). Add an override reason if this is real."
                 ),
+            )
+        if projected > capacity and warnings is not None:
+            warnings.append(
+                f"{stage} shift output is {projected / capacity * 100 - 100:.1f}% over capacity — inside the +{int(OUTPUT_TOLERANCE * 100)}% tolerance."
             )
 
     if stage == "OVEN":
@@ -2184,6 +2193,9 @@ def _reference_search_terms(value: str) -> list[str]:
 
 
 def _lot_number_for_job_card(job_card: JobCard) -> str:
+    # One job card is one client batch/lot: the lot number is the job card number.
+    if getattr(job_card, "job_card_no", None):
+        return str(job_card.job_card_no)
     created_at = getattr(job_card, "created_at", None)
     created_on = created_at.date() if created_at else datetime.utcnow().date()
     short_ref = str(job_card.id).replace("-", "")[:6].upper()
@@ -3082,6 +3094,12 @@ def _lifecycle_label_for(job_card: JobCard) -> str:
 
 def _serialize_job_card_response(job_card: JobCard) -> JobCardResponse:
     return JobCardResponse(
+        job_card_no=getattr(job_card, "job_card_no", None),
+        parent_job_card_id=getattr(job_card, "parent_job_card_id", None),
+        split_kind=getattr(job_card, "split_kind", None),
+        is_emergency=bool(getattr(job_card, "is_emergency", False)),
+        close_mode=getattr(job_card, "close_mode", None),
+        returned_qty=float(getattr(job_card, "returned_qty", 0.0) or 0.0),
         id=job_card.id,
         plant_id=job_card.plant_id,
         sales_order_id=job_card.sales_order_id,
@@ -3287,6 +3305,13 @@ def _move_or_split_segment(
     return segment, open_count
 
 
+def _release_lot_color(line: dict[str, Any], release_lot_id: Optional[uuid.UUID]) -> Optional[str]:
+    for lot in line.get("release_lots") or []:
+        if str(lot.get("release_lot_id") or lot.get("id")) == str(release_lot_id or ""):
+            return (str(lot.get("parchment_color") or "").strip() or None)
+    return None
+
+
 def _create_or_sync_job_card_for_line(
     *,
     db: Session,
@@ -3301,6 +3326,7 @@ def _create_or_sync_job_card_for_line(
     token: str,
     plant_id: str,
     current_user: dict,
+    parchment_color: Optional[str] = None,
 ) -> tuple[JobCard, bool]:
     line_spec_id_raw = line.get("approved_spec_id")
     if not line_spec_id_raw:
@@ -3390,7 +3416,13 @@ def _create_or_sync_job_card_for_line(
     )
 
     spec = _fetch_spec(line_spec_id, token, plant_id)
+    lot_color = (parchment_color or "").strip() or _release_lot_color(line, release_lot_id)
     line_payload = {**line, "product_code": product_code or line.get("product_code")}
+    if lot_color:
+        # One job card = one color: the lot's color is the ordered color for this card.
+        line_payload["parchment_color"] = lot_color
+    elif bool(line.get("parchment_required")) and str(line.get("parchment_color") or "") in {"", "Multiple colors"}:
+        raise HTTPException(status_code=400, detail="This release has no parchment color. Choose one color per job card before release.")
     spec_snapshot, routing_snapshot, material_plan_snapshot, requires_slitting = _build_job_card_snapshots(
         spec=spec,
         line=line_payload,
@@ -3463,6 +3495,8 @@ def _create_or_sync_job_card_for_line(
         status="PLANNED",
         current_stage=first_stage,
         requires_slitting=requires_slitting,
+        parchment_color=(line_payload.get("parchment_color") if bool(line.get("parchment_required")) else None),
+        job_card_no=allocate_job_card_no(db),
     )
     db.add(job_card)
     db.flush()
@@ -4588,7 +4622,7 @@ def _queue_item_from_stage_row(
         current_stage=job_card.current_stage,
         product_code=job_card.product_code or spec_snapshot.get("product_code"),
         product_size_label=math_context["product_size_label"],
-        parchment_color=spec_snapshot.get("sales_order_line_parchment_color") or spec_snapshot.get("parchment_color"),
+        parchment_color=getattr(job_card, "parchment_color", None) or spec_snapshot.get("sales_order_line_parchment_color") or spec_snapshot.get("parchment_color"),
         released_qty=float(job_card.released_qty or 0.0),
         assigned_winder_machine_id=str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
         customer_id=spec_snapshot.get("customer_id"),
@@ -5145,6 +5179,7 @@ def sync_released_sales_order(
                 token=token,
                 plant_id=plant_id,
                 current_user=current_user,
+                parchment_color=requested_row.parchment_color,
             )
             line_results.append(
                 ReleaseSyncLineResult(
@@ -5613,6 +5648,8 @@ def list_planning_job_cards(
                     ref_conditions.extend(
                         [
                             cast(JobCard.id, String).ilike(needle),
+                            JobCard.job_card_no.ilike(needle),
+                            JobCard.parchment_color.ilike(needle),
                             cast(JobCard.release_lot_id, String).ilike(needle),
                             cast(JobCard.sales_order_id, String).ilike(needle),
                             JobCard.product_code.ilike(needle),
@@ -5663,6 +5700,12 @@ def list_planning_job_cards(
         )
         response.append(
             JobCardPlannerSummary(
+                job_card_no=getattr(job_card, "job_card_no", None),
+                parent_job_card_id=getattr(job_card, "parent_job_card_id", None),
+                split_kind=getattr(job_card, "split_kind", None),
+                is_emergency=bool(getattr(job_card, "is_emergency", False)),
+                close_mode=getattr(job_card, "close_mode", None),
+                returned_qty=float(getattr(job_card, "returned_qty", 0.0) or 0.0),
                 id=job_card.id,
                 plant_id=job_card.plant_id,
                 sales_order_id=job_card.sales_order_id,
@@ -5674,7 +5717,7 @@ def list_planning_job_cards(
                 assigned_winder_machine_id=str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
                 product_code=job_card.product_code or spec_snapshot.get("product_code"),
                 product_size_label=math_context["product_size_label"],
-                parchment_color=spec_snapshot.get("sales_order_line_parchment_color") or spec_snapshot.get("parchment_color"),
+                parchment_color=getattr(job_card, "parchment_color", None) or spec_snapshot.get("sales_order_line_parchment_color") or spec_snapshot.get("parchment_color"),
                 active_segment_id=str(active_segment.id) if active_segment else None,
                 active_segment_status=str(active_segment.status) if active_segment else None,
                 active_segment_machine_id=planner_gate["active_segment_machine_id"],
@@ -6014,6 +6057,12 @@ def get_planning_job_card(
     )
 
     return JobCardPlanningDetail(
+        job_card_no=getattr(job_card, "job_card_no", None),
+        parent_job_card_id=getattr(job_card, "parent_job_card_id", None),
+        split_kind=getattr(job_card, "split_kind", None),
+        is_emergency=bool(getattr(job_card, "is_emergency", False)),
+        close_mode=getattr(job_card, "close_mode", None),
+        returned_qty=float(getattr(job_card, "returned_qty", 0.0) or 0.0),
         id=job_card.id,
         plant_id=job_card.plant_id,
         sales_order_id=job_card.sales_order_id,
@@ -6027,7 +6076,7 @@ def get_planning_job_card(
         status=job_card.status,
         current_stage=job_card.current_stage,
         requires_slitting=bool(job_card.requires_slitting),
-        job_card_ref=_format_ref("JC", job_card.id),
+        job_card_ref=getattr(job_card, "job_card_no", None) or _format_ref("JC", job_card.id),
         sales_order_ref=_format_ref("SO", sales_order.id if sales_order else job_card.sales_order_id),
         spec_snapshot=effective_snapshot,
         routing_snapshot=job_card.routing_snapshot or {},
@@ -6511,7 +6560,7 @@ def get_job_card_genealogy(
     return {
         "job_card": {
             "id": str(job_card.id),
-            "job_card_ref": _format_ref("JC", job_card.id),
+            "job_card_ref": getattr(job_card, "job_card_no", None) or _format_ref("JC", job_card.id),
             "plant_id": str(job_card.plant_id),
             "sales_order_id": str(job_card.sales_order_id) if job_card.sales_order_id else None,
             "sales_order_line_id": str(job_card.sales_order_line_id) if job_card.sales_order_line_id else None,
@@ -7516,6 +7565,17 @@ def capture_stage_output(
             warnings=time_warnings,
         )
 
+    segment_planned = planned_in_stage_units(
+        selected_stage, float(segment.planned_qty or 0.0), _pcs_per_bamboo_from_snapshot(job_card.spec_snapshot or {})
+    )
+    if segment_planned > 0 and not within_output_tolerance(segment_planned, float(payload.output_qty or 0.0)) and not override_reason:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{selected_stage} output {float(payload.output_qty or 0.0):,.0f} is more than +{int(OUTPUT_TOLERANCE * 100)}% "
+                f"over the planned {segment_planned:,.0f} for this shift. Add an override reason if this is real."
+            ),
+        )
     segment.started_at = actual_start_value
     segment.completed_at = actual_end_value or now
     segment.input_qty = payload.input_qty if payload.input_qty is not None else segment.input_qty

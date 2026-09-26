@@ -125,6 +125,18 @@ class JobCard(Base):
     current_stage = Column(String(20), nullable=False, default="WINDER")
     requires_slitting = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    # Human job card number YY/MM/NN (series restarts monthly); splits/rework add -A, -B …
+    job_card_no = Column(String(24), nullable=True, unique=True)
+    parent_job_card_id = Column(UUID(as_uuid=True), nullable=True, index=True)
+    split_kind = Column(String(20), nullable=True)  # SPLIT | CARRY_FORWARD | REWORK
+    # One job card = one parchment color (None for plain tubes).
+    parchment_color = Column(String(100), nullable=True)
+    is_emergency = Column(Boolean, nullable=False, default=False)
+    close_mode = Column(String(20), nullable=True)  # FORCE | CANCELLED
+    close_reason = Column(Text, nullable=True)
+    returned_qty = Column(Float, nullable=False, default=0.0)
+    closed_at = Column(DateTime, nullable=True)
+    closed_by = Column(String(200), nullable=True)
 
     sales_order = relationship("SalesOrder", back_populates="job_cards")
     stages = relationship("JobCardStage", back_populates="job_card", cascade="all, delete-orphan")
@@ -142,6 +154,15 @@ class JobCard(Base):
         ),
         CheckConstraint("planned_qty > 0", name="ck_job_cards_qty_positive"),
     )
+
+
+class JobCardNumberCounter(Base):
+    """Atomic monthly allocator for YY/MM/NN job card numbers."""
+
+    __tablename__ = "job_card_number_counters"
+
+    month_key = Column(String(4), primary_key=True)  # YYMM
+    last_seq = Column(Integer, nullable=False, default=0)
 
 
 class JobCardStage(Base):

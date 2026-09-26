@@ -57,6 +57,20 @@ def _ensure_schema_compatibility():
             "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS hold_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
             "ALTER TABLE sales_order_lines ADD COLUMN IF NOT EXISTS size_label VARCHAR(160)",
             "CREATE INDEX IF NOT EXISTS ix_sales_orders_expiry_date ON sales_orders (expiry_date)",
+            # Color breakup per line + one color per release lot (job card = one color).
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS parchment_color VARCHAR(100)",
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS parchment_color_id UUID",
+            "ALTER TABLE sales_order_release_lots ADD COLUMN IF NOT EXISTS returned_qty DOUBLE PRECISION NOT NULL DEFAULT 0",
+            "CREATE INDEX IF NOT EXISTS ix_sales_order_line_colors_line ON sales_order_line_colors (sales_order_line_id)",
+            # Existing single-color lines become one split for the full line qty (behaviour unchanged).
+            "INSERT INTO sales_order_line_colors (id, sales_order_line_id, color_id, color, qty, created_at) "
+            "SELECT md5('hariom-line-color:' || l.id::text)::uuid, l.id, l.parchment_color_id, l.parchment_color, l.qty, NOW() "
+            "FROM sales_order_lines l "
+            "WHERE COALESCE(l.parchment_required, FALSE) AND l.parchment_color IS NOT NULL AND btrim(l.parchment_color) <> '' "
+            "AND NOT EXISTS (SELECT 1 FROM sales_order_line_colors c WHERE c.sales_order_line_id = l.id)",
+            "UPDATE sales_order_release_lots r SET parchment_color = l.parchment_color, parchment_color_id = l.parchment_color_id "
+            "FROM sales_order_lines l WHERE r.sales_order_line_id = l.id AND r.parchment_color IS NULL "
+            "AND COALESCE(l.parchment_required, FALSE) AND l.parchment_color IS NOT NULL",
             # Default validity for orders created before expiry existed: PO/order date + 45 days.
             "UPDATE sales_orders SET expiry_date = COALESCE(po_date, internal_order_date, created_at::date) + 45 "
             "WHERE expiry_date IS NULL AND COALESCE(po_date, internal_order_date, created_at::date) IS NOT NULL",

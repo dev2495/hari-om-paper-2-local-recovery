@@ -212,13 +212,8 @@ def resolve_parchment_variant(
         return False, None, None
 
     if parchment_required is True:
-        if not color and color_id is None:
-            prefix = f"Line {line_no}: " if line_no else ""
-            raise SalesCommercialError(
-                f"{prefix}Parchment color is required when parchment is required.",
-                field="parchment_color",
-                line_no=line_no,
-            )
+        # Color may be decided later (split per color at placement or at release);
+        # release enforces one color per lot.
         return True, color_id, color
 
     # Legacy clients sent only the color snapshot. Infer the boolean from it.

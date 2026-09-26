@@ -20,6 +20,17 @@ from ..models import (
     SalesOrderReleaseLot,
     SalesOrderStatus,
     SalesOrderDispatchLog,
+    SalesOrderLineColor,
+)
+from ..color_allocation import (
+    ColorAllocationError,
+    ColorSplit,
+    color_key,
+    color_summary,
+    normalize_color_splits,
+    plan_color_release,
+    released_by_color,
+    validate_splits_cover_releases,
 )
 from ..commercial import (
     ORIGIN_CUSTOMER_PO,
@@ -60,6 +71,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sales-orders", tags=["sales-orders"])
 
 
+class LineColorInput(BaseModel):
+    color: str = Field(..., min_length=1, max_length=100)
+    color_id: Optional[uuid.UUID] = None
+    qty: float = Field(..., ge=0)
+
+
 class SalesOrderLineInput(BaseModel):
     id: Optional[uuid.UUID] = None
     approved_spec_id: uuid.UUID
@@ -69,6 +86,8 @@ class SalesOrderLineInput(BaseModel):
     parchment_required: Optional[bool] = None
     parchment_color_id: Optional[uuid.UUID] = None
     parchment_color: Optional[str] = None
+    # Optional color breakup (parchment lines). Sum may stay below qty; the rest is "unassigned".
+    color_splits: Optional[List[LineColorInput]] = None
     rate_per_pc: Optional[float] = Field(default=None, ge=0)
     qty: float = Field(..., gt=0)
     due_date: date
@@ -128,6 +147,9 @@ class SalesOrderLineReleasePayload(BaseModel):
     winder_machine_id: uuid.UUID
     product_code: Optional[str] = None
     release_lot_id: Optional[uuid.UUID] = None
+    # Required for parchment lines: one release lot (= one job card) is exactly one color.
+    parchment_color: Optional[str] = Field(default=None, max_length=100)
+    parchment_color_id: Optional[uuid.UUID] = None
 
     @field_validator("release_qty")
     @classmethod
@@ -139,6 +161,28 @@ class SalesOrderLineReleasePayload(BaseModel):
 
 class ReleaseLotJobCardSyncPayload(BaseModel):
     job_card_id: uuid.UUID
+
+
+class LineColorsPayload(BaseModel):
+    color_splits: List[LineColorInput] = Field(default_factory=list)
+
+
+class ReleaseLotAmendPayload(BaseModel):
+    """Planner edit of a queued (not yet scheduled) job card: qty and/or color."""
+
+    job_card_id: uuid.UUID
+    release_qty: Optional[float] = Field(default=None, gt=0)
+    parchment_color: Optional[str] = Field(default=None, max_length=100)
+    parchment_color_id: Optional[uuid.UUID] = None
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class ReleaseLotReturnPayload(BaseModel):
+    """Force-close: the unmade balance of a job card goes back to the line as unreleased."""
+
+    job_card_id: uuid.UUID
+    returned_qty: float = Field(..., ge=0)
+    reason: Optional[str] = Field(default=None, max_length=500)
 
 
 class ReleaseLotReallocatePayload(BaseModel):
@@ -179,6 +223,9 @@ class SalesOrderReleaseLotResponse(BaseModel):
     product_code: Optional[str]
     status: str
     job_card_id: Optional[uuid.UUID]
+    parchment_color: Optional[str] = None
+    parchment_color_id: Optional[uuid.UUID] = None
+    returned_qty: float = 0.0
     created_by: str
     approved_by: Optional[str]
     created_at: datetime
@@ -219,6 +266,8 @@ class SalesOrderLineResponse(BaseModel):
     hold_qty: float = 0.0
     pending_qty: float = 0.0
     release_lots: List[SalesOrderReleaseLotResponse] = Field(default_factory=list)
+    color_splits: List[dict] = Field(default_factory=list)
+    unassigned_color_qty: float = 0.0
     dispatch_logs: List[dict] = Field(default_factory=list)
     delivery_schedules: List[dict] = Field(default_factory=list)
     remaining_to_schedule_qty: float = 0.0
@@ -300,7 +349,9 @@ def _serialize_line(line: SalesOrderLine) -> dict:
     parchment_color = getattr(line, "parchment_color", None) if parchment_required else None
     parchment_color_id = getattr(line, "parchment_color_id", None) if parchment_required else None
     schedules = list(getattr(line, "delivery_schedules", []) or [])
+    colors = color_summary(line.qty, _line_splits(line), released_by_color(release_lots)) if parchment_required else {"color_splits": [], "unassigned_color_qty": 0.0}
     return {
+        **colors,
         "id": line.id,
         "line_no": int(line.line_no or 1),
         "approved_spec_id": line.approved_spec_id,
@@ -335,6 +386,9 @@ def _serialize_line(line: SalesOrderLine) -> dict:
                 "product_code": lot.product_code,
                 "status": lot.status,
                 "job_card_id": lot.job_card_id,
+                "parchment_color": getattr(lot, "parchment_color", None),
+                "parchment_color_id": getattr(lot, "parchment_color_id", None),
+                "returned_qty": float(getattr(lot, "returned_qty", 0.0) or 0.0),
                 "created_by": lot.released_by or "unknown",
                 "approved_by": lot.released_by_identity or lot.released_by,
                 "created_at": lot.created_at,
@@ -456,6 +510,74 @@ def _sync_order_status(order: SalesOrder):
         order.status = SalesOrderStatus.CLOSED
 
 
+def _lot_payload(lot: SalesOrderReleaseLot, order_id) -> dict:
+    return {
+        "id": lot.id,
+        "order_id": order_id,
+        "line_id": lot.sales_order_line_id,
+        "release_lot_id": lot.id,
+        "release_qty": lot.released_qty,
+        "winder_machine_id": lot.winder_machine_id,
+        "product_code": lot.product_code,
+        "status": lot.status,
+        "job_card_id": lot.job_card_id,
+        "parchment_color": getattr(lot, "parchment_color", None),
+        "parchment_color_id": getattr(lot, "parchment_color_id", None),
+        "returned_qty": float(getattr(lot, "returned_qty", 0.0) or 0.0),
+        "created_by": lot.released_by or "unknown",
+        "approved_by": lot.released_by_identity or lot.released_by,
+        "created_at": lot.created_at,
+    }
+
+
+def _resolve_release_color(
+    line: SalesOrderLine,
+    color: Optional[str],
+    color_id: Optional[uuid.UUID],
+    release_qty: float,
+    *,
+    exclude_lot_id: Optional[uuid.UUID] = None,
+) -> tuple[Optional[str], Optional[uuid.UUID]]:
+    """One release lot = one color. Validates the color balance and tops it up from unassigned."""
+    if not bool(getattr(line, "parchment_required", False)):
+        return None, None
+    splits = _line_splits(line)
+    name = (color or "").strip()
+    if not name and color_id is not None:
+        name = next((split.color for split in splits if split.color_id == color_id), "")
+    if not name and len(splits) == 1 and splits[0].qty + 1e-6 >= float(line.qty or 0.0):
+        # Whole line is one color: releasing it needs no extra choice.
+        name, color_id = splits[0].color, splits[0].color_id
+    if not name:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Line {int(line.line_no or 0)}: choose the parchment color for this release — one job card is one color",
+        )
+    lots = [lot for lot in (line.release_lots or []) if exclude_lot_id is None or lot.id != exclude_lot_id]
+    try:
+        extra = plan_color_release(
+            line_qty=float(line.qty or 0.0),
+            splits=splits,
+            released=released_by_color(lots),
+            color=name,
+            color_id=color_id,
+            release_qty=float(release_qty),
+            line_no=int(line.line_no or 0) or None,
+        )
+    except ColorAllocationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if extra > 0:
+        key = color_key(color_id, name)
+        grown = [
+            ColorSplit(color=split.color, qty=split.qty + (extra if split.key == key else 0.0), color_id=split.color_id)
+            for split in splits
+        ]
+        if not any(split.key == key for split in splits):
+            grown.append(ColorSplit(color=name, qty=extra, color_id=color_id))
+        _write_line_splits(line, grown)
+    return name, color_id
+
+
 def _released_qty(line: SalesOrderLine) -> float:
     return sum(
         float(lot.released_qty or 0.0)
@@ -499,6 +621,62 @@ def _apply_line_fields(target: SalesOrderLine, incoming: SalesOrderLineInput, in
     target.rate_per_pc = incoming.rate_per_pc
     target.qty = incoming.qty
     target.due_date = incoming.due_date
+    _apply_color_splits(target, incoming, index)
+
+
+def _line_splits(line: SalesOrderLine) -> list[ColorSplit]:
+    return [
+        ColorSplit(color=row.color, qty=float(row.qty or 0.0), color_id=row.color_id)
+        for row in (getattr(line, "color_splits", None) or [])
+    ]
+
+
+def _write_line_splits(line: SalesOrderLine, splits: list[ColorSplit]) -> None:
+    existing = {color_key(row.color_id, row.color): row for row in list(line.color_splits or [])}
+    wanted = {split.key: split for split in splits}
+    for key, row in existing.items():
+        if key not in wanted:
+            line.color_splits.remove(row)
+    for key, split in wanted.items():
+        row = existing.get(key)
+        if row is None:
+            line.color_splits.append(SalesOrderLineColor(color=split.color, color_id=split.color_id, qty=round(split.qty, 4)))
+        else:
+            row.qty = round(split.qty, 4)
+            row.color = split.color
+    # Line-level color stays meaningful for older screens: the single color, or none when mixed.
+    if len(splits) == 1:
+        line.parchment_color, line.parchment_color_id = splits[0].color, splits[0].color_id
+    elif len(splits) > 1:
+        line.parchment_color, line.parchment_color_id = "Multiple colors", None
+    else:
+        line.parchment_color, line.parchment_color_id = None, None
+
+
+def _apply_color_splits(target: SalesOrderLine, incoming: SalesOrderLineInput, index: int) -> None:
+    line_no = incoming.line_no or index
+    if not target.parchment_required:
+        if released_by_color(getattr(target, "release_lots", []) or []).keys() - {color_key(None, None)}:
+            raise HTTPException(status_code=400, detail=f"Line {line_no}: colored quantity is already released; parchment cannot be removed")
+        for row in list(target.color_splits or []):
+            target.color_splits.remove(row)
+        return
+    try:
+        if incoming.color_splits is not None:
+            splits = normalize_color_splits(incoming.color_splits, line_qty=incoming.qty, line_no=line_no)
+        elif target.parchment_color and not list(target.color_splits or []):
+            # Legacy single-color payload: the whole line is that color.
+            splits = [ColorSplit(color=target.parchment_color, qty=float(incoming.qty), color_id=target.parchment_color_id)]
+        else:
+            splits = normalize_color_splits(
+                [{"color": row.color, "color_id": row.color_id, "qty": row.qty} for row in (target.color_splits or [])],
+                line_qty=incoming.qty,
+                line_no=line_no,
+            )
+        validate_splits_cover_releases(splits, released_by_color(getattr(target, "release_lots", []) or []), line_no=line_no)
+    except ColorAllocationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _write_line_splits(target, splits)
 
 
 def _upsert_order_lines(order: SalesOrder, lines: List[SalesOrderLineInput]) -> None:
@@ -1795,20 +1973,7 @@ def release_sales_order_line(
             existing_lot.product_code = (payload.product_code or line.product_code or "").strip() or None
             db.commit()
             db.refresh(existing_lot)
-        return {
-            "id": existing_lot.id,
-            "order_id": order.id,
-            "line_id": existing_lot.sales_order_line_id,
-            "release_lot_id": existing_lot.id,
-            "release_qty": existing_lot.released_qty,
-            "winder_machine_id": existing_lot.winder_machine_id,
-            "product_code": existing_lot.product_code,
-            "status": existing_lot.status,
-            "job_card_id": existing_lot.job_card_id,
-            "created_by": existing_lot.released_by or "unknown",
-            "approved_by": existing_lot.released_by_identity or existing_lot.released_by,
-            "created_at": existing_lot.created_at,
-        }
+        return _lot_payload(existing_lot, order.id)
 
     # Re-read the already-released quantity from committed rows *inside* the locked
     # transaction (not from a possibly-stale relationship snapshot) before deciding
@@ -1825,6 +1990,8 @@ def release_sales_order_line(
     if payload.release_qty > unreleased_qty + 1e-9:
         raise HTTPException(status_code=400, detail=f"Release qty exceeds unreleased balance ({round(unreleased_qty, 2)})")
 
+    lot_color, lot_color_id = _resolve_release_color(line, payload.parchment_color, payload.parchment_color_id, payload.release_qty)
+
     lot = SalesOrderReleaseLot(
         id=release_lot_id,
         sales_order_id=order.id,
@@ -1832,6 +1999,8 @@ def release_sales_order_line(
         released_qty=payload.release_qty,
         winder_machine_id=payload.winder_machine_id,
         product_code=(payload.product_code or line.product_code or "").strip() or None,
+        parchment_color=lot_color,
+        parchment_color_id=lot_color_id,
         status="released",
         released_by=current_user.get("sub", "unknown"),
         released_by_identity=current_user.get("sub"),
@@ -1847,20 +2016,7 @@ def release_sales_order_line(
     db.commit()
     db.refresh(lot)
 
-    return {
-        "id": lot.id,
-        "order_id": order.id,
-        "line_id": lot.sales_order_line_id,
-        "release_lot_id": lot.id,
-        "release_qty": lot.released_qty,
-        "winder_machine_id": lot.winder_machine_id,
-        "product_code": lot.product_code,
-        "status": lot.status,
-        "job_card_id": lot.job_card_id,
-        "created_by": lot.released_by or "unknown",
-        "approved_by": lot.released_by_identity or lot.released_by,
-        "created_at": lot.created_at,
-    }
+    return _lot_payload(lot, order.id)
 
 
 @router.post("/release-lots/{release_lot_id}/sync-job-card", response_model=SalesOrderReleaseLotResponse)
@@ -1884,20 +2040,7 @@ def sync_release_lot_job_card(
     lot.job_card_id = payload.job_card_id
     db.commit()
     db.refresh(lot)
-    return {
-        "id": lot.id,
-        "order_id": lot.line.sales_order_id,
-        "line_id": lot.sales_order_line_id,
-        "release_lot_id": lot.id,
-        "release_qty": lot.released_qty,
-        "winder_machine_id": lot.winder_machine_id,
-        "product_code": lot.product_code,
-        "status": lot.status,
-        "job_card_id": lot.job_card_id,
-        "created_by": lot.released_by or "unknown",
-        "approved_by": lot.released_by_identity or lot.released_by,
-        "created_at": lot.created_at,
-    }
+    return _lot_payload(lot, lot.line.sales_order_id)
 
 
 @router.post("/release-lots/{release_lot_id}/reallocate-carry-forward", response_model=SalesOrderReleaseLotResponse)
@@ -1925,20 +2068,7 @@ def reallocate_release_lot_carry_forward(
             raise HTTPException(status_code=409, detail="Carry-forward release lot id belongs to another job card")
         if abs(float(existing.released_qty or 0.0) - float(payload.gap_qty or 0.0)) > 0.0001:
             raise HTTPException(status_code=409, detail="Carry-forward release lot was already used with a different quantity")
-        return {
-            "id": existing.id,
-            "order_id": existing.sales_order_id,
-            "line_id": existing.sales_order_line_id,
-            "release_lot_id": existing.id,
-            "release_qty": existing.released_qty,
-            "winder_machine_id": existing.winder_machine_id,
-            "product_code": existing.product_code,
-            "status": existing.status,
-            "job_card_id": existing.job_card_id,
-            "created_by": existing.released_by or "unknown",
-            "approved_by": existing.released_by_identity or existing.released_by,
-            "created_at": existing.created_at,
-        }
+        return _lot_payload(existing, existing.sales_order_id)
 
     original = (
         db.query(SalesOrderReleaseLot)
@@ -1962,6 +2092,8 @@ def reallocate_release_lot_carry_forward(
         released_qty=gap_qty,
         winder_machine_id=original.winder_machine_id,
         job_card_id=payload.carry_forward_job_card_id,
+        parchment_color=getattr(original, "parchment_color", None),
+        parchment_color_id=getattr(original, "parchment_color_id", None),
         status="released",
         released_by=current_user.get("sub", "unknown"),
         released_by_identity=current_user.get("sub"),
@@ -1990,20 +2122,171 @@ def reallocate_release_lot_carry_forward(
     except Exception as exc:  # pragma: no cover - audit is best-effort
         logger.warning("Failed to emit release_lot_reallocated_carry_forward audit event: %s", exc)
 
-    return {
-        "id": new_lot.id,
-        "order_id": original.sales_order_id,
-        "line_id": new_lot.sales_order_line_id,
-        "release_lot_id": new_lot.id,
-        "release_qty": new_lot.released_qty,
-        "winder_machine_id": new_lot.winder_machine_id,
-        "product_code": new_lot.product_code,
-        "status": new_lot.status,
-        "job_card_id": new_lot.job_card_id,
-        "created_by": new_lot.released_by or "unknown",
-        "approved_by": new_lot.released_by_identity or new_lot.released_by,
-        "created_at": new_lot.created_at,
-    }
+    return _lot_payload(new_lot, original.sales_order_id)
+
+
+def _emit_lot_audit(current_user: dict, plant_id: str, event_type: str, lot: SalesOrderReleaseLot, summary: str, payload: dict) -> None:
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type=event_type,
+            entity_type="sales_order_release_lot",
+            entity_id=str(lot.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=summary,
+            payload={**payload, "sales_order_id": str(lot.sales_order_id), "sales_order_line_id": str(lot.sales_order_line_id)},
+        )
+    except Exception as exc:  # pragma: no cover - audit is best-effort
+        logger.warning("Failed to emit %s audit event: %s", event_type, exc)
+
+
+def _locked_line(db: Session, line_id: uuid.UUID, plant_id: str) -> SalesOrderLine:
+    line = (
+        db.query(SalesOrderLine)
+        .join(SalesOrder)
+        .options(joinedload(SalesOrderLine.sales_order))
+        .filter(SalesOrderLine.id == line_id, SalesOrder.plant_id == plant_id)
+        .with_for_update(of=SalesOrderLine)
+        .first()
+    )
+    if not line:
+        raise HTTPException(status_code=404, detail="Sales order line not found")
+    return line
+
+
+@router.put("/lines/{line_id}/colors", response_model=SalesOrderLineResponse)
+def update_line_colors(
+    line_id: uuid.UUID,
+    payload: LineColorsPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner", "PlantManager"])),
+):
+    """Edit a line's color breakup at any time before close; never below what is released per color."""
+    line = _locked_line(db, line_id, plant_id)
+    order = line.sales_order
+    if order.status == SalesOrderStatus.CLOSED:
+        raise HTTPException(status_code=400, detail="Closed orders cannot change colors")
+    if not bool(line.parchment_required):
+        raise HTTPException(status_code=400, detail="This line has no parchment; there is no color to split")
+    before = color_summary(line.qty, _line_splits(line), released_by_color(line.release_lots or []))
+    try:
+        splits = normalize_color_splits(payload.color_splits, line_qty=float(line.qty or 0.0), line_no=int(line.line_no or 0) or None)
+        validate_splits_cover_releases(splits, released_by_color(line.release_lots or []), line_no=int(line.line_no or 0) or None)
+    except ColorAllocationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _write_line_splits(line, splits)
+    db.commit()
+    db.refresh(line)
+    try:
+        from ..utils.audit_client import emit_audit_event
+        emit_audit_event(
+            token=current_user.get("token", ""),
+            event_type="sales_order_line_colors_updated",
+            entity_type="sales_order",
+            entity_id=str(order.id),
+            plant_id=str(plant_id),
+            actor_role=str((current_user.get("roles") or ["?"])[0]),
+            actor_email=current_user.get("sub"),
+            summary=f"{order.order_no} line {int(line.line_no or 0)} colors: " + ", ".join(f"{split.color} {split.qty:,.0f}" for split in splits),
+            payload={"line_id": str(line.id), "before": before, "after": [split.__dict__ | {"color_id": str(split.color_id) if split.color_id else None} for split in splits]},
+        )
+    except Exception:
+        pass
+    return _serialize_line(line)
+
+
+@router.post("/release-lots/{release_lot_id}/amend", response_model=SalesOrderReleaseLotResponse)
+def amend_release_lot(
+    release_lot_id: uuid.UUID,
+    payload: ReleaseLotAmendPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Planner", "PlantManager", "Sales"])),
+):
+    """Change qty/color of a release lot whose job card is still unscheduled (called by production)."""
+    lot = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.id == release_lot_id).first()
+    if not lot:
+        raise HTTPException(status_code=404, detail="Release lot not found")
+    line = _locked_line(db, lot.sales_order_line_id, plant_id)
+    if lot.job_card_id and lot.job_card_id != payload.job_card_id:
+        raise HTTPException(status_code=409, detail="Release lot belongs to another job card")
+    if str(lot.status or "").lower() == "cancelled":
+        raise HTTPException(status_code=409, detail="Release lot is cancelled")
+    new_qty = float(payload.release_qty if payload.release_qty is not None else lot.released_qty or 0.0)
+    others = sum(float(row.released_qty or 0.0) for row in (line.release_lots or []) if row.id != lot.id and str(row.status or "").lower() != "cancelled")
+    if new_qty > float(line.qty or 0.0) - others + 1e-6:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Only {max(0.0, float(line.qty or 0.0) - others):,.0f} pcs of this line are free to release",
+        )
+    before = {"release_qty": lot.released_qty, "parchment_color": lot.parchment_color}
+    color_name = payload.parchment_color if payload.parchment_color is not None else lot.parchment_color
+    color_id = payload.parchment_color_id if payload.parchment_color is not None else lot.parchment_color_id
+    lot.parchment_color, lot.parchment_color_id = _resolve_release_color(line, color_name, color_id, new_qty, exclude_lot_id=lot.id)
+    lot.released_qty = round(new_qty, 4)
+    _sync_release_status(line.sales_order)
+    db.commit()
+    db.refresh(lot)
+    _emit_lot_audit(
+        current_user,
+        plant_id,
+        "release_lot_amended",
+        lot,
+        f"Job card lot changed: {before['release_qty']:,.0f} {before['parchment_color'] or ''} -> {lot.released_qty:,.0f} {lot.parchment_color or ''}".strip(),
+        {"before": before, "after": {"release_qty": lot.released_qty, "parchment_color": lot.parchment_color}, "job_card_id": str(payload.job_card_id), "reason": payload.reason},
+    )
+    return _lot_payload(lot, lot.sales_order_id)
+
+
+@router.post("/release-lots/{release_lot_id}/return-balance", response_model=SalesOrderReleaseLotResponse)
+def return_release_lot_balance(
+    release_lot_id: uuid.UUID,
+    payload: ReleaseLotReturnPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "Planner", "PlantManager"])),
+):
+    """Force-close: shrink the lot to what was made; the rest becomes unreleased on the line again.
+
+    Idempotent per job card: replaying the same return is a no-op.
+    """
+    lot = db.query(SalesOrderReleaseLot).filter(SalesOrderReleaseLot.id == release_lot_id).first()
+    if not lot:
+        raise HTTPException(status_code=404, detail="Release lot not found")
+    line = _locked_line(db, lot.sales_order_line_id, plant_id)
+    if lot.job_card_id and lot.job_card_id != payload.job_card_id:
+        raise HTTPException(status_code=409, detail="Release lot belongs to another job card")
+    returned = round(float(payload.returned_qty or 0.0), 4)
+    if abs(float(lot.returned_qty or 0.0) - returned) <= 1e-6 and returned > 0:
+        return _lot_payload(lot, lot.sales_order_id)
+    if float(lot.returned_qty or 0.0) > 0:
+        raise HTTPException(status_code=409, detail="A different balance was already returned for this job card")
+    if returned > float(lot.released_qty or 0.0) + 1e-6:
+        raise HTTPException(status_code=400, detail="Cannot return more than the lot released")
+    lot.released_qty = round(float(lot.released_qty or 0.0) - returned, 4)
+    lot.returned_qty = returned
+    lot.status = "cancelled" if lot.released_qty <= 1e-6 else "short_closed"
+    order = line.sales_order
+    if order.status in (SalesOrderStatus.RELEASED, SalesOrderStatus.PARTIALLY_RELEASED):
+        if sum(_released_qty(row) for row in order.lines) <= 1e-6:
+            order.status = SalesOrderStatus.APPROVED
+        else:
+            order.status = SalesOrderStatus.PARTIALLY_RELEASED
+    db.commit()
+    db.refresh(lot)
+    _emit_lot_audit(
+        current_user,
+        plant_id,
+        "release_lot_balance_returned",
+        lot,
+        f"Force-close returned {returned:,.0f} pcs {lot.parchment_color or ''} to the order; job card keeps {lot.released_qty:,.0f} pcs".strip(),
+        {"returned_qty": returned, "kept_qty": lot.released_qty, "job_card_id": str(payload.job_card_id), "reason": payload.reason},
+    )
+    return _lot_payload(lot, lot.sales_order_id)
 
 
 @router.post("/lines/{line_id}/short-close", response_model=SalesOrderLineResponse)

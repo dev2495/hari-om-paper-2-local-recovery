@@ -273,6 +273,68 @@ async def post_planning_stage_output(job_card_id: str, request: Request, token: 
     return response
 
 
+@router.get("/job-cards/{job_card_id}/lifecycle")
+async def get_job_card_lifecycle(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/lifecycle", request, token)
+
+
+@router.post("/job-cards/{job_card_id}/amend")
+async def amend_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/amend", request, token)
+
+
+@router.post("/job-cards/{job_card_id}/split")
+async def split_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/split", request, token)
+    handoff_events.notify_lifecycle(response, request, token, job_card_id, "split")
+    return response
+
+
+@router.post("/job-cards/{job_card_id}/force-close")
+async def force_close_job_card(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    response = await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/force-close", request, token)
+    handoff_events.notify_lifecycle(response, request, token, job_card_id, "force_close")
+    return response
+
+
+@router.post("/job-cards/{job_card_id}/running-entry")
+async def post_running_entry(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    plant_id = request.headers.get("X-Plant-ID") or ""
+    if isinstance(body, dict) and body.get("entry_date"):
+        await assert_not_backdated(token, plant_id, effective_date=body.get("entry_date"))
+    return await proxy_to_service(
+        PRODUCTION_SERVICE_URL,
+        f"/job-cards/{job_card_id}/running-entry",
+        request,
+        token,
+        json_body=body if isinstance(body, dict) else None,
+    )
+
+
+@router.post("/planning/emergency-insert")
+async def emergency_insert(request: Request, token: str = Depends(get_token)):
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    response = await proxy_to_service(
+        PRODUCTION_SERVICE_URL, "/planning/emergency-insert", request, token, json_body=body if isinstance(body, dict) else None
+    )
+    job_card_id = str((body or {}).get("job_card_id") or "") if isinstance(body, dict) else ""
+    if job_card_id:
+        handoff_events.notify_lifecycle(response, request, token, job_card_id, "emergency")
+    return response
+
+
+@router.get("/planning/winder-load")
+async def get_winder_load(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/winder-load", request, token)
+
+
 @router.get("/planning/time-reconciliation")
 async def get_stage_time_reconciliation(request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/time-reconciliation", request, token)

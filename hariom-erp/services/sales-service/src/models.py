@@ -80,7 +80,33 @@ class SalesOrderLine(Base):
     sales_order = relationship("SalesOrder", back_populates="lines")
     dispatch_logs = relationship("SalesOrderDispatchLog", back_populates="line", cascade="all, delete-orphan")
     release_lots = relationship("SalesOrderReleaseLot", back_populates="line", cascade="all, delete-orphan")
+    color_splits = relationship(
+        "SalesOrderLineColor",
+        back_populates="line",
+        cascade="all, delete-orphan",
+        order_by="SalesOrderLineColor.created_at",
+    )
     delivery_schedules = relationship("SalesOrderDeliverySchedule", back_populates="line", cascade="all, delete-orphan")
+
+
+class SalesOrderLineColor(Base):
+    """Parchment color breakup of one line (e.g. 10,000 pcs = 2,000 blue + 3,000 red + 5,000 unassigned).
+
+    Placement is flexible: the sum may stay below the line qty. Release is strict: every
+    release lot of a parchment line carries exactly one color, and a color can never be
+    released beyond its allocation (unassigned qty tops a color up at release time).
+    """
+
+    __tablename__ = "sales_order_line_colors"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sales_order_line_id = Column(UUID(as_uuid=True), ForeignKey("sales_order_lines.id"), nullable=False, index=True)
+    color_id = Column(UUID(as_uuid=True), nullable=True)
+    color = Column(String(100), nullable=False)
+    qty = Column(Float, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    line = relationship("SalesOrderLine", back_populates="color_splits")
 
 
 class SalesOrderReleaseLot(Base):
@@ -93,6 +119,11 @@ class SalesOrderReleaseLot(Base):
     released_qty = Column(Float, nullable=False)
     winder_machine_id = Column(UUID(as_uuid=True), nullable=False)
     job_card_id = Column(UUID(as_uuid=True), nullable=True)
+    # One job card = one color: the color this lot was released in (parchment lines only).
+    parchment_color = Column(String(100), nullable=True)
+    parchment_color_id = Column(UUID(as_uuid=True), nullable=True)
+    # Qty handed back to the line when the job card was force-closed early (re-releasable).
+    returned_qty = Column(Float, nullable=False, default=0.0)
     status = Column(String(30), nullable=False, default="released")
     released_by = Column(String(200), nullable=True)
     released_by_identity = Column(String(200), nullable=True)

@@ -417,3 +417,64 @@ def notify_downtime(response: Response, request: Request, token: str) -> None:
         )
 
     run_in_background(send)
+
+
+def notify_lifecycle(response: Response, request: Request, token: str, job_card_id: str, action: str) -> None:
+    """Split / force-close / emergency: tell the people whose plan or commitment changed."""
+    if not _ok(response):
+        return
+    result = response_body_json(response) or {}
+    if not isinstance(result, dict):
+        return
+    plant_hint = _plant_header(request)
+    parent = result.get("parent") if isinstance(result.get("parent"), dict) else result
+    ref = str(parent.get("job_card_no") or result.get("job_card_no") or job_card_id[:8])
+    if action == "force_close":
+        returned = float(parent.get("returned_qty") or 0.0)
+        made = float(parent.get("made_qty") or 0.0)
+        cancelled = parent.get("state") == "CANCELLED"
+        spec = dict(
+            event_type="JOB_CARD_FORCE_CLOSED",
+            title=f"{ref} {'cancelled' if cancelled else 'force-closed'} — {returned:,.0f} pcs back to the order",
+            message=(
+                f"Made {made:,.0f} pcs continue as this lot; {returned:,.0f} pcs {parent.get('parchment_color') or ''} are unreleased again. "
+                "Re-release them (new color/qty allowed) from the sales order."
+            ).strip(),
+            recipient_roles=["Sales", "Planner", "PlantManager", "Owner"],
+            role_context="Planner",
+            href=f"/sales-orders/{parent.get('sales_order_id')}" if parent.get("sales_order_id") else f"/production/job-cards/{job_card_id}",
+            payload={"job_card_id": job_card_id, "action": "re-release", "priority": "action"},
+            event_id=f"force-close:{job_card_id}",
+        )
+    elif action == "split":
+        child = str(result.get("child_job_card_no") or "")
+        spec = dict(
+            event_type="JOB_CARD_SPLIT",
+            title=f"{ref} split — {child} created",
+            message=f"{child} is waiting in the queue; place it on the planning board.",
+            recipient_roles=["Planner", "PlantManager"],
+            role_context="Planner",
+            href="/planning/board",
+            payload={"job_card_id": job_card_id, "child_job_card_id": str(result.get("child_job_card_id") or ""), "action": "schedule", "priority": "normal"},
+            event_id=f"split:{result.get('child_job_card_id')}",
+        )
+    elif action == "emergency":
+        bumped = result.get("bumped") or []
+        spec = dict(
+            event_type="JOB_CARD_EMERGENCY",
+            title=f"Emergency: {ref} runs first" + (f" — {len(bumped)} card(s) pushed later" if bumped else ""),
+            message=", ".join(f"{row.get('job_card_no') or 'card'} → {row.get('to', {}).get('date')} {str(row.get('to', {}).get('shift') or '').replace('SHIFT_', 'Shift ')}" for row in bumped[:6]) or "Slot had room; nothing was moved.",
+            recipient_roles=["Planner", "PlantManager", "Operator", "Owner"],
+            role_context="PlantManager",
+            href="/planning/board",
+            payload={"job_card_id": job_card_id, "action": "review", "priority": "urgent"},
+            event_id=f"emergency:{job_card_id}:{len(bumped)}",
+        )
+    else:
+        return
+
+    async def send() -> None:
+        card = await job_card_context(job_card_id, token, plant_hint)
+        await _emit(token, plant_id=str(card.get("plant_id") or plant_hint or "") or None, **spec)
+
+    run_in_background(send)

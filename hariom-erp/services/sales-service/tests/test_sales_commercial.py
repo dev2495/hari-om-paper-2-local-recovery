@@ -115,13 +115,13 @@ def test_parchment_checked_requires_variant_and_keeps_master_link():
     assert stored_id == color_id
     assert color == "Natural"
 
-    with pytest.raises(SalesCommercialError, match="Line 3: Parchment color is required"):
-        resolve_parchment_variant(
-            parchment_required=True,
-            parchment_color=None,
-            parchment_color_id=None,
-            line_no=3,
-        )
+    # Color can be decided later (per-color breakup / at release); release enforces one color per lot.
+    assert resolve_parchment_variant(
+        parchment_required=True,
+        parchment_color=None,
+        parchment_color_id=None,
+        line_no=3,
+    ) == (True, None, None)
 
 
 def test_legacy_color_only_payload_infers_parchment_required():

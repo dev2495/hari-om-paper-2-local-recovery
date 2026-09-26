@@ -77,6 +77,12 @@ class JobCardCreate(BaseModel):
 class JobCardResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    job_card_no: Optional[str] = None
+    parent_job_card_id: Optional[UUID] = None
+    split_kind: Optional[str] = None
+    is_emergency: bool = False
+    close_mode: Optional[str] = None
+    returned_qty: float = 0.0
     id: UUID
     plant_id: UUID
     sales_order_id: UUID
@@ -385,6 +391,12 @@ class StageSegmentSplitPayload(BaseModel):
 class JobCardPlannerSummary(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    job_card_no: Optional[str] = None
+    parent_job_card_id: Optional[UUID] = None
+    split_kind: Optional[str] = None
+    is_emergency: bool = False
+    close_mode: Optional[str] = None
+    returned_qty: float = 0.0
     id: UUID
     plant_id: UUID
     sales_order_id: UUID
@@ -553,6 +565,12 @@ class CarryForwardSuggestion(BaseModel):
 class JobCardPlanningDetail(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    job_card_no: Optional[str] = None
+    parent_job_card_id: Optional[UUID] = None
+    split_kind: Optional[str] = None
+    is_emergency: bool = False
+    close_mode: Optional[str] = None
+    returned_qty: float = 0.0
     id: UUID
     plant_id: UUID
     sales_order_id: UUID
@@ -651,6 +669,7 @@ class ReleaseSyncRowPayload(BaseModel):
     release_qty: float = Field(gt=0)
     winder_machine_id: UUID
     product_code: Optional[str] = None
+    parchment_color: Optional[str] = None
 
 
 class ReleaseSyncPayload(BaseModel):

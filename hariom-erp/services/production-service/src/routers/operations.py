@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..database import get_db
+from ..job_card_numbering import allocate_child_job_card_no
 from ..models import (
     JobCard,
     JobCardShortClose,
@@ -404,6 +405,10 @@ def _spawn_carry_forward_job_card(
         status="CREATED",
         current_stage="WINDER",
         requires_slitting=bool(source_job.requires_slitting),
+        parent_job_card_id=source_job.id,
+        split_kind="CARRY_FORWARD",
+        parchment_color=getattr(source_job, "parchment_color", None),
+        job_card_no=allocate_child_job_card_no(db, getattr(source_job, "job_card_no", None)),
     )
     db.add(carry)
     db.flush()
