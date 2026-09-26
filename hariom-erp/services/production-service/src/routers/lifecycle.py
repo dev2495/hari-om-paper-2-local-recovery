@@ -36,7 +36,6 @@ from ..lifecycle_rules import (
     within_output_tolerance,
 )
 from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment
-from ..schemas.planning import ReorderQueuePayload
 from ..utils.auth import get_current_plant, require_role
 from .missed_slots import restore_missed_slot_for_late_entry, sweep_missed_slots
 from .planning import (
@@ -60,7 +59,6 @@ from .planning import (
     _routing_stages_from_snapshot,
     _sync_stage_row_from_segments,
     _to_uuid,
-    reorder_stage_queue,
 )
 
 router = APIRouter(tags=["job-card-lifecycle"])
@@ -585,14 +583,24 @@ def emergency_insert(
         raise HTTPException(status_code=409, detail="Only a queued or scheduled card can be inserted as an emergency")
     first = _first_stage(job)
     job.is_emergency = True
-    reorder_stage_queue(
-        payload=ReorderQueuePayload(job_card_id=job.id, stage=first, machine_id=payload.machine_id, sequence_no=1, plan_date=payload.plan_date, shift_code=payload.shift_code),
-        db=db,
-        plant_id=plant_id,
-        current_user=current_user,
-    )
-    job = db.query(JobCard).filter(JobCard.id == payload.job_card_id).first()
-    job.is_emergency = True
+    # The emergency card goes in whole and first (no auto-split); the others make room.
+    open_rows = [row for row in _open_stage_segments(db, job.id, first) if row.status in {"PLANNED", "QUEUED", "ASSIGNED"}]
+    if not open_rows:
+        raise HTTPException(status_code=409, detail="This card has no unstarted work left on its first stage")
+    lead, rest = open_rows[0], open_rows[1:]
+    lead.planned_qty = round(sum(float(row.planned_qty or 0.0) for row in open_rows), 2)
+    lead.required_capacity = round(sum(float(row.required_capacity or 0.0) for row in open_rows), 2)
+    for row in rest:
+        row.status = "CANCELLED"
+    lead.status = "ASSIGNED"
+    db.flush()
+    _place_stage_segment(db, lead, 1, payload.machine_id, payload.plan_date, payload.shift_code)
+    stage_row = db.query(JobCardStage).filter(JobCardStage.job_card_id == job.id, JobCardStage.stage_type == first).first()
+    if stage_row is not None:
+        _sync_stage_row_from_segments(stage_row, _all_stage_segments(db, job.id, first))
+    if job.status == "CREATED":
+        job.status = "PLANNED"
+    db.flush()
     pinned = {str(row.id) for row in _open_stage_segments(db, job.id, first)}
     token = current_user.get("token", "")
     machine = _fetch_machine(payload.machine_id, token, plant_id)
