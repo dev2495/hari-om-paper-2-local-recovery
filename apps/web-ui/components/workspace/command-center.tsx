@@ -189,7 +189,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
 
   const spark = (key: string, rows: any[]) => rows.map((row) => Number(row[key] || 0))
   const kpis: Record<KpiKey, { label: string; value: string; detail: string; icon: LucideIcon; tone: MetricTone; href?: string; spark?: number[]; progress?: number | null; ready: boolean }> = {
-    orderBook: { label: "Open order book", value: inr(Number(salesAggregates?.open_order_book_value)), detail: `${num(salesAggregates?.open_order_count)} open orders · ${num(salesAggregates?.open_qty)} pcs`, icon: IndianRupee, tone: "teal", href: "/sales-orders/pending", ready: has(salesAggregates?.open_order_book_value) },
+    orderBook: { label: "Open order book", value: inr(Number(salesAggregates?.open_order_book_value)), detail: `${num(salesAggregates?.open_order_count)} open orders · ${num(salesAggregates?.open_qty)} pcs`, icon: IndianRupee, tone: "teal", href: "/sales-orders", ready: has(salesAggregates?.open_order_book_value) },
     bookedValue: { label: "Booked value", value: inr(Number(salesAggregates?.booked_value)), detail: `${num(salesAggregates?.total_order_count)} orders booked, all time`, icon: IndianRupee, tone: "blue", href: "/sales-orders?status=all", ready: has(salesAggregates?.booked_value) },
     dispatchedValue: { label: "Dispatched value", value: inr(Number(salesAggregates?.dispatched_value)), detail: "Fulfilled quantity × line rate, all time", icon: Truck, tone: "emerald", href: "/reports/dispatch", ready: has(salesAggregates?.dispatched_value) },
     dispatchQty: { label: "Dispatched in period", value: `${num(pack.dispatch?.summary?.dispatch_qty)} pcs`, detail: `${num(pack.dispatch?.summary?.closed_orders)} orders closed`, icon: PackageCheck, tone: "cyan", spark: spark("dispatch_qty", orderSeries), href: "/reports/dispatch", ready: packReady },
@@ -373,7 +373,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       </Card>
     ),
     customers: (
-      <Card key="customers" title="Largest open orders by customer" subtitle="Open order value, server totals" action={<CardLink href="/sales-orders/pending">Pending</CardLink>}>
+      <Card key="customers" title="Largest open orders by customer" subtitle="Open order value, server totals" action={<CardLink href="/sales-orders">Orders</CardLink>}>
         {customers.length ? (
           <div className="space-y-2.5">
             {customers.map((row: any, index: number) => {
@@ -417,7 +417,7 @@ export function CommandCenter({ role, testId, variant = "landing", header }: { r
       </Card>
     ),
     commercial: (
-      <Card key="commercial" title="Where the order book stands" subtitle={`${inr(Number(salesAggregates?.booked_value))} booked across all orders`} action={<CardLink href="/sales-orders/pending">Pending</CardLink>}>
+      <Card key="commercial" title="Where the order book stands" subtitle={`${inr(Number(salesAggregates?.booked_value))} booked across all orders`} action={<CardLink href="/sales-orders">Orders</CardLink>}>
         <div className="space-y-5 pt-1">
           <StackedMeter
             total={Number(salesAggregates?.booked_value || 0)}

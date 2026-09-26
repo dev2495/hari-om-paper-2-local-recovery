@@ -43,13 +43,14 @@ test("sales order KPIs come from a server aggregate not the current page", () =>
   assert.doesNotMatch(page, /Pieces still open in this loaded window/)
 })
 
-test("pending workspace is URL-driven and exports the full server set", () => {
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/pending/page.tsx"), "utf8")
-  assert.match(page, /usePendingSalesOrders/)
-  assert.match(page, /exportPendingOrders/)
-  assert.match(page, /searchParams/)
-  assert.match(page, /pending-orders:total-count/)
-  assert.doesNotMatch(page, /limit: 750/)
+test("pending workspace folds into the sales register with server-side filters", () => {
+  const pending = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/pending/page.tsx"), "utf8")
+  assert.match(pending, /router\.replace\(`\/sales-orders/)
+  const register = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
+  for (const filter of ["origin:", "due:", "unreleased:", "held:", "expired:", "date_from:", "sort:"]) {
+    assert.ok(register.includes(filter), `register sends ${filter}`)
+  }
+  assert.match(register, /exportRegister/)
 })
 
 test("tracker no longer joins a capped job-card page in the browser", () => {

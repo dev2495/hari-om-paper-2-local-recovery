@@ -16,10 +16,10 @@ import {
   PauseCircle,
   PlayCircle,
   TimerOff,
-  ListChecks,
   LoaderCircle,
   Plus,
   Search,
+  SlidersHorizontal,
   Send,
 } from "lucide-react"
 import { useSearchParams } from "next/navigation"
@@ -191,6 +191,20 @@ export default function SalesOrdersPage() {
   const resumeSalesOrder = useResumeSalesOrder()
   const [pageSize, setPageSize] = useState(25)
   const [pageIndex, setPageIndex] = useState(0)
+  const initialDue = String(searchParams?.get("due") || searchParams?.get("due_risk") || "").toLowerCase()
+  const [filters, setFilters] = useState(() => ({
+    origin: String(searchParams?.get("origin") || searchParams?.get("source") || "").toUpperCase(),
+    due: initialDue === "overdue" ? "overdue" : initialDue === "priority" || initialDue === "week" ? "week" : "",
+    unreleased: searchParams?.get("unreleased") === "1",
+    held: searchParams?.get("held") === "1",
+    expired: searchParams?.get("expired") === "1",
+    date_from: String(searchParams?.get("date_from") || ""),
+    date_to: String(searchParams?.get("date_to") || ""),
+    sort: String(searchParams?.get("sort") || "newest"),
+  }))
+  const [filtersOpen, setFiltersOpen] = useState(() => Boolean(searchParams?.get("due") || searchParams?.get("due_risk") || searchParams?.get("origin") || searchParams?.get("source") || searchParams?.get("unreleased")))
+  const activeFilterCount = [filters.origin, filters.due, filters.unreleased, filters.held, filters.expired, filters.date_from, filters.date_to, filters.sort !== "newest"].filter(Boolean).length
+  const setFilter = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch }))
   const deferredSearch = useDeferredValue(search.trim())
   const offset = pageIndex * pageSize
 
@@ -199,10 +213,18 @@ export default function SalesOrdersPage() {
       search: deferredSearch || undefined,
       status: statusFilter === "open" || statusFilter === "all" ? undefined : statusFilter,
       status_group: statusFilter === "open" ? "open" : undefined,
+      origin: filters.origin || undefined,
+      due: filters.due || undefined,
+      unreleased: filters.unreleased || undefined,
+      held: filters.held || undefined,
+      expired: filters.expired || undefined,
+      date_from: filters.date_from || undefined,
+      date_to: filters.date_to || undefined,
+      sort: filters.sort !== "newest" ? filters.sort : undefined,
       limit: pageSize + 1,
       offset,
     }),
-    [deferredSearch, offset, pageSize, statusFilter],
+    [deferredSearch, filters, offset, pageSize, statusFilter],
   )
 
   const ordersQuery = useSalesOrders(salesQueryParams)
@@ -240,7 +262,7 @@ export default function SalesOrdersPage() {
 
   useEffect(() => {
     setPageIndex(0)
-  }, [deferredSearch, pageSize, statusFilter])
+  }, [deferredSearch, filters, pageSize, statusFilter])
 
   const serverRows = useMemo(() => (Array.isArray(ordersQuery.data) ? ordersQuery.data : []), [ordersQuery.data])
   const hasNextPage = serverRows.length > pageSize
@@ -566,10 +588,6 @@ export default function SalesOrdersPage() {
           description="Every customer PO with released, delivered, pending and held quantity. Expand an order to release its lines to planning."
           actions={
             <>
-              <Link href="/sales-orders/pending" className="erp-btn-secondary">
-                <ListChecks className="h-4 w-4" />
-                Pending register
-              </Link>
               <Link href="/sales-orders/new" className="erp-btn-primary">
                 <Plus className="h-4 w-4" />
                 New sales order
@@ -635,12 +653,63 @@ export default function SalesOrdersPage() {
               <option value="partially_dispatched">Partially dispatched</option>
               <option value="closed">Closed</option>
             </select>
+            <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)} className={`erp-btn-secondary !h-9 ${activeFilterCount ? "!border-primary/40 !text-primary" : ""}`}>
+              <SlidersHorizontal className="h-4 w-4" />Filters{activeFilterCount ? <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{activeFilterCount}</span> : null}
+            </button>
             <button type="button" className="erp-btn-secondary !h-9" onClick={() => void exportRegister()} disabled={!orders.length}><Download className="h-4 w-4" /><span className="hidden sm:inline">Excel</span></button>
             <button type="button" className="erp-btn-secondary !h-9" onClick={() => window.print()}><Printer className="h-4 w-4" /><span className="hidden sm:inline">Print</span></button>
             <span className="ml-auto text-xs tabular-nums text-muted-foreground" aria-live="polite">
               {ordersQuery.isFetching ? "Refreshing…" : orders.length ? `${offset + 1}–${offset + orders.length}${hasNextPage ? "+" : ""}` : ""}
             </span>
           </div>
+
+          {filtersOpen ? (
+            <div className="grid gap-3 border-b border-border bg-[hsl(var(--surface-2))] px-3 py-3 animate-enter-up sm:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]" aria-label="More filters">
+              <label className="space-y-1">
+                <span className="text-[12px] font-medium text-muted-foreground">Source</span>
+                <select value={filters.origin} onChange={(event) => setFilter({ origin: event.target.value })} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
+                  <option value="">Customer PO + internal</option>
+                  <option value="CUSTOMER_PO">Customer PO</option>
+                  <option value="INTERNAL">Internal order</option>
+                </select>
+              </label>
+              <div className="space-y-1">
+                <span className="text-[12px] font-medium text-muted-foreground">Delivery</span>
+                <div className="tube-segment w-full" role="group" aria-label="Delivery filter">
+                  {([["", "Any"], ["overdue", "Overdue"], ["week", "Due in 7 days"]] as const).map(([value, label]) => (
+                    <button key={value || "any"} type="button" className="flex-1 justify-center" aria-pressed={filters.due === value} onClick={() => setFilter({ due: value })}>{label}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[12px] font-medium text-muted-foreground">PO / order date</span>
+                <div className="flex items-center gap-1.5">
+                  <input type="date" aria-label="From date" value={filters.date_from} onChange={(event) => setFilter({ date_from: event.target.value })} className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-2 text-[13px]" />
+                  <span className="text-muted-foreground">–</span>
+                  <input type="date" aria-label="To date" value={filters.date_to} onChange={(event) => setFilter({ date_to: event.target.value })} className="h-9 min-w-0 flex-1 rounded-lg border border-input bg-card px-2 text-[13px]" />
+                </div>
+              </div>
+              <label className="space-y-1">
+                <span className="text-[12px] font-medium text-muted-foreground">Sort</span>
+                <select value={filters.sort} onChange={(event) => setFilter({ sort: event.target.value })} className="h-9 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]">
+                  <option value="newest">Newest first</option>
+                  <option value="due">Earliest delivery first</option>
+                  <option value="po_date">PO date (latest)</option>
+                  <option value="oldest">Oldest first</option>
+                </select>
+              </label>
+              <div className="flex flex-wrap items-end gap-2">
+                {([["unreleased", "Has unreleased qty"], ["held", "On hold"], ["expired", "Expired"]] as const).map(([key, label]) => (
+                  <button key={key} type="button" aria-pressed={filters[key]} onClick={() => setFilter({ [key]: !filters[key] } as any)} className={`h-9 rounded-full border px-3 text-[12.5px] font-medium transition-colors ${filters[key] ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card text-muted-foreground hover:text-foreground"}`}>
+                    {label}
+                  </button>
+                ))}
+                {activeFilterCount ? (
+                  <button type="button" className="h-9 px-2 text-[12.5px] font-semibold text-primary hover:underline" onClick={() => setFilters({ origin: "", due: "", unreleased: false, held: false, expired: false, date_from: "", date_to: "", sort: "newest" })}>Clear</button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {ordersQuery.isLoading || ordersQuery.isError || orders.length === 0 ? (
             <div className="p-3">

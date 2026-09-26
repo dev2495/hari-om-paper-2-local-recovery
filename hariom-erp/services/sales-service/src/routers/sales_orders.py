@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, literal, or_, text
+from sqlalchemy import and_, func, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
@@ -853,6 +853,14 @@ def list_sales_orders(
     status_group: Optional[str] = Query(None),
     customer_id: Optional[uuid.UUID] = Query(None),
     search: Optional[str] = Query(None, min_length=1, max_length=120),
+    origin: Optional[str] = Query(None, description="CUSTOMER_PO | INTERNAL"),
+    due: Optional[str] = Query(None, description="overdue | week (due within 7 days) — open lines only"),
+    unreleased: bool = Query(False, description="Only orders with quantity not yet released"),
+    held: bool = Query(False),
+    expired: bool = Query(False),
+    date_from: Optional[date] = Query(None, description="PO / internal order date from"),
+    date_to: Optional[date] = Query(None),
+    sort: Optional[str] = Query(None, description="newest | oldest | due | po_date"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
@@ -890,6 +898,8 @@ def list_sales_orders(
             SalesOrder.notes.ilike(needle),
             SalesOrder.lines.any(SalesOrderLine.product_code.ilike(needle)),
             SalesOrder.lines.any(SalesOrderLine.parchment_color.ilike(needle)),
+            SalesOrder.lines.any(SalesOrderLine.size_label.ilike(needle)),
+            SalesOrder.lines.any(SalesOrderLine.color_splits.any(SalesOrderLineColor.color.ilike(needle))),
         ]
         try:
             clauses.append(SalesOrder.customer_id == uuid.UUID(search.strip()))
@@ -897,7 +907,50 @@ def list_sales_orders(
             pass
         query = query.filter(or_(*clauses))
 
-    orders = query.order_by(SalesOrder.created_at.desc()).offset(offset).limit(limit).all()
+    today = plant_today()
+    open_line = SalesOrderLine.fulfilled_qty + SalesOrderLine.hold_qty < SalesOrderLine.qty
+    if origin:
+        query = query.filter(SalesOrder.origin == origin.strip().upper())
+    if due == "overdue":
+        query = query.filter(SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date < today)))
+    elif due == "week":
+        query = query.filter(SalesOrder.lines.any(and_(open_line, SalesOrderLine.due_date >= today, SalesOrderLine.due_date <= today + timedelta(days=7))))
+    if unreleased:
+        released_subq = (
+            select(func.coalesce(func.sum(SalesOrderReleaseLot.released_qty), 0.0))
+            .where(
+                SalesOrderReleaseLot.sales_order_line_id == SalesOrderLine.id,
+                func.lower(func.coalesce(SalesOrderReleaseLot.status, "")) != "cancelled",
+            )
+            .correlate(SalesOrderLine)
+            .scalar_subquery()
+        )
+        query = query.filter(SalesOrder.status != SalesOrderStatus.CLOSED, SalesOrder.lines.any(SalesOrderLine.qty - SalesOrderLine.hold_qty > released_subq + 0.001))
+    if held:
+        query = query.filter(SalesOrder.held_at.isnot(None))
+    if expired:
+        query = query.filter(SalesOrder.expiry_date < today, SalesOrder.status != SalesOrderStatus.CLOSED)
+    order_date = func.coalesce(SalesOrder.po_date, SalesOrder.internal_order_date)
+    if date_from:
+        query = query.filter(order_date >= date_from)
+    if date_to:
+        query = query.filter(order_date <= date_to)
+    sort_key = (sort or "newest").lower()
+    if sort_key == "oldest":
+        ordering = [SalesOrder.created_at.asc()]
+    elif sort_key == "po_date":
+        ordering = [order_date.desc().nullslast(), SalesOrder.created_at.desc()]
+    elif sort_key == "due":
+        earliest_due = (
+            select(func.min(SalesOrderLine.due_date))
+            .where(SalesOrderLine.sales_order_id == SalesOrder.id, open_line)
+            .correlate(SalesOrder)
+            .scalar_subquery()
+        )
+        ordering = [earliest_due.asc().nullslast(), SalesOrder.created_at.desc()]
+    else:
+        ordering = [SalesOrder.created_at.desc()]
+    orders = query.order_by(*ordering).offset(offset).limit(limit).all()
     return [_serialize_order(order) for order in orders]
 
 
@@ -1524,13 +1577,33 @@ def get_sales_order_timeline(
         if released_qty - float(line.qty or 0.0) > 0.001:
             warnings.append(f"Line {int(line.line_no or 0)} released qty exceeds order qty.")
 
+        all_lots = sorted(getattr(line, "release_lots", []) or [], key=lambda item: item.created_at or datetime.min)
+        for lot in all_lots:
+            returned = float(getattr(lot, "returned_qty", 0.0) or 0.0)
+            if returned > 0:
+                events.append(
+                    _timeline_event(
+                        event_id=f"{lot.id}:returned",
+                        event_type="SALES_ORDER_LOT_RETURNED",
+                        title=f"Line {int(line.line_no or 0)} balance returned",
+                        message=(
+                            f"Job card force-closed: {round(returned, 2)} pcs {lot.parchment_color or ''} back to unreleased; "
+                            f"{round(float(lot.released_qty or 0.0), 2)} pcs stay on the card."
+                        ).replace("  ", " "),
+                        created_at=lot.released_at or lot.created_at,
+                        actor=lot.released_by_identity or lot.released_by,
+                        line_id=line.id,
+                        qty=returned,
+                        metadata={"release_lot_id": str(lot.id), "job_card_id": str(lot.job_card_id) if lot.job_card_id else None, "status": lot.status},
+                    )
+                )
         for lot in sorted(release_lots, key=lambda item: item.created_at or datetime.min):
             events.append(
                 _timeline_event(
                     event_id=f"{lot.id}:release",
                     event_type="SALES_ORDER_LINE_RELEASED",
-                    title=f"Line {int(line.line_no or 0)} released",
-                    message=f"{round(float(lot.released_qty or 0.0), 2)} pcs released to planning.",
+                    title=f"Line {int(line.line_no or 0)} released" + (f" · {lot.parchment_color}" if getattr(lot, "parchment_color", None) else ""),
+                    message=f"{round(float(lot.released_qty or 0.0) + float(getattr(lot, 'returned_qty', 0.0) or 0.0), 2)} pcs released to planning.",
                     created_at=lot.released_at or lot.created_at,
                     actor=lot.released_by_identity or lot.released_by,
                     line_id=line.id,

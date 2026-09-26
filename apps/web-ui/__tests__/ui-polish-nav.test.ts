@@ -41,7 +41,7 @@ test("core operational routes wrap RoleGate", () => {
     landingOwner: read("app/(dashboard)/landing/owner/page.tsx"),
     audit: read("app/(dashboard)/system/audit/page.tsx"),
   }
-  assert.match(files.sales, /pending \? \["Sales", "Planner", "PlantManager"\] : \["Sales", "Planner"\]/)
+  assert.match(files.sales, /allow=\{\["Sales", "Planner", "PlantManager"\]\}/)
   assert.match(files.pending, /PlantManager/)
   assert.match(files.jobs, /"QC"/)
   assert.match(files.planning, /"Planner", "PlantManager"/)
@@ -98,30 +98,27 @@ test("sidebar jump-to-workspace search finds routes beyond nav labels", () => {
   const purchase = searchWorkspaceJumps("grn")
   assert.ok(purchase.some((item) => item.href === "/purchase"))
   const pending = searchWorkspaceJumps("pending")
-  assert.ok(pending.some((item) => item.href === "/sales-orders/pending"))
+  assert.ok(pending.some((item) => item.href.startsWith("/sales-orders")))
 })
 
-test("integrated-slice nav entries remain: Quality, Pending Orders, Purchase", () => {
+test("integrated-slice nav entries remain: Quality, Sales orders, Purchase (pending folded into sales)", () => {
   const layout = read("app/(dashboard)/layout.tsx")
   assert.match(layout, /name: "Quality"/)
   assert.match(layout, /href: "\/quality"/)
-  assert.match(layout, /name: "Pending Orders"/)
-  assert.match(layout, /href: "\/sales-orders\/pending"/)
+  assert.doesNotMatch(layout, /href: "\/sales-orders\/pending"/)
+  assert.match(layout, /href: "\/sales-orders"/)
   assert.match(layout, /name: "Purchase"/)
   assert.match(layout, /href: "\/purchase"/)
 })
 
 test("core pages no longer use EmptyState for loading", () => {
   const sales = read("app/(dashboard)/sales-orders/page.tsx")
-  const pending = read("app/(dashboard)/sales-orders/pending/page.tsx")
   const jobs = read("app/(dashboard)/production/job-cards/page.tsx")
   const tracker = read("app/(dashboard)/planning/tracker/page.tsx")
   assert.match(sales, /loadingLabel="Loading live sales orders/)
-  assert.match(pending, /loadingLabel="Loading pending orders from the server/)
   assert.match(jobs, /loadingLabel="Loading recovered job cards/)
   assert.match(tracker, /loadingLabel="Loading sales-order tracker/)
   assert.doesNotMatch(sales, /EmptyState label="Loading live sales orders/)
-  assert.doesNotMatch(pending, /EmptyState label="Loading pending orders/)
 })
 
 test("UserEditor and audit use the shared design system", () => {

@@ -161,7 +161,7 @@ function breakdown(type: ReportType, data: any, chart: { rows: any[]; keys: stri
       title: "Where the exceptions are",
       center: "Open items",
       slices: [
-        { label: "Delayed orders", value: Number(s.delayed_orders || 0), color: "hsl(var(--chart-5))", href: "/sales-orders/pending" },
+        { label: "Delayed orders", value: Number(s.delayed_orders || 0), color: "hsl(var(--chart-5))", href: "/sales-orders?due=overdue" },
         { label: "Blocked jobs", value: Number(s.blocked_jobs || 0), color: "hsl(var(--chart-6))", href: "/production/job-cards" },
         { label: "QC holds", value: Number(s.active_qc_holds || 0), color: "hsl(var(--chart-3))", href: "/quality" },
         { label: "Low stock", value: Number(s.low_stock_items || 0), color: "hsl(var(--chart-2))", href: "/inventory/stock-alerts" },

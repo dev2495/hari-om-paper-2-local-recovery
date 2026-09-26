@@ -18,7 +18,7 @@ export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Guide", href: "/help", description: "Flow maps, field rules, and operator checklists.", group: "Overview" },
   { name: "Sales Orders", href: "/sales-orders", description: "Commercial demand, releases, and customer intake.", group: "Operations", keywords: ["so", "po", "customer"] },
   { name: "New sales order", href: "/sales-orders/new", description: "Create a customer PO or internal sales order.", group: "Operations" },
-  { name: "Pending Orders", href: "/sales-orders/pending", description: "All in-scope pending demand with server totals and export.", group: "Operations" },
+  { name: "Pending Orders", href: "/sales-orders?unreleased=1", description: "Sales register filtered to orders with unreleased or undelivered qty.", group: "Operations" },
   { name: "Job Cards", href: "/production/job-cards", description: "Release truth, execution packets, and printable cards.", group: "Operations" },
   { name: "Planner", href: "/planning/board", description: "Machine queues, shift scheduling, and stage balancing.", group: "Operations" },
   { name: "Tracker", href: "/planning/tracker", description: "Live segment posture and release-to-dispatch tracking.", group: "Operations" },

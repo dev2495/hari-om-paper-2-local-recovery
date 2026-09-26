@@ -6,9 +6,9 @@ import { RoleGate } from "@/components/workspace/role-gate"
 
 export default function SalesOrdersLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || ""
-  const pending = pathname === "/sales-orders/pending" || pathname.startsWith("/sales-orders/pending/")
+  void pathname
   return (
-    <RoleGate allow={pending ? ["Sales", "Planner", "PlantManager"] : ["Sales", "Planner"]}>
+    <RoleGate allow={["Sales", "Planner", "PlantManager"]}>
       {children}
     </RoleGate>
   )

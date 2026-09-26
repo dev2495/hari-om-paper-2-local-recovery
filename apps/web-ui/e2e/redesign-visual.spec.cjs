@@ -1,6 +1,6 @@
 const {test,expect}=require('@playwright/test')
 const {getBrowserFixture,getRuntimeManifest,requireCredential}=require('./_runtime-data.cjs')
-const routes=['/dashboard','/landing/owner','/sales-orders','/sales-orders/pending','/planning/board','/production/job-cards','/quality','/purchase','/purchase/scheduler','/purchase/receipts','/inventory','/logistics/dispatch','/analytics','/masters/papers','/system/users','/help']
+const routes=['/dashboard','/landing/owner','/sales-orders','/planning/board','/production/job-cards','/quality','/purchase','/purchase/scheduler','/purchase/receipts','/inventory','/logistics/dispatch','/analytics','/masters/papers','/system/users','/help']
 async function login(page,key="admin"){
  const fixture=getBrowserFixture(),user=requireCredential(key)
  await page.goto('/login')
