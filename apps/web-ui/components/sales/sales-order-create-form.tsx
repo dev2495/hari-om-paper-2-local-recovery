@@ -18,6 +18,8 @@ import {
   isCustomerPoOrigin,
 } from "@/lib/sales-order-entry"
 
+type ColorRow = { key: string; color_id: string; color: string; qty: string }
+
 type SalesLineForm = {
   localId: string
   persistedId?: string
@@ -27,6 +29,8 @@ type SalesLineForm = {
   parchment_required: boolean
   parchment_color_id: string
   parchment_color: string
+  /** Color breakup (parchment lines). Blank qty on a single row = the whole line. */
+  color_rows: ColorRow[]
   rate_per_pc: string
   qty: string
   due_date: string
@@ -55,6 +59,7 @@ function createLine(seed = 1): SalesLineForm {
     parchment_required: false,
     parchment_color_id: "",
     parchment_color: "",
+    color_rows: [],
     rate_per_pc: "",
     qty: "",
     due_date: "",
@@ -187,6 +192,16 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
             parchment_required: Boolean(line.parchment_required),
             parchment_color_id: line.parchment_required ? String(line.parchment_color_id || "") : "",
             parchment_color: line.parchment_required ? String(line.parchment_color || "") : "",
+            color_rows: line.parchment_required
+              ? (Array.isArray(line.color_splits) && line.color_splits.length
+                  ? line.color_splits.map((split: any, splitIndex: number) => ({
+                      key: `c-${index}-${splitIndex}`,
+                      color_id: String(split.color_id || ""),
+                      color: String(split.color || ""),
+                      qty: split.qty == null ? "" : String(Math.round(Number(split.qty))),
+                    }))
+                  : [{ key: `c-${index}-0`, color_id: "", color: "", qty: "" }])
+              : [],
             rate_per_pc: line.rate_per_pc == null ? "" : String(line.rate_per_pc),
             qty: line.qty == null ? "" : String(line.qty),
             due_date: isoDate(line.due_date),
@@ -235,7 +250,10 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
               ...line,
               [field]: value,
               ...(field === "parchment_required" && !value
-                ? { parchment_color: "", parchment_color_id: "" }
+                ? { parchment_color: "", parchment_color_id: "", color_rows: [] }
+                : {}),
+              ...(field === "parchment_required" && value && !line.color_rows.length
+                ? { color_rows: [{ key: `c-${Date.now()}`, color_id: "", color: "", qty: "" }] }
                 : {}),
             }
           : line,
@@ -268,28 +286,53 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
     }))
   }
 
-  function updateParchment(localId: string, parchmentId: string) {
-    const selected = parchmentOptions.find((parchment: any) => String(parchment.id) === parchmentId)
-    const snapshot = selected
-      ? String(selected.display_name || [selected.color_name, selected.vendor_name].filter(Boolean).join(" / ") || selected.color_name || "")
-      : ""
+  function colorLabel(parchment: any) {
+    return String(parchment?.display_name || [parchment?.color_name, parchment?.vendor_name].filter(Boolean).join(" / ") || parchment?.color_name || "")
+  }
+
+  function updateColorRow(localId: string, rowKey: string, patch: Partial<ColorRow>) {
     setForm((current) => ({
       ...current,
-      lines: current.lines.map((line) =>
-        line.localId === localId
-          ? {
-              ...line,
-              parchment_color_id: parchmentId,
-              parchment_color: snapshot,
-            }
-          : line,
-      ),
+      lines: current.lines.map((line) => {
+        if (line.localId !== localId) return line
+        const rows = line.color_rows.map((row) => (row.key === rowKey ? { ...row, ...patch } : row))
+        const first = rows.find((row) => row.color)
+        return { ...line, color_rows: rows, parchment_color_id: first?.color_id || "", parchment_color: first?.color || "" }
+      }),
     }))
     setFieldErrors((current) => {
       const next = { ...current }
       delete next[`parchment_color:${localId}`]
       return next
     })
+  }
+
+  function pickColor(localId: string, rowKey: string, parchmentId: string) {
+    const selected = parchmentOptions.find((parchment: any) => String(parchment.id) === parchmentId)
+    updateColorRow(localId, rowKey, { color_id: parchmentId, color: selected ? colorLabel(selected) : "" })
+  }
+
+  function addColorRow(localId: string) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line) =>
+        line.localId === localId ? { ...line, color_rows: [...line.color_rows, { key: `c-${Date.now()}`, color_id: "", color: "", qty: "" }] } : line,
+      ),
+    }))
+  }
+
+  function removeColorRow(localId: string, rowKey: string) {
+    setForm((current) => ({
+      ...current,
+      lines: current.lines.map((line) => (line.localId === localId ? { ...line, color_rows: line.color_rows.filter((row) => row.key !== rowKey) } : line)),
+    }))
+  }
+
+  /** Rows the server will store. A single colored row with no qty covers the whole line. */
+  function colorSplitsFor(line: SalesLineForm) {
+    const rows = line.color_rows.filter((row) => row.color)
+    if (rows.length === 1 && !rows[0].qty) return [{ color: rows[0].color, color_id: rows[0].color_id || null, qty: Number(line.qty || 0) }]
+    return rows.filter((row) => Number(row.qty) > 0).map((row) => ({ color: row.color, color_id: row.color_id || null, qty: Number(row.qty) }))
   }
 
   function addLine() {
@@ -316,8 +359,16 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
     form.lines.forEach((line, index) => {
       const dateError = deliveryDateMustFollowCustomerPoDate(line.due_date, form.po_date, form.origin)
       if (dateError) errors[`due_date:${line.localId}`] = `Line ${index + 1}: ${dateError}`
-      if (line.parchment_required && !line.parchment_color_id && !line.parchment_color) {
-        errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: Parchment color is required when parchment is required.`
+      if (line.parchment_required) {
+        const colored = line.color_rows.filter((row) => row.color)
+        const assigned = colorSplitsFor(line).reduce((sum, row) => sum + row.qty, 0)
+        if (line.color_rows.some((row) => Number(row.qty) > 0 && !row.color)) {
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: pick a color for every quantity row.`
+        } else if (colored.length > 1 && colored.some((row) => !Number(row.qty))) {
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: with more than one color, enter the qty of each color.`
+        } else if (assigned > Number(line.qty || 0)) {
+          errors[`parchment_color:${line.localId}`] = `Line ${index + 1}: colors add up to ${assigned.toLocaleString("en-IN")} pcs, more than the ${Number(line.qty || 0).toLocaleString("en-IN")} ordered.`
+        }
       }
     })
     setFieldErrors(errors)
@@ -349,6 +400,7 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
         parchment_required: Boolean(line.parchment_required),
         parchment_color_id: line.parchment_required ? line.parchment_color_id || null : null,
         parchment_color: line.parchment_required ? line.parchment_color || null : null,
+        color_splits: line.parchment_required ? colorSplitsFor(line) : [],
         rate_per_pc: line.rate_per_pc ? Number(line.rate_per_pc) : null,
         qty: Number(line.qty),
         due_date: line.due_date,
@@ -620,25 +672,70 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
                       />
                       Parchment required
                     </label>
-                    <div className="space-y-1 xl:col-span-2">
-                      <label className="text-[12px] font-semibold text-muted-foreground">Parchment Color</label>
-                      <select
-                        data-testid={index === 0 ? "sales-orders:parchment" : undefined}
-                        value={line.parchment_color_id}
-                        onChange={(event) => updateParchment(line.localId, event.target.value)}
-                        disabled={!line.parchment_required}
-                        required={line.parchment_required}
-                        className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm disabled:bg-muted"
-                      >
-                        <option value="">{line.parchment_required ? "Select parchment color" : "Not required for this line"}</option>
-                        {parchmentOptions.map((parchment: any) => (
-                          <option key={parchment.id} value={parchment.id}>
-                            {parchment.display_name || `${parchment.color_name} / ${parchment.vendor_name || ""}`.trim()}
-                          </option>
-                        ))}
-                      </select>
-                      {parchmentError ? <p className="text-xs text-signal-rose-ink">{parchmentError}</p> : null}
-                    </div>
+                    {line.parchment_required ? (() => {
+                      const lineQty = Number(line.qty || 0)
+                      const splits = colorSplitsFor(line)
+                      const assigned = splits.reduce((sum, row) => sum + row.qty, 0)
+                      const open = Math.max(0, lineQty - assigned)
+                      return (
+                        <div className="space-y-2 rounded-lg border border-border bg-[hsl(var(--surface-2))] p-3 md:col-span-2 xl:col-span-5">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-[12.5px] font-semibold">Parchment colors</p>
+                            <span className="text-[12px] tabular-nums text-muted-foreground">
+                              {assigned.toLocaleString("en-IN")} assigned · <span className={open ? "font-semibold text-signal-amber-ink" : ""}>{open.toLocaleString("en-IN")} not decided yet</span>
+                            </span>
+                          </div>
+                          {lineQty > 0 ? (
+                            <div className="flex h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+                              {splits.map((row, splitIndex) => (
+                                <div key={`${row.color}-${splitIndex}`} className="h-full transition-[width] duration-500" style={{ width: `${Math.min(100, (row.qty / lineQty) * 100)}%`, background: `hsl(var(--chart-${(splitIndex % 8) + 1}))` }} title={`${row.color}: ${row.qty}`} />
+                              ))}
+                            </div>
+                          ) : null}
+                          {line.color_rows.map((row, rowIndex) => (
+                            <div key={row.key} className="grid grid-cols-[minmax(0,1fr)_110px_36px] items-center gap-2">
+                              <select
+                                data-testid={index === 0 && rowIndex === 0 ? "sales-orders:parchment" : undefined}
+                                aria-label={`Line ${lineNumber} color ${rowIndex + 1}`}
+                                value={row.color_id}
+                                onChange={(event) => pickColor(line.localId, row.key, event.target.value)}
+                                className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-[13px]"
+                              >
+                                <option value="">{rowIndex === 0 ? "Color (can decide later)" : "Select color"}</option>
+                                {parchmentOptions.map((parchment: any) => (
+                                  <option key={parchment.id} value={parchment.id}>{colorLabel(parchment)}</option>
+                                ))}
+                              </select>
+                              <input
+                                type="number"
+                                min="0"
+                                inputMode="numeric"
+                                aria-label={`Line ${lineNumber} color ${rowIndex + 1} qty`}
+                                value={row.qty}
+                                placeholder={line.color_rows.length === 1 ? "All" : "Qty"}
+                                onChange={(event) => updateColorRow(line.localId, row.key, { qty: event.target.value })}
+                                className="h-10 w-full rounded-lg border border-input bg-card px-2.5 text-right text-[13px] tabular-nums"
+                              />
+                              <button
+                                type="button"
+                                aria-label={`Remove color ${rowIndex + 1}`}
+                                onClick={() => removeColorRow(line.localId, row.key)}
+                                className="grid h-9 w-9 place-items-center rounded-lg text-muted-foreground hover:bg-signal-rose-soft hover:text-signal-rose-ink"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          ))}
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <button type="button" onClick={() => addColorRow(line.localId)} className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-primary hover:underline">
+                              <Plus className="h-3.5 w-3.5" />Add color
+                            </button>
+                            <p className="text-[11.5px] text-muted-foreground">Colors may stay undecided now. Every release picks one color — one job card is one color.</p>
+                          </div>
+                          {parchmentError ? <p className="text-xs text-signal-rose-ink">{parchmentError}</p> : null}
+                        </div>
+                      )
+                    })() : null}
                   </div>
                 </section>
               )

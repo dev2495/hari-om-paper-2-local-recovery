@@ -287,3 +287,7 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
   size: A3 landscape;
   margin: 8mm;
 }
+.tube-sheet-right[data-state="open"] { animation: sheet-in-right 280ms var(--ease-workspace) both !important; }
+.tube-sheet-right[data-state="closed"] { animation: sheet-out-right 180ms ease both !important; }
+@keyframes sheet-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes sheet-out-right { from { transform: translateX(0); } to { transform: translateX(100%); } }

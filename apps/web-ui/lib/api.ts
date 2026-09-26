@@ -344,6 +344,8 @@ export const salesApi = {
   approveOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/approve`, {}, withPlantHeader(plantId)),
   releaseOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/release`, {}, withPlantHeader(plantId)),
   releaseOrderLine: (lineId: string, data: any, plantId?: string) => api.post(`/api/sales/orders/lines/${lineId}/release`, data, withPlantHeader(plantId)),
+  updateLineColors: (lineId: string, colorSplits: Array<{ color: string; color_id?: string | null; qty: number }>) =>
+    api.put(`/api/sales/orders/lines/${lineId}/colors`, { color_splits: colorSplits }),
 }
 
 function clampPlanningListParams(params?: any) {
@@ -398,6 +400,15 @@ export const productionApi = {
   }) => api.get("/api/production/planning/board", { params }),
   movePlanningBoard: (data: any) => api.post("/api/production/planning/board/move", data),
   splitPlanningSegment: (data: any) => api.post("/api/production/planning/board/split", data),
+  getJobCardLifecycle: (jobCardId: string) => api.get(`/api/production/job-cards/${jobCardId}/lifecycle`),
+  amendJobCard: (jobCardId: string, data: { planned_qty?: number; parchment_color?: string; parchment_color_id?: string | null; reason?: string }) =>
+    api.post(`/api/production/job-cards/${jobCardId}/amend`, data),
+  splitJobCard: (jobCardId: string, data: { qty: number; reason?: string }) => api.post(`/api/production/job-cards/${jobCardId}/split`, data),
+  forceCloseJobCard: (jobCardId: string, data: { reason: string }) => api.post(`/api/production/job-cards/${jobCardId}/force-close`, data),
+  postRunningEntry: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/running-entry`, data),
+  emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason: string }) =>
+    api.post("/api/production/planning/emergency-insert", data),
+  getWinderLoad: () => api.get("/api/production/planning/winder-load"),
   reorderPlanningQueue: (data: any) => api.patch("/api/production/planning/queues/reorder", data),
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),

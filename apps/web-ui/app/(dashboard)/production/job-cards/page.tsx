@@ -3,13 +3,15 @@
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import dayjs from "dayjs"
-import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Download, Factory, GitBranch, PackageCheck, Printer, Search, ShieldCheck, ShoppingCart, TimerReset, Truck } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarClock, CheckCircle2, ClipboardCheck, Download, Factory, Flame, GitBranch, PackageCheck, Pencil, Printer, Scissors, Search, Settings2, ShieldCheck, ShoppingCart, TimerReset, Truck, Undo2 } from "lucide-react"
 import { HoverCard } from "@/components/common/hover-card"
 import { RowMenu } from "@/components/common/row-menu"
 import { useDeferredValue, useMemo, useState } from "react"
 
 import { ExecutiveHero, MetricCard, MetricRail, Panel, StatusBadge } from "@/components/erp/shell"
 import { QuerySwitch } from "@/components/workspace/query-state"
+import { ColorChip, JobCardNo, LifecycleBadge, lifecycleFromSummary } from "@/components/production/lifecycle-chips"
+import { JobCardLifecycleSheet, type LifecycleAction } from "@/components/production/job-card-lifecycle-sheet"
 import { useMachines, useJobCardAggregates, usePlanningJobCards } from "@/hooks/use-production"
 import { productionApi } from "@/lib/api"
 import { dueRiskLabel, overdueLabel } from "@/lib/due-risk"
@@ -64,6 +66,8 @@ export default function JobCardsPage() {
   const [search, setSearch] = useState("")
   const [status, setStatus] = useState("ALL")
   const [gateFilter, setGateFilter] = useState<"all" | "blocked" | "ready">("all")
+  const [lifeFilter, setLifeFilter] = useState<string>("ALL")
+  const [sheet, setSheet] = useState<{ id: string; action: LifecycleAction | null } | null>(null)
   const deferredSearch = useDeferredValue(search.trim())
   const machinesQuery = useMachines()
   const aggregatesQuery = useJobCardAggregates()
@@ -110,7 +114,14 @@ export default function JobCardsPage() {
 
   const visibleCards = jobCards.length
   const blockedCount = jobCards.filter((job: any) => gateInfo(job).blocked).length
-  const visibleJobCards = jobCards.filter((job: any) => gateFilter === "all" || (gateFilter === "blocked") === gateInfo(job).blocked)
+  const lifeCounts = jobCards.reduce((acc: Record<string, number>, job: any) => {
+    const state = lifecycleFromSummary(job)
+    acc[state] = (acc[state] || 0) + 1
+    return acc
+  }, {})
+  const visibleJobCards = jobCards
+    .filter((job: any) => gateFilter === "all" || (gateFilter === "blocked") === gateInfo(job).blocked)
+    .filter((job: any) => lifeFilter === "ALL" || lifecycleFromSummary(job) === lifeFilter || (lifeFilter === "CLOSED" && ["FORCE_CLOSED", "CANCELLED"].includes(lifecycleFromSummary(job))))
   const priorityCount = Number(aggregates.due_priority || 0)
   const overdueCount = Number(aggregates.due_overdue || 0)
   const priorityDetail = aggregates.priority_label || dueRiskLabel()
@@ -231,6 +242,12 @@ export default function JobCardsPage() {
                 {dueRiskParam === "PRIORITY" ? "Priority 3-day" : "Overdue"} ×
               </button>
             ) : null}
+            <div className="tube-segment" role="group" aria-label="Lifecycle filter">
+              {([["ALL", "All"], ["QUEUED", "Queue"], ["SCHEDULED", "Scheduled"], ["RUNNING", "Running"], ["CLOSED", "Closed early"]] as const).map(([value, label]) => {
+                const count = value === "ALL" ? visibleCards : value === "CLOSED" ? (lifeCounts.FORCE_CLOSED || 0) + (lifeCounts.CANCELLED || 0) : lifeCounts[value] || 0
+                return <button key={value} type="button" aria-pressed={lifeFilter === value} onClick={() => setLifeFilter(value)}>{label}<span className="tabular-nums text-muted-foreground">{count}</span></button>
+              })}
+            </div>
             <div className="tube-segment" role="group" aria-label="Floor gate filter">
               {([["all", `All ${visibleCards}`], ["blocked", `Blocked ${blockedCount}`], ["ready", `Ready ${visibleCards - blockedCount}`]] as const).map(([value, label]) => (
                 <button key={value} type="button" aria-pressed={gateFilter === value} onClick={() => setGateFilter(value)}>{label}</button>
@@ -257,6 +274,7 @@ export default function JobCardsPage() {
               <option value="PLANNED">Planned</option>
               <option value="IN_PROGRESS">In progress</option>
               <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
             </select>
             <button type="button" onClick={() => exportCards().catch(() => undefined)} className="erp-btn-secondary !h-9 print:hidden">
               <Download className="h-4 w-4" />Export CSV
@@ -290,6 +308,7 @@ export default function JobCardsPage() {
                   <th>Job card</th>
                   <th className="hidden md:table-cell">Customer · order</th>
                   <th className="num">Qty</th>
+                  <th>Lifecycle</th>
                   <th>Stage</th>
                   <th className="hidden lg:table-cell">Plan</th>
                   <th>Due</th>
@@ -305,9 +324,14 @@ export default function JobCardsPage() {
                   const dueDays = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
                   return (
                     <tr key={job.id} data-due-risk={job.due_risk_bucket || ""} data-state={gate.blocked ? undefined : undefined}>
-                      <td className="max-w-[220px]">
-                        <Link href={`/production/job-cards/${job.id}`} className="font-semibold text-foreground hover:text-primary">{jobCardRef(job)}</Link>
-                        <span className="block truncate text-[11.5px] text-muted-foreground">{job.product_size_label || job.product_code || "—"}{job.parchment_color ? ` · ${job.parchment_color}` : ""}</span>
+                      <td className="max-w-[240px]">
+                        <button type="button" onClick={() => setSheet({ id: String(job.id), action: null })} className="text-left hover:text-primary" title="Open lifecycle">
+                          <JobCardNo job={job} />
+                        </button>
+                        <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[11.5px] text-muted-foreground">
+                          <span className="truncate">{job.product_size_label || job.product_code || "—"}</span>
+                          {job.parchment_color ? <ColorChip color={job.parchment_color} className="!text-[11.5px]" /> : null}
+                        </span>
                       </td>
                       <td className="hidden max-w-[240px] md:table-cell">
                         <span className="block truncate text-foreground/90">{job.customer_name || "—"}</span>
@@ -316,6 +340,12 @@ export default function JobCardsPage() {
                       <td className="num">
                         <span className="font-semibold">{Number(job.planned_qty || 0).toLocaleString("en-IN")}</span>
                         {job.planned_weight_kg ? <span className="block text-[11px] text-muted-foreground">{Number(job.planned_weight_kg).toLocaleString("en-IN", { maximumFractionDigits: 1 })} kg</span> : null}
+                      </td>
+                      <td>
+                        <button type="button" onClick={() => setSheet({ id: String(job.id), action: null })} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                          <LifecycleBadge state={lifecycleFromSummary(job)} />
+                        </button>
+                        {Number(job.returned_qty || 0) > 0 ? <span className="mt-0.5 block text-[11px] tabular-nums text-signal-rose-ink">{Number(job.returned_qty).toLocaleString("en-IN")} back to SO</span> : null}
                       </td>
                       <td><div className="flex flex-col items-start gap-1"><StatusBadge value={job.current_stage} /><span className="text-[11px] text-muted-foreground">{String(job.status || "").replaceAll("_", " ").toLowerCase()}</span></div></td>
                       <td className="hidden whitespace-nowrap lg:table-cell">
@@ -351,6 +381,13 @@ export default function JobCardsPage() {
                         <div className="flex justify-end">
                           <RowMenu
                             items={[
+                              { label: "Manage lifecycle", onSelect: () => setSheet({ id: String(job.id), action: null }), icon: Settings2 },
+                              ...(lifecycleFromSummary(job) === "QUEUED" ? [{ label: "Edit qty / color", onSelect: () => setSheet({ id: String(job.id), action: "edit" as LifecycleAction }), icon: Pencil }] : []),
+                              ...(["QUEUED", "SCHEDULED", "RUNNING"].includes(lifecycleFromSummary(job)) ? [
+                                { label: "Split card…", onSelect: () => setSheet({ id: String(job.id), action: "split" as LifecycleAction }), icon: Scissors },
+                                { label: "Force close…", onSelect: () => setSheet({ id: String(job.id), action: "force_close" as LifecycleAction }), icon: Undo2 },
+                              ] : []),
+                              ...(["QUEUED", "SCHEDULED"].includes(lifecycleFromSummary(job)) ? [{ label: "Emergency insert…", onSelect: () => setSheet({ id: String(job.id), action: "emergency" as LifecycleAction }), icon: Flame }] : []),
                               { label: "Open job card", href: `/production/job-cards/${job.id}`, icon: ClipboardCheck },
                               { label: "Plan / reschedule", href: planHref, icon: CalendarClock },
                               { label: "Stage entry", href: `/production/supervisor-entry?job_card_id=${job.id}`, icon: Factory },
@@ -370,6 +407,7 @@ export default function JobCardsPage() {
         )}
         <p className="mt-3 text-xs text-muted-foreground">Showing the loaded job-card window (up to 250). Stage tiles use the server aggregate, not this page size.</p>
       </Panel>
+      <JobCardLifecycleSheet jobCardId={sheet?.id || null} initialAction={sheet?.action || null} open={Boolean(sheet)} onOpenChange={(next) => { if (!next) setSheet(null) }} />
     </div>
   )
 }
