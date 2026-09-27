@@ -280,6 +280,14 @@ async def purchase_material_demand(request: Request, as_of_date: date, horizon_e
     return await material_demand(token, request.query_params.get("plant_id") or request.headers.get("X-Plant-ID"), as_of_date, horizon_end)
 
 
+@router.post("/material-demand/create-paper-items")
+async def purchase_create_paper_items(request: Request, token: str = Depends(get_token)):
+    from src.services.procurement_demand import create_paper_stock_items
+    body = await request.json()
+    plant = request.query_params.get("plant_id") or request.headers.get("X-Plant-ID")
+    return await create_paper_stock_items(token, plant, (body or {}).get("paper_ids") or [])
+
+
 @router.patch("/schedules/{schedule_id}")
 async def patch_supplier_schedule(schedule_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/schedules/{schedule_id}", request, token)

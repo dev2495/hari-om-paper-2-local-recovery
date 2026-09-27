@@ -124,6 +124,12 @@ def match_inventory_item(
             return items_by_code[code], "MAPPED"
         if paper_id and paper_id in items_by_id:
             return items_by_id[paper_id], "MAPPED"
+        # Same code written with different spacing/dashes (KRAFT-230-18BF vs KRAFT 230 18BF).
+        wanted = "".join(ch for ch in code if ch.isalnum())
+        if wanted:
+            for item_code, item in items_by_code.items():
+                if "".join(ch for ch in str(item_code) if ch.isalnum()) == wanted:
+                    return item, "MAPPED"
         return None, "UNKNOWN"
     if kind == "ADHESIVE":
         label = str(need.get("label") or "").strip().upper()

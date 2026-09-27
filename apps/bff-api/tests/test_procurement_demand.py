@@ -35,10 +35,20 @@ def test_bom_rounds_whole_bamboos_and_excludes_already_released_work():
     assert rows[0]["recipe_version"] == 2
 
 
-def test_missing_paper_mapping_is_blocked_instead_of_zero_demand():
+def test_unmapped_paper_still_counts_its_kg_and_warns():
+    args = list(fixture()); args[5] = {}; args[7] = {"paper": {"id": "paper", "code": "KRAFT-230-18BF", "variety": "Kraft", "gsm": 230}}
+    rows, warning = explode_paper_demand(*args)
+    assert rows and rows[0]["qty_kg"] == 36.75
+    assert rows[0]["mapped"] is False and rows[0]["item_id"] == "paper:paper" and rows[0]["item_code"] == "KRAFT-230-18BF"
+    assert "no stock item" in warning
+
+
+def test_paper_maps_to_stock_item_by_code_ignoring_spaces_and_dashes():
     args = list(fixture()); args[5] = {}
-    rows, error = explode_paper_demand(*args)
-    assert rows == [] and "mapping" in error
+    args[6] = {"KRAFT 230 18BF": {"id": "stock-1", "item_code": "KRAFT 230 18BF", "name": "Kraft 230", "type": "RAW_PAPER", "uom": "KG"}}
+    args[7] = {"paper": {"id": "paper", "code": "KRAFT-230-18BF"}}
+    rows, warning = explode_paper_demand(*args)
+    assert warning is None and rows[0]["item_id"] == "stock-1" and rows[0]["mapped"] is True
 
 
 def test_demand_outside_horizon_excluded_and_overdue_rolled_to_first_day():
