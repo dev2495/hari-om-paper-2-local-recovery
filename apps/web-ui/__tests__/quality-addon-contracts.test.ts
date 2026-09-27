@@ -190,12 +190,20 @@ test("sales release explains missing and unavailable winder master states", () =
   assert.match(describeWinderAvailability([]), /No active WINDER master/i)
 })
 
-test("sales release resolves winders through the order plant instead of browser-side plant equality", () => {
+test("sales release resolves winders through the order plant; every page uses the one color-aware release dialog", () => {
   const salesPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
-  assert.match(salesPage, /releasePreflight\.mutateAsync\(\{[\s\S]*?plantId,/)
-  assert.match(salesPage, /compatible_winders/)
+  const detailPage = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/[orderId]/page.tsx"), "utf8")
+  const dialog = readFileSync(resolve(process.cwd(), "components/sales/release-to-queue-dialog.tsx"), "utf8")
+  assert.match(salesPage, /<ReleaseToQueueDialog/)
+  assert.match(detailPage, /<ReleaseToQueueDialog/)
   assert.match(salesPage, /if \(releasedPlantId\) setActivePlant\(releasedPlantId\)/)
+  assert.match(dialog, /releasePreflight\.mutateAsync\(\{[\s\S]*?plantId: orderPlantId\(order\),/)
+  assert.match(dialog, /compatible_winders/)
+  assert.match(dialog, /Pick the parchment color — one job card is one color/)
+  assert.match(dialog, /Pick a winder queue/)
+  assert.match(dialog, /parchment_color: row\.parchment_required \? row\.color/)
   assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
+  assert.doesNotMatch(salesPage, /releaseOrderLine\.mutateAsync/)
 })
 
 test("print contracts: job card front (final client format) and the spec sheet on the back", () => {

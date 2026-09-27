@@ -1,7 +1,7 @@
 "use client"
 
 import { AlertTriangle, CheckCircle2, Factory, Plus, Trash2 } from "lucide-react"
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 
 import { StatusBadge } from "@/components/erp/shell"
 import { ColorChip, swatchFor } from "@/components/production/lifecycle-chips"
@@ -131,12 +131,18 @@ export function ReleaseToQueueDialog({
   selectedLineIds,
   open,
   onOpenChange,
+  testIdPrefix = "sales-order-detail",
+  onReleased,
 }: {
   order: any
   selectedLineIds: string[]
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Keeps each page's stable test ids (register uses "sales-orders"). */
+  testIdPrefix?: string
+  onReleased?: (result: { lotIds: string[]; jobCardIds: string[]; syncPending: boolean }) => void
 }) {
+  const tid = (name: string) => `${testIdPrefix}:${name}`
   const { showToast } = useApp()
   const { setActivePlant } = useAuth()
   const releasePreflight = usePreflightSalesOrderRelease()
@@ -208,6 +214,23 @@ export function ReleaseToQueueDialog({
     )
     setHydrated(true)
   }
+
+  // Parents open this dialog programmatically, which never fires onOpenChange(true).
+  useEffect(() => {
+    if (!open || hydrated || !order) return
+    hydrate().catch((error: any) => {
+      const detail = error?.response?.data?.detail || error?.message || "Unable to load winder queues."
+      showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
+      onOpenChange(false)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, order?.id])
+  useEffect(() => {
+    if (open) return
+    setHydrated(false)
+    setRows([])
+    setOutcome(null)
+  }, [open])
 
   const update = (key: string, patch: Partial<ReleaseDraftRow>) => setRows((current) => current.map((row) => (row.key === key ? { ...row, ...patch, blocker: patch.winder_machine_id !== undefined ? null : row.blocker } : row)))
 
@@ -290,6 +313,7 @@ export function ReleaseToQueueDialog({
     const plantId = orderPlantId(order)
     if (plantId) setActivePlant(plantId)
     setOutcome({ winderMachineId: String(persisted[0]?.winder_machine_id || ""), lotIds: persisted.map((row) => String(row.release_lot_id)), syncPending, syncError, syncPayload })
+    onReleased?.({ lotIds: persisted.map((row) => String(row.release_lot_id)), jobCardIds: [], syncPending })
     showToast(syncPending ? `Release recorded — planning sync pending: ${syncError}` : `${persisted.length} job card(s) created in the winder queue.`, syncPending ? "error" : "success")
   }
 
@@ -310,25 +334,8 @@ export function ReleaseToQueueDialog({
   const maxLoad = Math.max(1, ...loadRows.map((row) => row.queued + row.scheduled + row.running + row.adding))
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next && !hydrated) {
-          hydrate().catch((error: any) => {
-            const detail = error?.response?.data?.detail || error?.message || "Unable to load winder queues."
-            showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
-            onOpenChange(false)
-          })
-        }
-        if (!next) {
-          setHydrated(false)
-          setRows([])
-          setOutcome(null)
-        }
-        onOpenChange(next)
-      }}
-    >
-      <DialogContent className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl border-border bg-muted p-0" style={{ width: "min(1120px, calc(100vw - 2rem))", maxWidth: "none" }}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent data-testid={tid("release-dialog")} className="max-h-[calc(100vh-2rem)] overflow-hidden rounded-xl border-border bg-muted p-0" style={{ width: "min(1120px, calc(100vw - 2rem))", maxWidth: "none" }}>
         <DialogHeader className="border-b border-border bg-card px-6 py-4">
           <div className="flex items-start gap-3">
             <div className="rounded-xl bg-primary/10 p-2.5 text-primary ring-1 ring-inset ring-primary/20"><Factory className="h-5 w-5" /></div>
@@ -341,13 +348,13 @@ export function ReleaseToQueueDialog({
         <div className="grid max-h-[64vh] gap-0 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="px-6 py-5">
             {outcome ? (
-              <div className="space-y-4" data-testid="sales-order-detail:release-next-step">
+              <div className="space-y-4" data-testid={tid("release-next-step")}>
                 <div className={`rounded-2xl border px-4 py-3 text-sm ${outcome.syncPending ? "border-signal-amber-line bg-signal-amber-soft text-signal-amber-ink" : "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink"}`}>
                   {outcome.syncPending ? (
                     <>
                       <p className="font-semibold">Release recorded, but the job card is not in planning yet.</p>
-                      {outcome.syncError ? <p className="mt-1" data-testid="sales-order-detail:release-sync-error">Reason: {outcome.syncError}</p> : null}
-                      <button type="button" onClick={() => { void retrySync() }} disabled={releaseSync.isPending} className="mt-2 rounded-lg border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-foreground" data-testid="sales-order-detail:release-sync-retry">
+                      {outcome.syncError ? <p className="mt-1" data-testid={tid("release-sync-error")}>Reason: {outcome.syncError}</p> : null}
+                      <button type="button" onClick={() => { void retrySync() }} disabled={releaseSync.isPending} className="mt-2 rounded-lg border border-signal-amber-line bg-card px-3 py-1.5 text-xs font-semibold text-foreground" data-testid={tid("release-sync-retry")}>
                         {releaseSync.isPending ? "Retrying…" : "Retry planning sync"}
                       </button>
                     </>
@@ -355,7 +362,7 @@ export function ReleaseToQueueDialog({
                     `${outcome.lotIds.length} job card(s) created. The release winder is a hint; schedule on any available winder.`
                   )}
                 </div>
-                <a href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`} className="erp-btn-primary" data-testid="sales-order-detail:open-winder-queue">
+                <a href={`/planning/board?section=winder&machine_id=${outcome.winderMachineId}&order_id=${order.id}`} className="erp-btn-primary" data-testid={tid("open-winder-queue")}>
                   Open planning queue
                 </a>
               </div>
@@ -398,7 +405,7 @@ export function ReleaseToQueueDialog({
                                 update(row.key, known ? { color: known.color, color_id: known.color_id } : master ? { color: master.label, color_id: master.id } : { color: "", color_id: null })
                               }}
                               className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm font-semibold"
-                              data-testid="sales-order-detail:release-color"
+                              data-testid={tid("release-color")}
                             >
                               <option value="">Choose color</option>
                               {row.color_options.length ? (
@@ -444,7 +451,7 @@ export function ReleaseToQueueDialog({
                             value={row.winder_machine_id}
                             onChange={(event) => update(row.key, { winder_machine_id: event.target.value })}
                             className="h-11 w-full rounded-xl border border-border bg-card px-3 text-sm font-semibold"
-                            data-testid="sales-order-detail:release-winder"
+                            data-testid={tid("release-winder")}
                           >
                             <option value="">Select winder queue</option>
                             {row.authorized_winders.map((machine) => (
@@ -454,7 +461,7 @@ export function ReleaseToQueueDialog({
                         </label>
                       </div>
                       {row.compatibility_warning ? <p className="mt-2 text-xs text-signal-amber-ink">{row.compatibility_warning}</p> : null}
-                      {problem ? <p className="mt-2 flex items-center gap-1.5 text-xs text-signal-amber-ink"><AlertTriangle className="h-3.5 w-3.5" />{problem}</p> : null}
+                      {problem ? <p data-testid={tid("release-blocker")} className="mt-2 flex items-center gap-1.5 text-xs text-signal-amber-ink"><AlertTriangle className="h-3.5 w-3.5" />{problem}</p> : null}
                       {lastOfLine && row.mode === "new" ? (
                         <button type="button" onClick={() => addColorRow(row)} className="mt-3 inline-flex items-center gap-1.5 text-[12.5px] font-semibold text-primary hover:underline">
                           <Plus className="h-3.5 w-3.5" />{row.parchment_required ? "Add another color / card" : "Add another card"}
@@ -517,7 +524,7 @@ export function ReleaseToQueueDialog({
                 <button type="button" onClick={() => onOpenChange(false)} className="erp-btn-secondary">Cancel</button>
                 <button
                   type="button"
-                  data-testid="sales-order-detail:confirm-release"
+                  data-testid={tid("confirm-release")}
                   disabled={!hydrated || problems.size > 0 || releasePreflight.isPending || releaseOrderLine.isPending || releaseSync.isPending}
                   onClick={() => confirm().catch((error: any) => {
                     const detail = error?.response?.data?.detail || error?.message || "Release failed."
