@@ -198,10 +198,14 @@ async def procurement_v2_proxy(procurement_path: str, request: Request, token: s
                 raise HTTPException(409, "Sales, stock allocations or production demand changed. Refresh requirements before MRP")
             grouped = {}
             for row in fresh["requirements"]:
+                if not row.get("mapped", True):
+                    continue  # no stock item yet: shown as a warning, cannot be netted against stock
                 item = grouped.setdefault(row["item_id"], {"item_id":row["item_id"], "demand_kg":0, "dated_demand":[]})
                 item["demand_kg"] += row["qty_kg"]
                 item["dated_demand"].append({"date":row["date"], "qty_kg":row["qty_kg"]})
             if not grouped:
+                if any(not row.get("mapped", True) for row in fresh["requirements"]):
+                    raise HTTPException(422, "Every required paper still needs a stock item. Create the stock items, then run the check")
                 raise HTTPException(422, "There is no residual material demand in this horizon")
             body = {**body, "items":list(grouped.values())}
     response = await proxy_to_service(
@@ -286,6 +290,14 @@ async def purchase_create_paper_items(request: Request, token: str = Depends(get
     body = await request.json()
     plant = request.query_params.get("plant_id") or request.headers.get("X-Plant-ID")
     return await create_paper_stock_items(token, plant, (body or {}).get("paper_ids") or [])
+
+
+@router.post("/material-demand/create-material-items")
+async def purchase_create_material_items(request: Request, token: str = Depends(get_token)):
+    from src.services.procurement_demand import create_material_stock_items
+    body = await request.json()
+    plant = request.query_params.get("plant_id") or request.headers.get("X-Plant-ID")
+    return await create_material_stock_items(token, plant, (body or {}).get("materials") or [])
 
 
 @router.patch("/schedules/{schedule_id}")

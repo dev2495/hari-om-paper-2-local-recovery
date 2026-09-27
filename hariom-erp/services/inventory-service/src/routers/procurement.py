@@ -1311,7 +1311,8 @@ def convert_plan_to_purchase_orders(plan_id: uuid.UUID, payload: PlanConversionI
             if not active_cost:
                 raise HTTPException(status_code=422, detail=f"{entry.item.item_code} has no active INR planning cost; set RM costing before PO conversion")
             line = PurchaseOrderLine(purchase_order_id=order.id, logical_line_id=uuid.uuid4(), item_id=entry.item_id,
-                qty_ordered=float(uncovered), qty_received=0, unit_cost=float(active_cost.landed_cost), uom="KG",
+                qty_ordered=float(uncovered), qty_received=0, unit_cost=float(active_cost.landed_cost),
+                uom="KG" if _enum(entry.item.type) == "RAW_PAPER" else (_enum(entry.item.uom) or "KG"),
                 expected_unit_count=entry.expected_unit_count, count_basis="ESTIMATED" if entry.expected_unit_count else None,
                 line_status="OPEN", incoming_qc_required=True,
                 metadata_json={"description": entry.item.name, "source_plan_entry_id": str(entry.id),

@@ -1,4 +1,4 @@
-"""Read-only dated paper demand using the canonical approved-recipe BOM calculator."""
+"""Read-only dated material demand (paper, adhesive, parchment, packing) from the canonical approved-recipe BOM."""
 import asyncio
 import hashlib
 import json
@@ -130,6 +130,107 @@ def explode_paper_demand(order, line, spec, recipe, bom, item_by_id, item_by_cod
     return list(grouped.values()), ("; ".join(dict.fromkeys(problems)) or None)
 
 
+MATERIAL_ITEM_TYPES = {"ADHESIVE": {"ADHESIVE", "OTHER"}, "PARCHMENT": {"PARCHMENT"}, "PACKING": {"PACKAGING"}}
+
+
+def resolve_material_item(material_class, code, name, items):
+    """Spec BOM component -> stock item of the right class by code (ignoring spaces/dashes), then by name."""
+    types = MATERIAL_ITEM_TYPES[material_class]
+    pool = [row for row in items if row.get("type") in types]
+    for wanted in filter(None, (normalize_code(code), normalize_code(name))):
+        match = [row for row in pool if normalize_code(row.get("item_code")) == wanted or normalize_code(row.get("name")) == wanted]
+        if len(match) == 1:
+            return match[0]
+    return None
+
+
+def resolve_parchment_item(color, items):
+    """Parchment is bought per colour: the one PARCHMENT item whose code or name carries the colour."""
+    wanted = normalize_code(color)
+    if not wanted:
+        return None
+    pool = [row for row in items if row.get("type") == "PARCHMENT"]
+    exact = [row for row in pool if normalize_code(row.get("item_code")) == wanted or normalize_code(row.get("name")) == wanted]
+    match = exact or [row for row in pool if wanted in normalize_code(row.get("item_code")) or wanted in normalize_code(row.get("name"))]
+    return match[0] if len(match) == 1 else None
+
+
+def parchment_color_shares(line, spec_color=None):
+    """Split a line's parchment by its colour breakup (open qty per colour; undecided qty stays 'UNASSIGNED')."""
+    splits = [row for row in line.get("color_splits") or [] if float(row.get("open_qty", row.get("qty", 0)) or 0) > 0]
+    if not splits:
+        return [(line.get("parchment_color") or spec_color or "UNASSIGNED", Decimal(1))]
+    open_by_color = [(row.get("color") or "UNASSIGNED", Decimal(str(row.get("open_qty", row.get("qty", 0))))) for row in splits]
+    unassigned = Decimal(str(line.get("unassigned_color_qty") or 0))
+    if unassigned > 0:
+        open_by_color.append((line.get("parchment_color") or "UNASSIGNED", unassigned))
+    total = sum(qty for _, qty in open_by_color)
+    return [(color, qty / total) for color, qty in open_by_color] if total > 0 else [("UNASSIGNED", Decimal(1))]
+
+
+def explode_other_demand(order, line, spec, bom, items, start, end):
+    """Adhesive, parchment and packing need for a quantity, from the same spec BOM as paper.
+
+    Adhesive and parchment are kg per whole bamboo (same bamboo count as paper). Packing is
+    per box: boxes = ceil(pcs / pcs per box); plastic and fadda follow the box count.
+    Unmapped components still yield their quantity (keyed by class and code) plus a warning.
+    """
+    due = date.fromisoformat(line["due_date"])
+    if due > end:
+        return [], None
+    remaining = max(Decimal(0), Decimal(str(line.get("release_remaining_qty", 0))))
+    if not remaining:
+        return [], None
+    tubes_per_bamboo = Decimal(str(bom.get("expected_output", {}).get("tubes_per_bamboo", 0)))
+    bamboos = (remaining / tubes_per_bamboo).to_integral_value(rounding=ROUND_CEILING) if tubes_per_bamboo > 0 else Decimal(0)
+    raw = bom.get("raw_materials", {}) or {}
+    wanted = []
+    if bamboos > 0:
+        for component in (raw.get("adhesives", {}) or {}).get("components", []) or []:
+            per_bamboo = Decimal(str(component.get("weight_kg") or 0))
+            if per_bamboo > 0:
+                wanted.append(("ADHESIVE", component.get("item_code") or component.get("name"), component.get("name"), "KG", per_bamboo * bamboos, 3))
+        parchment = raw.get("parchment", {}) or {}
+        per_bamboo = Decimal(str(parchment.get("weight_kg") or 0))
+        if per_bamboo > 0 and line.get("parchment_required", True) is not False:
+            for color, share in parchment_color_shares(line, parchment.get("color")):
+                wanted.append(("PARCHMENT", color, f"Parchment {color}".strip(), "KG", per_bamboo * bamboos * share, 3))
+    packing = bom.get("packing") or {}
+    qty_per_box = Decimal(str(packing.get("qty_per_box") or 0))
+    problems = []
+    if packing.get("box_code") and qty_per_box > 0:
+        boxes = (remaining / qty_per_box).to_integral_value(rounding=ROUND_CEILING)
+        wanted.append(("PACKING", packing["box_code"], packing["box_code"], "PCS", boxes, 0))
+        for sku_key, per_key in (("plastic_sku", "plastic_per_box"), ("fadda_sku", "fadda_per_box")):
+            per_box = Decimal(str(packing.get(per_key) or 0))
+            if packing.get(sku_key) and per_box > 0:
+                wanted.append(("PACKING", packing[sku_key], packing[sku_key], "PCS", (boxes * per_box).to_integral_value(rounding=ROUND_CEILING), 0))
+    elif packing.get("box_code"):
+        problems.append(f"Box {packing['box_code']} has no pcs-per-box on the spec")
+    grouped = {}
+    for material_class, code, name, uom, qty, places in wanted:
+        item = resolve_parchment_item(code, items) if material_class == "PARCHMENT" else resolve_material_item(material_class, code, name, items)
+        if item and material_class != "PACKING" and item.get("uom") != "KG":
+            item = None
+        mapped = bool(item)
+        if not mapped:
+            problems.append(f"{material_class.title()} {code or name or '?'} has no stock item yet")
+        key = item["id"] if mapped else f"{material_class.lower()}:{normalize_code(code or name) or 'UNSPECIFIED'}"
+        step = Decimal(1).scaleb(-places)
+        amount = float(qty.quantize(step, rounding=ROUND_CEILING))
+        if key in grouped:
+            grouped[key]["qty"] = round(grouped[key]["qty"] + amount, places)
+            continue
+        grouped[key] = {"date": max(start, due).isoformat(), "due_date": due.isoformat(), "overdue": due < start,
+            "material_class": material_class, "item_id": key,
+            "item_code": item["item_code"] if mapped else (code or name),
+            "item_name": item["name"] if mapped else f"{name or code} (no stock item)",
+            "mapped": mapped, "uom": (item.get("uom") if mapped else uom) or uom, "qty": amount,
+            "sales_order_id": order["id"], "order_no": order["order_no"], "line_id": line["id"],
+            "open_units": float(remaining), "bamboos": int(bamboos), "spec_id": spec.get("id")}
+    return list(grouped.values()), ("; ".join(dict.fromkeys(problems)) or None)
+
+
 async def material_demand(token, plant_id, start, end):
     if not plant_id or plant_id.upper() == "ALL":
         raise HTTPException(400, "Select one plant to calculate material demand")
@@ -179,7 +280,7 @@ async def material_demand(token, plant_id, start, end):
     fg_by_line = {}
     for allocation in issues.get("accepted_fg_allocations", []):
         fg_by_line.setdefault(allocation["line_id"], []).append(allocation)
-    cache = {}; requirements = []; blocked = []; warnings = []; excluded = []; seen = set()
+    cache = {}; requirements = []; other_requirements = []; blocked = []; warnings = []; excluded = []; seen = set()
     if coverage_gap:
         warnings.append({"order_no": None, "line_id": None, "reason": "Some production issues are not attributed to job cards yet; residual need may be slightly overstated"})
     for order in orders:
@@ -226,6 +327,14 @@ async def material_demand(token, plant_id, start, end):
                     requirements.append({**row, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
                         "gross_qty_kg": gross, "already_issued_kg": issued,
                         "qty_kg": round(max(0, gross - issued), 3)})
+                other_rows, _ = explode_other_demand(order,
+                    {**line, "due_date": job_material_need_date(line, job), "release_remaining_qty": job["planned_qty"],
+                     "parchment_color": job.get("parchment_color") or line.get("parchment_color"), "color_splits": []},
+                    {"id": spec_id}, frozen_bom, items, start, end)
+                for row in other_rows:
+                    issued = max(0, float(net_issues.get((job["id"], row["item_id"]), 0)))
+                    other_requirements.append({**row, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
+                        "gross_qty": row["qty"], "already_issued": issued, "qty": round(max(0, row["qty"] - issued), 3)})
             linked_ids = {job["id"] for job in linked_jobs}
             accepted_fg = sum(float(row["quantity_pcs"]) for row in fg_by_line.get(line["id"], [])
                 if row.get("spec_id") == spec_id and not linked_ids.intersection(row.get("source_job_ids", [])))
@@ -251,6 +360,11 @@ async def material_demand(token, plant_id, start, end):
                     requirements.extend({**row, "gross_qty_kg": row["qty_kg"], "already_issued_kg": 0,
                         "delivery_schedule_ids": bucket["delivery_schedule_ids"], "accepted_external_fg_pcs": accepted_fg,
                         "timing_basis": "Saved call-offs, then unscheduled line balance; unassigned coverage retained against later dates"} for row in rows)
+                    other_rows, other_problem = explode_other_demand(order, {**line, "due_date": bucket["due_date"], "release_remaining_qty": bucket["quantity"]},
+                        source[0], source[2], items, start, end)
+                    other_requirements.extend({**row, "basis": "UNRELEASED_OPEN_SALES_BOM", "gross_qty": row["qty"], "already_issued": 0} for row in other_rows)
+                    if other_problem:
+                        warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": other_problem})
                 if problem:
                     warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": problem})
             elif problem:
@@ -263,7 +377,15 @@ async def material_demand(token, plant_id, start, end):
             entry["qty_kg"] = round(entry["qty_kg"] + float(row["qty_kg"]), 3)
             entry["order_nos"].add(row.get("order_no"))
     unmapped_papers = [{**value, "order_nos": sorted(filter(None, value["order_nos"]))} for value in unmapped.values()]
-    return {"requirements": requirements, "blocked": blocked, "warnings": warnings, "unmapped_papers": unmapped_papers,
+    unmapped_other = {}
+    for row in other_requirements:
+        if not row.get("mapped", True):
+            entry = unmapped_other.setdefault(row["item_id"], {"material_class": row["material_class"], "code": row["item_code"], "uom": row["uom"], "qty": 0.0, "order_nos": set()})
+            entry["qty"] = round(entry["qty"] + float(row["qty"]), 3)
+            entry["order_nos"].add(row.get("order_no"))
+    return {"requirements": requirements, "material_requirements": other_requirements,
+            "unmapped_materials": [{**value, "order_nos": sorted(filter(None, value["order_nos"]))} for value in unmapped_other.values()],
+            "blocked": blocked, "warnings": warnings, "unmapped_papers": unmapped_papers,
             "excluded": excluded, "source_version": f"SALES-BOM:{digest}",
             "basis": "Unreleased approved sales demand plus residual paper for active jobs, using frozen job BOMs and item-specific net issues. Accepted allocated finished goods from outside the linked jobs reduce new-build units before BOM conversion. Saved customer call-offs set need dates; unscheduled quantities use the line delivery date. Where release-to-call-off attribution is absent, material timing conservatively uses the earliest commitment. Started jobs without issue attribution are flagged as incomplete; whole-bamboo cutting loss is included.",
             "as_of_date": start.isoformat(), "horizon_end": end.isoformat(), "order_count": len(orders)}
@@ -313,4 +435,53 @@ async def create_paper_stock_items(token, plant_id, paper_ids):
         row = response.json()
         item_by_code[row["item_code"]] = row
         created.append({"paper_id": paper_id, "item_id": row["id"], "item_code": row["item_code"]})
+    return {"created": created, "skipped": skipped, "failed": failed}
+
+
+MATERIAL_ITEM_CREATE = {"ADHESIVE": ("ADHESIVE", "KG"), "PARCHMENT": ("PARCHMENT", "KG"), "PACKING": ("PACKAGING", "PCS")}
+
+
+async def create_material_stock_items(token, plant_id, materials):
+    """Create the missing bulk stock item for adhesive / parchment / packing codes named by the spec BOM.
+
+    Item code = the BOM code (box code, plastic SKU, adhesive code, parchment colour).
+    Idempotent: a code that already resolves to a stock item of that class is skipped.
+    """
+    if not plant_id or plant_id.upper() == "ALL":
+        raise HTTPException(400, "Select one plant before creating stock items")
+    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
+    items_resp = await http_client.get(f"{INVENTORY_URL}/items/", headers=headers)
+    if items_resp.status_code >= 400:
+        raise HTTPException(502, "Stock items could not be loaded")
+    items = items_resp.json()
+    created, skipped, failed = [], [], []
+    seen = set()
+    for material in materials or []:
+        material_class = str((material or {}).get("material_class") or "").upper()
+        code = str((material or {}).get("code") or "").strip()
+        if material_class not in MATERIAL_ITEM_CREATE or not code or code.upper() == "UNASSIGNED":
+            failed.append({"code": code, "reason": "Choose a material class and a code"})
+            continue
+        if (material_class, normalize_code(code)) in seen:
+            continue
+        seen.add((material_class, normalize_code(code)))
+        existing = resolve_parchment_item(code, items) if material_class == "PARCHMENT" else resolve_material_item(material_class, code, code, items)
+        if existing:
+            skipped.append({"code": code, "item_code": existing["item_code"]})
+            continue
+        item_type, uom = MATERIAL_ITEM_CREATE[material_class]
+        item_code = f"PARCH-{code}".upper() if material_class == "PARCHMENT" else code.upper()
+        body = {"item_code": item_code[:50], "name": (f"Parchment {code}" if material_class == "PARCHMENT" else code)[:200],
+                "type": item_type, "tracking_mode": "BULK", "uom": uom}
+        response = await http_client.post(f"{INVENTORY_URL}/items/", headers=headers, json=body)
+        if response.status_code >= 400:
+            try:
+                reason = response.json().get("detail")
+            except ValueError:
+                reason = response.text[:200]
+            failed.append({"code": code, "item_code": body["item_code"], "reason": reason})
+            continue
+        row = response.json()
+        items.append(row)
+        created.append({"code": code, "item_id": row["id"], "item_code": row["item_code"]})
     return {"created": created, "skipped": skipped, "failed": failed}

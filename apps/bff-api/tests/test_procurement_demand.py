@@ -171,3 +171,55 @@ def test_exclusive_reel_issue_covers_its_job_but_shared_issue_is_not_duplicated(
     ambiguous = residual_result(section_issues=issue,shared=True)
     assert len(ambiguous['blocked']) == 1
     assert all(row.get('job_id') != 'wip' for row in ambiguous['requirements'])
+
+
+def other_fixture(**line_overrides):
+    from src.services.procurement_demand import explode_other_demand  # noqa: F401
+    order = {"id": "so", "order_no": "SO-01"}
+    line = {"id": "line", "due_date": "2026-09-20", "release_remaining_qty": 1000, "parchment_color": "BLUE", **line_overrides}
+    bom = {"expected_output": {"tubes_per_bamboo": 12},
+           "raw_materials": {"adhesives": {"components": [
+               {"name": "SYNTHETIC", "item_code": "SYN-01", "weight_kg": 0.1},
+               {"name": "CHINA CLAY", "item_code": "CLAY", "weight_kg": 0.2}]},
+               "parchment": {"color": "BLUE", "weight_kg": 0.03}},
+           "packing": {"box_code": "G-120", "qty_per_box": 48, "plastic_sku": "PB-32", "plastic_per_box": 1, "fadda_sku": None, "fadda_per_box": 0}}
+    items = [{"id": "syn", "item_code": "SYN 01", "name": "Synthetic", "type": "ADHESIVE", "uom": "KG"},
+             {"id": "clay", "item_code": "CHINA-CLAY", "name": "China clay", "type": "OTHER", "uom": "KG"},
+             {"id": "pblue", "item_code": "PARCH-BLUE", "name": "Parchment blue", "type": "PARCHMENT", "uom": "KG"},
+             {"id": "box", "item_code": "G120", "name": "Box G-120 3 ply", "type": "PACKAGING", "uom": "PCS"}]
+    return order, line, {"id": "spec"}, bom, items, date(2026, 9, 1), date(2026, 9, 30)
+
+
+def test_adhesive_parchment_and_packing_come_from_the_same_spec_bom():
+    from src.services.procurement_demand import explode_other_demand
+    rows, warning = explode_other_demand(*other_fixture())
+    by_code = {row["item_code"]: row for row in rows}
+    # 1000 pcs / 12 per bamboo -> 84 whole bamboos
+    assert by_code["SYN 01"]["qty"] == 8.4 and by_code["SYN 01"]["material_class"] == "ADHESIVE"
+    assert by_code["PARCH-BLUE"]["qty"] == 2.52 and by_code["PARCH-BLUE"]["uom"] == "KG"
+    # 1000 pcs / 48 per box -> 21 boxes, one plastic bag per box
+    assert by_code["G120"]["qty"] == 21 and by_code["G120"]["uom"] == "PCS"
+    assert by_code["PB-32"]["qty"] == 21 and by_code["PB-32"]["mapped"] is False
+    # code "CLAY" matches nothing; the component name "CHINA CLAY" matches item CHINA-CLAY
+    assert by_code["CHINA-CLAY"]["qty"] == 16.8 and by_code["CHINA-CLAY"]["mapped"] is True
+    assert "Packing PB-32 has no stock item yet" in warning
+
+
+def test_parchment_splits_by_the_line_colour_breakup():
+    from src.services.procurement_demand import explode_other_demand
+    rows, _ = explode_other_demand(*other_fixture(color_splits=[
+        {"color": "BLUE", "qty": 400, "open_qty": 400}, {"color": "RED", "qty": 300, "open_qty": 300}],
+        unassigned_color_qty=300, parchment_color=None))
+    parchment = {row["item_code"]: row["qty"] for row in rows if row["material_class"] == "PARCHMENT"}
+    assert parchment["PARCH-BLUE"] == 1.008  # 40% of 2.52 kg
+    assert parchment["RED"] == 0.756 and parchment["UNASSIGNED"] == 0.756
+    assert sum(parchment.values()) == 2.52
+
+
+def test_packing_without_pcs_per_box_warns_instead_of_guessing():
+    from src.services.procurement_demand import explode_other_demand
+    order, line, spec, bom, items, start, end = other_fixture()
+    bom["packing"] = {"box_code": "G-120", "qty_per_box": None}
+    rows, warning = explode_other_demand(order, line, spec, bom, items, start, end)
+    assert not [row for row in rows if row["material_class"] == "PACKING"]
+    assert "no pcs-per-box" in warning

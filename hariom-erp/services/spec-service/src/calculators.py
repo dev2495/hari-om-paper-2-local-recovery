@@ -229,13 +229,14 @@ def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float
     adhesive_20100 = float(spec.adhesive_20100_percent or 0.0)
     adhesive_30100 = float(spec.adhesive_30100_percent or 0.0)
     split_total = adhesive_20100 + adhesive_30100
-    adhesive_components = []
-    if split_total > 0:
+    dynamic = _spec_dynamic_map(spec)
+    adhesive_components = _spec_adhesive_components(dynamic, preview.whole_bamboo.adhesive_g)
+    if not adhesive_components and split_total > 0:
         adhesive_components = [
             {"name": "20100", "ratio_percent": adhesive_20100, "weight_kg": round(preview.whole_bamboo.adhesive_g * adhesive_20100 / split_total / 1000.0, 6)},
             {"name": "30100", "ratio_percent": adhesive_30100, "weight_kg": round(preview.whole_bamboo.adhesive_g * adhesive_30100 / split_total / 1000.0, 6)},
         ]
-    elif preview.whole_bamboo.adhesive_g > 0:
+    elif not adhesive_components and preview.whole_bamboo.adhesive_g > 0:
         adhesive_components = [{"name": "Adhesive", "ratio_percent": 100.0, "weight_kg": round(preview.whole_bamboo.adhesive_g / 1000.0, 6)}]
     calculation_references = {
         "weight_calculation": {
@@ -281,6 +282,7 @@ def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float
             "finished_tubes_weight_kg": round(preview.bamboo.wet_g / 1000.0, 6),
             "trim_weight_kg": round(preview.bamboo_trim.wet_g / 1000.0, 6),
         },
+        "packing": _spec_packing(dynamic),
         "expected_output": {
             "per_tube_weight_kg": round(preview.tube.dry_g / 1000.0, 6),
             "per_tube_wet_weight_kg": round(preview.tube.wet_g / 1000.0, 6),
@@ -289,4 +291,66 @@ def generate_bom(recipe_id: str, tube_length_mm: float | None, tube_od_mm: float
             "trim_length_mm": preview.bamboo_plan.total_trim_mm,
             "whole_bamboo_wet_weight_kg": round(preview.whole_bamboo.wet_g / 1000.0, 6),
         },
+    }
+
+
+def _spec_dynamic_map(spec: SpecificationSheet) -> dict[str, Any]:
+    mapping: dict[str, Any] = {}
+    for value in getattr(spec, "dynamic_values", None) or []:
+        field = getattr(value, "field", None)
+        if field is not None:
+            mapping[field.key] = value.value
+    return mapping
+
+
+def _positive(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    return number if number > 0 else 0.0
+
+
+def _spec_adhesive_components(dynamic: dict[str, Any], whole_bamboo_adhesive_g: float) -> list[dict[str, Any]]:
+    """The spec's own adhesive recipe (the one review checks totals 100%), split by ratio.
+
+    Returns [] when the spec has no component recipe, so callers fall back to the
+    legacy 20100 / 30100 split.
+    """
+    raw = dynamic.get("adhesive_components_json")
+    try:
+        components = json.loads(raw) if isinstance(raw, str) else (raw or [])
+    except (TypeError, ValueError):
+        components = []
+    rows = [row for row in components if isinstance(row, dict) and _positive(row.get("ratio_percent"))]
+    total = sum(_positive(row.get("ratio_percent")) for row in rows)
+    if not rows or total <= 0:
+        return []
+    out = []
+    for row in rows:
+        ratio = _positive(row.get("ratio_percent"))
+        out.append({
+            "name": str(row.get("name") or row.get("item_code") or "Adhesive"),
+            "item_code": str(row.get("item_code") or "") or None,
+            "adhesive_id": str(row.get("adhesive_id") or "") or None,
+            "ratio_percent": round(ratio * 100.0 / total, 6),
+            "weight_kg": round(whole_bamboo_adhesive_g * ratio / total / 1000.0, 6),
+        })
+    return out
+
+
+def _spec_packing(dynamic: dict[str, Any]) -> dict[str, Any]:
+    """Packing bill per box, straight from the spec: box, pcs per box, plastic and fadda per box."""
+    qty_per_box = _positive(dynamic.get("qty_per_box")) or _positive(dynamic.get("packing_pcs"))
+    plastic_required = str(dynamic.get("plastic_required") or "").strip().lower() in {"true", "1", "yes", "y"}
+    return {
+        "box_code": (str(dynamic.get("box_code") or "").strip() or None),
+        "box_size": (str(dynamic.get("box_size") or "").strip() or None),
+        "packing_ply": _positive(dynamic.get("packing_ply")) or None,
+        "qty_per_box": qty_per_box or None,
+        "box_unit_weight_kg": _positive(dynamic.get("box_unit_weight_kg")) or None,
+        "plastic_sku": (str(dynamic.get("plastic_sku") or "").strip() or None) if plastic_required or dynamic.get("plastic_sku") else None,
+        "plastic_per_box": _positive(dynamic.get("plastic_per_box")) or (1.0 if plastic_required else 0.0),
+        "fadda_sku": (str(dynamic.get("fadda_sku") or "").strip() or None),
+        "fadda_per_box": _positive(dynamic.get("fadda_per_box")),
     }
