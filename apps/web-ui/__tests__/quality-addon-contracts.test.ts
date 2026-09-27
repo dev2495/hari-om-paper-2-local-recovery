@@ -198,13 +198,14 @@ test("sales release resolves winders through the order plant instead of browser-
   assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
 })
 
-test("print contracts preserve specification and three writable stage QC pages", () => {
+test("print contracts: job card front (final client format) and the spec sheet on the back", () => {
   const specPrint = readFileSync(resolve(process.cwd(), "components/specs/print/SpecSheetPrint.tsx"), "utf8")
   const jobCardPrint = readFileSync(resolve(process.cwd(), "components/production/JobCardDocument.tsx"), "utf8")
 
   assert.equal((specPrint.match(/<article className="spec-print-sheet"/g) || []).length, 1)
   assert.match(specPrint, /@page\s*\{\s*size:\s*A4 landscape;\s*margin:\s*5mm;/)
   assert.match(specPrint, /height:\s*200mm\s*!important/)
+  assert.match(specPrint, /embedded \? null/)
   assert.equal((specPrint.match(/data-print-section=/g) || []).length, 4)
   for (const section of ["recipe", "adhesive", "bamboo-release", "operations"]) {
     assert.match(specPrint, new RegExp(`data-print-section="${section}"`))
@@ -213,19 +214,24 @@ test("print contracts preserve specification and three writable stage QC pages",
     assert.match(specPrint, new RegExp(label, "i"))
   }
   assert.doesNotMatch(specPrint, /oven/i)
-  assert.equal((jobCardPrint.match(/<section className="jc-page jc-(?:front|back)" data-testid="print-page-(?:winding|process)">/g) || []).length, 2)
+  // Exactly two printed sides: the job card front and the approved spec sheet back.
+  assert.match(jobCardPrint, /<section className="jc-page jc-front" data-testid="print-page-winding">/)
+  assert.match(jobCardPrint, /<section className="jc-page jc-back jc-spec-back" data-testid="print-page-spec">/)
+  assert.match(jobCardPrint, /<SpecSheetDocument mode="print" specId=\{String\(card\.spec_id\)\} embedded \/>/)
+  // The QC evidence page is optional (off by default) so a standard print is exactly two sides.
+  assert.match(jobCardPrint, /includeQcSheet && hasFrozenQc \? \(\s*<section className="jc-page jc-qc-sheet"/)
   assert.match(jobCardPrint, /size: A4 portrait;/)
-  for (const stage of ["winding", "oven", "process"]) {
-    assert.match(jobCardPrint, new RegExp(`data-testid="print-page-${stage}"`))
+  for (const testId of ["print-page-winding", "print-page-oven", "print-page-process", "print-tolerance-strip", "print-winder-allowed-row", "print-process-allowed-row"]) {
+    assert.match(jobCardPrint, new RegExp(`data-testid="${testId}"`))
   }
   assert.match(jobCardPrint, /page-break-after: always !important/)
   assert.match(jobCardPrint, /page-break-after: auto !important/)
-  // Client job-card workbook sections, in order: front = Winding + Oven, back = Process Line + Dispatch + drawing space.
-  const sectionOrder = ['title="Winding"', 'title="Oven"', 'title="Process Line"', 'title="Dispatch"', "Space for the combination, tooling, drawing etc."]
-  const positions = sectionOrder.map((marker) => jobCardPrint.indexOf(marker))
+  // Client job card, in order: header, Winder, Oven, Process Line, Dispatch, tolerance strip.
+  const sectionOrder = ["Winder No.", "{`Oven ", "{`Process Line ", ">Dispatch <", "print-tolerance-strip"]
+  const positions = sectionOrder.map((marker) => jobCardPrint.indexOf(marker, jobCardPrint.indexOf("FRONT: client job card")))
   assert.ok(positions.every((position) => position > 0), "all client job-card sections are present")
   assert.deepEqual([...positions].sort((a, b) => a - b), positions)
-  for (const label of ["Cycle Time (B-A)", "Rejection Code", "Pasting", "Denier", "Notch Depth", "Lead Time", "Pending Quantity"]) {
+  for (const label of ["Pattiwala Name", "Accepted Qty Pcs", "Combination (Recipe)", "Cycle Time (B-A)", "Pasting", "Denier", "Notch Distance", "Notch Depth", "Pending Quantity", "Remarks", "Total Oven Qty", "Packing Name"]) {
     assert.ok(jobCardPrint.includes(label), `job card print keeps client field ${label}`)
   }
 })

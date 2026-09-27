@@ -45,6 +45,8 @@ export type SpecSheetPrintData = {
 type SpecSheetPrintProps = {
   enabled: boolean
   data: SpecSheetPrintData
+  /** Rendered inside another printed document: skip the toolbar and the page rule. */
+  embedded?: boolean
 }
 
 function valueOrDash(value: unknown) {
@@ -74,7 +76,7 @@ function DetailTable({
   )
 }
 
-export function SpecSheetPrint({ enabled, data }: SpecSheetPrintProps) {
+export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPrintProps) {
   if (!enabled) return null
 
   const totalPlies = data.recipe.reduce((sum, row) => sum + row.plies, 0)
@@ -83,7 +85,7 @@ export function SpecSheetPrint({ enabled, data }: SpecSheetPrintProps) {
 
   return (
     <div className="spec-print-preview">
-      <div className="spec-print-actions no-print">
+      {embedded ? null : <div className="spec-print-actions no-print">
         <div>
           <strong>Client-approved one-page specification</strong>
           <span> A4 landscape · live specification values</span>
@@ -91,7 +93,7 @@ export function SpecSheetPrint({ enabled, data }: SpecSheetPrintProps) {
         <button type="button" onClick={() => window.print()}>
           <Printer size={16} /> Print specification
         </button>
-      </div>
+      </div>}
 
       <article className="spec-print-sheet" aria-label="Production specification sheet">
         <header className="spec-print-header">
@@ -568,6 +570,9 @@ export function SpecSheetPrint({ enabled, data }: SpecSheetPrintProps) {
           letter-spacing: .07em;
         }
         .spec-print-footer span { font-size: 5.7pt; }
+      `}</style>
+      {embedded ? null : (
+        <style jsx global>{`
         @media print {
           @page { size: A4 landscape; margin: 5mm; }
           html,
@@ -608,7 +613,8 @@ export function SpecSheetPrint({ enabled, data }: SpecSheetPrintProps) {
           }
           .spec-print-sheet table { break-inside: avoid !important; }
         }
-      `}</style>
+        `}</style>
+      )}
     </div>
   )
 }

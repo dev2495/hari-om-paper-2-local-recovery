@@ -90,6 +90,8 @@ type Mode = "create" | "edit" | "view" | "print"
 type SpecSheetDocumentProps = {
   mode: Mode
   specId?: string
+  /** Print mode inside another document (job card back side): no page rule, no toolbar. */
+  embedded?: boolean
 }
 
 type TrialForm = {
@@ -647,7 +649,7 @@ function ParameterTableCard({
   )
 }
 
-export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
+export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetDocumentProps) {
   const router = useRouter()
   const { showToast } = useApp()
   const { user, activePlant } = useAuth()
@@ -2589,7 +2591,7 @@ export function SpecSheetDocument({ mode, specId }: SpecSheetDocumentProps) {
       notes: form.notes,
       signOff: optionValue(form.dynamicValues.sign_off_note),
     }
-    return <SpecSheetPrint enabled data={printData} />
+    return <SpecSheetPrint enabled data={printData} embedded={embedded} />
   }
   return (
     <SpecSheetWorkspace printMode={isPrint}>

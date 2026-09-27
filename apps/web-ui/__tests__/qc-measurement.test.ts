@@ -205,7 +205,7 @@ test("blank print keeps writable spaces and does not treat empty as PASS", () =>
   assert.match(jobCard, /print-winder-sample/)
   assert.match(jobCard, /overflow: visible/)
   assert.match(jobCard, /page-break-after: always/)
-  assert.match(jobCard, /jc-qc-sheet/)
+  assert.match(jobCard, /print-page-spec/)
   assert.doesNotMatch(jobCard, /max-height: 287mm/)
 })
 
