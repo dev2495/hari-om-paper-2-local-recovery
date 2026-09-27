@@ -6791,6 +6791,25 @@ def reorder_stage_queue(
                 warning = _winder_override_warning(job_card, machine_uuid)
                 if warning:
                     warnings.append(warning)
+                    # The release winder is a queue hint; planning may use another winder,
+                    # but every such move is flagged on the card and written to the audit trail.
+                    _record_audit_event(
+                        db=db,
+                        plant_id=plant_uuid,
+                        entity_type="job_card",
+                        entity_id=job_card.id,
+                        action="winder_override",
+                        actor_id=current_user.get("sub"),
+                        actor_role=_current_actor_role(current_user),
+                        job_card_id=job_card.id,
+                        payload={
+                            "release_winder_machine_id": str(job_card.assigned_winder_machine_id) if job_card.assigned_winder_machine_id else None,
+                            "planned_winder_machine_id": str(machine_uuid),
+                            "plan_date": str(payload.plan_date) if payload.plan_date else None,
+                            "shift_code": payload.shift_code,
+                            "note": warning,
+                        },
+                    )
             machine = _fetch_machine(machine_uuid, current_user.get("token", ""), plant_id)
             capability_warning = _validate_machine_compatibility(
                 machine=machine,

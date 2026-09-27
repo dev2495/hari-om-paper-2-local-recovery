@@ -45,6 +45,7 @@ const EVENT_LABEL: Record<string, string> = {
   stage_completed: "Stage completed",
   physical_output_recorded_restricted: "Output recorded under QC hold",
   missed_slot_requeued: "Missed slot — back to queue",
+  winder_override: "Scheduled on another winder",
   missed_slot_late_entry: "Late entry — slot restored",
 }
 
@@ -61,6 +62,8 @@ function eventText(event: JobCardLifecycle["events"][number]) {
       return `Made ${fmt(p.made_qty)} · ${fmt(p.returned_qty)} pcs back to the order${p.reason ? ` — ${p.reason}` : ""}`
     case "job_card_emergency_insert":
       return `${p.plan_date} ${String(p.shift_code || "").replace("SHIFT_", "Shift ")}${Array.isArray(p.bumped) && p.bumped.length ? ` · ${p.bumped.length} card(s) pushed later` : ""}`
+    case "winder_override":
+      return `Released for one winder, planned on another${p.plan_date ? ` · ${p.plan_date} ${String(p.shift_code || "").replace("SHIFT_", "Shift ")}` : ""}`
     case "missed_slot_requeued":
       return `${p.stage || ""} slot ${p.plan_date} ${String(p.shift_code || "").replace("SHIFT_", "Shift ")} had no entry for 36h`
     case "missed_slot_late_entry":

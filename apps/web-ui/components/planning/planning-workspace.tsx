@@ -21,6 +21,7 @@ import {
   TimerReset,
 } from "lucide-react"
 import { PlannerCalendar } from "@/components/planning/planner-calendar"
+import { WinderLoadBars } from "@/components/planning/winder-load-bars"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
 import { useMissedSlotSweep } from "@/hooks/use-lifecycle"
@@ -298,6 +299,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const [queueSearch, setQueueSearch] = useState("")
   const [queueSort, setQueueSort] = useState<"due" | "qty" | "age">("due")
   const [sheetJobId, setSheetJobId] = useState<string | null>(null)
+  const [sheetAction, setSheetAction] = useState<"split" | "emergency" | "edit" | "force_close" | null>(null)
   useMissedSlotSweep()
 
   const section = String(sectionOverride || searchParams?.get("section") || "winder").toLowerCase()
@@ -1288,12 +1290,19 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
             monthDate={startDate}
             maxPlannerDate={maxPlannerDate}
             hrefFor={(next) => boardHref(next)}
-            onOpenCard={(id) => setSheetJobId(id)}
+            onOpenCard={(id, action) => { setSheetAction(action || null); setSheetJobId(id) }}
           />
         ) : (
         <div className="grid h-[calc(100vh-9rem)] min-h-[650px] min-w-0 gap-3 xl:grid-cols-[minmax(0,330px)_minmax(0,1fr)]">
-          <aside className="min-h-0 min-w-0">
-            <section className="flex h-full min-h-0 flex-col rounded-[1.65rem] border border-border bg-card p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
+          <aside className="flex min-h-0 min-w-0 flex-col gap-3">
+            {section === "winder" ? (
+              <WinderLoadBars
+                machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
+                selected={queueFilter === "all" ? null : queueFilter}
+                onSelect={(machineId) => setQueueFilter(machineId || "all")}
+              />
+            ) : null}
+            <section className="flex min-h-0 flex-1 flex-col rounded-[1.65rem] border border-border bg-card p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[12px] font-semibold text-muted-foreground">Open queue</p>
@@ -1728,7 +1737,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         )}
       </div>
 
-      <JobCardLifecycleSheet jobCardId={sheetJobId} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) setSheetJobId(null) }} />
+      <JobCardLifecycleSheet jobCardId={sheetJobId} initialAction={sheetAction} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) { setSheetJobId(null); setSheetAction(null) } }} />
 
       {hoverDetail ? (
         <div

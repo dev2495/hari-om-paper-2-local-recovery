@@ -1025,6 +1025,8 @@ class BulkReleaseLinePayload(BaseModel):
     winder_machine_id: uuid.UUID
     product_code: Optional[str] = None
     release_lot_id: Optional[uuid.UUID] = None
+    parchment_color: Optional[str] = Field(default=None, max_length=100)
+    parchment_color_id: Optional[uuid.UUID] = None
 
 
 @router.get("/aggregates", response_model=SalesOrderAggregatesResponse)
@@ -1462,6 +1464,8 @@ def bulk_release_sales_order_lines(
                     winder_machine_id=item.winder_machine_id,
                     product_code=item.product_code,
                     release_lot_id=item.release_lot_id,
+                    parchment_color=item.parchment_color,
+                    parchment_color_id=item.parchment_color_id,
                 ),
                 db=db,
                 plant_id=plant_id,
@@ -1947,6 +1951,21 @@ def release_sales_order(
 
     if order.status != SalesOrderStatus.APPROVED:
         raise HTTPException(status_code=400, detail="Only approved orders can be released")
+    # No order is "released" without its quantity actually standing in a winder queue:
+    # every line goes through line release (one color + one winder per job card).
+    pending_lines = [
+        int(line.line_no or 0)
+        for line in order.lines
+        if float(line.qty or 0.0) - float(getattr(line, "hold_qty", 0.0) or 0.0) - _released_qty(line) > 1e-6
+    ]
+    if pending_lines:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Release each line with its color and winder queue first "
+                f"(unreleased: line {', '.join(str(n) for n in pending_lines)})."
+            ),
+        )
 
     order.status = SalesOrderStatus.RELEASED
     order.released_by = current_user.get("sub")

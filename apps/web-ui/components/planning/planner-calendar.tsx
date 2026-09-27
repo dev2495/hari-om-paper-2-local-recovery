@@ -3,13 +3,14 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import { useMemo, useState } from "react"
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Flame, GripVertical, Search, Settings2 } from "lucide-react"
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Flame, GripVertical, Scissors, Search, Settings2 } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { useApp } from "@/context/AppContext"
 import { apiErrorText } from "@/hooks/use-lifecycle"
 import { usePlanningBoardMove } from "@/hooks/use-production"
+import { WinderLoadBars } from "@/components/planning/winder-load-bars"
 import { cn } from "@/lib/utils"
 
 type Machine = { id: string; code: string; name?: string; capacity_value?: number | null; capacity_unit?: string | null; status?: string }
@@ -41,13 +42,14 @@ export function PlannerCalendar({
   monthDate: string
   maxPlannerDate: string
   hrefFor: (next: { date?: string; view?: string }) => string
-  onOpenCard: (jobCardId: string) => void
+  onOpenCard: (jobCardId: string, action?: "split" | "emergency" | "edit" | "force_close") => void
 }) {
   const { showToast } = useApp()
   const moveCard = usePlanningBoardMove()
   const [search, setSearch] = useState("")
   const [filter, setFilter] = useState("all")
   const [sort, setSort] = useState<"due" | "qty" | "age">("due")
+  const [winderFilter, setWinderFilter] = useState<string | null>(null)
   const [dragged, setDragged] = useState<any | null>(null)
   const [hoverDay, setHoverDay] = useState<string | null>(null)
   const [placing, setPlacing] = useState<{ job: any; date: string } | null>(null)
@@ -60,6 +62,7 @@ export function PlannerCalendar({
     const rows = stageJobs
       .filter((job) => !job.current_shift_code)
       .filter((job) => queueFilterMatch(job, filter))
+      .filter((job) => !winderFilter || String(job.assigned_winder_machine_id || "unassigned") === winderFilter)
       .filter((job) =>
         !needle ||
         [job.job_card_no, job.job_card_ref, job.customer_name, job.product_code, job.product_size_label, job.parchment_color, job.sales_order_ref]
@@ -74,7 +77,7 @@ export function PlannerCalendar({
       if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1
       return String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))
     })
-  }, [filter, search, sort, stageJobs])
+  }, [filter, search, sort, stageJobs, winderFilter])
   const allQueued = stageJobs.filter((job) => !job.current_shift_code)
   const queueCounts = {
     all: allQueued.length,
@@ -161,7 +164,11 @@ export function PlannerCalendar({
 
   return (
     <div className="grid min-w-0 gap-3 xl:grid-cols-[340px_minmax(0,1fr)]" data-testid="planner-calendar">
-      <aside className="flex min-h-0 flex-col rounded-xl border border-border bg-card shadow-sm xl:h-[calc(100dvh-13rem)] xl:min-h-[640px]">
+      <div className="flex min-h-0 flex-col gap-3 xl:h-[calc(100dvh-13rem)] xl:min-h-[640px]">
+      {stage === "WINDER" ? (
+        <WinderLoadBars machineLabel={(id) => machineCode.get(id) || id.slice(0, 8)} selected={winderFilter} onSelect={setWinderFilter} />
+      ) : null}
+      <aside className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
         <div className="border-b border-border p-3">
           <div className="flex items-baseline justify-between gap-2">
             <h2 className="text-[15px] font-semibold">Open queue</h2>
@@ -224,10 +231,15 @@ export function PlannerCalendar({
                     ) : null}
                   </div>
                 </div>
-                <div className="flex flex-col items-center gap-1">
-                  <button type="button" aria-label="Manage card" onClick={() => onOpenCard(String(job.id))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
+                <div className="flex flex-col items-center gap-0.5">
+                  <button type="button" aria-label="Manage card" title="Manage (edit, emergency, force close)" onClick={() => onOpenCard(String(job.id))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
                     <Settings2 className="h-3.5 w-3.5" />
                   </button>
+                  {Number(job.planned_qty || 0) > 1 ? (
+                    <button type="button" aria-label="Split card" title="Split into two cards" onClick={() => onOpenCard(String(job.id), "split")} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground opacity-60 hover:bg-muted hover:text-foreground group-hover:opacity-100">
+                      <Scissors className="h-3.5 w-3.5" />
+                    </button>
+                  ) : null}
                   <GripVertical className="h-3.5 w-3.5 text-muted-foreground/60" />
                 </div>
               </li>
@@ -237,6 +249,7 @@ export function PlannerCalendar({
           )}
         </ul>
       </aside>
+      </div>
 
       <section className="min-w-0 rounded-xl border border-border bg-card shadow-sm">
         <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
