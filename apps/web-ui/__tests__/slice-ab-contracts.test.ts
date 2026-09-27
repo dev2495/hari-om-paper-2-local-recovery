@@ -88,10 +88,11 @@ test("planning board has a keyboard scheduling path equivalent to drag", () => {
 })
 
 test("sales release confirm is not a compatibility veto and offers a winder-queue next step", () => {
-  const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/page.tsx"), "utf8")
+  const page = readFileSync(resolve(process.cwd(), "components/sales/release-to-queue-dialog.tsx"), "utf8")
   assert.match(page, /authorized_winders/)
   assert.match(page, /Open planning queue/)
-  assert.match(page, /planning synchronization pending/)
+  assert.match(page, /planning sync pending/)
+  assert.match(page, /compatibility_warning/)
   assert.doesNotMatch(page, /router\.push\(`\/planning\/board\?section=winder/)
 })
 
