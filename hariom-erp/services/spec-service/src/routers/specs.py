@@ -1127,6 +1127,51 @@ def get_spec(
     return _serialize_spec(spec)
 
 
+def _live_spec_usage(spec_id: uuid.UUID, token: str, plant_id: str) -> dict:
+    """Open sales lines and running job cards on a spec. Raises if either service can't answer."""
+    import os
+
+    import httpx
+
+    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": str(plant_id)}
+    sales_url = os.getenv("SALES_SERVICE_URL", "http://127.0.0.1:18008")
+    production_url = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004")
+    try:
+        sales = httpx.get(f"{sales_url}/sales-orders/spec-usage/{spec_id}", headers=headers, timeout=8.0)
+        production = httpx.get(f"{production_url}/job-cards/spec-usage/{spec_id}", headers=headers, timeout=8.0)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=503, detail=f"Could not confirm the spec is free of open orders: {exc}") from exc
+    if sales.status_code >= 400 or production.status_code >= 400:
+        raise HTTPException(status_code=503, detail="Could not confirm the spec is free of open orders and running job cards; try again.")
+    return {**sales.json(), **production.json()}
+
+
+def _enforce_live_spec_edit_lock(spec: SpecificationSheet, current_user: dict, plant_id: str) -> None:
+    """A live (approved) spec is the BOM for running work: only the Owner may change it,
+    and only when no open order line or running job card still uses it."""
+    if str(spec.status or "").lower() not in {"approved", "trial"}:
+        return
+    roles = set(current_user.get("roles") or []) | {current_user.get("role")}
+    if "Owner" not in roles:
+        raise HTTPException(status_code=403, detail="Only the Owner can change a live specification.")
+    usage = _live_spec_usage(spec.id, str(current_user.get("token") or ""), plant_id)
+    open_lines = int(usage.get("open_lines") or 0)
+    open_cards = int(usage.get("open_job_cards") or 0)
+    if open_lines or open_cards:
+        parts = []
+        if open_lines:
+            parts.append(f"{open_lines} open order line(s) ({', '.join(usage.get('orders') or [])})")
+        if open_cards:
+            parts.append(f"{open_cards} running job card(s) ({', '.join(str(n) for n in (usage.get('job_card_nos') or []) if n)})")
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This live specification is still in use: " + " and ".join(parts) + ". "
+                "Close those orders / job cards first, or clone the spec for new orders."
+            ),
+        )
+
+
 @router.put("/{spec_id}", response_model=SpecResponse)
 def update_spec(
     spec_id: uuid.UUID,
@@ -1172,6 +1217,7 @@ def update_spec(
             status_code=409,
             detail="Specification is under approval review. Return it to draft before editing.",
         )
+    _enforce_live_spec_edit_lock(spec, current_user, plant_id)
 
     replacement = _replacement_spec_from_payload(
         previous=spec,

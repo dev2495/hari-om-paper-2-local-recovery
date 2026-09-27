@@ -838,3 +838,14 @@ def list_missed_slots(
         }
         for row in rows
     ]
+
+
+@router.get("/job-cards/spec-usage/{spec_id}")
+def job_cards_spec_usage(
+    spec_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales", "QC", "Store"])),
+):
+    """Running (not completed/cancelled) job cards on a specification (live-spec edit lock)."""
+    rows = db.query(JobCard).filter(JobCard.spec_id == spec_id, JobCard.status.notin_(["COMPLETED", "CANCELLED"])).all()
+    return {"spec_id": str(spec_id), "open_job_cards": len(rows), "job_card_nos": [row.job_card_no for row in rows][:20]}

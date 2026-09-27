@@ -1475,6 +1475,31 @@ def bulk_release_sales_order_lines(
     return {"lots": lots, "count": len(lots), "policy": "line_release"}
 
 
+@router.get("/spec-usage/{spec_id}")
+def get_spec_usage(
+    spec_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(get_current_user),
+):
+    """Open order lines still using a specification (live-spec edit lock)."""
+    rows = (
+        db.query(SalesOrderLine, SalesOrder)
+        .join(SalesOrder)
+        .filter(
+            SalesOrderLine.approved_spec_id == spec_id,
+            SalesOrder.status != SalesOrderStatus.CLOSED,
+            SalesOrderLine.fulfilled_qty + SalesOrderLine.hold_qty < SalesOrderLine.qty,
+        )
+        .all()
+    )
+    return {
+        "spec_id": str(spec_id),
+        "open_lines": len(rows),
+        "orders": sorted({order.order_no for _line, order in rows})[:20],
+    }
+
+
 @router.get("/open-demand")
 def list_open_demand(
     db: Session = Depends(get_db),

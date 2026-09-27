@@ -2713,9 +2713,9 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
                   Save Draft
                 </button>
               ) : null}
-              {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && !isEditable ? (
+              {!isCreate && specDocument?.spec?.active !== false && currentStatus !== "obsolete" && currentStatus !== "review" && !isEditable && (currentStatus === "draft" || userRoles.has("Owner")) ? (
                 <Link href={`/specifications/${specId}/edit`} className="rounded-lg border border-[#d7dfdc] bg-card px-3.5 py-2 text-sm font-bold text-muted-foreground shadow-sm transition hover:border-[#9db7b0]">
-                  {currentStatus === "draft" ? "Edit Draft" : "Create New Version"}
+                  {currentStatus === "draft" ? "Edit Draft" : "Edit live spec (Owner)"}
                 </Link>
               ) : null}
               {!isCreate && currentStatus === "draft" && !isEditable ? (

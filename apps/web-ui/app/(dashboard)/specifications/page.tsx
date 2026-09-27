@@ -12,6 +12,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useCustomers, useMandrels, useTubeSizes } from "@/hooks/use-master-data"
 import { specApi } from "@/lib/api"
 import { qcRowActions, qcSetupStatus } from "@/lib/qc-measurement"
+import { SpecQcQuickEditor } from "@/components/specs/spec-qc-quick-editor"
 import { formatSpecMeasure, resolveSpecSummary } from "@/lib/spec-summary"
 import { PageHeader } from "@/components/workspace/page-header"
 import { MODULE_APPEARANCES } from "@/lib/erp-appearance"
@@ -48,10 +49,13 @@ function statusTone(status: string) {
 export default function SpecificationsIndexPage() {
   const { user } = useAuth()
   const [searchValue, setSearchValue] = useState("")
+  const [qcSpecId, setQcSpecId] = useState<string | null>(null)
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all")
   const [versionView, setVersionView] = useState<"active" | "disabled">("active")
   const deferredSearchValue = useDeferredValue(searchValue.trim().toLowerCase())
   const canManageSpecs = Boolean(user?.roles?.some((role) => role === "Owner" || role === "Admin") || user?.role === "Owner" || user?.role === "Admin")
+  // A live spec is the BOM for running work: only the Owner edits it (and only when nothing open uses it).
+  const isOwner = Boolean(user?.roles?.some((role) => role === "Owner") || user?.role === "Owner")
   const canAuthorQc = Boolean(
     canManageSpecs || user?.roles?.some((role) => role === "QC") || user?.role === "QC",
   )
@@ -568,18 +572,31 @@ export default function SpecificationsIndexPage() {
                         canAuthor: canAuthorQc,
                         canApprove: canManageSpecs,
                       })
-                      return actions.map((action) => (
-                        <Link
-                          key={`${action.kind}-${action.href}`}
-                          href={action.href}
-                          data-testid={`spec-qc-action-${spec.id}-${action.kind}`}
-                          data-qc-action={action.kind}
-                        >
-                          <Button variant="outline">{action.label}</Button>
-                        </Link>
-                      ))
+                      return actions.map((action) =>
+                        ["add", "complete", "revise"].includes(action.kind) ? (
+                          // Quality parameters open only the tolerance dialog — never the full spec form.
+                          <Button
+                            key={`${action.kind}-${action.href}`}
+                            variant="outline"
+                            data-testid={`spec-qc-action-${spec.id}-${action.kind}`}
+                            data-qc-action={action.kind}
+                            onClick={() => setQcSpecId(String(spec.id))}
+                          >
+                            {action.label}
+                          </Button>
+                        ) : (
+                          <Link
+                            key={`${action.kind}-${action.href}`}
+                            href={action.href}
+                            data-testid={`spec-qc-action-${spec.id}-${action.kind}`}
+                            data-qc-action={action.kind}
+                          >
+                            <Button variant="outline">{action.label}</Button>
+                          </Link>
+                        ),
+                      )
                     })()}
-                    {canManageSpecs && spec.active !== false && !["obsolete", "review"].includes(String(spec.status || "").toLowerCase()) ? (
+                    {canManageSpecs && spec.active !== false && !["obsolete", "review"].includes(String(spec.status || "").toLowerCase()) && (!["approved", "trial"].includes(String(spec.status || "").toLowerCase()) || isOwner) ? (
                       <Link href={`/specifications/${spec.id}/edit`}>
                         <Button variant="outline">Edit</Button>
                       </Link>
@@ -597,6 +614,7 @@ export default function SpecificationsIndexPage() {
           })
         )}
       </section>
+      <SpecQcQuickEditor specId={qcSpecId} open={Boolean(qcSpecId)} onOpenChange={(next) => { if (!next) setQcSpecId(null) }} />
     </div>
   )
 }

@@ -382,13 +382,11 @@ test("QCT-035 list Add quality parameters keeps spec and recipe on approved spec
   await expect(addAction).toBeVisible()
   await expect(addAction).toContainText("Add quality parameters")
   await addAction.click()
-  await page.waitForURL(new RegExp(`/specifications/${specId}/edit\\?qc=add`), { timeout: 20_000 })
-  await expect(page.getByTestId("spec-sheet-page")).toBeVisible()
-  await expect(page.getByText(/Quality parameters for Spec/i)).toBeVisible()
-  await page.getByTestId("spec-sheet-save-draft").click()
-  await expect(dialog).toBeVisible()
+  // Quality parameters open only the tolerance dialog on the list — the spec form stays closed.
+  await expect(dialog).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByTestId("spec-sheet-page")).toHaveCount(0)
   await dialog.getByTestId("spec-qc-save-incomplete").click()
-  await page.waitForURL(new RegExp(`/specifications/${specId}(?:/)?(?:\\?.*)?$`), { timeout: 30_000 })
+  await expect(dialog).toBeHidden({ timeout: 30_000 })
   const saved = await page.request.get(`${runtime.urls.bff}/api/spec/specifications/${specId}`, {
     headers: { "X-Plant-ID": fixture.plants.plant_a.id },
   })
