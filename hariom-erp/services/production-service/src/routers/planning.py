@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session, selectinload
 from ..config import get_settings
 from ..database import get_db
 from ..job_card_numbering import allocate_child_job_card_no, allocate_job_card_no
-from ..lifecycle_rules import OUTPUT_TOLERANCE, planned_in_stage_units, within_output_tolerance
+from ..lifecycle_rules import OUTPUT_TOLERANCE, missed_slot_deadline, planned_in_stage_units, within_output_tolerance
 from ..models import (
     AuditEvent,
     Dispatch,
@@ -4151,6 +4151,8 @@ def _planner_gate_context(
     active_stage: Optional[JobCardStage] = None,
     active_segment: Optional[JobCardStageSegment] = None,
     today: Optional[date] = None,
+    now_local: Optional[datetime] = None,
+    missed_slot: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     selected_stage = str(current_stage or "WINDER").upper()
     reference = active_segment or active_stage
@@ -4170,6 +4172,13 @@ def _planner_gate_context(
     if selected_stage == "DONE" or selected_stage not in scheduled_stages:
         return context
 
+    # Re-queued after a missed slot: the card really ran there, so floor entry stays open and
+    # the entry puts it back on that slot (restore_missed_slot_for_late_entry).
+    if missed_slot and str(missed_slot.get("stage") or "").upper() == selected_stage and missed_slot.get("machine_id"):
+        context["active_segment_machine_id"] = context["active_segment_machine_id"] or str(missed_slot.get("machine_id"))
+        context["late_entry_slot"] = dict(missed_slot)
+        return context
+
     if reference is None or status in {"COMPLETED", "CANCELLED"}:
         context["planner_gate_ready"] = False
         context["planner_gate_reason"] = (
@@ -4187,9 +4196,14 @@ def _planner_gate_context(
     normalized_today = today or datetime.now(PLANT_TIMEZONE).date()
     window_end = normalized_today + timedelta(days=2)
     if plan_date < normalized_today:
+        # A slot stays enterable until its missed-slot deadline (36 h after the shift ends):
+        # last night's shift is written up this morning. After that the sweep re-queues it.
+        current = now_local or (datetime.combine(normalized_today, datetime.min.time()) if today else datetime.now(PLANT_TIMEZONE).replace(tzinfo=None))
+        if current < missed_slot_deadline(plan_date, shift_code):
+            return context
         context["planner_gate_ready"] = False
         context["planner_gate_reason"] = (
-            "Current planner slot is stale. Move this stage into the next 3 days before floor entry."
+            "This slot is past its 36 h entry window. Move the stage into the next 3 days before floor entry."
         )
         return context
     if plan_date > window_end:
@@ -5718,6 +5732,7 @@ def list_planning_job_cards(
             current_stage=job_card.current_stage,
             active_stage=active_stage,
             active_segment=active_segment,
+            missed_slot=job_card.last_missed_slot if getattr(job_card, "missed_slot_open", False) else None,
         )
         if blocked_reason is None and not planner_gate["planner_gate_ready"]:
             blocked_reason = planner_gate["planner_gate_reason"]
@@ -5989,6 +6004,7 @@ def material_demand_snapshots(db: Session = Depends(get_db),
         "id": str(job.id), "sales_order_line_id": str(job.sales_order_line_id),
         "release_lot_id": str(job.release_lot_id) if job.release_lot_id else None,
         "status": job.status, "planned_qty": job.planned_qty,
+        "parchment_color": getattr(job, "parchment_color", None),
         "started": any(stage.actual_start is not None or float(stage.output_qty or 0) > 0 for stage in job.stages),
         "material_plan_snapshot": job.material_plan_snapshot or {},
         "spec_snapshot": job.spec_snapshot or {},
@@ -6080,6 +6096,7 @@ def get_planning_job_card(
         current_stage=job_card.current_stage,
         active_stage=next((stage for stage in sorted_stages if stage.stage_type == job_card.current_stage), None),
         active_segment=active_segment,
+        missed_slot=job_card.last_missed_slot if getattr(job_card, "missed_slot_open", False) else None,
     )
     blocked_reason = (
         f"{len(open_active_segments)} open segments remain in {job_card.current_stage}"

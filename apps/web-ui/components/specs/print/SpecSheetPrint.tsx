@@ -76,6 +76,50 @@ function DetailTable({
   )
 }
 
+// Standalone print only: when the sheet is embedded (job card back page) the host owns @page.
+const STANDALONE_PRINT_CSS = `
+        @media print {
+          @page { size: A4 landscape; margin: 5mm; }
+          html,
+          body {
+            width: 287mm !important;
+            height: 200mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            overflow: hidden !important;
+            background: #fff !important;
+          }
+          body > * { visibility: hidden; }
+          .spec-print-preview,
+          .spec-print-preview * { visibility: visible; }
+          .spec-print-preview {
+            position: absolute;
+            inset: 0;
+            width: 287mm !important;
+            max-width: none !important;
+            height: 200mm !important;
+            margin: 0 !important;
+          }
+          .no-print,
+          aside,
+          nav,
+          [data-print-hidden="true"] { display: none !important; }
+          .spec-print-sheet {
+            width: 287mm !important;
+            height: 200mm !important;
+            margin: 0 !important;
+            border-width: 1px !important;
+            padding: 3mm 3.2mm 2mm !important;
+            box-shadow: none !important;
+            break-inside: avoid !important;
+            break-after: avoid !important;
+            page-break-inside: avoid !important;
+            page-break-after: avoid !important;
+          }
+          .spec-print-sheet table { break-inside: avoid !important; }
+        }
+        `
+
 export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPrintProps) {
   if (!enabled) return null
 
@@ -571,50 +615,7 @@ export function SpecSheetPrint({ enabled, data, embedded = false }: SpecSheetPri
         }
         .spec-print-footer span { font-size: 5.7pt; }
       `}</style>
-      {embedded ? null : (
-        <style jsx global>{`
-        @media print {
-          @page { size: A4 landscape; margin: 5mm; }
-          html,
-          body {
-            width: 287mm !important;
-            height: 200mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-            background: #fff !important;
-          }
-          body > * { visibility: hidden; }
-          .spec-print-preview,
-          .spec-print-preview * { visibility: visible; }
-          .spec-print-preview {
-            position: absolute;
-            inset: 0;
-            width: 287mm !important;
-            max-width: none !important;
-            height: 200mm !important;
-            margin: 0 !important;
-          }
-          .no-print,
-          aside,
-          nav,
-          [data-print-hidden="true"] { display: none !important; }
-          .spec-print-sheet {
-            width: 287mm !important;
-            height: 200mm !important;
-            margin: 0 !important;
-            border-width: 1px !important;
-            padding: 3mm 3.2mm 2mm !important;
-            box-shadow: none !important;
-            break-inside: avoid !important;
-            break-after: avoid !important;
-            page-break-inside: avoid !important;
-            page-break-after: avoid !important;
-          }
-          .spec-print-sheet table { break-inside: avoid !important; }
-        }
-        `}</style>
-      )}
+      {embedded ? null : <style dangerouslySetInnerHTML={{ __html: STANDALONE_PRINT_CSS }} />}
     </div>
   )
 }

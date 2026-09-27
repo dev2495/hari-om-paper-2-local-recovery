@@ -520,6 +520,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   const jobCardQuery = usePlanningJobCard(jobCardId)
   const saveDraftMutation = useSaveStageDraft()
   const completeStageMutation = useCompleteStageEntry()
+  const [bulkSaving, setBulkSaving] = useState(false)
   const machineLabelMap = useMachineLabelMap()
   const mandrelsQuery = useMandrels()
   const shiftsQuery = useShifts()
@@ -838,9 +839,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   function stageAssignment(stage: StageName) {
     const row = stageRow(stage)
     const segment = stageSegment(stage)
-    const machineId = row?.machine_id || segment?.machine_id
-    const shiftCode = row?.shift_code || segment?.shift_code
-    const planDate = row?.plan_date || segment?.plan_date || ""
+    // Re-queued after a missed slot: entry stays open on the slot it ran in (the save restores it).
+    const missed = card?.missed_slot_open && String(card?.last_missed_slot?.stage || "").toUpperCase() === stage ? card.last_missed_slot : null
+    const machineId = row?.machine_id || segment?.machine_id || missed?.machine_id
+    const shiftCode = row?.shift_code || segment?.shift_code || missed?.shift_code
+    const planDate = row?.plan_date || segment?.plan_date || missed?.plan_date || ""
     const machineLabel = machineId ? machineLabelMap.get(String(machineId)) || String(machineId).slice(0, 8) : ""
     const shiftLabel = shiftCode ? [String(shiftCode).replace("_", " "), planDate].filter(Boolean).join(" · ") : ""
     const needsPlannerAssignment = ["SLITTING", "WINDER", "OVEN", "PROCESS"].includes(stage)
@@ -1148,6 +1151,100 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
     }
   }
 
+  const BULK_ENTRY_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"]
+
+  function stageHasActuals(stage: StageName) {
+    const payload: any = completePayload(stage)
+    return Number(payload?.output_qty || 0) > 0
+  }
+
+  function openBulkStages(): Array<{ stage: StageName; filled: boolean }> {
+    return stages
+      .map((row: any) => row.stage_type as StageName)
+      .filter((stage: StageName) => BULK_ENTRY_STAGES.includes(stage) && stageRow(stage)?.status !== "COMPLETED")
+      .map((stage: StageName) => ({ stage, filled: stageHasActuals(stage) }))
+  }
+
+  // A whole card handed in at once: validate every filled stage first, capture all payloads
+  // (each save refetches the card and resets the forms), then complete them in route order.
+  async function saveAllFilledStages() {
+    if (!jobCardId || bulkSaving) return
+    const queue = openBulkStages().filter((row) => row.filled).map((row) => row.stage)
+    if (!queue.length) {
+      showToast("Fill the output of at least one open stage first.", "info")
+      return
+    }
+    for (const stage of queue) {
+      if (stageAssignment(stage).missingRequiredAssignment) {
+        showToast(`${stage}: the planner must assign machine and shift first. Nothing was saved.`, "error")
+        return
+      }
+      if (STAGES_REQUIRING_SHIFT.includes(stage)) {
+        const formEntry = stageForms[stage]?.entry_snapshot || {}
+        if (!((formEntry.shift_code || "").toString().trim() || stageAssignment(stage).shiftCode)) {
+          showToast(`${stage}: choose the shift written on the card. Nothing was saved.`, "error")
+          return
+        }
+      }
+      const timeProblem = cardTimeProblem(stage, "complete")
+      if (timeProblem) {
+        showToast(`${timeProblem} Nothing was saved.`, "error")
+        return
+      }
+    }
+    const payloads = queue.map((stage) => ({ stage, data: completePayload(stage) }))
+    const done: StageName[] = []
+    setBulkSaving(true)
+    try {
+      for (const { stage, data } of payloads) {
+        const response: any = await completeStageMutation.mutateAsync({ jobCardId, data })
+        done.push(stage)
+        showStageWarnings(response)
+      }
+      showToast(`${done.join(" → ")} saved as completed`, "success")
+    } catch (error: any) {
+      const failed = payloads[done.length]?.stage
+      const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Unable to save stage"
+      const text = typeof message === "string" ? message : JSON.stringify(message)
+      showToast(`${done.length ? `${done.join(" → ")} saved. ` : ""}${failed} not saved: ${text}`, "error")
+    } finally {
+      setBulkSaving(false)
+      jobCardQuery.refetch()
+    }
+  }
+
+  function renderWholeCardEntry() {
+    if (mode !== "supervisor") return null
+    const rows = openBulkStages()
+    if (rows.length < 2) return null
+    const filled = rows.filter((row) => row.filled).length
+    return (
+      <section className="no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3" data-testid="whole-card-entry">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-foreground">Whole card entry</p>
+          <p className="text-xs text-muted-foreground">Card handed in with several stages written? Fill each section below, then save them together in route order.</p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {rows.map((row) => (
+              <span key={row.stage} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${row.filled ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-muted text-muted-foreground"}`}>
+                {row.filled ? <CheckCircle2 className="h-3 w-3" /> : null}{row.stage}
+              </span>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={saveAllFilledStages}
+          disabled={!filled || bulkSaving || completeStageMutation.isPending}
+          data-testid="save-all-filled-stages"
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <CheckCircle2 className="h-4 w-4" />
+          {bulkSaving ? "Saving stages…" : filled ? `Save ${filled} filled stage${filled === 1 ? "" : "s"}` : "Save filled stages"}
+        </button>
+      </section>
+    )
+  }
+
   function sectionActions(stage: StageName) {
     if (mode !== "supervisor") return null
     const disabled = !stageEditable(stage) || saveDraftMutation.isPending || completeStageMutation.isPending
@@ -1318,6 +1415,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         ) : null}
         {renderRestrictedPhysicalOutput()}
         {renderLateQualityException()}
+        {renderWholeCardEntry()}
         <section className="overflow-hidden rounded-[2rem] border border-border bg-card shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <div className="grid gap-0 xl:grid-cols-[minmax(0,1.55fr)_24rem]">
             <div className="border-b border-border bg-card px-6 py-6 text-white lg:border-b-0 lg:border-r">
