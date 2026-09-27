@@ -583,6 +583,8 @@ export const inventoryApi = {
 
 export const purchaseApi = {
   getMaterialDemand: (params: { as_of_date: string; horizon_end: string }) => api.get("/api/purchase/material-demand", { params }),
+  createPaperItems: (paperIds: string[]) => api.post("/api/purchase/material-demand/create-paper-items", { paper_ids: paperIds }),
+  createMaterialItems: (materials: Array<{ material_class: string; code: string }>) => api.post("/api/purchase/material-demand/create-material-items", { materials }),
   previewManualReceipt: (data: any) => api.post("/api/purchase/v2/manual-receipts/preview", data),
   createManualReceipt: (data: any) => api.post("/api/purchase/v2/manual-receipts", data),
   approveManualReceipt: (id: string, data: any) => api.post(`/api/purchase/v2/receipts/${id}/approve-manual`, data),

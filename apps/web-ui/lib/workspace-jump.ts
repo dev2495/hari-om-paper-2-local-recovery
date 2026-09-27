@@ -11,7 +11,7 @@ export type WorkspaceJumpItem = {
 export const WORKSPACE_JUMP_ITEMS: WorkspaceJumpItem[] = [
   { name: "Inbox", href: "/inbox", description: "Notifications, handoffs, QC holds and your role work queue.", group: "Overview" },
   { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", description: "Confirmed arrivals and receipt allocations.", group: "Purchasing" },
-  { name: "RM Schedule", href: "/purchase/scheduler", description: "Monthly procurement calendar and workbook import.", group: "Purchasing", keywords: ["calendar", "excel", "workbook"] },
+  { name: "RM & PM Schedule", href: "/purchase/scheduler", description: "Monthly paper, chemical and packing schedule with vendor PO position.", group: "Purchasing", keywords: ["calendar", "excel", "workbook"] },
   { name: "Goods inward", href: "/purchase/inward", description: "Measured receipt and distinct physical lot labels.", group: "Stores & inventory", keywords: ["grn", "receipt"] },
   { name: "GRN register", href: "/purchase/receipts", description: "Receipts, invoice status and saved labels.", group: "Stores & inventory" },
   { name: "Dashboard", href: "/dashboard", description: "Control room overview, alerts, and operating posture.", group: "Overview" },

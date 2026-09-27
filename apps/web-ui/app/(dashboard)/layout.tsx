@@ -121,10 +121,10 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       {
-        name: "RM Schedule",
+        name: "RM & PM Schedule",
         href: "/purchase/scheduler",
         icon: ClipboardList,
-        description: "Monthly kg calendar, workbook import, MRP run, and PO conversion.",
+        description: "Monthly paper, chemical and packing schedule: op stk, arrivals, BOM requirement, cl stk and vendor PO position.",
         roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"],
       },
       { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", icon: Truck, description: "Confirmed arrivals, changed promises and partial receipts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
