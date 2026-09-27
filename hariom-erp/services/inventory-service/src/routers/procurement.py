@@ -1097,6 +1097,9 @@ class PlanUpdate(BaseModel):
     entries: list[PlanEntryInput]
     source_hash: Optional[str] = Field(default=None, min_length=64, max_length=64)
     source_metadata: Optional[dict[str, Any]] = None
+    # Workbook inputs that are not dated arrivals: monthly requirement per lane (item_id -> qty in
+    # the item's unit), used for packing / chemical lanes that have no BOM-driven demand.
+    lane_requirements: Optional[dict[str, float]] = None
 
 
 def _plan_payload(plan: ProcurementPlan) -> dict[str, Any]:
@@ -1198,6 +1201,9 @@ def update_plan_entries(plan_id: uuid.UUID, payload: PlanUpdate, db: Session = D
         plan.source_hash = payload.source_hash
     if payload.source_metadata is not None:
         plan.working_calendar = {**(plan.working_calendar or {}), "source_import": payload.source_metadata}
+    if payload.lane_requirements is not None:
+        cleaned = {str(key): round(float(value), 3) for key, value in payload.lane_requirements.items() if value is not None and float(value) >= 0}
+        plan.working_calendar = {**(plan.working_calendar or {}), "lane_requirements": cleaned}
     plan.version += 1
     db.commit(); db.refresh(plan)
     return _plan_payload(plan)
