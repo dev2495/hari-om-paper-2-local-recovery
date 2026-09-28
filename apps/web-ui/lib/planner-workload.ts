@@ -54,8 +54,8 @@ export function summarizeWorkload(jobs: WorkloadJob[], stage: string, grouping: 
   return Array.from(groups.values()).map(({ seen, ...row }) => row).sort((a, b) => b.load - a.load || b.pcs - a.pcs || a.label.localeCompare(b.label))
 }
 
-export function clampWorkloadPosition(position: { x: number; y: number }, viewport: { width: number; height: number }, panel: { width: number; height: number }) {
+export function clampWorkloadPosition(position: { x: number; y: number }, viewport: { width: number; height: number }, panel: { width: number; height: number }, topInset = 8) {
   const maxX = Math.max(8, viewport.width - panel.width - 8)
   const maxY = Math.max(8, viewport.height - panel.height - 8)
-  return { x: Math.max(8, Math.min(maxX, Number.isFinite(position.x) ? position.x : maxX)), y: Math.max(8, Math.min(maxY, Number.isFinite(position.y) ? position.y : 160)) }
+  return { x: Math.max(8, Math.min(maxX, Number.isFinite(position.x) ? position.x : maxX)), y: Math.max(Math.min(topInset, maxY), Math.min(maxY, Number.isFinite(position.y) ? position.y : 160)) }
 }

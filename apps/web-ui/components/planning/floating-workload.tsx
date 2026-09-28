@@ -31,7 +31,7 @@ export function FloatingWorkload({ jobs, stage, scope, machineLabel, selected, g
   const place = useCallback((next: { x: number; y: number }, save = false) => {
     if (!panel.current) return
     const box = panel.current.getBoundingClientRect()
-    position.current = clampWorkloadPosition(next, { width: window.innerWidth, height: window.innerHeight }, box)
+    position.current = clampWorkloadPosition(next, { width: window.innerWidth, height: window.innerHeight }, box, 64)
     panel.current.style.left = `${position.current.x}px`
     panel.current.style.top = `${position.current.y}px`
     if (save) { try { localStorage.setItem(key, JSON.stringify(position.current)) } catch { /* Preferences may be disabled. */ } }
