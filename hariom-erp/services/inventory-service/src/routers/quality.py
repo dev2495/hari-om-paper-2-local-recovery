@@ -320,6 +320,8 @@ class QualityInspectionCreate(BaseModel):
     disposition: Optional[str] = None
     notes: Optional[str] = Field(default=None, max_length=1000)
 
+    resolve_hold_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
+
     @field_validator("entity_type")
     @classmethod
     def validate_entity_type(cls, value: str) -> str:
@@ -398,6 +400,8 @@ class PendingQualityItem(BaseModel):
     overdue: bool = False
     item_id: Optional[uuid.UUID] = None
     quality_profile: Optional[dict[str, Any]] = None
+
+    inspection_holds: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class CustomerRejectionCreate(BaseModel):
@@ -707,6 +711,17 @@ def list_pending_quality(
             )
         )
 
+    by_entity = {(row.entity_type, row.entity_id): row for row in rows}
+    if by_entity:
+        holds = db.query(InventoryQualityHold).filter(InventoryQualityHold.plant_id.in_(plant_filter),
+            InventoryQualityHold.entity_id.in_([row.entity_id for row in rows]),
+            InventoryQualityHold.status == "HOLD", InventoryQualityHold.hold_kind == "INSPECTION",
+            InventoryQualityHold.source_inspection_id.isnot(None)).all()
+        for hold in holds:
+            row = by_entity.get((hold.entity_type, hold.entity_id))
+            if row:
+                row.inspection_holds.append({"id": str(hold.id), "reason": hold.reason, "inspection_id": str(hold.source_inspection_id)})
+
     return sorted(rows, key=lambda row: (not row.overdue, row.due_at.timestamp() if row.due_at else float("inf")))
 
 
@@ -831,6 +846,25 @@ def create_quality_inspection(
             ),
         )
     reject_fail_accept_shortcut("FAIL" if status in {"FAIL", "INVALID", "INCOMPLETE"} else status, payload.disposition)
+
+    if payload.resolve_hold_ids:
+        if status != "PASS" or payload.disposition not in {None, "ACCEPT"} or not (batch or reel):
+            raise HTTPException(422, "Earlier inspection holds can close only after a complete passing reinspection")
+        if len((payload.notes or "").strip()) < 3:
+            raise HTTPException(422, "Explain the reinspection and why the selected earlier holds can close")
+        holds = db.query(InventoryQualityHold).filter(
+            InventoryQualityHold.id.in_(payload.resolve_hold_ids), InventoryQualityHold.plant_id == plant_id,
+            InventoryQualityHold.entity_type == payload.entity_type, InventoryQualityHold.entity_id == payload.entity_id,
+            InventoryQualityHold.status == "HOLD", InventoryQualityHold.hold_kind == "INSPECTION",
+            InventoryQualityHold.source_inspection_id.isnot(None)).with_for_update().all()
+        if len(holds) != len(set(payload.resolve_hold_ids)):
+            raise HTTPException(409, "Selected inspection holds changed or do not belong to this lot; refresh the queue")
+        for hold in holds:
+            hold.status = "RELEASED"
+            hold.released_by = current_user.get("sub")
+            hold.released_at = datetime.utcnow()
+        evaluation_payload["resolved_inspection_holds"] = [str(hold.id) for hold in holds]
+        evaluation_payload["hold_resolution_reason"] = payload.notes.strip()
 
     inspection = InventoryQualityInspection(
         plant_id=plant_id,

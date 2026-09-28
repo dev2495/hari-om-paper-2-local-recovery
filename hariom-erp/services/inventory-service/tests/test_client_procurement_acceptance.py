@@ -9,7 +9,7 @@ from pydantic import ValidationError
 if 'procurement_test' not in os.environ.get('DATABASE_URL',''):
     pytest.skip('Disposable procurement database required', allow_module_level=True)
 from src.database import SessionLocal
-from src.models import ItemMaster, PurchaseOrderRevision, PurchaseRequisition, StockBatch, StockTransaction
+from src.models import InventoryQualityHold, ItemMaster, PurchaseOrderRevision, PurchaseRequisition, StockBatch, StockTransaction
 from src.routers.purchase import PurchaseOrderCreate, RevisionActionPayload, create_purchase_order, submit_purchase_order, approve_purchase_order, create_purchase_order_revision
 from src.routers.requisitions import RequisitionCreate, RequisitionDecision, create_requisition, decide_requisition
 from src.routers.items import ItemCreate, create_item
@@ -80,6 +80,17 @@ def test_qc_failure_can_be_recorded_hold_pass_and_department_enforced():
         assert failed.status=='FAIL' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
         held=create_quality_inspection(payload.model_copy(update={'readings':{'check':1.5},'disposition':'HOLD'}),db,PLANT,QC)
         assert held.status=='PASS' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
+        holds=db.query(InventoryQualityHold).filter_by(entity_id=batch.id,status='HOLD').all()
+        resolution=payload.model_copy(update={'readings':{'check':1.5},'resolve_hold_ids':[h.id for h in holds],'notes':'Second measurement verified after correcting sample preparation'})
+        with pytest.raises(HTTPException): create_quality_inspection(resolution.model_copy(update={'readings':{'check':9}}),db,PLANT,QC)
+        db.rollback()
+        # An independent manual hold is never cleared by an inspection resolution.
+        independent=InventoryQualityHold(plant_id=PLANT,entity_type='BATCH',entity_id=batch.id,quantity=10,reason='Independent investigation',status='HOLD',hold_kind='MANUAL')
+        db.add(independent);db.commit()
+        passed=create_quality_inspection(resolution,db,PLANT,QC)
+        assert passed.status=='PASS' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
+        assert all(db.get(InventoryQualityHold,h.id).status=='RELEASED' for h in holds)
+        assert db.get(InventoryQualityHold,independent.id).status=='HOLD'
         assert _incoming_deadline(datetime.utcnow()-timedelta(hours=25))['overdue']
         assert not _incoming_deadline(datetime.utcnow())['overdue']
 

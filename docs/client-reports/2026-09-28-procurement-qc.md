@@ -22,16 +22,16 @@ Implementation uses Claude's existing checkout and branch `release/2026-09-25-pa
 | BFF regression and unit-aware material demand | 53 passed; 1 optional test skipped |
 | Web test suite, schedule workbook/date-block and material schedule checks | Passed |
 | Full Next production build, type checking and 132-page generation | Passed |
-| Authenticated HTTP workflows using QC, Store, Owner and Operator in both isolated plants | 74 checks passed |
+| Authenticated HTTP workflows using QC, Store, Owner and Operator in both isolated plants | 76 checks passed |
 | Additive database migration replay | Passed |
 | A4/thermal PDF rendering, pagination and text bounds | Passed |
 | Bulk adhesive label PDF | Verified 10.0 L with batch QR |
 
-The authenticated tests cover requisition approval and PO conversion, PO approval role denial, receipt creation, 24-hour QC metadata, invalid/valid QC readings, pre-QC issue denial, slitting mass conservation, coil production issue/close and cross-plant denial. Test accounts and documents live only in independent local acceptance databases. No fake commercial orders were posted to production.
+The authenticated tests cover requisition approval and PO conversion, PO approval role denial, receipt creation, 24-hour QC metadata, invalid/valid QC readings, explicit passing reinspection release while preserving independent holds, pre-QC issue denial, slitting mass conservation, coil production issue/close and cross-plant denial. Test accounts and documents live only in independent local acceptance databases. No fake commercial orders were posted to production.
 
 ## Operations and remaining acceptance boundaries
 
-The dedicated `QC` role is assignable through Users, with its own landing workspace and plant scope. Role controls were tested with dedicated QC accounts in both local plants. Production staff assignment must use the real QC employees' accounts; local test identities are not production users.
+Live read-only preflight confirmed two active accounts already have QC. The dedicated `QC` role is assignable through Users, with its own landing workspace and plant scope. Role controls were tested with dedicated QC accounts in both local plants. Production staff assignment must use the real QC employees' accounts; local test identities are not production users.
 
 Print PDFs at actual size. PDF/browser verification does not prove physical printer alignment or handheld scanner performance; print and scan one A4 sheet and one thermal label at the plant before bulk printing. Monthly count correctness still depends on entered physical counts, approved master data and the final month's books; automated tests cannot certify a future physical inventory count.
 

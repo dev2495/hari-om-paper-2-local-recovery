@@ -22,6 +22,7 @@ export default function IncomingQualityPage() {
   const [readings, setReadings] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState("")
+  const [resolvedHoldIds, setResolvedHoldIds] = useState<string[]>([])
   const [disposition, setDisposition] = useState("AUTO")
   const pendingQualityQuery = usePendingInventoryQuality()
   const concessionsQuery = useInventoryQualityConcessions()
@@ -55,6 +56,7 @@ export default function IncomingQualityPage() {
         readings: numericReadings,
         reasons,
         notes: notes || undefined,
+        resolve_hold_ids: resolvedHoldIds,
         disposition: disposition === "AUTO" ? undefined : disposition,
       })
       const payload = response?.data || {}
@@ -104,6 +106,10 @@ export default function IncomingQualityPage() {
                     key={key}
                     type="button"
                     onClick={() => {
+                      setResolvedHoldIds([])
+                      setReadings({})
+                      setReasons({})
+                      setNotes("")
                       setSelectedPendingId(key)
                       setDisposition("AUTO")
                       setReadings({})
@@ -149,10 +155,13 @@ export default function IncomingQualityPage() {
                   <option value="REJECT">Reject inward material</option>
                 </select>
               </label>
+              {asArray(selectedPending?.inspection_holds).length ? <fieldset className="space-y-2 rounded-xl border border-border p-3"><legend className="px-1 text-sm font-semibold">Earlier inspection holds</legend><p className="text-xs text-muted-foreground">Select only the holds resolved by this reinspection. Closing requires passing all checks and an explanation. Other holds remain active.</p>{asArray(selectedPending.inspection_holds).map((hold:any) => <label key={hold.id} className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={resolvedHoldIds.includes(hold.id)} onChange={(event) => setResolvedHoldIds(ids => event.target.checked ? [...ids, hold.id] : ids.filter(id => id !== hold.id))} /><span>{hold.reason}</span></label>)}</fieldset> : null}
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
-                placeholder="Inspector notes (optional)"
+                aria-label="Inspector notes"
+                placeholder={resolvedHoldIds.length ? "Explain why the selected inspection holds can close" : "Inspector notes (optional)"}
+                required={resolvedHoldIds.length > 0}
                 className="min-h-20 w-full rounded-xl border border-border px-3 py-3 text-sm"
               />
               <button
