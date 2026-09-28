@@ -6022,8 +6022,28 @@ def material_demand_snapshots(db: Session = Depends(get_db),
     current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Planner", "Store", "Sales"]))):
     query = _apply_plant_scope_filter(db.query(JobCard).options(selectinload(JobCard.stages)), JobCard.plant_id, plant_scope)
     jobs = query.filter(JobCard.status != "CANCELLED", JobCard.sales_order_line_id.isnot(None)).all()
+    # Production date = the earliest open first-stage slot on the planner (material must be there
+    # before winding starts). Cards still in the queue have none and keep their customer date.
+    first_slots: dict[uuid.UUID, date] = {}
+    if jobs:
+        rows = (
+            db.query(JobCardStageSegment.job_card_id, func.min(JobCardStageSegment.plan_date))
+            .filter(
+                JobCardStageSegment.job_card_id.in_([job.id for job in jobs]),
+                JobCardStageSegment.stage_type.in_(["SLITTING", "WINDER"]),
+                JobCardStageSegment.status.notin_(["COMPLETED", "CANCELLED"]),
+                JobCardStageSegment.machine_id.isnot(None),
+                JobCardStageSegment.shift_code.isnot(None),
+                JobCardStageSegment.plan_date.isnot(None),
+            )
+            .group_by(JobCardStageSegment.job_card_id)
+            .all()
+        )
+        first_slots = {job_id: plan_date for job_id, plan_date in rows}
     return {"coverage": "all_linked_jobs", "jobs": [{
         "id": str(job.id), "sales_order_line_id": str(job.sales_order_line_id),
+        "job_card_no": getattr(job, "job_card_no", None),
+        "production_plan_date": first_slots[job.id].isoformat() if job.id in first_slots else None,
         "release_lot_id": str(job.release_lot_id) if job.release_lot_id else None,
         "status": job.status, "planned_qty": job.planned_qty,
         "parchment_color": getattr(job, "parchment_color", None),

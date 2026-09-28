@@ -5,13 +5,14 @@ import { businessDate } from "@/lib/business-date"
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { AlertTriangle, Boxes, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Download, FlaskConical, Layers, Play, Plus, Printer, RefreshCw, Save, ScrollText, Send, ShoppingCart, Target, Truck, Upload, Warehouse } from "lucide-react"
+import { Boxes, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Download, FlaskConical, Layers, Play, Plus, Printer, RefreshCw, Save, ScrollText, Send, ShoppingCart, Upload, Warehouse } from "lucide-react"
 
 import { useAuth } from "@/context/AuthContext"
 import { EmptyState } from "@/components/erp/shell"
-import { RequestErrors, Field, MessageBar, ProcurementShell, StateBadge, SummaryCard, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
+import { RequestErrors, Field, MessageBar, ProcurementShell, StateBadge, WorkPanel, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { QtyInput, ScheduleGrid, unitLabel, type DisplayUnit } from "@/components/procurement/schedule/schedule-grid"
-import { CoverageBars, DemandIssues, VendorPositionTable, laneRows, varietyRows, type UnmappedMaterial } from "@/components/procurement/schedule/schedule-panels"
+import { CoverageBars, DemandIssues, RequirementRail, SOURCE_META, SOURCE_ORDER, SourceBadge, VendorPositionTable, laneRows, sourceOf, varietyRows, type UnmappedMaterial } from "@/components/procurement/schedule/schedule-panels"
+import { useDeliveryCalendar } from "@/hooks/use-sales"
 import { useInventoryBalances, useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
 import { purchaseApi } from "@/lib/api"
@@ -44,6 +45,8 @@ export default function PurchaseSchedulerPage() {
   const [month, setMonth] = useState(currentMonth()); const [selectedPlanId, setSelectedPlanId] = useState("")
   const [laneIds, setLaneIds] = useState<string[]>([]); const [cells, setCells] = useState<Record<string, string>>({})
   const [manualReq, setManualReq] = useState<Record<string, string>>({})
+  const [focusItem, setFocusItem] = useState<string | null>(null)
+  const [hoverDay, setHoverDay] = useState<string | null>(null)
   const [targetLane, setTargetLane] = useState(""); const [laneVendors, setLaneVendors] = useState<Record<string, string>>({}); const [target, setTarget] = useState("")
   const [workbookSheets, setWorkbookSheets] = useState<any[]>([]); const [importSheetName, setImportSheetName] = useState("")
   const [importRows, setImportRows] = useState<Array<{ date: string; header: string; qty: number; cell: string; item_id?: string }>>([])
@@ -115,7 +118,7 @@ export default function PurchaseSchedulerPage() {
 
   function markCalendarDirty() { if (editSnapshot.current) editSnapshot.current.dirty = true }
   useEffect(() => { setSelectedPlanId(""); setMrpResult(null); setSelectedDay(""); setImportRows([]); setWorkbookSheets([]); setImportSource(null); setImportEvidence({}); setImportUnit(""); setNotice(null) }, [activePlant, month])
-  useEffect(() => { setSelectedDay(""); setTargetLane("") }, [materialClass])
+  useEffect(() => { setSelectedDay(""); setTargetLane(""); setFocusItem(null) }, [materialClass])
   const refresh = () => client.invalidateQueries({ queryKey: ["purchase-v2"] })
   const createPlan = useMutation({ mutationFn: () => purchaseApi.createPlan({ request_id: crypto.randomUUID(), month: `${month}-01`, name: `RM Schedule ${month}`, target_mode: "ARRIVAL", working_calendar: { sunday: "OFF", source: "LIVE_CALENDAR" }, entries: [] }), onSuccess: ({ data }) => { setSelectedPlanId(data.id); setNotice({ tone: "success", text: "Monthly procurement plan created. Add material lanes and daily quantities." }); refresh() } })
   function entries(): ProcurementPlanEntry[] {
@@ -194,13 +197,43 @@ export default function PurchaseSchedulerPage() {
   const demandReady = !demand.isError && !demand.isPending
   const poReady = !ordersQuery.isError && !ordersQuery.isPending
   const shortTotal = Math.max(0, -closingTotal)
-  const deliveryDays = Object.values(vehicles).filter((count) => count > 0).length
   const vehicleTotal = Object.values(vehicles).reduce((total, count) => total + count, 0)
   const classCounts = useMemo(() => Object.fromEntries(MATERIAL_CLASSES.map((entry) => [entry.id, {
     lanes: allLanes.filter((item) => classOfItem(item) === entry.id).length,
     demand: allDemand.filter((row) => classOfDemand(row) === entry.id).length,
   }])), [allLanes, allDemand])
 
+  // ---- requirement rail: totals, sources, every material (lane or not) ----
+  const deliveryCalendar = useDeliveryCalendar(`${month}-01`, dateKey(dates[dates.length - 1]), plantReady)
+  const deliveriesThisMonth = useMemo(() => ({ count: (deliveryCalendar.data || []).length, pcs: Math.round((deliveryCalendar.data || []).reduce((sum, row) => sum + Number(row.qty || 0), 0)) }), [deliveryCalendar.data])
+  const bySource = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const row of classDemand) out[sourceOf(row)] = (out[sourceOf(row)] || 0) + Number(row.qty || 0)
+    return out
+  }, [classDemand])
+  const railMaterials = useMemo(() => {
+    const ids = Array.from(new Set([...laneIdList, ...Object.keys(demandTotals)]))
+    return ids.map((id) => {
+      const lane = figures[id]
+      const item = allItems.find((row) => String(row.id) === id)
+      const demandRow = (demandByItem[id] || [])[0]
+      if (lane) return { id, code: String(item?.item_code || id), name: item?.name, required: lane.required, scheduled: lane.scheduled, opening: lane.opening, closing: lane.closing, inLane: true }
+      const required = Number(demandTotals[id] || 0)
+      const opening = Number(openingByItem[id] || 0)
+      return { id, code: String(item?.item_code || demandRow?.item_code || id), name: item?.name || demandRow?.item_name, required, scheduled: 0, opening, closing: opening - required, inLane: false }
+    })
+  }, [allItems, demandByItem, demandTotals, figures, laneIdList, openingByItem])
+  const focusDemand = useMemo(() => (focusItem ? classDemand.filter((row) => String(row.item_id) === focusItem) : classDemand), [classDemand, focusItem])
+  const dayBreakdown = useMemo(() => {
+    const out: Record<string, { total: number; bySource: Record<string, number>; rows: any[] }> = {}
+    for (const row of focusDemand) {
+      const entry = (out[row.date] ||= { total: 0, bySource: {}, rows: [] })
+      entry.total += Number(row.qty || 0)
+      entry.bySource[sourceOf(row)] = (entry.bySource[sourceOf(row)] || 0) + Number(row.qty || 0)
+      entry.rows.push(row)
+    }
+    return out
+  }, [focusDemand])
   const monthLabel = new Date(`${month}-01T12:00:00`).toLocaleDateString("en-IN", { month: "long", year: "numeric" })
   const shiftMonth = (delta: number) => { const [y, m] = month.split("-").map(Number); const next = new Date(Date.UTC(y, m - 1 + delta, 1)); setMonth(next.toISOString().slice(0, 7)); setSelectedPlanId(""); setMrpResult(null); setSelectedDay("") }
   const addRequiredLanes = () => { markCalendarDirty(); setLaneIds((current) => Array.from(new Set([...current, ...Object.keys(demandTotals).filter((id) => allItems.some((item) => String(item.id) === id))]))) }
@@ -308,7 +341,7 @@ export default function PurchaseSchedulerPage() {
   const itemNoun = materialClass === "PAPER" ? "paper" : materialClass === "PACKING" ? "packing item" : "chemical"
 
   return <ProcurementShell eyebrow="Purchase planning" title="RM & PM purchase schedule"
-    description="The monthly workbook, live: op stk + scheduled arrivals − requirement = cl stk for every paper, chemical and packing lane, GSM variety totals, and what each vendor still needs a PO for. Requirement comes from open sales orders through each spec's BOM.">
+    description="The monthly workbook, live: op stk + arrivals − requirement = cl stk for every paper, chemical and packing lane. Requirement is the spec BOM of: job cards on the planner (by production date), released cards still in the queue (by customer date), and unreleased order quantity (by the customer's delivery call-offs, else the order due date).">
     <RequestErrors errors={[createPlan.error, plansQuery.error]} />
     {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
 
@@ -371,26 +404,12 @@ export default function PurchaseSchedulerPage() {
       </div> : null}
     </WorkPanel> : null}
 
-    <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label={`${classMeta.label} month position`}>
-      <SummaryCard label="Op stk" value={stockReady ? `${fmt(openingTotal)} ${u}` : "—"} detail={`Stock on hand today across ${lanes.length} ${itemNoun} lane${lanes.length === 1 ? "" : "s"}`} icon={Warehouse} tone="slate" />
-      <SummaryCard label="Scheduled arrivals" value={`${fmt(scheduledTotal)} ${u}`} detail={`${deliveryDays} delivery days · ${vehicleTotal} vehicle${vehicleTotal === 1 ? "" : "s"} in ${monthLabel}`} icon={Truck} tone="cyan" />
-      <SummaryCard label="Requirement" value={demandReady ? `${fmt(requiredTotal)} ${u}` : "—"} detail={demand.isFetching ? "Refreshing from open orders…" : `${classDemand.length} BOM line${classDemand.length === 1 ? "" : "s"} due by month end${unlanedDemand > 0 ? ` · ${fmt(unlanedDemand)} not yet in a lane` : ""}`} icon={Target} tone="amber" />
-      <SummaryCard label="Cl stk" value={stockReady && demandReady ? `${fmt(closingTotal)} ${u}` : "—"}
-        detail={!stockReady || !demandReady ? "Not calculated until stock and requirement load"
-          : requiredTotal <= 0 ? "No requirement this month"
-          : closingTotal < -0.0005 ? `Short ${fmt(shortTotal)} ${u}${shortLanes.length ? ` · ${shortLanes.length} lane${shortLanes.length === 1 ? "" : "s"} short` : ""}${unlanedDemand > 0 ? ` · ${fmt(unlanedDemand)} needed with no lane yet` : ""}`
-          : `Covered · ${Math.round(coverage || 0)}% of requirement`}
-        icon={stockReady && demandReady && closingTotal >= -0.0005 && !shortLanes.length ? CheckCircle2 : AlertTriangle}
-        tone={!stockReady || !demandReady ? "slate" : closingTotal < -0.0005 || shortLanes.length ? "rose" : "emerald"} />
-      <SummaryCard label="PO to raise" value={!poReady ? "—" : poToRaise > 0.5 ? `${fmt(poToRaise)} ${u}` : "0"}
-        detail={!poReady ? "Open purchase orders did not load" : poToRaise > 0.5 ? `Scheduled beyond pending POs with ${vendorRows.filter((row) => row.toRaise > 0.5).length} vendor(s)` : ordersQuery.data && !ordersQuery.data.complete ? "More than 500 open POs in a status — check the PO register" : "Every scheduled lane is covered by an open PO"}
-        icon={ShoppingCart} tone={!poReady ? "slate" : poToRaise > 0.5 ? "rose" : "emerald"} />
-    </section>
 
     <DemandIssues blocked={materialClass === "PAPER" ? blocked : []} unmapped={unmapped} warnings={classWarnings} creating={createItems.isPending} canCreate={plantReady} onCreate={(rows) => createItems.mutate(rows)} />
     {missing.length ? <MessageBar tone="error">Could not load {missing.join(", ")}. Figures that depend on it show “—” instead of zero — refresh when the service is back.</MessageBar> : null}
 
-    <WorkPanel title={view === "grid" ? "Monthly grid" : monthLabel} description={view === "grid" ? `One column per ${itemNoun}, one row per day — the workbook layout. Amber “need” marks when open orders need it; footer rows give scheduled, required (type to override the BOM figure) and closing stock${materialClass === "PAPER" ? ", plus the GSM variety balance" : ""}.` : "Tap a day to enter its arrivals. Amber is what open orders need; teal is a planned arrival."} action={<div className="flex flex-wrap items-center gap-2">
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+    <WorkPanel className="min-w-0" title={view === "grid" ? "Monthly grid" : monthLabel} description={view === "grid" ? `One column per ${itemNoun}, one row per day — the workbook layout. Amber “need” marks when open orders need it; footer rows give scheduled, required (type to override the BOM figure) and closing stock${materialClass === "PAPER" ? ", plus the GSM variety balance" : ""}.` : "Tap a day to enter its arrivals. Amber is what open orders need; teal is a planned arrival."} action={<div className="flex flex-wrap items-center gap-2">
       <div className="tube-segment" role="group" aria-label="Planner view">
         <button type="button" aria-pressed={view === "grid"} onClick={() => setView("grid")}>Workbook grid</button>
         <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>Month calendar</button>
@@ -412,10 +431,27 @@ export default function PurchaseSchedulerPage() {
       ) : (
         <>
           <div className="overflow-x-auto"><div className="min-w-[700px]"><div className="grid grid-cols-7 border-b border-border">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <div key={day} className="px-3 py-2 text-[11.5px] font-semibold text-muted-foreground">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-border">{Array.from({ length: (dates[0].getUTCDay() + 6) % 7 }, (_, index) => <div key={`blank-${index}`} className="border-b border-r border-border bg-[hsl(var(--surface-sunken))]" />)}{dates.map((date) => {
-            const day = dateKey(date); const arrivals = lanes.filter((item: any) => Number(cells[cellKey(day, item.id)]) > 0); const needed = demandByDay[day] || 0; const planned = arrivals.reduce((total: number, item: any) => total + Number(cells[cellKey(day, item.id)] || 0), 0)
-            return <button type="button" key={day} aria-label={`Plan arrivals ${day}`} aria-pressed={selectedDay === day} onClick={() => setSelectedDay(day)} className={`group flex min-h-[104px] flex-col gap-1 border-b border-r border-border p-1.5 text-left transition-colors ${selectedDay === day ? "bg-primary/[.06] ring-2 ring-inset ring-primary/50" : date.getUTCDay() === 0 ? "bg-[hsl(var(--surface-sunken))]" : "bg-card hover:bg-foreground/[.025]"}`}>
+            const day = dateKey(date); const arrivals = lanes.filter((item: any) => (!focusItem || String(item.id) === focusItem) && Number(cells[cellKey(day, item.id)]) > 0); const breakdown = dayBreakdown[day]; const needed = breakdown?.total || 0; const planned = arrivals.reduce((total: number, item: any) => total + Number(cells[cellKey(day, item.id)] || 0), 0)
+            return <button type="button" key={day} onMouseEnter={() => setHoverDay(day)} onMouseLeave={() => setHoverDay((current) => (current === day ? null : current))} aria-label={`Plan arrivals ${day}`} aria-pressed={selectedDay === day} onClick={() => setSelectedDay(day)} className={`group relative flex min-h-[104px] flex-col gap-1 border-b border-r border-border p-1.5 text-left transition-colors ${selectedDay === day ? "bg-primary/[.06] ring-2 ring-inset ring-primary/50" : date.getUTCDay() === 0 ? "bg-[hsl(var(--surface-sunken))]" : "bg-card hover:bg-foreground/[.025]"}`}>
               <span className="flex items-center justify-between"><span className={`grid h-6 min-w-6 place-items-center rounded-full px-1 text-[12px] font-semibold ${day === today ? "bg-primary text-primary-foreground" : "text-foreground/80"}`}>{date.getUTCDate()}</span>{planned > 0 ? <span className="text-[11px] font-semibold tabular-nums text-signal-cyan-ink">{fmt(planned)}{vehicles[day] ? <span className="ml-1 font-normal text-muted-foreground">· {vehicles[day]} veh</span> : null}</span> : null}</span>
-              {needed > 0 ? <span className="rounded border border-signal-amber-line bg-signal-amber-soft px-1.5 py-0.5 text-[11px] font-medium text-signal-amber-ink">Need {fmt(needed)} {u}</span> : null}
+              {needed > 0 ? (
+                <span className="rounded border border-signal-amber-line bg-signal-amber-soft px-1.5 py-0.5 text-[11px] font-medium text-signal-amber-ink">
+                  Need {fmt(needed)} {u}
+                  <span className="mt-0.5 flex h-1 overflow-hidden rounded-full bg-card/70">
+                    {SOURCE_ORDER.map((key) => breakdown?.bySource[key] ? <span key={key} className={SOURCE_META[key].className} style={{ width: `${(breakdown.bySource[key] / needed) * 100}%` }} /> : null)}
+                  </span>
+                </span>
+              ) : null}
+              {hoverDay === day && breakdown ? (
+                <span role="tooltip" className={`pointer-events-none absolute z-30 w-[280px] rounded-xl border border-border bg-card p-2.5 text-left shadow-[0_18px_50px_rgba(15,23,42,.18)] animate-scale-in ${(date.getUTCDay() + 6) % 7 >= 4 ? "right-0" : "left-0"} ${date.getUTCDate() > 21 ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]"}`}>
+                  <span className="block text-[12px] font-semibold">{new Date(`${day}T12:00:00`).toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" })} · need {fmt(needed)} {u}</span>
+                  {SOURCE_ORDER.filter((key) => breakdown.bySource[key]).map((key) => <span key={key} className="mt-0.5 flex justify-between text-[11.5px]"><SourceBadge source={key} /><span className="tabular-nums">{fmt(breakdown.bySource[key])}</span></span>)}
+                  <span className="mt-1.5 block border-t border-border pt-1 text-[11px] text-muted-foreground">
+                    {breakdown.rows.slice(0, 5).map((row: any, index: number) => <span key={index} className="block truncate">{row.job_card_no || row.order_no} · {row.item_code} · {fmt(Number(row.qty || 0))}</span>)}
+                    {breakdown.rows.length > 5 ? <span className="block">+{breakdown.rows.length - 5} more</span> : null}
+                  </span>
+                </span>
+              ) : null}
               {arrivals.slice(0, 3).map((item: any) => <span key={item.id} className="truncate rounded border border-signal-cyan-line bg-signal-cyan-soft px-1.5 py-0.5 text-[11px] font-medium text-signal-cyan-ink">{item.item_code} · {fmt(Number(cells[cellKey(day, item.id)]))}</span>)}
               {arrivals.length > 3 ? <span className="px-1 text-[11px] text-muted-foreground">+{arrivals.length - 3} more</span> : null}
             </button>
@@ -427,6 +463,19 @@ export default function PurchaseSchedulerPage() {
         </>
       )}
     </WorkPanel>
+    <RequirementRail
+      unitLabel={u}
+      fmt={fmt}
+      totals={{ required: requiredTotal, scheduled: scheduledTotal, opening: openingTotal, closing: closingTotal }}
+      bySource={bySource}
+      materials={railMaterials}
+      selected={focusItem}
+      onSelect={setFocusItem}
+      deliveries={deliveriesThisMonth}
+      poToRaise={!poReady ? "—" : poToRaise > 0.5 ? `${fmt(poToRaise)} ${u}` : "0"}
+      unavailable={missing.length ? missing[0] : null}
+    />
+    </div>
 
     <div className="grid gap-4 xl:grid-cols-2">
       <WorkPanel title={materialClass === "PAPER" ? "Variety balance" : "Lane balance"} description={materialClass === "PAPER" ? "Each GSM variety across all its vendors: op stk + scheduled against what open orders need." : `Each ${itemNoun}: op stk + scheduled against what open orders need.`}>
@@ -439,7 +488,7 @@ export default function PurchaseSchedulerPage() {
 
     <div className="grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
       <WorkPanel title="What open orders need" description={materialClass === "PAPER" ? demandData?.basis || "Approved sales-order quantities through their canonical recipe BOMs." : materialClass === "PACKING" ? "Boxes = pcs ÷ pcs per box on the spec; plastic and fadda follow the box count." : "Adhesive parts and parchment by weight per bamboo from the spec BOM; parchment follows each line's colour breakup."} action={<button className="erp-btn-secondary" onClick={() => demand.refetch()} disabled={demand.isFetching}><RefreshCw className={`h-4 w-4 ${demand.isFetching ? "animate-spin" : ""}`} />Refresh</button>}>
-        {classDemand.length ? <div className="max-h-[420px] overflow-auto rounded-lg border border-border"><table className="tube-grid"><thead><tr>{["Need by", "Order", "Material", "Pcs", `Required ${u}`].map((heading) => <th key={heading} className={heading.startsWith("Required") || heading === "Pcs" ? "num" : undefined}>{heading}</th>)}</tr></thead><tbody>{[...classDemand].sort((a, b) => String(a.due_date).localeCompare(String(b.due_date))).map((row, index) => <tr key={`${row.line_id}:${row.item_id}:${row.job_id || ""}:${index}`}><td className="whitespace-nowrap">{row.due_date}{row.overdue ? <span className="ml-1.5 rounded bg-signal-rose-soft px-1 text-[10.5px] font-semibold text-signal-rose-ink">late</span> : null}</td><td>{row.order_no}{row.job_id ? <span className="ml-1 text-[11px] text-muted-foreground">job</span> : null}</td><td className="font-medium">{row.item_code}{row.mapped === false ? <span className="ml-1.5 rounded bg-signal-amber-soft px-1 text-[10.5px] font-semibold text-signal-amber-ink">no item</span> : null}</td><td className="num">{Number(row.open_units || 0).toLocaleString("en-IN")}</td><td className="num font-semibold">{fmt(Number(row.qty || 0))}</td></tr>)}</tbody></table></div> : !demand.isFetching && !demand.isError ? <EmptyState label={`No approved sales-order ${itemNoun} demand due by the end of ${monthLabel}.`} /> : null}
+        {classDemand.length ? <div className="max-h-[420px] overflow-auto rounded-lg border border-border"><table className="tube-grid"><thead><tr>{["Need by", "Order / job card", "Source", "Material", "Pcs", `Required ${u}`].map((heading) => <th key={heading} className={heading.startsWith("Required") || heading === "Pcs" ? "num" : undefined}>{heading}</th>)}</tr></thead><tbody>{[...focusDemand].sort((a, b) => String(a.date || a.due_date).localeCompare(String(b.date || b.due_date))).map((row, index) => <tr key={`${row.line_id}:${row.item_id}:${row.job_id || ""}:${index}`}><td className="whitespace-nowrap">{row.date || row.due_date}{row.overdue ? <span className="ml-1.5 rounded bg-signal-rose-soft px-1 text-[10.5px] font-semibold text-signal-rose-ink">late</span> : null}</td><td>{row.order_no}{row.job_card_no ? <span className="ml-1.5 font-mono text-[11.5px] font-semibold text-foreground/80">{row.job_card_no}</span> : null}</td><td><SourceBadge source={sourceOf(row)} /></td><td className="font-medium">{row.item_code}{row.mapped === false ? <span className="ml-1.5 rounded bg-signal-amber-soft px-1 text-[10.5px] font-semibold text-signal-amber-ink">no item</span> : null}</td><td className="num">{Number(row.open_units || 0).toLocaleString("en-IN")}</td><td className="num font-semibold">{fmt(Number(row.qty || 0))}</td></tr>)}</tbody></table></div> : !demand.isFetching && !demand.isError ? <EmptyState label={`No approved sales-order ${itemNoun} demand due by the end of ${monthLabel}.`} /> : null}
       </WorkPanel>
       {materialClass === "PAPER" ? (
         <WorkPanel title="Shortage check" description="Uses opening stock, confirmed open POs, stock targets and this requirement to suggest what to buy." action={<button className={primaryButton} disabled={mrp.isPending || blocked.length > 0 || demand.isFetching || !Object.keys(paperTotals).length} onClick={() => mrp.mutate()}><Play className="h-4 w-4" />{mrp.isPending ? "Calculating…" : "Calculate purchase shortages"}</button>}>

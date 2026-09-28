@@ -117,7 +117,7 @@ def test_repeated_paper_layers_aggregate_before_issue_subtraction():
     assert error is None and len(rows) == 1
     assert rows[0]['qty_kg'] == 42.75
 
-def residual_result(*, section_issues=None, job_issues=None, shared=False):
+def residual_result(*, section_issues=None, job_issues=None, shared=False, plan_date=None):
     import asyncio
     from unittest.mock import AsyncMock, patch
     import httpx
@@ -131,6 +131,9 @@ def residual_result(*, section_issues=None, job_issues=None, shared=False):
          'material_plan_snapshot':{'bom_snapshot':bom,'recipe_snapshot':{'recipe_id':'frozen','version':1}}}]
     if shared:
         jobs[0]['reel_issue_ids'] = ['issue']
+    if plan_date:
+        jobs[1]['production_plan_date'] = plan_date
+        jobs[1]['job_card_no'] = '26/09/07'
     bodies = {
         '/sales-orders': [{'id':'so','order_no':'SO-1','status':'partially_dispatched','lines':[{
             'id':'line','due_date':'2026-09-20','release_remaining_qty':5000,'remaining_qty':8000,
@@ -265,3 +268,16 @@ def test_create_items_reports_a_code_clash_instead_of_skipping(monkeypatch):
     result = asyncio.run(pd.create_paper_stock_items("t", "PLANT_A", ["p1"]))
     assert not posted and not result["skipped"]
     assert "already a OTHER item" in result["failed"][0]["reason"]
+
+
+def test_job_on_the_board_needs_material_by_its_production_slot():
+    result = residual_result(job_issues=[{'job_id':'wip','item_id':'paper','net_issued_qty':4500}], plan_date='2026-09-12')
+    work, new = result['requirements']
+    assert work['date'] == '2026-09-12' and work['source'] == 'PRODUCTION_PLAN' and work['job_card_no'] == '26/09/07'
+    assert new['source'] == 'LINE_DUE' and new['date'] == '2026-09-20'
+
+
+def test_queued_job_keeps_the_customer_date():
+    result = residual_result(job_issues=[{'job_id':'wip','item_id':'paper','net_issued_qty':4500}])
+    work = result['requirements'][0]
+    assert work['source'] == 'RELEASED_QUEUE' and work['date'] == '2026-09-20'

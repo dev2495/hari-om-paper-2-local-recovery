@@ -309,12 +309,16 @@ async def material_demand(token, plant_id, start, end):
             for job in linked_jobs:
                 if job["status"] == "COMPLETED":
                     continue
+                # On the planner: material is needed by the production slot. Still queued: by the customer date.
+                plan_date = job.get("production_plan_date")
+                need_date = min(plan_date, job_material_need_date(line, job)) if plan_date else job_material_need_date(line, job)
+                job_source = {"source": "PRODUCTION_PLAN" if plan_date else "RELEASED_QUEUE", "job_card_no": job.get("job_card_no"), "production_plan_date": plan_date}
                 snapshot = job.get("material_plan_snapshot") or {}
                 frozen_bom = snapshot.get("bom_snapshot") or snapshot.get("theoretical_consumption") or {}
                 frozen_recipe = snapshot.get("recipe_snapshot") or {}
                 frozen_spec = job.get("spec_snapshot") or {}
                 job_rows, job_problem = explode_paper_demand(order,
-                    {**line, "due_date": job_material_need_date(line, job), "release_remaining_qty": job["planned_qty"]},
+                    {**line, "due_date": need_date, "release_remaining_qty": job["planned_qty"]},
                     {"id": spec_id, "version": frozen_spec.get("version")},
                     {"id": frozen_recipe.get("recipe_id") or frozen_recipe.get("id"), "version": frozen_recipe.get("version")},
                     frozen_bom, item_by_id, item_by_code, paper_by_id, start, end)
@@ -329,16 +333,16 @@ async def material_demand(token, plant_id, start, end):
                         continue
                     issued = max(0, float(net_issues.get(key, 0)))
                     gross = row["qty_kg"]
-                    requirements.append({**row, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
+                    requirements.append({**row, **job_source, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
                         "gross_qty_kg": gross, "already_issued_kg": issued,
                         "qty_kg": round(max(0, gross - issued), 3)})
                 other_rows, _ = explode_other_demand(order,
-                    {**line, "due_date": job_material_need_date(line, job), "release_remaining_qty": job["planned_qty"],
+                    {**line, "due_date": need_date, "release_remaining_qty": job["planned_qty"],
                      "parchment_color": job.get("parchment_color") or line.get("parchment_color"), "color_splits": []},
                     {"id": spec_id}, frozen_bom, items, start, end)
                 for row in other_rows:
                     issued = max(0, float(net_issues.get((job["id"], row["item_id"]), 0)))
-                    other_requirements.append({**row, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
+                    other_requirements.append({**row, **job_source, "job_id": job["id"], "basis": "FROZEN_JOB_RESIDUAL",
                         "gross_qty": row["qty"], "already_issued": issued, "qty": round(max(0, row["qty"] - issued), 3)})
             linked_ids = {job["id"] for job in linked_jobs}
             accepted_fg = sum(float(row["quantity_pcs"]) for row in fg_by_line.get(line["id"], [])
@@ -361,12 +365,13 @@ async def material_demand(token, plant_id, start, end):
             if source:
                 for bucket in dated_new_build_buckets(line, new_build):
                     rows, problem = explode_paper_demand(order, {**line, "due_date": bucket["due_date"], "release_remaining_qty": bucket["quantity"]}, *source, item_by_id, item_by_code, paper_by_id, start, end)
-                    requirements.extend({**row, "gross_qty_kg": row["qty_kg"], "already_issued_kg": 0,
+                    delivery_source = {"source": "CUSTOMER_DELIVERY" if bucket["delivery_schedule_ids"] else "LINE_DUE"}
+                    requirements.extend({**row, **delivery_source, "gross_qty_kg": row["qty_kg"], "already_issued_kg": 0,
                         "delivery_schedule_ids": bucket["delivery_schedule_ids"], "accepted_external_fg_pcs": accepted_fg,
                         "timing_basis": "Saved call-offs, then unscheduled line balance; unassigned coverage retained against later dates"} for row in rows)
                     other_rows, other_problem = explode_other_demand(order, {**line, "due_date": bucket["due_date"], "release_remaining_qty": bucket["quantity"]},
                         source[0], source[2], items, start, end)
-                    other_requirements.extend({**row, "basis": "UNRELEASED_OPEN_SALES_BOM", "gross_qty": row["qty"], "already_issued": 0} for row in other_rows)
+                    other_requirements.extend({**row, **delivery_source, "basis": "UNRELEASED_OPEN_SALES_BOM", "gross_qty": row["qty"], "already_issued": 0} for row in other_rows)
                     if other_problem:
                         warnings.append({"order_no": order["order_no"], "line_id": line["id"], "spec_id": spec_id, "reason": other_problem})
                 if problem:
