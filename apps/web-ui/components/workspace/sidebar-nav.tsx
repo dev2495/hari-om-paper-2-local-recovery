@@ -14,6 +14,7 @@ export type SidebarGroup = { title: string; items: SidebarItem[] }
 const GROUP_ACCENT: Record<string, string> = {
   Overview: "var(--chart-2)",
   Operations: "var(--chart-1)",
+  Quality: "var(--primary)",
   Purchasing: "var(--chart-4)",
   "Stores & inventory": "var(--chart-6)",
   Design: "var(--chart-3)",
@@ -119,7 +120,7 @@ export function SidebarNav({
                             </em>
                           ) : null}
                         </Link>
-                        {isCurrent && subnav[item.href] ? (
+                        {isCurrent && group.title !== "Quality" && subnav[item.href] ? (
                           <div className="tube-subnav">
                             {subnav[item.href].map((child) => (
                               <Link

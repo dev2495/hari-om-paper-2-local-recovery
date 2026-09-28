@@ -157,19 +157,26 @@ export function vehiclesPerDay(days: string[], laneIds: string[], qtyAt: (day: s
   return out
 }
 
-export function toDisplay(value: number, unit: "KG" | "MT" | "PCS"): number {
+export function toDisplay(value: number, unit: "KG" | "MT" | "PCS" | "L"): number {
   return unit === "MT" ? value / 1000 : value
 }
 
-export function fromDisplay(value: number, unit: "KG" | "MT" | "PCS"): number {
+export function fromDisplay(value: number, unit: "KG" | "MT" | "PCS" | "L"): number {
   return unit === "MT" ? Math.round(value * 1000 * 1000) / 1000 : value
 }
 
-export function formatQty(value: number, unit: "KG" | "MT" | "PCS"): string {
+export function formatQty(value: number, unit: "KG" | "MT" | "PCS" | "L"): string {
   const shown = toDisplay(Number(value || 0), unit)
   return shown.toLocaleString("en-IN", { maximumFractionDigits: unit === "MT" ? 3 : unit === "PCS" ? 0 : 1 })
 }
 
 function round3(value: number) {
   return Math.round(Number(value || 0) * 1000) / 1000
+}
+
+/** Never treat litres or pieces as kilograms during workbook import. */
+export function scheduleImportFactor(source: string, masterUnit: string | undefined): number | null {
+  const target = String(masterUnit || "").toUpperCase()
+  if (source === "MT" && target === "KG") return 1000
+  return ["KG", "L", "PCS"].includes(source) && source === target ? 1 : null
 }

@@ -1,5 +1,6 @@
 "use client"
 
+import { useSearchParams } from "next/navigation"
 import { FormEvent, useMemo, useState } from "react"
 
 import { EmptyState, ExecutiveHero, Panel, StatusBadge } from "@/components/erp/shell"
@@ -18,7 +19,8 @@ function asArray(value: any) {
 
 export default function IncomingQualityPage() {
   const { showToast } = useApp()
-  const [selectedPendingId, setSelectedPendingId] = useState("")
+  const searchParams = useSearchParams()
+  const [selectedPendingId, setSelectedPendingId] = useState(searchParams?.get("lot") || "")
   const [readings, setReadings] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState("")
@@ -75,7 +77,7 @@ export default function IncomingQualityPage() {
   }
 
   return (
-    <RoleGate allow={["QC"]} omitOwnerAdmin>
+    <RoleGate allow={["QC"]}>
       <div className="space-y-6" data-testid="quality-incoming-page">
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}

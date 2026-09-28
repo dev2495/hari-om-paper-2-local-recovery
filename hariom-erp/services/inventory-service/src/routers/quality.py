@@ -7,7 +7,8 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..database import get_db
@@ -379,6 +380,8 @@ class QualityInspectionResponse(BaseModel):
     notes: Optional[str] = None
     reasons: dict[str, Any] = Field(default_factory=dict)
     evaluation: dict[str, Any] = Field(default_factory=dict)
+    entity_label: Optional[str] = None
+    created_by: Optional[str] = None
     ignored_client_status: Optional[str] = None
     created_at: datetime
 
@@ -516,6 +519,7 @@ def _inspection_response(row: InventoryQualityInspection, stock_status: Optional
         notes=row.notes,
         reasons=dict(getattr(row, "reasons", None) or {}),
         evaluation=dict(getattr(row, "evaluation", None) or {}),
+        created_by=row.created_by,
         ignored_client_status=None,
         created_at=row.created_at,
     )
@@ -629,12 +633,14 @@ def list_pending_quality(
     rows: list[PendingQualityItem] = []
 
     batches = (
-        db.query(StockBatch)
+        db.query(StockBatch).options(joinedload(StockBatch.item))
         .filter(StockBatch.plant_id.in_(plant_filter), StockBatch.stock_status.in_(["QC_HOLD", "BLOCKED"]))
         .order_by(StockBatch.created_at.asc())
         .limit(200)
         .all()
     )
+    batch_ids = [batch.id for batch in batches]
+    balances = dict(db.query(StockTransaction.batch_id, func.sum(StockTransaction.qty_change)).filter(StockTransaction.batch_id.in_(batch_ids)).group_by(StockTransaction.batch_id).all()) if batch_ids else {}
     for batch in batches:
         item = batch.item
         rows.append(
@@ -644,7 +650,7 @@ def list_pending_quality(
                 label=f"{batch.batch_no} · {item.name if item else 'Item'}",
                 material_type=_material_type_for_item(item) if item else "OTHER",
                 stock_status=batch.stock_status,
-                qty=float(get_batch_balance(str(batch.id), db)),
+                qty=float(balances.get(batch.id) or 0.0),
                 supplier_or_customer=batch.supplier_name_snapshot,
                 created_at=batch.created_at,
                 uom=str(getattr(item.uom, "value", item.uom)) if item else "KG",
@@ -661,7 +667,7 @@ def list_pending_quality(
         plant_uuids = []
     if plant_uuids:
         reels = (
-            db.query(PaperReel)
+            db.query(PaperReel).options(joinedload(PaperReel.paper))
             .filter(PaperReel.plant_id.in_(plant_uuids), PaperReel.stock_status.in_(["QC_HOLD", "BLOCKED"]))
             .order_by(PaperReel.created_at.asc())
             .limit(200)
@@ -687,7 +693,7 @@ def list_pending_quality(
             )
 
     rejections = (
-        db.query(CustomerRejection)
+        db.query(CustomerRejection).options(joinedload(CustomerRejection.item))
         .filter(CustomerRejection.plant_id.in_(plant_filter), CustomerRejection.status.in_(["QC_HOLD", "BLOCKED", "WIP"]))
         .order_by(CustomerRejection.created_at.desc())
         .limit(200)
@@ -732,8 +738,9 @@ def create_quality_inspection(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store"])),
 ):
-    if "QC" not in set(current_user.get("actual_roles", current_user.get("roles")) or []) or "QC" not in set(current_user.get("roles") or []):
-        raise HTTPException(status_code=403, detail="Incoming inspection must be recorded by the QC department")
+    quality_roles = {"QC", "Owner", "Admin"}
+    if not quality_roles.intersection(current_user.get("actual_roles", current_user.get("roles")) or []) or not quality_roles.intersection(current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Incoming inspection requires QC, Owner or Admin access")
     stock_status: Optional[str] = None
     batch: Optional[StockBatch] = None
     reel: Optional[PaperReel] = None
@@ -1524,7 +1531,12 @@ def list_quality_inspections(
             raise HTTPException(status_code=400, detail="Invalid source")
         query = query.filter(InventoryQualityInspection.source == normalized_source)
     rows = query.order_by(InventoryQualityInspection.created_at.desc()).offset(offset).limit(limit).all()
-    return [_inspection_response(row) for row in rows]
+    ids = [row.entity_id for row in rows]
+    labels = {("BATCH", row.id): row.batch_no for row in db.query(StockBatch).filter(StockBatch.id.in_(ids)).all()} if ids else {}
+    if ids:
+        labels.update({("REEL", row.id): row.reel_code for row in db.query(PaperReel).filter(PaperReel.id.in_(ids)).all()})
+        labels.update({("CUSTOMER_REJECTION", row.id): row.customer_name for row in db.query(CustomerRejection).filter(CustomerRejection.id.in_(ids)).all()})
+    return [_inspection_response(row).model_copy(update={"entity_label": labels.get((row.entity_type, row.entity_id))}) for row in rows]
 
 
 class DestructiveSampleConsume(BaseModel):

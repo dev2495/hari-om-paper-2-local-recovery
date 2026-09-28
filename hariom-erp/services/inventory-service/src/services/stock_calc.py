@@ -274,15 +274,30 @@ def get_all_items_balance(
     elif plant_id:
         query = query.filter(ItemMaster.plant_id == plant_id)
     items = query.all()
+    # Six bounded queries for the whole catalog, independent of item/lot count.
+    ids = [item.id for item in items]
+    if not ids:
+        return []
+    ledger = {}
+    for item_id, status, quantity in db.query(StockTransaction.item_id, StockTransaction.stock_status, func.sum(StockTransaction.qty_change)).filter(StockTransaction.item_id.in_(ids)).group_by(StockTransaction.item_id, StockTransaction.stock_status).all():
+        ledger.setdefault(item_id, {})[status] = float(quantity or 0)
+    reels = {}
+    for item_id, status, quantity in db.query(PaperReel.paper_id, PaperReel.stock_status, func.sum(PaperReel.current_weight_kg)).filter(PaperReel.paper_id.in_(ids)).group_by(PaperReel.paper_id, PaperReel.stock_status).all():
+        reels.setdefault(item_id, {})[status] = float(quantity or 0)
+    reservations = dict(db.query(Reservation.item_id, func.sum(Reservation.reserved_qty - Reservation.consumed_qty)).filter(Reservation.item_id.in_(ids), Reservation.status == ReservationStatus.ACTIVE).group_by(Reservation.item_id).all())
+    batch_balance = db.query(StockTransaction.batch_id.label("batch_id"), func.sum(StockTransaction.qty_change).label("quantity")).filter(StockTransaction.item_id.in_(ids), StockTransaction.batch_id.isnot(None)).group_by(StockTransaction.batch_id).subquery()
+    costs = {item_id: (float(value or 0), float(quantity or 0)) for item_id, value, quantity in db.query(StockBatch.item_id, func.sum(batch_balance.c.quantity * StockBatch.unit_cost), func.sum(batch_balance.c.quantity)).join(batch_balance, batch_balance.c.batch_id == StockBatch.id).filter(StockBatch.item_id.in_(ids), StockBatch.unit_cost > 0, batch_balance.c.quantity > 0).group_by(StockBatch.item_id).all()}
     balances = []
-
     for item in items:
-        physical = get_item_balance(str(item.id), db)
-        reserved = get_reserved_qty(db=db, item_id=str(item.id))
+        stock = (reels if item.tracking_mode == TrackingMode.REEL else ledger).get(item.id, {})
+        physical = sum(stock.values())
+        reserved = max(0.0, float(reservations.get(item.id) or 0))
         available = physical - reserved
-        usable = get_usable_item_qty(str(item.id), db)
-        qc_held = get_qc_held_item_qty(str(item.id), db)
-        batch_cost, batch_cost_source = get_batch_weighted_cost(str(item.id), db)
+        usable = round(max(0.0, stock.get("UNRESTRICTED", 0.0) - reserved), 2)
+        qc_held = round(stock.get("QC_HOLD", 0.0), 2)
+        value, quantity = costs.get(item.id, (0.0, 0.0))
+        batch_cost = value / quantity if quantity > 0 else 0.0
+        batch_cost_source = "AVG_BATCH" if quantity > 0 else "UNAVAILABLE"
         item_cost = float(getattr(item, "unit_cost", 0.0) or 0.0)
         resolved_cost = batch_cost if batch_cost > 0 else item_cost
         resolved_source = batch_cost_source if batch_cost > 0 else getattr(item, "cost_source", None)

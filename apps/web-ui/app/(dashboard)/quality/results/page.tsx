@@ -9,6 +9,7 @@ import { ErrorState, LoadingState } from "@/components/workspace/query-state"
 import { useApp } from "@/context/AppContext"
 import { useAuth } from "@/context/AuthContext"
 import {
+  useInventoryQualityInspections,
   useCreateCustomerRejection,
   useCustomerRejections,
   useDisposeCustomerRejection,
@@ -53,6 +54,8 @@ export default function QualityResultsPage() {
     reason_notes: "",
     location_id: "",
   })
+  const [incomingPage, setIncomingPage] = useState(0)
+  const incomingQuery = useInventoryQualityInspections({limit:25, offset:incomingPage*25})
   const jobCardsQuery = usePlanningJobCards({ limit: 200 })
   const inspectionsQuery = useQualityInspections({ limit: 120 })
   const holdsQuery = useQualityHolds({ limit: 120 })
@@ -133,6 +136,10 @@ export default function QualityResultsPage() {
           description="This desk does not author a measured PASS. Release and customer dispositions are separate from incoming and stage readings."
         />
         <QualityDeskNav />
+        <Panel title="Incoming inspection register" subtitle="Original results, measurements and inspector notes remain visible after a lot is released.">
+          {incomingQuery.isLoading ? <LoadingState label="Loading incoming history…" /> : incomingQuery.isError ? <ErrorState message="Incoming history could not load." onRetry={()=>incomingQuery.refetch()} /> : !(incomingQuery.data || []).length ? <p className="text-sm text-muted-foreground">No incoming inspections on this page.</p> : <div className="space-y-2">{(incomingQuery.data || []).map((row:any)=><details key={row.id} className="rounded-lg border border-border p-3"><summary className="flex cursor-pointer flex-wrap items-center gap-3 text-sm"><span className="mr-auto font-medium">{row.entity_label || `${row.material_type} · ${String(row.entity_id).slice(0,8)}`}</span><span className="text-xs text-muted-foreground">{new Date(/Z$|[+-]\d{2}:\d{2}$/.test(row.created_at) ? row.created_at : `${row.created_at}Z`).toLocaleString("en-IN")}</span><StatusBadge value={row.status} /></summary><div className="mt-3 grid gap-3 border-t border-border pt-3 sm:grid-cols-2"><div><p className="text-xs font-semibold text-muted-foreground">Recorded measurements</p><dl className="mt-2 space-y-1">{Object.entries(row.readings || {}).map(([key,value])=><div className="flex justify-between text-sm" key={key}><dt>{key.replaceAll("_"," ")}</dt><dd>{String(value)}</dd></div>)}</dl></div><div className="text-sm"><p><strong>Inspector:</strong> {row.created_by || "Recorded"}</p><p className="mt-2"><strong>Notes:</strong> {row.notes || "—"}</p><p className="mt-2"><strong>Disposition:</strong> {row.disposition || "Measured result"}</p>{row.evaluation?.resolved_hold_ids?.length ? <p className="mt-2">Resolved {row.evaluation.resolved_hold_ids.length} prior inspection hold(s) after reinspection.</p> : null}</div></div></details>)}</div>}
+          <div className="mt-3 flex justify-end gap-3 text-sm"><button className="erp-btn-secondary" disabled={!incomingPage || incomingQuery.isFetching} onClick={()=>setIncomingPage(incomingPage-1)}>Previous</button><span className="self-center">Page {incomingPage+1}</span><button className="erp-btn-secondary" disabled={(incomingQuery.data || []).length<25 || incomingQuery.isFetching} onClick={()=>setIncomingPage(incomingPage+1)}>Next</button></div>
+        </Panel>
         {inspectionsQuery.isLoading || holdsQuery.isLoading ? <LoadingState label="Loading quality results…" /> : null}
         {inspectionsQuery.isError || holdsQuery.isError ? (
           <ErrorState
@@ -144,7 +151,7 @@ export default function QualityResultsPage() {
           />
         ) : null}
         <div className="grid gap-5 xl:grid-cols-2">
-          <Panel title="Latest inspections" subtitle="Server verdicts from stage and incoming measurements.">
+          <Panel title="Latest inspections" subtitle="Production inspection verdicts and frozen specification ranges.">
             {inspectionsQuery.isLoading ? (
               <LoadingState label="Loading inspections…" />
             ) : inspections.length === 0 ? (

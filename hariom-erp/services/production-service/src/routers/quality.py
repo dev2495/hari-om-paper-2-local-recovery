@@ -1815,22 +1815,22 @@ def get_quality_summary(
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Dispatch", "Store", "Production", "SOApprover", "Sales"])),
 ):
     del current_user
-    inspections = _apply_quality_plant_scope(db.query(QualityInspection), QualityInspection.plant_id, plant_scope).all()
-    holds = _apply_quality_plant_scope(db.query(QualityHold), QualityHold.plant_id, plant_scope).all()
-    statuses = [str(row.status or "").upper() for row in inspections]
-    passed = sum(1 for status in statuses if status == "PASS")
-    failed = sum(1 for status in statuses if status == "FAIL")
-    incomplete = sum(1 for status in statuses if status == "INCOMPLETE")
-    invalid = sum(1 for status in statuses if status == "INVALID")
+    # Aggregate in SQL; never load every historical inspection into a busy dashboard.
+    grouped = _apply_quality_plant_scope(db.query(QualityInspection.status, QualityInspection.parent_inspection_id.isnot(None), func.count(QualityInspection.id)), QualityInspection.plant_id, plant_scope).group_by(QualityInspection.status, QualityInspection.parent_inspection_id.isnot(None)).all()
+    counts = {}
+    retest = first_pass = inspection_count = 0
+    for status, is_retest, count in grouped:
+        status = str(status or "").upper()
+        counts[status] = counts.get(status, 0) + count
+        inspection_count += count
+        if is_retest: retest += count
+        elif status == "PASS": first_pass += count
+    hold_counts = dict(_apply_quality_plant_scope(db.query(QualityHold.status, func.count(QualityHold.id)), QualityHold.plant_id, plant_scope).group_by(QualityHold.status).all())
+    passed, failed = counts.get("PASS", 0), counts.get("FAIL", 0)
+    incomplete, invalid = counts.get("INCOMPLETE", 0), counts.get("INVALID", 0)
     measured = passed + failed
-    retest = sum(1 for row in inspections if getattr(row, "parent_inspection_id", None))
-    first_pass = sum(
-        1
-        for row in inspections
-        if str(row.status or "").upper() == "PASS" and not getattr(row, "parent_inspection_id", None)
-    )
     return QualitySummaryResponse(
-        inspection_count=len(inspections),
+        inspection_count=inspection_count,
         passed_count=passed,
         failed_count=failed,
         measured_count=measured,
@@ -1840,8 +1840,8 @@ def get_quality_summary(
         retest_count=retest,
         pass_rate=quality_pass_rate(passed, measured),
         first_pass_rate=quality_pass_rate(first_pass, measured),
-        active_holds=sum(1 for row in holds if str(row.status or "").upper() == "HOLD"),
-        released_holds=sum(1 for row in holds if str(row.status or "").upper() == "RELEASED"),
+        active_holds=hold_counts.get("HOLD", 0),
+        released_holds=hold_counts.get("RELEASED", 0),
     )
 
 
@@ -1850,7 +1850,7 @@ def create_inspection(
     payload: InspectionCreate,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
 ):
     return record_stage_inspection(
         db=db,
@@ -1873,7 +1873,7 @@ def create_inspection(
     )
 
 
-ADAPTER_ROLES = ["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"]
+ADAPTER_ROLES = ["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"]
 
 
 @router.post("/supervisor/inspections", response_model=InspectionResponse)
@@ -2300,7 +2300,7 @@ def complete_job_card_qc(
     payload: CompleteCardRequest,
     db: Session = Depends(get_db),
     plant_id: str = Depends(get_current_plant),
-    current_user: dict = Depends(require_role(["Admin", "PlantManager", "QC", "SupervisorEntry", "Production"])),
+    current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "SupervisorEntry", "Production"])),
 ):
     plant_uuid = _to_uuid(plant_id, field="plant_id")
     job_card = (

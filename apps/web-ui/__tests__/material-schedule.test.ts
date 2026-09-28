@@ -1,3 +1,4 @@
+import { scheduleImportFactor } from "../lib/material-schedule"
 import assert from 'node:assert/strict'
 import {
   classOfDemand, classOfItem, formatQty, fromDisplay, laneFigures, openPoBalances, paperGsm,
@@ -86,3 +87,10 @@ assert.equal(formatQty(12345, 'MT'), '12.345')
 assert.equal(formatQty(2500, 'PCS'), '2,500')
 
 console.log('material-schedule: ok')
+
+assert.equal(scheduleImportFactor("MT", "KG"), 1000)
+assert.equal(scheduleImportFactor("KG", "L"), null)
+assert.equal(scheduleImportFactor("MT", "PCS"), null)
+assert.equal(scheduleImportFactor("L", "L"), 1)
+assert.equal(scheduleImportFactor("PCS", "PCS"), 1)
+assert.equal(scheduleImportFactor("KG", undefined), null)

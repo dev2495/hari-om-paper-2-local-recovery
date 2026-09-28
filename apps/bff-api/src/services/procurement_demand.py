@@ -421,8 +421,8 @@ async def create_paper_stock_items(token, plant_id, paper_ids):
     created, skipped, failed = [], [], []
     for paper_id in dict.fromkeys(str(value) for value in paper_ids or []):
         paper = papers.get(paper_id)
-        if not paper:
-            failed.append({"paper_id": paper_id, "reason": "Paper master not found"})
+        if not paper or str(paper.get("is_active", True)).lower() == "false" or str(paper.get("active", True)).lower() == "false":
+            failed.append({"paper_id": paper_id, "reason": "Active paper master not found"})
             continue
         existing = resolve_paper_item(paper_id, paper, item_by_id, item_by_code)
         if existing:
@@ -458,51 +458,5 @@ MATERIAL_ITEM_CREATE = {"ADHESIVE": ("ADHESIVE", "KG"), "PARCHMENT": ("PARCHMENT
 
 
 async def create_material_stock_items(token, plant_id, materials):
-    """Create the missing bulk stock item for adhesive / parchment / packing codes named by the spec BOM.
-
-    Item code = the BOM code (box code, plastic SKU, adhesive code, parchment colour).
-    Idempotent: a code that already resolves to a stock item of that class is skipped.
-    """
-    if not plant_id or plant_id.upper() == "ALL":
-        raise HTTPException(400, "Select one plant before creating stock items")
-    headers = {"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id}
-    items_resp = await http_client.get(f"{INVENTORY_URL}/items/", headers=headers)
-    if items_resp.status_code >= 400:
-        raise HTTPException(502, "Stock items could not be loaded")
-    items = items_resp.json()
-    created, skipped, failed = [], [], []
-    seen = set()
-    for material in materials or []:
-        material_class = str((material or {}).get("material_class") or "").upper()
-        code = str((material or {}).get("code") or "").strip()
-        if material_class not in MATERIAL_ITEM_CREATE or not code or code.upper() == "UNASSIGNED":
-            failed.append({"code": code, "reason": "Choose a material class and a code"})
-            continue
-        if (material_class, normalize_code(code)) in seen:
-            continue
-        seen.add((material_class, normalize_code(code)))
-        existing = resolve_parchment_item(code, items) if material_class == "PARCHMENT" else resolve_material_item(material_class, code, code, items)
-        if existing:
-            skipped.append({"code": code, "item_code": existing["item_code"]})
-            continue
-        item_type, uom = MATERIAL_ITEM_CREATE[material_class]
-        item_code = f"PARCH-{code}".upper() if material_class == "PARCHMENT" else code.upper()
-        clash = next((row for row in items if normalize_code(row.get("item_code")) == normalize_code(item_code)), None)
-        if clash:
-            failed.append({"code": code, "item_code": clash.get("item_code"),
-                           "reason": f"Code {clash.get('item_code')} is already a {clash.get('type')} item in {clash.get('uom')}. Change it to {item_type} in {uom}, or rename it, then retry."})
-            continue
-        body = {"item_code": item_code[:50], "name": (f"Parchment {code}" if material_class == "PARCHMENT" else code)[:200],
-                "type": item_type, "tracking_mode": "BULK", "uom": uom}
-        response = await http_client.post(f"{INVENTORY_URL}/items/", headers=headers, json=body)
-        if response.status_code >= 400:
-            try:
-                reason = response.json().get("detail")
-            except ValueError:
-                reason = response.text[:200]
-            failed.append({"code": code, "item_code": body["item_code"], "reason": reason})
-            continue
-        row = response.json()
-        items.append(row)
-        created.append({"code": code, "item_id": row["id"], "item_code": row["item_code"]})
-    return {"created": created, "skipped": skipped, "failed": failed}
+    """Legacy route retained: arbitrary BOM text cannot create material masters."""
+    raise HTTPException(409, "Create or link the exact adhesive, parchment or packaging item in Masters first. Planning cannot create materials from free-text BOM codes.")

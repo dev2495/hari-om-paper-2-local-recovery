@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
+import { useAuth } from "@/context/AuthContext"
 import { salesApi } from "@/lib/api"
 
 function asArray<T = any>(value: any): T[] {
@@ -399,9 +400,11 @@ export type DeliveryCalendarRow = {
 
 /** Customer delivery commitments (call-offs + unscheduled line balances) by date, plant-wide. */
 export function useDeliveryCalendar(dateFrom: string, dateTo: string, enabled = true) {
+  const { activePlant } = useAuth()
   return useQuery({
-    queryKey: ["sales", "delivery-calendar", dateFrom, dateTo],
-    enabled: enabled && Boolean(dateFrom && dateTo),
+    queryKey: ["sales", "delivery-calendar", activePlant, dateFrom, dateTo],
+    enabled: enabled && Boolean(activePlant && dateFrom && dateTo),
+    staleTime: 30_000,
     queryFn: async () => ((await salesApi.getDeliveryCalendar({ date_from: dateFrom, date_to: dateTo })).data?.items || []) as DeliveryCalendarRow[],
   })
 }

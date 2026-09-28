@@ -5,8 +5,8 @@ import { useState, type InputHTMLAttributes } from "react"
 import { cn } from "@/lib/utils"
 import { formatQty, fromDisplay, toDisplay, type LaneFigures, type VarietyGroup } from "@/lib/material-schedule"
 
-export type DisplayUnit = "KG" | "MT" | "PCS"
-export const unitLabel = (unit: DisplayUnit) => (unit === "MT" ? "MT" : unit === "PCS" ? "pcs" : "kg")
+export type DisplayUnit = "KG" | "MT" | "PCS" | "L"
+export const unitLabel = (unit: DisplayUnit) => (unit === "MT" ? "MT" : unit === "PCS" ? "pcs" : unit === "L" ? "L" : "kg")
 
 /** Number input that shows the display unit (kg / MT / pcs) but always writes the base unit. */
 export function QtyInput({ value, unit, onChange, className, ...rest }: {
@@ -110,9 +110,9 @@ export function ScheduleGrid({
             <th className="min-w-[64px] border-b border-border bg-[hsl(var(--surface-2))] px-2 py-2 text-right font-semibold text-muted-foreground" title="Deliveries (vehicles) planned that day">Vehicles</th>
           </tr>
           <tr>
-            <th className={cn(stickyHead, "border-b bg-card py-1.5 font-semibold text-foreground")}>Op stk</th>
+            <th className={cn(stickyHead, "border-b bg-card py-1.5 font-semibold text-foreground")}>Usable now</th>
             {ordered.map((item: any) => (
-              <td key={item.id} className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums text-foreground/85" title={stockUnavailable ? "Stock did not load" : "Stock on hand today"}>{stockUnavailable ? "—" : fmt(figures[String(item.id)]?.opening || 0)}</td>
+              <td key={item.id} className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums text-foreground/85" title={stockUnavailable ? "Stock did not load" : "Available now, excluding QC holds and reservations"}>{stockUnavailable ? "—" : fmt(figures[String(item.id)]?.opening || 0)}</td>
             ))}
             <td className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums">{stockUnavailable ? "—" : fmt(ordered.reduce((sum, lane) => sum + (figures[String(lane.id)]?.opening || 0), 0))}</td>
             <td className="border-b border-border bg-card" />
@@ -181,7 +181,7 @@ export function ScheduleGrid({
             <td className={cn(footCell, "border-r-0")} />
           </tr>
           <tr>
-            <th className={cn(stickyHead, "border-t py-1.5 font-semibold")}>Cl stk</th>
+            <th className={cn(stickyHead, "border-t py-1.5 font-semibold")}>Projected</th>
             {ordered.map((item: any) => {
               const row = figures[String(item.id)]
               const closing = row?.closing ?? 0

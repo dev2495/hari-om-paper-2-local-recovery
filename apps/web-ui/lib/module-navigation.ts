@@ -9,6 +9,8 @@ export const MODULE_NAVIGATION: Record<string, ModuleLink[]> = {
     { name: "Slitting planning", href: "/planning/slitting" },
   ],
   "/quality": [
+    { name: "Material standards", href: "/quality/material-standards" },
+    { name: "Quality analytics", href: "/reports/quality" },
     {
       "name": "Incoming inspections",
       "href": "/quality/incoming"

@@ -8,7 +8,7 @@ export default function QcLandingRoute() {
   const query = usePendingInventoryQuality()
   const rows = Array.isArray(query.data) ? query.data : []
   const overdue = rows.filter((row:any) => row.overdue).length
-  return <RoleGate allow={["QC"]} omitOwnerAdmin><ProcurementShell eyebrow="Quality control" title="QC workspace" description="Inspect incoming material, record process checks and keep held stock out of production.">
+  return <RoleGate allow={["QC"]}><ProcurementShell eyebrow="Quality control" title="QC workspace" description="Inspect incoming material, record process checks and keep held stock out of production.">
     <WorkPanel title="Incoming QC · due within 24 hours" description="Check each lot against its frozen approved tolerance revision. Failed, rejected and held stock remains unavailable for production." action={<button className={secondaryButton} disabled={query.isFetching} onClick={() => query.refetch()}>Refresh queue</button>}>
       <RequestErrors errors={[query.error]} />
       <p className="text-2xl font-semibold tabular-nums">{query.isLoading ? "Loading inspection queue…" : query.isError ? "Inspection queue unavailable" : `${rows.length} awaiting inspection · ${overdue} overdue`}</p>

@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useState } from "react"
 import { AlertTriangle, CheckCircle2, ChevronDown, PackagePlus } from "lucide-react"
 
@@ -124,11 +125,11 @@ export function DemandIssues({ blocked, unmapped, warnings, creating, onCreate, 
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p className="flex min-w-0 items-start gap-2 text-[13px] text-signal-amber-ink">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-              <span><span className="font-semibold">{unmapped.length} BOM material(s) have no stock item yet.</span> Their requirement is still counted below; create the stock items so stock, POs and arrivals can be planned against them.</span>
+              <span><span className="font-semibold">{unmapped.length} BOM material(s) need an inventory master link.</span> Demand is counted below. Link existing paper masters here; maintain other materials in Masters. This does not add stock or create a PO.</span>
             </p>
             {canCreate ? (
               <button type="button" className="erp-btn-secondary !h-8" disabled={creating} onClick={() => onCreate(unmapped)} data-testid="schedule-create-stock-items">
-                <PackagePlus className="h-4 w-4" />{creating ? "Creating…" : `Create ${unmapped.length} stock item${unmapped.length === 1 ? "" : "s"}`}
+                <PackagePlus className="h-4 w-4" />{creating ? "Creating…" : `Review ${unmapped.length} master link${unmapped.length === 1 ? "" : "s"}`}
               </button>
             ) : null}
           </div>
@@ -195,14 +196,14 @@ export function RequirementRail({ unitLabel: unitText, fmt, totals, bySource, ma
   return (
     <aside className="flex min-h-0 flex-col gap-3 rounded-xl border border-border bg-card p-3 shadow-sm xl:sticky xl:top-3 xl:max-h-[calc(100dvh-1.5rem)]" data-testid="requirement-rail" aria-label="Month requirement">
       <div>
-        <p className="text-[13px] font-semibold">This month</p>
+        <p className="text-[13px] font-semibold">Material coverage</p><p className="mt-1 text-[11px] text-muted-foreground">Usable stock now + planned arrivals − remaining demand in this month. This is a planning projection, not a historical closing stock.</p>
         {unavailable ? <p className="mt-1 text-[11.5px] text-signal-rose-ink">{unavailable} did not load — figures show “—” until it does.</p> : null}
         <dl className="mt-2 grid grid-cols-2 gap-2 text-[12px]">
           {[
             ["Required", totals.required, "text-signal-amber-ink"],
             ["Arrivals planned", totals.scheduled, "text-signal-cyan-ink"],
-            ["Op stk", totals.opening, "text-foreground"],
-            ["Cl stk", totals.closing, totals.closing < -0.0005 ? "text-signal-rose-ink" : "text-signal-emerald-ink"],
+            ["Usable now", totals.opening, "text-foreground"],
+            ["Projected balance", totals.closing, totals.closing < -0.0005 ? "text-signal-rose-ink" : "text-signal-emerald-ink"],
           ].map(([label, value, tone]) => (
             <div key={String(label)} className="rounded-lg bg-[hsl(var(--surface-2))] px-2.5 py-1.5">
               <dt className="text-[11px] text-muted-foreground">{label}</dt>
@@ -225,7 +226,7 @@ export function RequirementRail({ unitLabel: unitText, fmt, totals, bySource, ma
             </li>
           ))}
         </ul>
-        <p className="mt-1.5 text-[11px] text-muted-foreground">Customer deliveries this month: <strong className="text-foreground">{deliveries.count}</strong> call-offs · {deliveries.pcs.toLocaleString("en-IN")} pcs</p>
+        <p className="mt-1.5 text-[11px] text-muted-foreground">Customer deliveries this month: <strong className="text-foreground">{deliveries.count}</strong> commitments · {deliveries.pcs.toLocaleString("en-IN")} pcs</p>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-baseline justify-between">
@@ -242,14 +243,14 @@ export function RequirementRail({ unitLabel: unitText, fmt, totals, bySource, ma
                   className={cn("w-full rounded-lg border px-2 py-1.5 text-left transition-colors", active ? "border-primary bg-primary/[.06]" : "border-transparent hover:bg-muted/60", selected && !active && "opacity-50")}>
                   <span className="flex items-baseline justify-between gap-2">
                     <span className="truncate text-[12.5px] font-semibold" title={row.name}>{row.code}{!row.inLane ? <span className="ml-1 text-[10.5px] font-normal text-signal-amber-ink">no lane</span> : null}</span>
-                    <span className={cn("shrink-0 text-[12px] font-semibold tabular-nums", row.closing < -0.0005 ? "text-signal-rose-ink" : "text-signal-emerald-ink")}>{row.closing < -0.0005 ? `short ${fmt(-row.closing)}` : `cl ${fmt(row.closing)}`}</span>
+                    <span className={cn("shrink-0 text-[12px] font-semibold tabular-nums", row.closing < -0.0005 ? "text-signal-rose-ink" : "text-signal-emerald-ink")}>{row.closing < -0.0005 ? `short ${fmt(-row.closing)}` : `balance ${fmt(row.closing)}`}</span>
                   </span>
                   <span className="relative mt-1 block h-1.5 overflow-hidden rounded-full bg-muted">
                     <span className="absolute inset-y-0 left-0 bg-foreground/25" style={{ width: `${(row.opening / need) * 100}%` }} />
                     <span className="absolute inset-y-0 bg-[hsl(var(--chart-2))]" style={{ left: `${(row.opening / need) * 100}%`, width: `${(row.scheduled / need) * 100}%` }} />
                     {row.required > 0 ? <span className="absolute inset-y-[-1px] w-[2px] bg-signal-amber-ink" style={{ left: `calc(${Math.min(100, (row.required / need) * 100)}% - 1px)` }} /> : null}
                   </span>
-                  <span className="mt-0.5 block text-[10.5px] tabular-nums text-muted-foreground">need {fmt(row.required)} · op {fmt(row.opening)} · arriving {fmt(row.scheduled)}</span>
+                  <span className="mt-0.5 block text-[10.5px] tabular-nums text-muted-foreground">need {fmt(row.required)} · usable {fmt(row.opening)} · arriving {fmt(row.scheduled)}</span>
                 </button>
               </li>
             )

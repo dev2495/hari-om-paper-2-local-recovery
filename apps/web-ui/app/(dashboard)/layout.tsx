@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
-import { AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
+import { LockKeyhole, AlertTriangle, BarChart3, Boxes, CheckCircle2, Inbox, TrendingUp, Users, Wrench, ChevronRight, ClipboardList, Factory, FileText, Gauge, Info, Layers, LineChart, LogOut, Menu, Package, PanelLeftClose, PanelLeftOpen, BookOpen, ScrollText, Search, ShieldCheck, Sparkles, Truck, X, CircleDot, CornerDownLeft } from "lucide-react"
 import { useEffect, useMemo, useState } from "react"
 import { PlantSwitcher } from "@/components/PlantSwitcher"
 import { BooksLockedChip } from "@/components/workspace/books-locked-chip"
@@ -95,19 +95,29 @@ const navigationUnits: NavGroup[] = [
         roles: ["Owner", "Admin", "Planner", "PlantManager", "Dispatch", "Operator"],
       },
       {
-        name: "Quality",
-        href: "/quality",
-        icon: ShieldCheck,
-        description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
-        roles: ["Owner", "Admin", "PlantManager", "QC", "Dispatch", "Store", "Sales"],
-      },
-      {
         name: "Reconciliation",
         href: "/production/reconciliation",
         icon: FileText,
         description: "Material retally, close posture, and monthly actuals.",
         roles: ["Owner", "Admin", "PlantManager"],
       },
+    ],
+  },
+  {
+    title: "Quality",
+    items: [
+      {
+        name: "Quality",
+        href: "/quality",
+        icon: ShieldCheck,
+        description: "Inspection lifecycle, holds, release decisions, and audit evidence.",
+        roles: ["Owner", "Admin", "PlantManager", "QC", "Dispatch", "Store", "Sales"],
+      },
+      { name: "Incoming inspections", href: "/quality/incoming", icon: ClipboardList, description: "Receive, inspect and release material lots.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Production inspections", href: "/quality/stage", icon: Factory, description: "Winding, oven and process checks.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
+      { name: "Material standards", href: "/quality/material-standards", icon: ShieldCheck, description: "Approved tolerances and revision history.", roles: ["Owner", "Admin", "QC"] },
+      { name: "Results & holds", href: "/quality/results", icon: LockKeyhole, description: "Quality decisions and customer returns.", roles: ["Owner", "Admin", "QC", "PlantManager", "Store", "Sales", "Dispatch"] },
+      { name: "Quality analytics", href: "/reports/quality", icon: BarChart3, description: "Quality trends and variance.", roles: ["Owner", "Admin", "QC", "PlantManager"] },
     ],
   },
   {

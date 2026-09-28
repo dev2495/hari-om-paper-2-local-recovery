@@ -1,14 +1,16 @@
 "use client"
 
+import { DeliveryDayBadge } from "./customer-commitments"
+import { useDeliveryCalendar } from "@/hooks/use-sales"
 import dayjs from "dayjs"
-import { useMemo, useState, type ReactNode } from "react"
+import { memo, useCallback, useMemo, useState, type ReactNode } from "react"
 import { ChevronDown, Flame, GripVertical, Keyboard, Pencil, Scissors, Search, Settings2, Undo2 } from "lucide-react"
 
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { cn } from "@/lib/utils"
 
 export type BoardTarget = { machine_id: string | null; plan_date: string | null; shift_code: string | null; sequence_no: number }
-type Lane = { machine_id?: string; shift_code?: string; shift_label?: string; capacity_value?: number | null; capacity_unit?: string | null; current_load?: number | null; jobs?: any[] }
+type Lane = { warning?: string | null; machine_id?: string; shift_code?: string; shift_label?: string; capacity_value?: number | null; capacity_unit?: string | null; current_load?: number | null; jobs?: any[] }
 type Machine = { id: string; code: string; name?: string; status?: string; capacity_value?: number | null; capacity_unit?: string | null; dayColumns: Array<{ date: string; shifts: Lane[] }> }
 type QueueGroup = { key: string; title: string; subtitle?: string; jobs: any[] }
 export type CardAction = "manage" | "split" | "edit" | "segment_split"
@@ -22,7 +24,7 @@ function dueInfo(due?: string | null) {
 }
 
 /** One card, same look in the queue and on the board; actions appear on hover/focus. */
-function PlanCard({ job, compact, machineLabel, loadOf, unit, onAction, onUnschedule, onDragStart, onDragEnd, dragging }: {
+const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, unit, onAction, onUnschedule, onDragStart, onDragEnd, dragging }: {
   job: any
   compact?: boolean
   machineLabel: (id: string) => string
@@ -55,11 +57,11 @@ function PlanCard({ job, compact, machineLabel, loadOf, unit, onAction, onUnsche
       tabIndex={0}
       title={title}
       data-testid={`planner-card:${String(job.job_card_id || job.id || "")}`}
-      onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; onDragStart(job) }}
+      onDragStart={(event) => { event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", String(job.segment_id || job.job_card_id)); onDragStart(job) }}
       onDragEnd={onDragEnd}
       onDoubleClick={() => onAction(job, "manage")}
       className={cn(
-        "group relative flex cursor-grab gap-2 rounded-lg border bg-card py-1.5 pl-2 pr-1.5 shadow-[0_1px_2px_rgba(15,23,42,.06)] transition-all duration-150 hover:-translate-y-px hover:shadow-md active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring/40",
+        "planner-card group relative flex cursor-grab gap-2 rounded-lg border bg-card py-1.5 pl-2 pr-1.5 shadow-[0_1px_2px_rgba(15,23,42,.06)] transition-opacity duration-150 hover:border-primary/50 active:cursor-grabbing focus-visible:ring-2 focus-visible:ring-ring/40",
         job.is_emergency ? "border-signal-rose-line" : job.missed_slot_open || job.stale_slot ? "border-signal-amber-line" : "border-border",
         dragging && "opacity-40",
       )}
@@ -70,7 +72,7 @@ function PlanCard({ job, compact, machineLabel, loadOf, unit, onAction, onUnsche
           {job.is_emergency ? <Flame className="h-3 w-3 shrink-0 text-signal-rose-ink" /> : null}
           <JobCardNo job={job} />
           {parts > 1 || Number(job.segment_no || 1) > 1 ? <span className="shrink-0 rounded bg-muted px-1 text-[10px] font-semibold text-muted-foreground" title="Part of a split card">part {job.segment_no || 1}</span> : null}
-          <span className="ml-auto shrink-0 text-[12.5px] font-semibold tabular-nums">{fmt(qty)}</span>
+          <span className="ml-auto shrink-0 text-[12.5px] font-semibold tabular-nums">{fmt(qty)} <span className="text-[10px] font-normal text-muted-foreground">pcs</span></span>
         </div>
         <p className="truncate text-[11.5px] text-muted-foreground">{job.customer_name || "—"} · {job.product_size_label || job.product_code || "—"}</p>
         {!compact ? (
@@ -82,7 +84,7 @@ function PlanCard({ job, compact, machineLabel, loadOf, unit, onAction, onUnsche
           </div>
         ) : due && due.days <= 3 ? <p className={cn("text-[10.5px] tabular-nums", due.tone)}>{due.label}</p> : null}
       </div>
-      <div className="absolute -top-2 right-1 z-10 flex gap-0.5 rounded-md border border-border bg-card p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 group-focus-visible:opacity-100">
+      <div data-card-actions className="absolute -top-2 right-1 z-10 flex gap-0.5 rounded-md border border-border bg-card p-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 group-focus-visible:opacity-100">
         <button type="button" aria-label="Manage card" title="Manage: edit, split, emergency, force close, trail" onClick={() => onAction(job, "manage")} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"><Settings2 className="h-3.5 w-3.5" /></button>
         {queued ? <button type="button" aria-label="Edit card" title="Edit qty / colour (queued cards)" onClick={() => onAction(job, "edit")} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button> : null}
         {qty > 1 ? <button type="button" aria-label="Split card" title={queued ? "Split into two cards" : "Split this slot across shifts"} onClick={() => onAction(job, queued ? "split" : "segment_split")} className="grid h-6 w-6 place-items-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"><Scissors className="h-3.5 w-3.5" /></button> : null}
@@ -91,7 +93,7 @@ function PlanCard({ job, compact, machineLabel, loadOf, unit, onAction, onUnsche
       <GripVertical className="h-3.5 w-3.5 shrink-0 self-center text-muted-foreground/50" />
     </article>
   )
-}
+})
 
 export function ScheduleBoard({
   days, shifts, machines, queueGroups, queueTotal, queueSearch, onQueueSearch, queueSort, onQueueSort, loadBars,
@@ -119,7 +121,8 @@ export function ScheduleBoard({
   const [dragged, setDragged] = useState<any | null>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [queueHover, setQueueHover] = useState(false)
-  const [barsOpen, setBarsOpen] = useState(true)
+  const [barsOpen, setBarsOpen] = useState(false)
+  const deliveries = useDeliveryCalendar(days[0], days[days.length - 1])
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const queueJobs = useMemo(() => queueGroups.flatMap((group) => group.jobs), [queueGroups])
   const queuePcs = queueJobs.reduce((sum, job) => sum + Number(job.segment_planned_qty ?? job.planned_qty ?? 0), 0)
@@ -141,16 +144,18 @@ export function ScheduleBoard({
     return out
   }, [days, machines])
   const unschedule = (job: any) => onSchedule(job, { machine_id: null, plan_date: null, shift_code: null, sequence_no: 1 })
-  const cardProps = { machineLabel, loadOf, unit, onAction, onDragStart: (job: any) => setDragged(job), onDragEnd: () => { setDragged(null); setHover(null); setQueueHover(false) } }
+  const startDrag = useCallback((job: any) => setDragged(job), [])
+  const endDrag = useCallback(() => { setDragged(null); setHover(null); setQueueHover(false) }, [])
+  const cardProps = useMemo(() => ({ machineLabel, loadOf, unit, onAction, onDragStart: startDrag, onDragEnd: endDrag }), [machineLabel, loadOf, unit, onAction, startDrag, endDrag])
 
   return (
-    <div className="grid h-[calc(100dvh-10.5rem)] min-h-[560px] min-w-0 gap-3 xl:grid-cols-[312px_minmax(0,1fr)]" data-testid="schedule-board">
+    <div className="grid h-[calc(100dvh-17rem)] min-h-[480px] min-w-0 gap-3 lg:grid-cols-[320px_minmax(0,1fr)]" data-testid="schedule-board">
       {/* Queue */}
       <aside className="flex min-h-0 min-w-0 flex-col gap-2">
         {loadBars ? (
           <div className="shrink-0">
             <button type="button" onClick={() => setBarsOpen((value) => !value)} aria-expanded={barsOpen} className="mb-1 flex w-full items-center justify-between px-1 text-[11.5px] font-semibold text-muted-foreground hover:text-foreground">
-              Load per winder <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !barsOpen && "-rotate-90")} />
+              Open workload by release winder <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !barsOpen && "-rotate-90")} />
             </button>
             {barsOpen ? <div className="max-h-[34dvh] overflow-y-auto animate-slide-down">{loadBars}</div> : null}
           </div>
@@ -159,7 +164,7 @@ export function ScheduleBoard({
           className={cn("flex min-h-0 flex-1 flex-col rounded-xl border bg-card shadow-sm transition-colors", dragged && (dragged.machine_id && dragged.shift_code) ? "border-dashed border-primary/60" : "border-border", queueHover && "bg-primary/[.04]")}
           onDragOver={(event) => { if (dragged?.machine_id && dragged?.shift_code) { event.preventDefault(); setQueueHover(true) } }}
           onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setQueueHover(false) }}
-          onDrop={() => { setQueueHover(false); if (dragged?.machine_id && dragged?.shift_code) unschedule(dragged); setDragged(null) }}
+          onDrop={() => { setQueueHover(false); if (dragged?.machine_id && dragged?.shift_code && !busy) unschedule(dragged); setDragged(null) }}
           aria-label="Open queue"
         >
           <div className="shrink-0 border-b border-border p-2.5">
@@ -209,26 +214,26 @@ export function ScheduleBoard({
       <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         {busy ? <span className="absolute inset-x-0 top-0 z-30 h-0.5 overflow-hidden bg-muted"><span className="block h-full w-1/3 animate-[progress-indeterminate_1.1s_ease-in-out_infinite] bg-primary" /></span> : null}
         <div className="min-h-0 flex-1 overflow-auto">
-          <div className="grid min-w-max" style={{ gridTemplateColumns: `128px repeat(${columns.length}, minmax(${days.length > 2 ? 190 : 250}px, 1fr))` }}>
+          <div className="grid min-w-max" style={{ gridTemplateColumns: `112px repeat(${columns.length}, minmax(${days.length > 2 ? 176 : 184}px, 1fr))` }}>
             {/* Day headers */}
             <div className="sticky left-0 top-0 z-20 border-b border-r border-border bg-[hsl(var(--surface-2))]" />
             {days.map((date) => {
               const isToday = dayjs(date).isSame(dayjs(), "day")
               return (
-                <div key={date} style={{ gridColumn: `span ${shifts.length}` }} className={cn("sticky top-0 z-10 border-b border-r border-border bg-[hsl(var(--surface-2))] px-3 py-1.5", isToday && "bg-primary/[.07]")}>
-                  <p className={cn("text-[13px] font-semibold", isToday && "text-primary")}>{dayjs(date).format("dddd, D MMM")}{isToday ? " · today" : ""}</p>
+                <div key={date} style={{ gridColumn: `span ${shifts.length}` }} className={cn("sticky top-0 z-10 border-b border-r border-border bg-[hsl(var(--surface-2))] min-h-[61px] px-3 py-1.5", isToday && "bg-primary/[.07]")}>
+                  <p className={cn("text-[13px] font-semibold", isToday && "text-primary")}>{dayjs(date).format("dddd, D MMM")}{isToday ? " · today" : ""}</p><DeliveryDayBadge rows={(deliveries.data || []).filter(row => row.date === date)} />
                 </div>
               )
             })}
             {/* Shift headers with load across all machines */}
-            <div className="sticky left-0 top-[31px] z-20 border-b border-r border-border bg-card px-3 py-1 text-[11px] font-semibold text-muted-foreground">Machine</div>
+            <div className="sticky left-0 top-[61px] z-20 border-b border-r border-border bg-card px-3 py-1 text-[11px] font-semibold text-muted-foreground">Machine</div>
             {columns.map(({ date, shift }) => {
               const total = dayTotals[`${date}|${shift.code}`] || { load: 0, capacity: 0, cards: 0 }
-              const pct = total.capacity ? Math.round((total.load / total.capacity) * 100) : 0
+              const pct = total.capacity ? Math.round((total.load / total.capacity) * 100) : null
               return (
-                <div key={`${date}|${shift.code}`} className="sticky top-[31px] z-10 flex items-center justify-between gap-2 border-b border-r border-border bg-card px-3 py-1 text-[11px]">
+                <div key={`${date}|${shift.code}`} className="sticky top-[61px] z-10 flex items-center justify-between gap-2 border-b border-r border-border bg-card px-3 py-1 text-[11px]">
                   <span className="font-semibold">{shift.label || shift.code.replace("SHIFT_", "Shift ")}</span>
-                  <span className="tabular-nums text-muted-foreground">{total.cards} cards · {pct}%</span>
+                  <span className="tabular-nums text-muted-foreground">{total.cards} cards · {fmt(total.load)} {unit}</span>
                 </div>
               )
             })}
@@ -254,7 +259,7 @@ export function ScheduleBoard({
                     const projected = current + need
                     const ratio = capacity ? Math.min(100, (current / capacity) * 100) : 0
                     const projectedPct = capacity ? (projected / capacity) * 100 : 0
-                    const fit = !dragged ? "none" : blocked ? "blocked" : !capacity || !need ? "ok" : projectedPct > 100 ? "over" : projectedPct >= 85 ? "tight" : "ok"
+                    const fit = !dragged ? "none" : blocked ? "blocked" : lane.warning ? "review" : !capacity || !need ? "ok" : projectedPct > 100 ? "over" : projectedPct >= 85 ? "tight" : "ok"
                     const past = dayjs(column.date).isBefore(dayjs(), "day")
                     const target: BoardTarget = { machine_id: machine.id, plan_date: column.date, shift_code: lane.shift_code || null, sequence_no: (lane.jobs || []).length + 1 }
                     const label = `${machine.code} · ${dayjs(column.date).format("DD MMM")} · ${lane.shift_label || String(lane.shift_code || "").replace("SHIFT_", "Shift ")}`
@@ -262,36 +267,37 @@ export function ScheduleBoard({
                       <div
                         key={cell}
                         data-fit={fit}
-                        onDragOver={(event) => { if (!blocked) { event.preventDefault(); if (hover !== cell) setHover(cell) } }}
+                        onDragOver={(event) => { if (dragged && !blocked && !busy) { event.preventDefault(); if (hover !== cell) setHover(cell) } }}
                         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setHover((current) => (current === cell ? null : current)) }}
                         onDrop={() => {
                           const job = dragged
                           setHover(null); setDragged(null)
-                          if (!job || blocked || here) return
+                          if (!job || blocked || here || busy) return
                           if (fit === "over") onOverCapacity(job, target, label, projected - capacity, lane.capacity_unit || unit)
                           else onSchedule(job, target)
                         }}
                         className={cn(
-                          "relative flex min-h-[104px] flex-col gap-1.5 border-b border-r border-border p-1.5 transition-colors duration-150",
+                          "relative flex min-h-[124px] flex-col gap-1.5 border-b border-r border-border p-1.5 transition-colors duration-150",
                           blocked ? "bg-muted/60" : past ? "bg-[hsl(var(--surface-sunken))]" : "bg-card",
                           dragged && !blocked && "bg-primary/[.025]",
                           hover === cell && fit === "ok" && "bg-signal-emerald-soft/60 ring-2 ring-inset ring-signal-emerald-ink/40",
-                          hover === cell && fit === "tight" && "bg-signal-amber-soft/60 ring-2 ring-inset ring-signal-amber-ink/40",
+                          hover === cell && (fit === "tight" || fit === "review") && "bg-signal-amber-soft/60 ring-2 ring-inset ring-signal-amber-ink/40",
                           hover === cell && fit === "over" && "bg-signal-rose-soft/60 ring-2 ring-inset ring-signal-rose-ink/40",
                         )}
                       >
                         <div className="flex items-center gap-1.5" title={capacity ? `${fmt(current, 1)} of ${fmt(capacity)} ${lane.capacity_unit || unit}` : "No capacity set"}>
                           <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                            <span className={cn("block h-full rounded-full transition-[width] duration-500", ratio >= 100 ? "bg-signal-rose-ink" : ratio >= 85 ? "bg-signal-amber-ink" : "bg-primary/70")} style={{ width: `${ratio}%` }} />
+                            <span className={cn("block h-full rounded-full ", ratio >= 100 ? "bg-signal-rose-ink" : ratio >= 85 ? "bg-signal-amber-ink" : "bg-primary/70")} style={{ width: `${ratio}%` }} />
                           </span>
-                          <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">{capacity ? `${Math.round((current / capacity) * 100)}%` : fmt(current, 0)}</span>
+                          <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">{capacity ? `${fmt(current)} / ${fmt(capacity)} ${unit}` : `${fmt(current)} ${unit} · capacity unset`}</span>
                         </div>
+                        {lane.warning ? <p className="rounded bg-signal-amber-soft p-1.5 text-[10.5px] text-signal-amber-ink">{lane.warning}</p> : null}
                         {(lane.jobs || []).map((job: any) => <PlanCard key={job.segment_id} job={job} compact dragging={dragged?.segment_id === job.segment_id} onUnschedule={unschedule} {...cardProps} />)}
                         {hover === cell && dragged && !here ? (
-                          <span className={cn("pointer-events-none mt-auto rounded-md px-2 py-1 text-center text-[11px] font-semibold text-background shadow animate-scale-in", fit === "over" ? "bg-signal-rose-ink" : fit === "tight" ? "bg-signal-amber-ink" : fit === "blocked" ? "bg-muted-foreground" : "bg-signal-emerald-ink")}>
-                            {fit === "blocked" ? "Machine unavailable" : fit === "over" ? `Over by ${fmt(projected - capacity, 0)} ${lane.capacity_unit || unit} — splits into next shift` : capacity ? `Fits · ${Math.round(projectedPct)}% after drop` : "Drop to place"}
+                          <span className={cn("pointer-events-none mt-auto rounded-md px-2 py-1 text-center text-[11px] font-semibold text-background shadow animate-scale-in", fit === "over" ? "bg-signal-rose-ink" : (fit === "tight" || fit === "review") ? "bg-signal-amber-ink" : fit === "blocked" ? "bg-muted-foreground" : "bg-signal-emerald-ink")}>
+                            {fit === "blocked" ? "Machine unavailable" : fit === "review" ? "Review slot warning before scheduling" : fit === "over" ? `Over by ${fmt(projected - capacity, 0)} ${lane.capacity_unit || unit} — splits into next shift` : capacity ? `Fits · ${Math.round(projectedPct)}% after drop` : "Drop to place"}
                           </span>
-                        ) : !(lane.jobs || []).length && !dragged ? <span className="mt-auto text-center text-[10.5px] text-muted-foreground/60">free</span> : null}
+                        ) : !(lane.jobs || []).length && !dragged ? <span className="mt-auto text-center text-[10.5px] text-muted-foreground">{blocked ? "Unavailable" : lane.warning ? "Capacity needs review" : capacity ? `${fmt(Math.max(0, capacity - current))} ${unit} available · drop a card` : "Set machine capacity to check fit"}</span> : null}
                       </div>
                     )
                   }))}

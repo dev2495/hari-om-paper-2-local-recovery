@@ -471,3 +471,37 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
 @media (max-width: 639px) {
   .tube-kpi .tube-kpi-label.truncate { white-space: normal; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
 }
+
+/* Operational workspaces: stable rail geometry and restrained motion. */
+@media (min-width: 1024px) {
+  .tube-shell[data-rail="compact"] .tube-rail { width:252px; clip-path:inset(0 188px 0 0); transition:clip-path 170ms cubic-bezier(.23,1,.32,1); transition-delay:0ms; }
+  .tube-shell[data-rail="compact"] .tube-rail:is(:hover,:focus-within) { width:252px; clip-path:inset(0); transition-delay:0ms; }
+  .tube-shell[data-rail="compact"] .tube-rail .tube-nav-group { margin:0 0 4px; padding-top:0; border-top:0; }
+  .tube-shell[data-rail="compact"] .tube-rail .tube-nav-group:first-child { margin-top:0; }
+  .tube-shell[data-rail="compact"] .tube-rail .tube-nav-group-toggle { display:flex; height:28px; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-nav-group-toggle { display:flex; opacity:0; pointer-events:none; }
+  .tube-shell[data-rail="compact"] .tube-rail .tube-nav-link { justify-content:flex-start; padding:8px 14px; }
+  .tube-shell[data-rail="compact"] .tube-rail .tube-brand { padding:0 16px; justify-content:flex-start; }
+  .tube-shell[data-rail="compact"] .tube-rail .tube-user { padding:6px; margin:8px 6px; justify-content:flex-start; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-subnav { display:block; opacity:0; pointer-events:none; }
+  .tube-shell[data-rail="compact"] .tube-navigation { scrollbar-gutter:stable; }
+}
+.tube-nav-group[data-open="true"] .tube-nav-items > div > div { animation:none; }
+.tube-nav-spotlight,.tube-nav-active { transition:opacity 100ms ease; }
+.tube-workspace { transition:none; }
+.planner-card { content-visibility:auto; contain-intrinsic-size:auto 86px; }
+.planner-card [data-card-actions] { position:static; opacity:1; border:0; padding:0; box-shadow:none; }
+.planner-card [data-card-actions] button { width:28px; height:28px; }
+.planner-card:hover { transform:none; }
+.workspace-kpis { display:flex; flex-wrap:wrap; gap:8px 24px; padding:10px 14px; border:1px solid hsl(var(--border)); border-radius:12px; background:hsl(var(--card)); }
+.workspace-kpis > div { min-width:120px; }
+.workspace-kpis small { display:block; color:hsl(var(--muted-foreground)); font-size:11px; }
+.workspace-kpis strong { font-size:15px; font-weight:650; }
+@media(prefers-reduced-motion:reduce) { .tube-shell .tube-rail, .tube-nav-link span, .planner-card { transition:none!important; animation:none!important; } }
+
+.planner-card { display:grid; grid-template-columns:4px minmax(0,1fr) 16px; gap:4px 8px; }
+.planner-card > span:first-child { grid-column:1; grid-row:1 / 3; }
+.planner-card > div:not([data-card-actions]) { grid-column:2; grid-row:1; }
+.planner-card [data-card-actions] { grid-column:2; grid-row:2; justify-content:flex-end; }
+.planner-card [data-card-actions] button { width:32px; height:32px; }
+.planner-card > svg { grid-column:3; grid-row:1 / 3; }

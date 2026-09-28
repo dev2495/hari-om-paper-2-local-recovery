@@ -206,7 +206,7 @@ export function PlannerCalendar({
     <div className="grid min-w-0 gap-3 xl:grid-cols-[340px_minmax(0,1fr)]" data-testid="planner-calendar">
       <div className="flex min-h-0 flex-col gap-3 xl:h-[calc(100dvh-13rem)] xl:min-h-[640px]">
       {stage === "WINDER" ? (
-        <WinderLoadBars machineLabel={(id) => machineCode.get(id) || id.slice(0, 8)} selected={winderFilter} onSelect={setWinderFilter} />
+        <details className="rounded-xl border border-border bg-card p-3"><summary className="cursor-pointer text-xs font-semibold text-muted-foreground">Open workload by release winder</summary><WinderLoadBars className="mt-2 !border-0 !p-0" machineLabel={(id) => machineCode.get(id) || id.slice(0, 8)} selected={winderFilter} onSelect={setWinderFilter} /></details>
       ) : null}
       <aside className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
         <div className="border-b border-border p-3">

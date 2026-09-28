@@ -68,7 +68,8 @@ def test_litre_master_requires_density_and_po_unit_matches():
         assert mismatch.value.status_code==422
         db.rollback()
 
-def test_qc_failure_can_be_recorded_hold_pass_and_department_enforced():
+@pytest.mark.parametrize("inspector", [QC, OWNER, ADMIN])
+def test_qc_failure_can_be_recorded_hold_pass_and_department_enforced(inspector):
     with SessionLocal() as db:
         glue=item(db,'ADHESIVE','KG')
         batch=StockBatch(item_id=glue.id,batch_no=uuid.uuid4().hex,received_qty=10,plant_id=PLANT,stock_status='QC_HOLD',inward_metadata={'quality_profile':glue.quality_profile})
@@ -76,18 +77,18 @@ def test_qc_failure_can_be_recorded_hold_pass_and_department_enforced():
         payload=QualityInspectionCreate(entity_type='BATCH',entity_id=batch.id,readings={'check':9})
         with pytest.raises(HTTPException) as unauthorized: create_quality_inspection(payload,db,PLANT,STORE)
         assert unauthorized.value.status_code==403
-        failed=create_quality_inspection(payload,db,PLANT,QC)
+        failed=create_quality_inspection(payload,db,PLANT,inspector)
         assert failed.status=='FAIL' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
-        held=create_quality_inspection(payload.model_copy(update={'readings':{'check':1.5},'disposition':'HOLD'}),db,PLANT,QC)
+        held=create_quality_inspection(payload.model_copy(update={'readings':{'check':1.5},'disposition':'HOLD'}),db,PLANT,inspector)
         assert held.status=='PASS' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
         holds=db.query(InventoryQualityHold).filter_by(entity_id=batch.id,status='HOLD').all()
         resolution=payload.model_copy(update={'readings':{'check':1.5},'resolve_hold_ids':[h.id for h in holds],'notes':'Second measurement verified after correcting sample preparation'})
-        with pytest.raises(HTTPException): create_quality_inspection(resolution.model_copy(update={'readings':{'check':9}}),db,PLANT,QC)
+        with pytest.raises(HTTPException): create_quality_inspection(resolution.model_copy(update={'readings':{'check':9}}),db,PLANT,inspector)
         db.rollback()
         # An independent manual hold is never cleared by an inspection resolution.
         independent=InventoryQualityHold(plant_id=PLANT,entity_type='BATCH',entity_id=batch.id,quantity=10,reason='Independent investigation',status='HOLD',hold_kind='MANUAL')
         db.add(independent);db.commit()
-        passed=create_quality_inspection(resolution,db,PLANT,QC)
+        passed=create_quality_inspection(resolution,db,PLANT,inspector)
         assert passed.status=='PASS' and db.get(StockBatch,batch.id).stock_status=='QC_HOLD'
         assert all(db.get(InventoryQualityHold,h.id).status=='RELEASED' for h in holds)
         assert db.get(InventoryQualityHold,independent.id).status=='HOLD'
@@ -147,3 +148,17 @@ def test_bulk_returns_are_linked_idempotent_and_cannot_overcredit():
                 return 'conflict'
     with ThreadPoolExecutor(max_workers=2) as pool:
         assert sorted(pool.map(attempt,range(2)))==['conflict','saved']
+
+@pytest.mark.parametrize("inspector", [QC, OWNER, ADMIN])
+def test_authorized_quality_roles_release_only_measured_pass_and_keep_actor(inspector):
+    with SessionLocal() as db:
+        glue=item(db,'ADHESIVE','KG')
+        batch=StockBatch(item_id=glue.id,batch_no=uuid.uuid4().hex,received_qty=10,plant_id=PLANT,stock_status='QC_HOLD',inward_metadata={'quality_profile':glue.quality_profile})
+        db.add(batch);db.commit()
+        payload=QualityInspectionCreate(entity_type='BATCH',entity_id=batch.id,readings={'check':1.5})
+        for impostor in [dict(inspector,actual_roles=['Store']),dict(STORE,actual_roles=['Admin'])]:
+            with pytest.raises(HTTPException) as denied: create_quality_inspection(payload,db,PLANT,impostor)
+            assert denied.value.status_code==403
+        passed=create_quality_inspection(payload,db,PLANT,inspector)
+        assert passed.status=='PASS' and passed.stock_status=='UNRESTRICTED'
+        assert passed.created_by==inspector['sub']

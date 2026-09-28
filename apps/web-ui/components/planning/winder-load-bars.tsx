@@ -38,7 +38,7 @@ export function WinderLoadBars({
     <section className={cn("rounded-xl border border-border bg-card p-3", className)} aria-label="Open load per winder" data-testid="winder-load-bars">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0">
-          <p className="text-[13px] font-semibold">Load per winder</p>
+          <p className="text-[13px] font-semibold">Open workload</p>
           <p className="text-[11.5px] tabular-nums text-muted-foreground">{fmt(totalM)} m · {fmt(totalPcs)} pcs open</p>
         </div>
         <div className="tube-segment !h-7 shrink-0 text-[11px]" role="group" aria-label="Scale bars by">
@@ -70,7 +70,7 @@ export function WinderLoadBars({
                   aria-pressed={active}
                   title={`${label}: ${fmt(row.running_m)} m running · ${fmt(row.scheduled_m)} m scheduled · ${fmt(row.queued_m)} m in queue · ${row.cards} cards${row.capacity_m_per_day ? ` · capacity ${fmt(row.capacity_m_per_day)} m/day` : ""}`}
                   className={cn(
-                    "w-full rounded-md px-1.5 py-1 text-left transition-all duration-200",
+                    "w-full rounded-md px-1.5 py-1 text-left transition-opacity duration-150",
                     active ? "bg-primary/10 ring-1 ring-inset ring-primary/40" : "hover:bg-muted/60",
                     dimmed && "opacity-45 hover:opacity-100",
                   )}
@@ -93,7 +93,7 @@ export function WinderLoadBars({
                       ≈ {fmt(row.days_of_work, 1)} day{row.days_of_work === 1 ? "" : "s"} of work at {fmt(row.capacity_m_per_day || 0)} m/day · {row.cards} card{row.cards === 1 ? "" : "s"}
                     </span>
                   ) : (
-                    <span className="mt-0.5 block text-[10.5px] text-muted-foreground">{row.cards} card{row.cards === 1 ? "" : "s"}{row.machine_id !== "unassigned" ? " · no m/day capacity set" : ""}</span>
+                    <span className="mt-0.5 block text-[10.5px] text-muted-foreground">{row.cards} card{row.cards === 1 ? "" : "s"}{row.machine_id !== "unassigned" ? " · release preference" : ""}</span>
                   )}
                 </button>
               </li>

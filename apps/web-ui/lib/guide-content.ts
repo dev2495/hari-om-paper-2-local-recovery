@@ -199,7 +199,7 @@ const guides: GuideContent[] = [
     flowTitle: "Requirement to PO draft",
     steps: [
       { label: "Pick the material class", detail: "Paper (RM), chemicals & adhesive (RM) or packing (PM). Paper and chemicals show in kg or MT; packing in pcs. Requirement comes from open sales orders through each spec's BOM: paper and adhesive by weight per bamboo, parchment by the line's colour breakup, boxes by pcs per box with plastic and fadda per box." },
-      { label: "Fix missing stock items", detail: "A BOM material with no stock item is still counted and listed in amber; create its stock item in one click so stock, POs and arrivals plan against it. Started jobs without attributed material issues stay a red blocker for net buying." },
+      { label: "Fix missing stock items", detail: "A BOM material without an inventory identity remains visible in demand. Review and link an existing paper master; maintain adhesive, parchment and packing items in Masters. Linking never receives stock or creates a PO. Started jobs without attributed material issues stay a red blocker for net buying." },
       { label: "Schedule arrivals", detail: "In the workbook grid, enter each day's arrival per lane and assign its vendor. Amber 'need' marks when orders need it; the footer shows scheduled, required (type a figure to override the BOM requirement) and cl stk, with '+ fill' for any shortfall. Vehicles per day count the deliveries." },
       { label: "Check vendors, approve and convert", detail: "Vendor position compares what each vendor is scheduled to deliver with its pending PO balance; PO to raise = scheduled − pending. Submit and approve the plan, then generate traceable PO drafts." },
     ],

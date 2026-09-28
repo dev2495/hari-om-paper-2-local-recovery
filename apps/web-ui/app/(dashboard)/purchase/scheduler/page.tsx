@@ -1,5 +1,8 @@
 "use client"
 
+import Link from "next/link"
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { CustomerCommitments, DeliveryDayBadge } from "@/components/planning/customer-commitments"
 import { parseScheduleSheet, mergeScheduleCells } from "@/lib/schedule-workbook"
 import { businessDate } from "@/lib/business-date"
 
@@ -16,7 +19,7 @@ import { useDeliveryCalendar } from "@/hooks/use-sales"
 import { useInventoryBalances, useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
 import { purchaseApi } from "@/lib/api"
-import { MATERIAL_CLASSES, classOfDemand, classOfItem, formatQty, laneFigures, openPoBalances, varietyGroups, vehiclesPerDay, vendorPositions, type MaterialClass } from "@/lib/material-schedule"
+import { MATERIAL_CLASSES, classOfDemand, classOfItem, formatQty, scheduleImportFactor, laneFigures, openPoBalances, varietyGroups, vehiclesPerDay, vendorPositions, type MaterialClass } from "@/lib/material-schedule"
 import type { ProcurementPlan, ProcurementPlanEntry } from "@/lib/procurement-types"
 import { cn } from "@/lib/utils"
 
@@ -34,13 +37,16 @@ export default function PurchaseSchedulerPage() {
   const allItems: any[] = useMemo(() => (Array.isArray(itemsQuery.data) ? itemsQuery.data.filter((row: any) => classOfItem(row)) : []), [itemsQuery.data])
   const vendors: any[] = Array.isArray(vendorsQuery.data) ? vendorsQuery.data : []
   const [materialClass, setMaterialClass] = useState<MaterialClass>("PAPER")
+  const [chemicalUnit, setChemicalUnit] = useState<"KG" | "L">("KG")
+  const baseUnit = materialClass === "PACKING" ? "PCS" : materialClass === "CHEMICAL" ? chemicalUnit : "KG"
   const [weightUnit, setWeightUnit] = useState<"KG" | "MT">("KG")
   const classMeta = MATERIAL_CLASSES.find((entry) => entry.id === materialClass)!
-  const unit: DisplayUnit = classMeta.baseUnit === "PCS" ? "PCS" : weightUnit
+  const unit: DisplayUnit = baseUnit === "PCS" ? "PCS" : baseUnit === "L" ? "L" : weightUnit
   const u = unitLabel(unit)
   const fmt = (value: number) => formatQty(value, unit)
-  const items = useMemo(() => allItems.filter((item) => classOfItem(item) === materialClass), [allItems, materialClass])
-  const [view, setView] = useState<"calendar" | "grid">("grid"); const [selectedDay, setSelectedDay] = useState(""); const [mrpResult, setMrpResult] = useState<any>(null)
+  const items = useMemo(() => allItems.filter((item) => classOfItem(item) === materialClass && String(item.uom || "KG") === baseUnit), [allItems, materialClass, baseUnit])
+  const [linkReview, setLinkReview] = useState<UnmappedMaterial[]>([]);
+  const [view, setView] = useState<"calendar" | "grid">("calendar"); const [selectedDay, setSelectedDay] = useState(""); const [mrpResult, setMrpResult] = useState<any>(null)
   const editSnapshot = useRef<{ id: string; version: number; dirty: boolean } | null>(null)
   const [month, setMonth] = useState(currentMonth()); const [selectedPlanId, setSelectedPlanId] = useState("")
   const [laneIds, setLaneIds] = useState<string[]>([]); const [cells, setCells] = useState<Record<string, string>>({})
@@ -51,7 +57,7 @@ export default function PurchaseSchedulerPage() {
   const [workbookSheets, setWorkbookSheets] = useState<any[]>([]); const [importSheetName, setImportSheetName] = useState("")
   const [importRows, setImportRows] = useState<Array<{ date: string; header: string; qty: number; cell: string; item_id?: string }>>([])
   const [importAliases, setImportAliases] = useState<Record<string, string>>({})
-  const [importUnit, setImportUnit] = useState<"" | "KG" | "MT">("")
+  const [importUnit, setImportUnit] = useState<"" | "KG" | "MT" | "L" | "PCS">("")
   const [importSource, setImportSource] = useState<{ hash: string; sheet: string; file: string } | null>(null)
   const [importEvidence, setImportEvidence] = useState<Record<string, string>>({})
   const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null)
@@ -77,7 +83,7 @@ export default function PurchaseSchedulerPage() {
     ...(demandData?.requirements || []).map((row: any) => ({ ...row, material_class: "PAPER", qty: row.qty_kg, uom: "KG" })),
     ...(demandData?.material_requirements || []),
   ], [demandData])
-  const classDemand = useMemo(() => allDemand.filter((row) => classOfDemand(row) === materialClass), [allDemand, materialClass])
+  const classDemand = useMemo(() => allDemand.filter((row) => classOfDemand(row) === materialClass && String(row.uom || "KG") === baseUnit), [allDemand, materialClass, baseUnit])
   const paperRequirements: any[] = useMemo(() => demandData?.requirements || [], [demandData])
   const { demandTotals, demandByDay, demandByItem } = useMemo(() => {
     const totals: Record<string, number> = {}; const byDay: Record<string, number> = {}; const byItem: Record<string, any[]> = {}
@@ -90,17 +96,17 @@ export default function PurchaseSchedulerPage() {
   }, [classDemand])
   const unmapped: UnmappedMaterial[] = useMemo(() => {
     if (materialClass === "PAPER") return (demandData?.unmapped_papers || []).map((row: any) => ({ key: `paper:${row.paper_id || row.paper_code}`, code: row.paper_code || row.name, name: row.name, qty: Number(row.qty_kg || 0), uom: "KG", orderNos: row.order_nos || [], paperId: row.paper_id, materialClass: "PAPER" }))
-    return (demandData?.unmapped_materials || []).filter((row: any) => classOfDemand(row) === materialClass).map((row: any) => ({ key: `${row.material_class}:${row.code}`, code: row.code, qty: Number(row.qty || 0), uom: row.uom, orderNos: row.order_nos || [], materialClass: row.material_class }))
-  }, [demandData, materialClass])
+    return (demandData?.unmapped_materials || []).filter((row: any) => classOfDemand(row) === materialClass && String(row.uom || "KG") === baseUnit).map((row: any) => ({ key: `${row.material_class}:${row.code}`, code: row.code, qty: Number(row.qty || 0), uom: row.uom, orderNos: row.order_nos || [], materialClass: row.material_class }))
+  }, [demandData, materialClass, baseUnit])
   const classWarnings: any[] = useMemo(() => (demandData?.warnings || []).filter((row: any) => {
     const reason = String(row.reason || "")
     const isOther = /^(Adhesive|Parchment|Packing|Box) /.test(reason) || reason.includes("pcs-per-box")
     if (reason.includes("has no stock item yet")) return false // listed in the stock-item panel
     return materialClass === "PAPER" ? !isOther : isOther
-  }), [demandData, materialClass])
+  }), [demandData, materialClass, baseUnit])
   const editable = selected?.status === "DRAFT"
   const allLanes = useMemo(() => laneIds.map((id) => allItems.find((row) => String(row.id) === id)).filter(Boolean) as any[], [laneIds, allItems])
-  const lanes = useMemo(() => allLanes.filter((item) => classOfItem(item) === materialClass), [allLanes, materialClass])
+  const lanes = useMemo(() => allLanes.filter((item) => classOfItem(item) === materialClass && String(item.uom || "KG") === baseUnit), [allLanes, materialClass, baseUnit])
   const vendorName = (id: string) => vendors.find((vendor: any) => String(vendor.id) === id)?.name || "Vendor"
 
   useEffect(() => { if (plans[0] && !selectedPlanId) setSelectedPlanId(plans[0].id) }, [plans, selectedPlanId])
@@ -118,7 +124,7 @@ export default function PurchaseSchedulerPage() {
 
   function markCalendarDirty() { if (editSnapshot.current) editSnapshot.current.dirty = true }
   useEffect(() => { setSelectedPlanId(""); setMrpResult(null); setSelectedDay(""); setImportRows([]); setWorkbookSheets([]); setImportSource(null); setImportEvidence({}); setImportUnit(""); setNotice(null) }, [activePlant, month])
-  useEffect(() => { setSelectedDay(""); setTargetLane(""); setFocusItem(null) }, [materialClass])
+  useEffect(() => { setSelectedDay(""); setTargetLane(""); setFocusItem(null) }, [materialClass, chemicalUnit])
   const refresh = () => client.invalidateQueries({ queryKey: ["purchase-v2"] })
   const createPlan = useMutation({ mutationFn: () => purchaseApi.createPlan({ request_id: crypto.randomUUID(), month: `${month}-01`, name: `RM Schedule ${month}`, target_mode: "ARRIVAL", working_calendar: { sunday: "OFF", source: "LIVE_CALENDAR" }, entries: [] }), onSuccess: ({ data }) => { setSelectedPlanId(data.id); setNotice({ tone: "success", text: "Monthly procurement plan created. Add material lanes and daily quantities." }); refresh() } })
   function entries(): ProcurementPlanEntry[] {
@@ -128,7 +134,7 @@ export default function PurchaseSchedulerPage() {
     }).filter((entry) => entry.qty_kg > 0 || Boolean(entry.id)))
   }
   const laneRequirementsPayload = () => Object.fromEntries(Object.entries(manualReq).filter(([itemId, value]) => value !== "" && Number.isFinite(Number(value)) && laneIds.includes(itemId)).map(([itemId, value]) => [itemId, Number(value)]))
-  const save = useMutation({ mutationFn: () => purchaseApi.updatePlanEntries(selected!.id, { expected_version: editSnapshot.current?.version ?? selected!.version, entries: entries(), lane_requirements: laneRequirementsPayload(), source_hash: importSource?.hash, source_metadata: importSource ? { file_name: importSource.file, sheet: importSource.sheet, original_unit: importUnit, factor_to_kg: importUnit === "MT" ? 1000 : 1 } : undefined }), onSuccess: () => { if (editSnapshot.current) editSnapshot.current.dirty = false; setNotice({ tone: "success", text: "All daily kg entries and import evidence saved with a new plan version." }); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: errorText(error) }) })
+  const save = useMutation({ mutationFn: () => purchaseApi.updatePlanEntries(selected!.id, { expected_version: editSnapshot.current?.version ?? selected!.version, entries: entries(), lane_requirements: laneRequirementsPayload(), source_hash: importSource?.hash, source_metadata: importSource ? { file_name: importSource.file, sheet: importSource.sheet, original_unit: importUnit, factor_to_kg: importUnit === "MT" ? 1000 : 1 } : undefined }), onSuccess: () => { if (editSnapshot.current) editSnapshot.current.dirty = false; setNotice({ tone: "success", text: "All daily quantities in master units and import evidence saved with a new plan version." }); refresh() }, onError: (error: any) => setNotice({ tone: "error", text: errorText(error) }) })
   const planAction = useMutation({ mutationFn: async (action: string) => {
     let version = editSnapshot.current?.version ?? selected!.version
     if (action === "SUBMIT") {
@@ -159,14 +165,14 @@ export default function PurchaseSchedulerPage() {
     onSuccess: (results: any[]) => {
       const created = results.reduce((sum, row) => sum + (row.created?.length || 0), 0)
       const failed = results.flatMap((row) => row.failed || [])
-      setNotice({ tone: failed.length ? "error" : "success", text: failed.length ? `${created} stock item(s) created; ${failed.length} failed: ${failed.map((row: any) => `${row.item_code || row.code || row.paper_id}: ${row.reason}`).join("; ")}` : `${created} stock item(s) created. Requirements now plan against stock and POs.` })
+      setNotice({ tone: failed.length ? "error" : "success", text: failed.length ? `${created} stock item(s) created; ${failed.length} failed: ${failed.map((row: any) => `${row.item_code || row.code || row.paper_id}: ${row.reason}`).join("; ")}` : `${created} existing paper master(s) linked to inventory. No stock quantity or purchase order was created. Stock comes from approved inward or opening balances.` })
       client.invalidateQueries({ queryKey: ["inventory-items"] }); client.invalidateQueries({ queryKey: ["inventory-balances"] }); refresh()
     },
     onError: (error: any) => setNotice({ tone: "error", text: errorText(error) }),
   })
 
   // ---- workbook figures for the active class ----
-  const openingByItem = useMemo(() => Object.fromEntries((balancesQuery.data || []).map((row: any) => [String(row.item_id), Number(row.balance ?? row.available_qty ?? 0)])), [balancesQuery.data])
+  const openingByItem = useMemo(() => Object.fromEntries((balancesQuery.data || []).map((row: any) => [String(row.item_id), Number(row.usable_qty ?? 0)])), [balancesQuery.data])
   const laneIdList = useMemo(() => lanes.map((lane: any) => String(lane.id)), [lanes])
   const scheduledByItem = useMemo(() => {
     const out: Record<string, number> = {}
@@ -181,7 +187,7 @@ export default function PurchaseSchedulerPage() {
   const vendorRows = useMemo(() => vendorPositions({ laneIds: laneIdList, laneVendors, scheduledByItem, openPo, vendorName }), [laneIdList, laneVendors, scheduledByItem, openPo, vendors]) // eslint-disable-line react-hooks/exhaustive-deps
   const vehicles = useMemo(() => vehiclesPerDay(dayKeys, laneIdList, (day, id) => Number(cells[cellKey(day, id)] || 0)), [dayKeys, laneIdList, cells])
   const sum = (pick: (row: any) => number) => laneIdList.reduce((total, id) => total + pick(figures[id] || {}), 0)
-  const openingTotal = sum((row) => row.opening || 0); const scheduledTotal = sum((row) => row.scheduled || 0)
+  const openingTotal = Array.from(new Set([...laneIdList, ...Object.keys(demandTotals)])).reduce((total, id) => total + Number(openingByItem[id] || 0), 0); const scheduledTotal = sum((row) => row.scheduled || 0)
   const unlanedDemand = Object.entries(demandTotals).filter(([id]) => !laneIdList.includes(id)).reduce((total, [, qty]) => total + qty, 0)
   const requiredTotal = sum((row) => row.required || 0) + unlanedDemand
   const closingTotal = openingTotal + scheduledTotal - requiredTotal
@@ -271,17 +277,17 @@ export default function PurchaseSchedulerPage() {
     sheet.addRow([`${classMeta.label} schedule · ${monthLabel} · ${u}`]).font = { bold: true, size: 13 }
     sheet.addRow(["", "", ...ordered.map((item: any) => item.item_code), "Day total", "Vehicles"]).font = { bold: true }
     sheet.addRow(["", "Vendor", ...ordered.map((item: any) => (laneVendors[item.id] ? vendorName(laneVendors[item.id]) : ""))])
-    sheet.addRow(["op stk", "", ...ordered.map((item: any) => shown(figures[String(item.id)]?.opening || 0))]).font = { bold: true }
+    sheet.addRow(["Usable now", "", ...ordered.map((item: any) => shown(figures[String(item.id)]?.opening || 0))]).font = { bold: true }
     dates.forEach((day) => {
       const key = dateKey(day); const quantities = ordered.map((item: any) => Number(cells[cellKey(key, item.id)] || 0))
       sheet.addRow([key, day.toLocaleDateString("en-IN", { weekday: "long", timeZone: "UTC" }), ...quantities.map((qty) => (qty ? shown(qty) : null)), shown(quantities.reduce((a, b) => a + b, 0)) || null, vehicles[key] || null])
     })
     sheet.addRow(["Scheduled", "", ...ordered.map((item: any) => shown(figures[String(item.id)]?.scheduled || 0)), shown(scheduledTotal), vehicleTotal]).font = { bold: true }
     sheet.addRow(["Total required", "", ...ordered.map((item: any) => shown(figures[String(item.id)]?.required || 0))]).font = { bold: true }
-    sheet.addRow(["cl stk", "", ...ordered.map((item: any) => shown(figures[String(item.id)]?.closing || 0))]).font = { bold: true }
+    sheet.addRow(["Projected balance", "", ...ordered.map((item: any) => shown(figures[String(item.id)]?.closing || 0))]).font = { bold: true }
     if (varieties) {
       sheet.addRow([])
-      sheet.addRow(["VARIETY", "Lanes", `Op stk`, "Scheduled", "Required", "cl stk"]).font = { bold: true }
+      sheet.addRow(["VARIETY", "Lanes", `Usable now`, "Scheduled", "Required", "Projected balance"]).font = { bold: true }
       varieties.forEach((group) => sheet.addRow([group.label, group.itemIds.length, shown(group.opening), shown(group.scheduled), shown(group.required), shown(group.closing)]))
     }
     sheet.addRow([])
@@ -322,16 +328,20 @@ export default function PurchaseSchedulerPage() {
     if (source) setImportSource({ ...source, sheet: sheet.name })
     setNotice({ tone: "info", text: `${sheet.name}: ${preview.length} cells from the first daily scheduling block. ${sheet.ignoredDatedRows} dated rows outside that block excluded (for example finished-goods targets). Choose units and map materials; explicitly exclude helper columns.` })
   }
-  const importedItemId = (row: { header: string; item_id?: string }) => row.item_id || importAliases[row.header]
+  const importedItemId = (row: { header: string; item_id?: string }) => importAliases[row.header] || row.item_id
+  const importMismatch = importRows.some(row => {
+    const id = importedItemId(row)
+    return id && id !== "IGNORE" && scheduleImportFactor(importUnit, allItems.find(item => String(item.id) === id)?.uom) === null
+  })
   function applyImport() {
-    if (!importUnit || importRows.some((row) => !importedItemId(row) || !row.date.startsWith(month))) return
+    if (!importUnit || importMismatch || importRows.some((row) => !importedItemId(row) || !row.date.startsWith(month))) return
     const matched = importRows.filter((row) => importedItemId(row) !== "IGNORE").map((row) => ({ ...row, item_id: importedItemId(row)! }))
     const merged = mergeScheduleCells(matched, importUnit === "MT" ? 1000 : 1)
     markCalendarDirty()
     setLaneIds((current) => Array.from(new Set([...current, ...matched.map((row) => row.item_id)])))
     setCells((current) => ({ ...current, ...merged.cells }))
     setImportEvidence((current) => ({ ...current, ...Object.fromEntries(Object.entries(merged.sources).map(([key, sources]) => [key, JSON.stringify({ source_file: importSource?.file, source_hash: importSource?.hash, sheet: importSource?.sheet, sources, original_unit: importUnit, factor_to_kg: importUnit === "MT" ? 1000 : 1 })])) }))
-    setNotice({ tone: "success", text: `${matched.length} source cells combined into ${Object.keys(merged.cells).length} material/date totals in kg. Matching existing calendar cells were replaced; other dates are unchanged. Review and save.` })
+    setNotice({ tone: "success", text: `${matched.length} source cells combined into ${Object.keys(merged.cells).length} material/date totals in their master units. Matching existing calendar cells were replaced; other dates are unchanged. Review and save.` })
   }
 
   const mrpByItem = useMemo(() => new Map<string, any>((mrpResult?.results || []).map((row: any) => [String(row.item_id), row])), [mrpResult])
@@ -341,7 +351,7 @@ export default function PurchaseSchedulerPage() {
   const itemNoun = materialClass === "PAPER" ? "paper" : materialClass === "PACKING" ? "packing item" : "chemical"
 
   return <ProcurementShell eyebrow="Purchase planning" title="RM & PM purchase schedule"
-    description="The monthly workbook, live: op stk + arrivals − requirement = cl stk for every paper, chemical and packing lane. Requirement is the spec BOM of: job cards on the planner (by production date), released cards still in the queue (by customer date), and unreleased order quantity (by the customer's delivery call-offs, else the order due date).">
+    description="Plan arrivals against customer commitments and remaining BOM demand. Keep stock, units and supplier dates visible together.">
     <RequestErrors errors={[createPlan.error, plansQuery.error]} />
     {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
 
@@ -384,32 +394,36 @@ export default function PurchaseSchedulerPage() {
           )
         })}
       </div>
-      {classMeta.baseUnit === "KG" ? (
+      {materialClass === "CHEMICAL" ? <div className="tube-segment" role="group" aria-label="Chemical base unit"><button aria-pressed={chemicalUnit === "KG"} onClick={()=>setChemicalUnit("KG")}>By weight · KG</button><button aria-pressed={chemicalUnit === "L"} onClick={()=>setChemicalUnit("L")}>By volume · L</button></div> : null}
+      {baseUnit === "KG" ? (
         <div className="tube-segment" role="group" aria-label="Quantity unit">
           <button type="button" aria-pressed={weightUnit === "KG"} onClick={() => setWeightUnit("KG")}>kg</button>
           <button type="button" aria-pressed={weightUnit === "MT"} onClick={() => setWeightUnit("MT")}>MT</button>
         </div>
-      ) : <span className="text-[12px] text-muted-foreground">Packing is planned in pcs</span>}
+      ) : <span className="text-[12px] text-muted-foreground">{baseUnit === "L" ? "Volume items stay in litres" : "Packing is planned in pcs"}</span>}
     </section>
 
     {workbookSheets.length || importRows.length ? <WorkPanel title="Workbook import" description="Match each workbook column to a material in your masters, choose the unit, then stage the cells into this month.">
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {workbookSheets.length ? <Field label="Worksheet"><select className={fieldClass} value={importSheetName} onChange={(event) => selectImportSheet(workbookSheets.find((sheet) => sheet.name === event.target.value))}>{workbookSheets.map((sheet) => <option key={sheet.name}>{sheet.name}</option>)}</select></Field> : null}
-        <Field label="Workbook quantity unit" hint="required"><select className={fieldClass} value={importUnit} onChange={(e) => setImportUnit(e.target.value as "" | "KG" | "MT")}><option value="">Select source unit</option><option value="KG">kg · factor 1</option><option value="MT">MT · factor 1,000</option></select></Field>
+        <Field label="Workbook quantity unit" hint="required"><select className={fieldClass} value={importUnit} onChange={(e) => setImportUnit(e.target.value as "" | "KG" | "MT" | "L" | "PCS")}><option value="">Select source unit</option><option value="KG">kg · factor 1</option><option value="MT">MT · factor 1,000</option><option value="L">Litres</option><option value="PCS">Pieces</option></select></Field>
       </div>
       {importRows.length ? <div className="mt-4 rounded-lg border border-signal-amber-line bg-signal-amber-soft p-3">
         <p className="text-[13px] font-semibold text-signal-amber-ink">Workbook preview: {importRows.length} positive dated cells · {importRows.filter((row) => importedItemId(row)).length} mapped · {importRows.filter((row) => !importedItemId(row)).length} to map · {importRows.filter((row) => !row.date.startsWith(month)).length} outside {monthLabel}</p>
-        {Array.from(new Set(importRows.filter((row) => !row.item_id).map((row) => row.header))).length ? <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{Array.from(new Set(importRows.filter((row) => !row.item_id).map((row) => row.header))).map((header) => <label key={header} className="rounded-lg border border-signal-amber-line bg-card p-2.5 text-[12px] font-medium text-foreground/80"><span className="block truncate" title={header}>{header}</span><select aria-label={`Map ${header}`} className={`${fieldClass} mt-1.5`} value={importAliases[header] || ""} onChange={(e) => setImportAliases((current) => ({ ...current, [header]: e.target.value }))}><option value="">Choose exact material</option><option value="IGNORE">Exclude helper column</option>{MATERIAL_CLASSES.map((entry) => <optgroup key={entry.id} label={`${entry.label} (${entry.tag})`}>{allItems.filter((item) => classOfItem(item) === entry.id).map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.name}</option>)}</optgroup>)}</select></label>)}</div> : null}
-        <button className={`${secondaryButton} mt-3`} onClick={applyImport} disabled={!editable || !importUnit || importRows.some((row) => !importedItemId(row) || !row.date.startsWith(month))}>Stage mapped cells as kg</button>
+        {Array.from(new Set(importRows.map((row) => row.header))).length ? <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">{Array.from(new Set(importRows.map((row) => row.header))).map((header) => <label key={header} className="rounded-lg border border-signal-amber-line bg-card p-2.5 text-[12px] font-medium text-foreground/80"><span className="block truncate" title={header}>{header}</span><select aria-label={`Map ${header}`} className={`${fieldClass} mt-1.5`} value={importAliases[header] || importRows.find(row => row.header === header)?.item_id || ""} onChange={(e) => setImportAliases((current) => ({ ...current, [header]: e.target.value }))}><option value="">Choose exact material</option><option value="IGNORE">Exclude helper column</option>{MATERIAL_CLASSES.map((entry) => <optgroup key={entry.id} label={`${entry.label} (${entry.tag})`}>{allItems.filter((item) => classOfItem(item) === entry.id).map((item) => <option key={item.id} value={item.id}>{item.item_code} · {item.name} · {item.uom}</option>)}</optgroup>)}</select></label>)}</div> : null}
+        <button className={`${secondaryButton} mt-3`} onClick={applyImport} disabled={!editable || !importUnit || importMismatch || importRows.some((row) => !importedItemId(row) || !row.date.startsWith(month))}>Stage mapped cells in master units</button>{importMismatch ? <p role="alert" className="mt-2 text-sm text-signal-rose-ink">The source unit must match every mapped material. MT converts only to kg. Import kg, litres and pieces separately, excluding other columns.</p> : null}
       </div> : null}
     </WorkPanel> : null}
 
 
-    <DemandIssues blocked={materialClass === "PAPER" ? blocked : []} unmapped={unmapped} warnings={classWarnings} creating={createItems.isPending} canCreate={plantReady} onCreate={(rows) => createItems.mutate(rows)} />
+    <CustomerCommitments dateFrom={`${month}-01`} dateTo={dateKey(dates[dates.length - 1])} selectedDate={selectedDay} onDate={day => { setSelectedDay(day); setView("calendar") }} />
+    <Dialog open={linkReview.length > 0} onOpenChange={open => { if (!open) setLinkReview([]) }}><DialogContent><DialogTitle>Link existing paper masters</DialogTitle><DialogDescription>These paper masters already supply the BOM. Linking gives each one an inventory item identity for stock, purchasing and MRP. Quantity stays unchanged; no goods receipt or PO is created.</DialogDescription><ul className="max-h-64 overflow-auto divide-y divide-border">{linkReview.map(row => <li className="py-3 text-sm" key={row.key}><strong>{row.code}</strong> · {row.name || "Paper"}<span className="float-right">KG</span></li>)}</ul><div className="flex justify-end gap-2"><button className={secondaryButton} onClick={() => setLinkReview([])}>Cancel</button><button className={primaryButton} disabled={createItems.isPending} onClick={() => createItems.mutate(linkReview, { onSuccess: () => setLinkReview([]) })}>Link {linkReview.length} master records</button></div></DialogContent></Dialog>
+    {materialClass !== "PAPER" && unmapped.length > 0 ? <Link className={secondaryButton} href="/inventory/items">Open material masters to resolve {unmapped.length} links</Link> : null}
+    <DemandIssues blocked={materialClass === "PAPER" ? blocked : []} unmapped={unmapped} warnings={classWarnings} creating={createItems.isPending} canCreate={plantReady && materialClass === "PAPER"} onCreate={(rows) => setLinkReview(rows)} />
     {missing.length ? <MessageBar tone="error">Could not load {missing.join(", ")}. Figures that depend on it show “—” instead of zero — refresh when the service is back.</MessageBar> : null}
 
     <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-    <WorkPanel className="min-w-0" title={view === "grid" ? "Monthly grid" : monthLabel} description={view === "grid" ? `One column per ${itemNoun}, one row per day — the workbook layout. Amber “need” marks when open orders need it; footer rows give scheduled, required (type to override the BOM figure) and closing stock${materialClass === "PAPER" ? ", plus the GSM variety balance" : ""}.` : "Tap a day to enter its arrivals. Amber is what open orders need; teal is a planned arrival."} action={<div className="flex flex-wrap items-center gap-2">
+    <WorkPanel className="min-w-0" title={view === "grid" ? "Monthly grid" : monthLabel} description={view === "grid" ? `One column per ${itemNoun}, one row per day — the workbook layout. Amber “need” marks when open orders need it; footer rows give scheduled, required (type to override the BOM figure) and projected balance${materialClass === "PAPER" ? ", plus the GSM variety balance" : ""}.` : "Tap a day to enter its arrivals. Amber is what open orders need; teal is a planned arrival."} action={<div className="flex flex-wrap items-center gap-2">
       <div className="tube-segment" role="group" aria-label="Planner view">
         <button type="button" aria-pressed={view === "grid"} onClick={() => setView("grid")}>Workbook grid</button>
         <button type="button" aria-pressed={view === "calendar"} onClick={() => setView("calendar")}>Month calendar</button>
@@ -432,8 +446,9 @@ export default function PurchaseSchedulerPage() {
         <>
           <div className="overflow-x-auto"><div className="min-w-[700px]"><div className="grid grid-cols-7 border-b border-border">{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => <div key={day} className="px-3 py-2 text-[11.5px] font-semibold text-muted-foreground">{day}</div>)}</div><div className="grid grid-cols-7 border-l border-border">{Array.from({ length: (dates[0].getUTCDay() + 6) % 7 }, (_, index) => <div key={`blank-${index}`} className="border-b border-r border-border bg-[hsl(var(--surface-sunken))]" />)}{dates.map((date) => {
             const day = dateKey(date); const arrivals = lanes.filter((item: any) => (!focusItem || String(item.id) === focusItem) && Number(cells[cellKey(day, item.id)]) > 0); const breakdown = dayBreakdown[day]; const needed = breakdown?.total || 0; const planned = arrivals.reduce((total: number, item: any) => total + Number(cells[cellKey(day, item.id)] || 0), 0)
-            return <button type="button" key={day} onMouseEnter={() => setHoverDay(day)} onMouseLeave={() => setHoverDay((current) => (current === day ? null : current))} aria-label={`Plan arrivals ${day}`} aria-pressed={selectedDay === day} onClick={() => setSelectedDay(day)} className={`group relative flex min-h-[104px] flex-col gap-1 border-b border-r border-border p-1.5 text-left transition-colors ${selectedDay === day ? "bg-primary/[.06] ring-2 ring-inset ring-primary/50" : date.getUTCDay() === 0 ? "bg-[hsl(var(--surface-sunken))]" : "bg-card hover:bg-foreground/[.025]"}`}>
+            return <button type="button" key={day} onMouseEnter={() => setHoverDay(day)} onMouseLeave={() => setHoverDay((current) => (current === day ? null : current))} aria-label={`Plan arrivals ${day}`} aria-pressed={selectedDay === day} onClick={() => setSelectedDay(day)} className={`group relative flex min-h-[132px] flex-col gap-1 border-b border-r border-border p-1.5 text-left transition-colors ${selectedDay === day ? "bg-primary/[.06] ring-2 ring-inset ring-primary/50" : date.getUTCDay() === 0 ? "bg-[hsl(var(--surface-sunken))]" : "bg-card hover:bg-foreground/[.025]"}`}>
               <span className="flex items-center justify-between"><span className={`grid h-6 min-w-6 place-items-center rounded-full px-1 text-[12px] font-semibold ${day === today ? "bg-primary text-primary-foreground" : "text-foreground/80"}`}>{date.getUTCDate()}</span>{planned > 0 ? <span className="text-[11px] font-semibold tabular-nums text-signal-cyan-ink">{fmt(planned)}{vehicles[day] ? <span className="ml-1 font-normal text-muted-foreground">· {vehicles[day]} veh</span> : null}</span> : null}</span>
+              <DeliveryDayBadge rows={(deliveryCalendar.data || []).filter(row => row.date === day)} />
               {needed > 0 ? (
                 <span className="rounded border border-signal-amber-line bg-signal-amber-soft px-1.5 py-0.5 text-[11px] font-medium text-signal-amber-ink">
                   Need {fmt(needed)} {u}
@@ -478,7 +493,7 @@ export default function PurchaseSchedulerPage() {
     </div>
 
     <div className="grid gap-4 xl:grid-cols-2">
-      <WorkPanel title={materialClass === "PAPER" ? "Variety balance" : "Lane balance"} description={materialClass === "PAPER" ? "Each GSM variety across all its vendors: op stk + scheduled against what open orders need." : `Each ${itemNoun}: op stk + scheduled against what open orders need.`}>
+      <WorkPanel title={materialClass === "PAPER" ? "Variety balance" : "Lane balance"} description={materialClass === "PAPER" ? "Each GSM variety across all its vendors: usable stock + planned arrivals against what open orders need." : `Each ${itemNoun}: usable stock + planned arrivals against what open orders need.`}>
         <CoverageBars rows={varieties ? varietyRows(varieties, lanes) : laneRows(lanes, figures)} unit={unit} />
       </WorkPanel>
       <WorkPanel title="Vendor position" description="What each vendor is scheduled to deliver this month against its pending PO balance. SHORT PO = pending − scheduled, as in the workbook; negative means raise a PO." action={<span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground"><Layers className="h-3.5 w-3.5" />{Object.keys(openPo).length} vendor(s) with open POs</span>}>
@@ -509,6 +524,6 @@ export default function PurchaseSchedulerPage() {
     </div>
 
     {lanes.length && editable ? <WorkPanel title="Spread a monthly quantity" description={`Distribute a ${itemNoun}'s monthly quantity evenly over working days (Sundays off), then fine-tune individual days.`}><div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]"><Field label={classMeta.label}><select className={fieldClass} value={targetLane || lanes[0]?.id || ""} onChange={(event) => setTargetLane(event.target.value)}>{lanes.map((lane: any) => <option key={lane.id} value={lane.id}>{lane.item_code}</option>)}</select></Field><Field label={`Monthly ${u}`}><input className={fieldClass} type="number" min="0" step="1" value={target} onChange={(e) => setTarget(e.target.value)} /></Field><button className={`${secondaryButton} self-end`} onClick={fillTarget}>Fill working days</button></div></WorkPanel> : null}
-    <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground"><ClassIcon className="h-3.5 w-3.5" />Op stk is stock on hand today; requirement is every open order due by the end of {monthLabel} (overdue included). Quantities are stored in {classMeta.baseUnit === "PCS" ? "pcs" : "kg"}; MT is display only.</p>
+    <p className="flex items-center gap-1.5 text-[12px] text-muted-foreground"><ClassIcon className="h-3.5 w-3.5" />Usable stock excludes QC holds and reservations; requirement is every open order due by the end of {monthLabel} (overdue included). Quantities use the material master unit ({baseUnit}); MT is a kg display option only. Projections assume every calendar arrival is still to come; reconcile received deliveries before using this scenario. Use the shortage check for confirmed open-PO coverage.</p>
   </ProcurementShell>
 }

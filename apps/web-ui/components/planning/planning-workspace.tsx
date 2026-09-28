@@ -21,6 +21,7 @@ import {
   TimerReset,
 } from "lucide-react"
 import { PlannerCalendar } from "@/components/planning/planner-calendar"
+import { CustomerCommitments } from "@/components/planning/customer-commitments"
 import { ScheduleBoard, type BoardTarget, type CardAction } from "@/components/planning/schedule-board"
 import { WinderLoadBars } from "@/components/planning/winder-load-bars"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
@@ -722,12 +723,12 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
                   machine_name: machine.name,
                   shift_code: shift.code,
                   shift_label: shift.label,
-                  capacity_value: machine.capacity_value,
+                  capacity_value: null,
                   capacity_unit: machine.capacity_unit,
                   batch_bamboo_capacity: machine.batch_bamboo_capacity,
                   cycle_time_hours: machine.cycle_time_hours,
                   current_load: 0,
-                  warning: null,
+                  warning: "No verified shift capacity returned for this slot",
                   jobs: [],
                 }
               )
@@ -765,7 +766,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
 
   const plannerMetrics = useMemo(() => {
     const lanes = machineRows.flatMap((machine) =>
-      machine.dayColumns.flatMap((dayColumn: any) => dayColumn.shifts || []),
+      machine.dayColumns.filter((column: any) => [day0, day1, day2].slice(0, windowDays).includes(column.date)).flatMap((dayColumn: any) => dayColumn.shifts || []),
     )
     const totalCapacity = lanes.reduce((sum, lane: any) => sum + Number(lane.capacity_value || 0), 0)
     const scheduledLoad = lanes.reduce((sum, lane: any) => sum + Number(lane.current_load || 0), 0)
@@ -790,7 +791,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       mustSplitCount,
       utilization: totalCapacity > 0 ? Math.round((scheduledLoad / totalCapacity) * 100) : 0,
     }
-  }, [machineRows, machineStatsMap, queuedJobs, section])
+  }, [machineRows, machineStatsMap, queuedJobs, section, day0, day1, day2, windowDays])
 
   const heroMetricCards = [
     {
@@ -801,16 +802,16 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       icon: Layers3,
     },
     {
-      label: "Tube load",
-      value: formatWhole(plannerMetrics.queueTubes),
+      label: "Queued pieces",
+      value: `${formatWhole(plannerMetrics.queueTubes)} pcs`,
       hint: `${formatOne(plannerMetrics.queueWeight)} kg pending`,
       className: "border-signal-blue-line bg-signal-blue-soft/90 text-signal-blue-ink",
       icon: Factory,
     },
     {
-      label: "Free capacity",
-      value: section === "winder" ? formatLoad(plannerMetrics.freeCapacity) : formatWhole(plannerMetrics.freeCapacity),
-      hint: `${plannerMetrics.utilization}% slot usage`,
+      label: "Scheduled load",
+      value: `${formatWhole(plannerMetrics.scheduledLoad)} ${capacityUnitFor(section)}`,
+      hint: `${windowDays}-day visible board; nominal capacity depends on available machines and shifts`,
       className: "border-signal-emerald-line bg-signal-emerald-soft/90 text-signal-emerald-ink",
       icon: TimerReset,
     },
@@ -896,8 +897,10 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     setHoverDetail({ job, label, x, y, placement: hasRoomRight ? "right" : "left" })
   }
 
+  const moveInFlight = useRef(false)
   async function scheduleSegment(job: any, target: DropTarget) {
-    if (!job) return
+    if (!job || moveInFlight.current) return
+    moveInFlight.current = true
     let preflightWarning = ""
     if (stage === "WINDER" && target.machine_id) {
       const assignedWinder = job.assigned_winder_machine_id
@@ -925,6 +928,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       const detail = error?.response?.data?.detail || error?.message || "Unable to move planner card."
       showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")
     } finally {
+      moveInFlight.current = false
       setDraggedJob(null)
     }
   }
@@ -1302,7 +1306,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
             <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stageTheme.pill}`}>Focused on {focusedJobCardId ? "one job card" : "one order"}</span>
           ) : null}
           <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[11.5px]">
-            {heroMetricCards.slice(0, 5).map((card) => (
+            {heroMetricCards.filter(card => ["Open queue", "Scheduled load", "Priority (3 plant days)"].includes(card.label)).map((card) => (
               <span key={card.label} title={card.hint} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${card.className}`}>
                 <card.icon className="h-3 w-3 opacity-70" />{card.label} <span className="tabular-nums">{card.value}</span>
               </span>
@@ -1311,11 +1315,12 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
               Print<ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
-          {plannerView === "schedule" ? <span className="hidden basis-full text-[11px] text-muted-foreground xl:block">Drag cards onto a machine and shift · hover a card for edit, split, manage · drag a placed card back to the queue to unschedule · Esc returns to the month</span> : null}
+          {plannerView === "schedule" ? <span className="hidden basis-full text-[11px] text-muted-foreground xl:block">Drag cards onto a machine and shift · card actions: manage, edit, split · drag a placed card back to the queue to unschedule · Esc returns to the month</span> : null}
         </section>
 
 
 
+        {plannerView === "schedule" ? <CustomerCommitments dateFrom={day0} dateTo={windowDays === 3 ? day2 : day1} onDate={date => router.push(boardHref({ date, view: "schedule" }))} /> : null}
         <div key={viewKey} className={motion.current.className} style={{ transformOrigin: motion.current.origin }} data-testid="planner-view" data-view={plannerView}>
         {plannerView === "calendar" ? (
           <PlannerCalendar

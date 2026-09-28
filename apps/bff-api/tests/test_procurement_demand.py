@@ -294,3 +294,14 @@ def test_adhesive_mass_from_bom_converts_to_stock_litres():
         date(2026, 9, 1), date(2026, 9, 30))
     assert warning is None
     assert rows[0]["qty"] == 10 and rows[0]["uom"] == "L"
+
+
+def test_free_text_bom_codes_cannot_create_master_records():
+    import asyncio
+    import pytest
+    from fastapi import HTTPException
+    from src.services.procurement_demand import create_material_stock_items
+    with pytest.raises(HTTPException) as error:
+        asyncio.run(create_material_stock_items("t", "PLANT_A", [{"material_class": "ADHESIVE", "code": "Unverified name"}]))
+    assert error.value.status_code == 409
+    assert "Masters" in error.value.detail
