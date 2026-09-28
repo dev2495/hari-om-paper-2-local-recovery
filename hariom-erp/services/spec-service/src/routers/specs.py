@@ -1062,6 +1062,8 @@ def apply_qc_profile_assign(
     current_user: dict = Depends(require_role(["Admin", "Owner", "QC"])),
 ):
     _require_qc_author(current_user)
+    for target in db.query(SpecificationSheet).filter(SpecificationSheet.id.in_(list(payload.spec_ids or [])), SpecificationSheet.plant_id == plant_id).all():
+        _enforce_live_qc_lock(target, current_user, plant_id)
     return apply_assign(
         db=db,
         plant_id=plant_id,
@@ -1170,6 +1172,20 @@ def _enforce_live_spec_edit_lock(spec: SpecificationSheet, current_user: dict, p
                 "Close those orders / job cards first, or clone the spec for new orders."
             ),
         )
+
+
+def _enforce_live_qc_lock(spec: SpecificationSheet, current_user: dict, plant_id: str) -> None:
+    """Approved tolerances on a live spec follow the live-spec rule (Owner only, nothing open on it).
+
+    First-time setup is open to QC/Admin: a live spec that never had approved tolerances needs
+    them before floor entries can be checked, and nothing running depends on them yet.
+    """
+    if str(spec.status or "").lower() not in {"approved", "trial"}:
+        return
+    current = spec.qc_profile if isinstance(spec.qc_profile, dict) else {}
+    if str(current.get("status") or "").lower() != "approved" and not current.get("approved_snapshot"):
+        return
+    _enforce_live_spec_edit_lock(spec, current_user, plant_id)
 
 
 @router.put("/{spec_id}", response_model=SpecResponse)
@@ -1286,6 +1302,7 @@ def upsert_spec_qc_profile(
             status_code=409,
             detail="Specification is under approval review. Return it to draft before editing quality parameters.",
         )
+    _enforce_live_qc_lock(spec, current_user, plant_id)
     fingerprint = payload_fingerprint(payload)
     replayed = replay_or_conflict(
         db=db,
@@ -1353,6 +1370,7 @@ def approve_spec_qc_profile(
     ).first()
     if not spec:
         raise HTTPException(status_code=404, detail="Specification not found")
+    _enforce_live_qc_lock(spec, current_user, plant_id)
     current = spec.qc_profile if isinstance(spec.qc_profile, dict) else {}
     current_revision = int(current.get("revision") or 1)
     if int(payload.expected_revision) != current_revision:

@@ -64,12 +64,12 @@ export function laneRows(lanes: any[], figures: Record<string, LaneFigures>) {
 export function VendorPositionTable({ rows, unit }: { rows: VendorPosition[]; unit: DisplayUnit }) {
   const fmt = (value: number) => formatQty(value, unit)
   if (!rows.length) return <p className="text-[13px] text-muted-foreground">Assign a vendor to each lane to see what every vendor must deliver against its open POs.</p>
-  const total = rows.reduce((acc, row) => ({ scheduled: acc.scheduled + row.scheduled, pendingPo: acc.pendingPo + row.pendingPo, raise: acc.raise + Math.max(0, row.shortPo) }), { scheduled: 0, pendingPo: 0, raise: 0 })
+  const total = rows.reduce((acc, row) => ({ scheduled: acc.scheduled + row.scheduled, pendingPo: acc.pendingPo + row.pendingPo, short: acc.short + row.shortPo }), { scheduled: 0, pendingPo: 0, short: 0 })
   return (
     <div className="overflow-x-auto rounded-lg border border-border" data-testid="schedule-vendor-position">
       <table className="tube-grid">
         <thead>
-          <tr><th>Vendor</th><th className="num">Scheduled</th><th className="num">Pending PO</th><th className="num">PO to raise</th><th>Status</th></tr>
+          <tr><th>Vendor</th><th className="num">Scheduled</th><th className="num">Pending PO</th><th className="num" title="Workbook SHORT PO = pending PO − scheduled. Negative: raise a PO for that much.">Short PO</th><th>Status</th></tr>
         </thead>
         <tbody>
           {rows.map((row) => (
@@ -77,18 +77,18 @@ export function VendorPositionTable({ rows, unit }: { rows: VendorPosition[]; un
               <td className="font-medium">{row.vendorName}{row.lanes.length ? <span className="ml-1.5 text-[11px] text-muted-foreground">{row.lanes.length} lane{row.lanes.length === 1 ? "" : "s"}</span> : null}</td>
               <td className="num">{fmt(row.scheduled)}</td>
               <td className="num">{fmt(row.pendingPo)}</td>
-              <td className={cn("num font-semibold", row.shortPo > 0.5 ? "text-signal-rose-ink" : "text-muted-foreground")}>{row.shortPo > 0.5 ? fmt(row.shortPo) : "—"}</td>
+              <td className={cn("num font-semibold", row.shortPo < -0.5 ? "text-signal-rose-ink" : "text-foreground/80")}>{Math.abs(row.shortPo) > 0.5 ? `${row.shortPo < 0 ? "−" : ""}${fmt(Math.abs(row.shortPo))}` : "0"}</td>
               <td>
                 {row.vendorId === "unassigned" ? <span className="text-[12px] font-medium text-signal-amber-ink">Assign vendor</span>
-                  : row.shortPo > 0.5 ? <span className="text-[12px] font-medium text-signal-rose-ink">Raise PO</span>
-                  : row.shortPo < -0.5 ? <span className="text-[12px] text-muted-foreground">{fmt(-row.shortPo)} on PO not scheduled</span>
+                  : row.toRaise > 0.5 ? <span className="text-[12px] font-medium text-signal-rose-ink">Raise PO for {fmt(row.toRaise)}</span>
+                  : row.shortPo > 0.5 ? <span className="text-[12px] text-muted-foreground">{fmt(row.shortPo)} on PO not scheduled</span>
                   : <span className="inline-flex items-center gap-1 text-[12px] font-medium text-signal-emerald-ink"><CheckCircle2 className="h-3.5 w-3.5" />Matched</span>}
               </td>
             </tr>
           ))}
         </tbody>
         <tfoot>
-          <tr className="font-semibold"><td>Total</td><td className="num">{fmt(total.scheduled)}</td><td className="num">{fmt(total.pendingPo)}</td><td className="num text-signal-rose-ink">{total.raise > 0.5 ? fmt(total.raise) : "—"}</td><td /></tr>
+          <tr className="font-semibold"><td>Total</td><td className="num">{fmt(total.scheduled)}</td><td className="num">{fmt(total.pendingPo)}</td><td className={cn("num", total.short < -0.5 && "text-signal-rose-ink")}>{Math.abs(total.short) > 0.5 ? `${total.short < 0 ? "−" : ""}${fmt(Math.abs(total.short))}` : "0"}</td><td /></tr>
         </tfoot>
       </table>
     </div>

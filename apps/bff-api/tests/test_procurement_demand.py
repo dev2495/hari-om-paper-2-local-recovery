@@ -84,7 +84,7 @@ def test_adapter_uses_plant_scoped_sources_and_canonical_bom():
         elif url.endswith('/recipes/spec/spec'):
             body = [{'id': 'recipe', 'version': 2}]
         elif url.endswith('/calculate/bom/recipe'):
-            assert params == {'tube_length_mm': 500, 'tube_od_mm': 123}
+            assert params == {'tube_length_mm': 500, 'tube_od_mm': 122.2}
             body = {'expected_output': {'tubes_per_bamboo': 5}, 'raw_materials': {'papers': [{'paper_id': 'paper', 'weight_kg': 12.25}]}}
         else:
             raise AssertionError(url)
@@ -223,3 +223,45 @@ def test_packing_without_pcs_per_box_warns_instead_of_guessing():
     rows, warning = explode_other_demand(order, line, spec, bom, items, start, end)
     assert not [row for row in rows if row["material_class"] == "PACKING"]
     assert "no pcs-per-box" in warning
+
+
+def test_same_code_of_another_type_is_not_the_paper_and_is_reported_on_create():
+    from src.services.procurement_demand import resolve_paper_item
+    wrong = {"id": "x", "item_code": "KRAFT-230-18BF", "name": "Mislabelled", "type": "OTHER", "uom": "PCS"}
+    assert resolve_paper_item("paper", {"code": "KRAFT-230-18BF"}, {"x": wrong}, {"KRAFT-230-18BF": wrong}) is None
+
+
+def test_packing_in_kg_never_satisfies_pieces():
+    from src.services.procurement_demand import explode_other_demand
+    order, line, spec, bom, items, start, end = other_fixture()
+    items = [row for row in items if row["id"] != "box"] + [{"id": "boxkg", "item_code": "G120", "name": "Box", "type": "PACKAGING", "uom": "KG"}]
+    rows, warning = explode_other_demand(order, line, spec, bom, items, start, end)
+    box = next(row for row in rows if row["material_class"] == "PACKING" and row["item_code"] in {"G-120", "G120"})
+    assert box["mapped"] is False and box["uom"] == "PCS"
+
+
+def test_create_items_reports_a_code_clash_instead_of_skipping(monkeypatch):
+    import asyncio
+    from src.services import procurement_demand as pd
+
+    class Resp:
+        def __init__(self, data, status=200):
+            self._data, self.status_code = data, status
+        def json(self):
+            return self._data
+
+    posted = []
+
+    class Client:
+        async def get(self, url, **kwargs):
+            if "papers" in url:
+                return Resp([{"id": "p1", "code": "KRAFT-230-18BF", "variety": "Kraft", "gsm": 230}])
+            return Resp([{"id": "x", "item_code": "KRAFT 230 18BF", "type": "OTHER", "uom": "PCS"}])
+        async def post(self, url, **kwargs):
+            posted.append(kwargs)
+            return Resp({}, 201)
+
+    monkeypatch.setattr(pd, "http_client", Client())
+    result = asyncio.run(pd.create_paper_stock_items("t", "PLANT_A", ["p1"]))
+    assert not posted and not result["skipped"]
+    assert "already a OTHER item" in result["failed"][0]["reason"]

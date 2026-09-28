@@ -701,7 +701,7 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
   const { data: specConstants } = useSpecConstants()
   const { data: specDefaults } = useSpecDefaults(hasConcreteWritePlant ? activePlant : null)
   const { data: specFields, isSuccess: specFieldsLoaded } = useSpecFields()
-  const { data: specDocument, isLoading: isLoadingDocument } = useSpecSheetDocument(specId || "")
+  const { data: specDocument, isLoading: isLoadingDocument, isError: documentFailed, refetch: refetchDocument } = useSpecSheetDocument(specId || "")
   const isEditable =
     (mode === "create" || mode === "edit") &&
     !editBlockReason &&
@@ -2459,6 +2459,18 @@ export function SpecSheetDocument({ mode, specId, embedded = false }: SpecSheetD
     return (
       <div className="rounded-2xl border border-border bg-card p-8 text-sm text-muted-foreground shadow-sm">
         Loading specification sheet...
+      </div>
+    )
+  }
+
+  // Never fall back to form defaults for a saved spec: a printed sheet with sample numbers
+  // looks real. Show that the spec did not load instead.
+  if (!isCreate && (documentFailed || !specDocument?.spec)) {
+    return (
+      <div className="rounded-2xl border-2 border-signal-rose-line bg-signal-rose-soft p-8 text-sm text-signal-rose-ink" data-testid="spec-sheet-load-error">
+        <p className="text-base font-semibold">Specification sheet could not be loaded.</p>
+        <p className="mt-1">Nothing is shown in its place. Do not use a printout of this page — reload, then print again.</p>
+        <button type="button" className="no-print mt-3 rounded-lg border border-signal-rose-line bg-card px-3 py-1.5 font-semibold" onClick={() => refetchDocument()}>Try again</button>
       </div>
     )
   }

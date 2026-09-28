@@ -57,7 +57,16 @@ export default function PurchaseSchedulerPage() {
   const dates = useMemo(() => daysIn(month), [month])
   const dayKeys = useMemo(() => dates.map(dateKey), [dates])
   const demand = useQuery({ queryKey: ["purchase-v2", "sales-bom-demand", activePlant, month], enabled: plantReady, queryFn: () => purchaseApi.getMaterialDemand({ as_of_date: `${month}-01`, horizon_end: dateKey(daysIn(month).at(-1)!) }) })
-  const ordersQuery = useQuery({ queryKey: ["purchase-v2", "open-po-balance", activePlant], enabled: plantReady, refetchOnWindowFocus: false, queryFn: () => purchaseApi.getOrders({ limit: 500 }) })
+  // Open POs per open status, so a long PO history never pushes pending quantity off the page.
+  const ordersQuery = useQuery({
+    queryKey: ["purchase-v2", "open-po-balance", activePlant], enabled: plantReady, refetchOnWindowFocus: false,
+    queryFn: async () => {
+      const pages = await Promise.all(["SUBMITTED", "APPROVED", "PARTIALLY_RECEIVED"].map((status) => purchaseApi.getOrders({ status, limit: 500 })))
+      const items = pages.flatMap((page) => page.data?.items || [])
+      const complete = pages.every((page) => Number(page.data?.total ?? 0) <= (page.data?.items || []).length)
+      return { items, complete }
+    },
+  })
   const demandData = demand.data?.data
   const blocked: any[] = demandData?.blocked || []
   // Paper rows come from `requirements`; adhesive, parchment and packing from `material_requirements`.
@@ -165,7 +174,7 @@ export default function PurchaseSchedulerPage() {
   const figures = useMemo(() => laneFigures({ itemIds: laneIdList, scheduledByItem, openingByItem, bomByItem: demandTotals, manualByItem }), [laneIdList, scheduledByItem, openingByItem, demandTotals, manualByItem])
   const varieties = useMemo(() => (materialClass === "PAPER" ? varietyGroups(lanes, figures) : null), [materialClass, lanes, figures])
   const classItemIds = useMemo(() => new Set(items.map((item: any) => String(item.id))), [items])
-  const openPo = useMemo(() => openPoBalances(ordersQuery.data?.data?.items || [], classItemIds), [ordersQuery.data, classItemIds])
+  const openPo = useMemo(() => openPoBalances(ordersQuery.data?.items || [], classItemIds), [ordersQuery.data, classItemIds])
   const vendorRows = useMemo(() => vendorPositions({ laneIds: laneIdList, laneVendors, scheduledByItem, openPo, vendorName }), [laneIdList, laneVendors, scheduledByItem, openPo, vendors]) // eslint-disable-line react-hooks/exhaustive-deps
   const vehicles = useMemo(() => vehiclesPerDay(dayKeys, laneIdList, (day, id) => Number(cells[cellKey(day, id)] || 0)), [dayKeys, laneIdList, cells])
   const sum = (pick: (row: any) => number) => laneIdList.reduce((total, id) => total + pick(figures[id] || {}), 0)
@@ -174,7 +183,17 @@ export default function PurchaseSchedulerPage() {
   const requiredTotal = sum((row) => row.required || 0) + unlanedDemand
   const closingTotal = openingTotal + scheduledTotal - requiredTotal
   const shortLanes = laneIdList.filter((id) => (figures[id]?.closing || 0) < 0)
-  const poToRaise = vendorRows.reduce((total, row) => total + Math.max(0, row.shortPo), 0)
+  const poToRaise = vendorRows.reduce((total, row) => total + row.toRaise, 0)
+  // Never present a figure built on a source that failed to load: show why instead of zeros.
+  const missing = [
+    demand.isError ? "open-order requirement" : null,
+    balancesQuery.isError ? "stock on hand" : null,
+    ordersQuery.isError ? "open purchase orders" : null,
+  ].filter(Boolean) as string[]
+  const stockReady = !balancesQuery.isError && !balancesQuery.isPending
+  const demandReady = !demand.isError && !demand.isPending
+  const poReady = !ordersQuery.isError && !ordersQuery.isPending
+  const shortTotal = Math.max(0, -closingTotal)
   const deliveryDays = Object.values(vehicles).filter((count) => count > 0).length
   const vehicleTotal = Object.values(vehicles).reduce((total, count) => total + count, 0)
   const classCounts = useMemo(() => Object.fromEntries(MATERIAL_CLASSES.map((entry) => [entry.id, {
@@ -233,8 +252,8 @@ export default function PurchaseSchedulerPage() {
       varieties.forEach((group) => sheet.addRow([group.label, group.itemIds.length, shown(group.opening), shown(group.scheduled), shown(group.required), shown(group.closing)]))
     }
     sheet.addRow([])
-    sheet.addRow(["VENDOR", "Scheduled", "Pending PO", "PO to raise"]).font = { bold: true }
-    vendorRows.forEach((row) => sheet.addRow([row.vendorName, shown(row.scheduled), shown(row.pendingPo), row.shortPo > 0 ? shown(row.shortPo) : 0]))
+    sheet.addRow(["VENDOR", "Scheduled", "PENDING", "SHORT PO"]).font = { bold: true }
+    vendorRows.forEach((row) => sheet.addRow([row.vendorName, shown(row.scheduled), shown(row.pendingPo), row.shortPo < 0 ? -shown(-row.shortPo) : shown(row.shortPo)]))
     sheet.views = [{ state: "frozen", xSplit: 2, ySplit: 4 }]; sheet.columns.forEach((column) => { column.width = 14 })
     sheet.pageSetup = { orientation: "landscape", paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 }
     const blob = new Blob([await workbook.xlsx.writeBuffer()], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = `${classMeta.tag}-${materialClass.toLowerCase()}-schedule-${month}.xlsx`; link.click(); URL.revokeObjectURL(url)
@@ -353,15 +372,23 @@ export default function PurchaseSchedulerPage() {
     </WorkPanel> : null}
 
     <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5" aria-label={`${classMeta.label} month position`}>
-      <SummaryCard label="Op stk" value={`${fmt(openingTotal)} ${u}`} detail={`Stock on hand today across ${lanes.length} ${itemNoun} lane${lanes.length === 1 ? "" : "s"}`} icon={Warehouse} tone="slate" />
+      <SummaryCard label="Op stk" value={stockReady ? `${fmt(openingTotal)} ${u}` : "—"} detail={`Stock on hand today across ${lanes.length} ${itemNoun} lane${lanes.length === 1 ? "" : "s"}`} icon={Warehouse} tone="slate" />
       <SummaryCard label="Scheduled arrivals" value={`${fmt(scheduledTotal)} ${u}`} detail={`${deliveryDays} delivery days · ${vehicleTotal} vehicle${vehicleTotal === 1 ? "" : "s"} in ${monthLabel}`} icon={Truck} tone="cyan" />
-      <SummaryCard label="Requirement" value={`${fmt(requiredTotal)} ${u}`} detail={demand.isFetching ? "Refreshing from open orders…" : `${classDemand.length} BOM line${classDemand.length === 1 ? "" : "s"} due by month end${unlanedDemand > 0 ? ` · ${fmt(unlanedDemand)} not yet in a lane` : ""}`} icon={Target} tone="amber" />
-      <SummaryCard label="Cl stk" value={`${fmt(closingTotal)} ${u}`} detail={shortLanes.length ? `${shortLanes.length} lane${shortLanes.length === 1 ? "" : "s"} short · coverage ${coverage === null ? "—" : `${Math.round(coverage)}%`}` : coverage === null ? "No requirement this month" : `All lanes covered · ${Math.round(coverage)}%`} icon={shortLanes.length || closingTotal < 0 ? AlertTriangle : CheckCircle2} tone={shortLanes.length || closingTotal < 0 ? "rose" : "emerald"} />
-      <SummaryCard label="PO to raise" value={poToRaise > 0.5 ? `${fmt(poToRaise)} ${u}` : "—"} detail={poToRaise > 0.5 ? `Scheduled beyond pending POs with ${vendorRows.filter((row) => row.shortPo > 0.5).length} vendor(s)` : "Every scheduled lane is covered by an open PO"} icon={ShoppingCart} tone={poToRaise > 0.5 ? "rose" : "emerald"} />
+      <SummaryCard label="Requirement" value={demandReady ? `${fmt(requiredTotal)} ${u}` : "—"} detail={demand.isFetching ? "Refreshing from open orders…" : `${classDemand.length} BOM line${classDemand.length === 1 ? "" : "s"} due by month end${unlanedDemand > 0 ? ` · ${fmt(unlanedDemand)} not yet in a lane` : ""}`} icon={Target} tone="amber" />
+      <SummaryCard label="Cl stk" value={stockReady && demandReady ? `${fmt(closingTotal)} ${u}` : "—"}
+        detail={!stockReady || !demandReady ? "Not calculated until stock and requirement load"
+          : requiredTotal <= 0 ? "No requirement this month"
+          : closingTotal < -0.0005 ? `Short ${fmt(shortTotal)} ${u}${shortLanes.length ? ` · ${shortLanes.length} lane${shortLanes.length === 1 ? "" : "s"} short` : ""}${unlanedDemand > 0 ? ` · ${fmt(unlanedDemand)} needed with no lane yet` : ""}`
+          : `Covered · ${Math.round(coverage || 0)}% of requirement`}
+        icon={stockReady && demandReady && closingTotal >= -0.0005 && !shortLanes.length ? CheckCircle2 : AlertTriangle}
+        tone={!stockReady || !demandReady ? "slate" : closingTotal < -0.0005 || shortLanes.length ? "rose" : "emerald"} />
+      <SummaryCard label="PO to raise" value={!poReady ? "—" : poToRaise > 0.5 ? `${fmt(poToRaise)} ${u}` : "0"}
+        detail={!poReady ? "Open purchase orders did not load" : poToRaise > 0.5 ? `Scheduled beyond pending POs with ${vendorRows.filter((row) => row.toRaise > 0.5).length} vendor(s)` : ordersQuery.data && !ordersQuery.data.complete ? "More than 500 open POs in a status — check the PO register" : "Every scheduled lane is covered by an open PO"}
+        icon={ShoppingCart} tone={!poReady ? "slate" : poToRaise > 0.5 ? "rose" : "emerald"} />
     </section>
 
     <DemandIssues blocked={materialClass === "PAPER" ? blocked : []} unmapped={unmapped} warnings={classWarnings} creating={createItems.isPending} canCreate={plantReady} onCreate={(rows) => createItems.mutate(rows)} />
-    {demand.isError ? <MessageBar tone="error">Requirement could not load. Nothing has been assumed as zero — retry when services are available.</MessageBar> : null}
+    {missing.length ? <MessageBar tone="error">Could not load {missing.join(", ")}. Figures that depend on it show “—” instead of zero — refresh when the service is back.</MessageBar> : null}
 
     <WorkPanel title={view === "grid" ? "Monthly grid" : monthLabel} description={view === "grid" ? `One column per ${itemNoun}, one row per day — the workbook layout. Amber “need” marks when open orders need it; footer rows give scheduled, required (type to override the BOM figure) and closing stock${materialClass === "PAPER" ? ", plus the GSM variety balance" : ""}.` : "Tap a day to enter its arrivals. Amber is what open orders need; teal is a planned arrival."} action={<div className="flex flex-wrap items-center gap-2">
       <div className="tube-segment" role="group" aria-label="Planner view">
@@ -380,7 +407,7 @@ export default function PurchaseSchedulerPage() {
       {view === "grid" ? (
         !selected ? <EmptyState label={`Create the ${monthLabel} plan to use the workbook grid.`} /> : !lanes.length ? <EmptyState label={`Add the ${itemNoun}s open orders need, or pick one from “+ Add ${itemNoun}”.`} /> : (
           <ScheduleGrid lanes={lanes} days={dates} cells={cells} cellKey={cellKey} editable={editable} unit={unit} vendors={vendors} laneVendors={laneVendors} onVendor={setLaneVendor} onCell={setCell}
-            figures={figures} varieties={varieties} demandCell={demandCell} vehicles={vehicles} today={today} manual={manualReq} onManual={setManual} onFill={fillLane} onRemoveLane={removeLane} />
+            figures={figures} varieties={varieties} demandCell={demandCell} vehicles={vehicles} today={today} manual={manualReq} onManual={setManual} onFill={fillLane} onRemoveLane={removeLane} stockUnavailable={balancesQuery.isError} />
         )
       ) : (
         <>
@@ -405,8 +432,8 @@ export default function PurchaseSchedulerPage() {
       <WorkPanel title={materialClass === "PAPER" ? "Variety balance" : "Lane balance"} description={materialClass === "PAPER" ? "Each GSM variety across all its vendors: op stk + scheduled against what open orders need." : `Each ${itemNoun}: op stk + scheduled against what open orders need.`}>
         <CoverageBars rows={varieties ? varietyRows(varieties, lanes) : laneRows(lanes, figures)} unit={unit} />
       </WorkPanel>
-      <WorkPanel title="Vendor position" description="What each vendor is scheduled to deliver this month against its pending PO balance. PO to raise = scheduled − pending." action={<span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground"><Layers className="h-3.5 w-3.5" />{Object.keys(openPo).length} vendor(s) with open POs</span>}>
-        <VendorPositionTable rows={vendorRows} unit={unit} />
+      <WorkPanel title="Vendor position" description="What each vendor is scheduled to deliver this month against its pending PO balance. SHORT PO = pending − scheduled, as in the workbook; negative means raise a PO." action={<span className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground"><Layers className="h-3.5 w-3.5" />{Object.keys(openPo).length} vendor(s) with open POs</span>}>
+        {ordersQuery.isError ? <p className="text-[13px] text-signal-rose-ink">Open purchase orders did not load, so pending PO and short PO cannot be shown.</p> : <VendorPositionTable rows={vendorRows} unit={unit} />}
       </WorkPanel>
     </div>
 

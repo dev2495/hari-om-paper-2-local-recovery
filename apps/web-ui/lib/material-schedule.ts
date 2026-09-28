@@ -109,11 +109,12 @@ export function openPoBalances(orders: any[], itemIds: Set<string>): Record<stri
   return out
 }
 
-export type VendorPosition = { vendorId: string; vendorName: string; scheduled: number; pendingPo: number; shortPo: number; lanes: string[] }
+export type VendorPosition = { vendorId: string; vendorName: string; scheduled: number; pendingPo: number; shortPo: number; toRaise: number; lanes: string[] }
 
 /**
- * Workbook vendor block. shortPo > 0: the schedule asks this vendor for more than its open POs
- * cover, so a PO must be raised; shortPo < 0: open PO quantity not yet scheduled for delivery.
+ * Workbook vendor block, same sign as the sheet: SHORT PO = PENDING - scheduled.
+ * Negative: the schedule asks this vendor for more than its open POs cover (toRaise = that gap).
+ * Positive: PO quantity still open with the vendor that is not scheduled for delivery yet.
  */
 export function vendorPositions(args: {
   laneIds: string[]
@@ -126,7 +127,7 @@ export function vendorPositions(args: {
   const ensure = (vendorId: string, name: string) => {
     const existing = rows.get(vendorId)
     if (existing) return existing
-    const row: VendorPosition = { vendorId, vendorName: name, scheduled: 0, pendingPo: 0, shortPo: 0, lanes: [] }
+    const row: VendorPosition = { vendorId, vendorName: name, scheduled: 0, pendingPo: 0, shortPo: 0, toRaise: 0, lanes: [] }
     rows.set(vendorId, row)
     return row
   }
@@ -142,7 +143,10 @@ export function vendorPositions(args: {
     const row = ensure(balance.supplierId, balance.supplierName || args.vendorName(balance.supplierId))
     row.pendingPo = round3(row.pendingPo + balance.qty)
   }
-  const out = Array.from(rows.values()).map((row) => ({ ...row, shortPo: round3(row.scheduled - row.pendingPo) }))
+  const out = Array.from(rows.values()).map((row) => {
+    const shortPo = round3(row.pendingPo - row.scheduled)
+    return { ...row, shortPo, toRaise: Math.max(0, -shortPo) }
+  })
   return out.sort((a, b) => (a.vendorId === "unassigned" ? 1 : 0) - (b.vendorId === "unassigned" ? 1 : 0) || b.scheduled - a.scheduled || a.vendorName.localeCompare(b.vendorName))
 }
 

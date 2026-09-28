@@ -2,7 +2,6 @@
 import asyncio
 import hashlib
 import json
-import math
 import os
 from datetime import date
 from decimal import Decimal, ROUND_CEILING
@@ -61,17 +60,24 @@ def normalize_code(value):
     return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
 
 
+def _is_paper_item(item):
+    return bool(item) and item.get("type") == "RAW_PAPER" and item.get("uom") == "KG"
+
+
 def resolve_paper_item(master_id, paper, item_by_id, item_by_code):
-    """Spec BOM paper -> inventory stock item: same id, same code, or same code ignoring spaces/dashes."""
+    """Spec BOM paper -> a RAW_PAPER KG stock item: same id, same code, or same code ignoring spaces/dashes.
+
+    An item of another type or unit that happens to share the code is never a match.
+    """
     code = paper.get("code", "")
-    item = item_by_id.get(master_id) or item_by_code.get(code)
-    if item:
-        return item
+    for item in (item_by_id.get(master_id), item_by_code.get(code)):
+        if _is_paper_item(item):
+            return item
     wanted = normalize_code(code)
     if not wanted:
         return None
     for candidate in item_by_code.values():
-        if candidate.get("type") == "RAW_PAPER" and normalize_code(candidate.get("item_code")) == wanted:
+        if _is_paper_item(candidate) and normalize_code(candidate.get("item_code")) == wanted:
             return candidate
     return None
 
@@ -131,12 +137,13 @@ def explode_paper_demand(order, line, spec, recipe, bom, item_by_id, item_by_cod
 
 
 MATERIAL_ITEM_TYPES = {"ADHESIVE": {"ADHESIVE", "OTHER"}, "PARCHMENT": {"PARCHMENT"}, "PACKING": {"PACKAGING"}}
+MATERIAL_ITEM_UOM = {"ADHESIVE": "KG", "PARCHMENT": "KG", "PACKING": "PCS"}
 
 
 def resolve_material_item(material_class, code, name, items):
     """Spec BOM component -> stock item of the right class by code (ignoring spaces/dashes), then by name."""
     types = MATERIAL_ITEM_TYPES[material_class]
-    pool = [row for row in items if row.get("type") in types]
+    pool = [row for row in items if row.get("type") in types and row.get("uom") == MATERIAL_ITEM_UOM[material_class]]
     for wanted in filter(None, (normalize_code(code), normalize_code(name))):
         match = [row for row in pool if normalize_code(row.get("item_code")) == wanted or normalize_code(row.get("name")) == wanted]
         if len(match) == 1:
@@ -149,7 +156,7 @@ def resolve_parchment_item(color, items):
     wanted = normalize_code(color)
     if not wanted:
         return None
-    pool = [row for row in items if row.get("type") == "PARCHMENT"]
+    pool = [row for row in items if row.get("type") == "PARCHMENT" and row.get("uom") == "KG"]
     exact = [row for row in pool if normalize_code(row.get("item_code")) == wanted or normalize_code(row.get("name")) == wanted]
     match = exact or [row for row in pool if wanted in normalize_code(row.get("item_code")) or wanted in normalize_code(row.get("name"))]
     return match[0] if len(match) == 1 else None
@@ -210,8 +217,6 @@ def explode_other_demand(order, line, spec, bom, items, start, end):
     grouped = {}
     for material_class, code, name, uom, qty, places in wanted:
         item = resolve_parchment_item(code, items) if material_class == "PARCHMENT" else resolve_material_item(material_class, code, name, items)
-        if item and material_class != "PACKING" and item.get("uom") != "KG":
-            item = None
         mapped = bool(item)
         if not mapped:
             problems.append(f"{material_class.title()} {code or name or '?'} has no stock item yet")
@@ -347,11 +352,10 @@ async def material_demand(token, plant_id, start, end):
                 size = size_by_id.get(spec.get("tube_size_id"))
                 if not size or len(recipes) != 1 or spec.get("status") != "approved":
                     cache[spec_id] = (None, "An approved specification, one approved recipe and tube dimensions are required")
-                elif float(size["length_mm"]) != int(float(size["length_mm"])):
-                    cache[spec_id] = (None, "BOM calculator requires whole-mm tube length; review specification")
                 else:
                     recipe = recipes[0]
-                    bom = await get(SPEC_URL, f"/calculate/bom/{recipe['id']}", {"tube_length_mm": int(float(size["length_mm"])), "tube_od_mm": int(math.ceil(float(size["outer_diameter_mm"])))})
+                    # The calculator keeps fractional lengths (e.g. 120.5 mm); never round the tube.
+                    bom = await get(SPEC_URL, f"/calculate/bom/{recipe['id']}", {"tube_length_mm": float(size["length_mm"]), "tube_od_mm": float(size["outer_diameter_mm"])})
                     cache[spec_id] = ((spec, recipe, bom), None)
             source, problem = cache[spec_id]
             if source:
@@ -417,6 +421,11 @@ async def create_paper_stock_items(token, plant_id, paper_ids):
         if existing:
             skipped.append({"paper_id": paper_id, "item_code": existing["item_code"]})
             continue
+        clash = next((row for row in item_by_code.values() if normalize_code(row.get("item_code")) == normalize_code(paper.get("code"))), None)
+        if clash:
+            failed.append({"paper_id": paper_id, "item_code": clash.get("item_code"),
+                           "reason": f"Code {clash.get('item_code')} is already a {clash.get('type')} item in {clash.get('uom')}. Change that item to RAW_PAPER in KG, or rename it, then retry."})
+            continue
         body = {
             "item_code": paper.get("code"),
             "name": f"{paper.get('variety') or paper.get('code')} {paper.get('gsm') or ''} GSM".strip(),
@@ -471,6 +480,11 @@ async def create_material_stock_items(token, plant_id, materials):
             continue
         item_type, uom = MATERIAL_ITEM_CREATE[material_class]
         item_code = f"PARCH-{code}".upper() if material_class == "PARCHMENT" else code.upper()
+        clash = next((row for row in items if normalize_code(row.get("item_code")) == normalize_code(item_code)), None)
+        if clash:
+            failed.append({"code": code, "item_code": clash.get("item_code"),
+                           "reason": f"Code {clash.get('item_code')} is already a {clash.get('type')} item in {clash.get('uom')}. Change it to {item_type} in {uom}, or rename it, then retry."})
+            continue
         body = {"item_code": item_code[:50], "name": (f"Parchment {code}" if material_class == "PARCHMENT" else code)[:200],
                 "type": item_type, "tracking_mode": "BULK", "uom": uom}
         response = await http_client.post(f"{INVENTORY_URL}/items/", headers=headers, json=body)

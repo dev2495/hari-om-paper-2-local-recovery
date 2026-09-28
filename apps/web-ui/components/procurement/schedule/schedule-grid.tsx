@@ -41,7 +41,7 @@ const stickyHead = "sticky left-0 z-30 border-r border-border bg-[hsl(var(--surf
 
 export function ScheduleGrid({
   lanes, days, cells, cellKey, editable, unit, vendors, laneVendors, onVendor, onCell, figures, varieties,
-  demandCell, vehicles, today, manual, onManual, onFill, onRemoveLane,
+  demandCell, vehicles, today, manual, onManual, onFill, onRemoveLane, stockUnavailable = false,
 }: {
   lanes: any[]
   days: Date[]
@@ -62,6 +62,7 @@ export function ScheduleGrid({
   onManual: (itemId: string, baseValue: string) => void
   onFill: (itemId: string, qty: number) => void
   onRemoveLane: (itemId: string) => void
+  stockUnavailable?: boolean
 }) {
   const label = unitLabel(unit)
   const fmt = (value: number) => formatQty(value, unit)
@@ -111,9 +112,9 @@ export function ScheduleGrid({
           <tr>
             <th className={cn(stickyHead, "border-b bg-card py-1.5 font-semibold text-foreground")}>Op stk</th>
             {ordered.map((item: any) => (
-              <td key={item.id} className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums text-foreground/85" title="Stock on hand today">{fmt(figures[String(item.id)]?.opening || 0)}</td>
+              <td key={item.id} className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums text-foreground/85" title={stockUnavailable ? "Stock did not load" : "Stock on hand today"}>{stockUnavailable ? "—" : fmt(figures[String(item.id)]?.opening || 0)}</td>
             ))}
-            <td className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums">{fmt(ordered.reduce((sum, lane) => sum + (figures[String(lane.id)]?.opening || 0), 0))}</td>
+            <td className="border-b border-r border-border bg-card px-2 py-1.5 text-right font-semibold tabular-nums">{stockUnavailable ? "—" : fmt(ordered.reduce((sum, lane) => sum + (figures[String(lane.id)]?.opening || 0), 0))}</td>
             <td className="border-b border-border bg-card" />
           </tr>
         </thead>

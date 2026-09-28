@@ -178,3 +178,51 @@ def test_uom_mismatch_is_unknown_not_usable_coverage():
         },
         20,
     ) == []
+
+
+# Same fixture numbers as apps/bff-api tests/test_procurement_demand.py: both views must agree.
+PARITY_BOM = {
+    "expected_output": {"tubes_per_bamboo": 12},
+    "raw_materials": {
+        "papers": [{"paper_id": "p1", "gsm": 230, "bf": 18, "weight_kg": 0.5}],
+        "adhesives": {"components": [{"name": "SYNTHETIC", "item_code": "SYN-01", "weight_kg": 0.1}]},
+        "parchment": {"color": "BLUE", "weight_kg": 0.03},
+    },
+    "packing": {"box_code": "G-120", "qty_per_box": 48, "plastic_sku": "PB-32", "plastic_per_box": 1},
+}
+
+
+def test_mrp_uses_whole_bamboos_like_the_purchase_schedule():
+    rows = {row["kind"]: row for row in expand_bom_for_qty(PARITY_BOM, 1000, {"parchment_required": True, "parchment_color": "BLUE"})}
+    assert rows["PAPER"]["required_qty"] == 42.0  # 84 bamboos, not 83.33
+    assert rows["ADHESIVE"]["required_qty"] == 8.4
+    assert rows["PARCHMENT"]["required_qty"] == 2.52
+
+
+def test_mrp_skips_parchment_when_the_line_needs_none():
+    rows = expand_bom_for_qty(PARITY_BOM, 1000, {"parchment_required": False})
+    assert "PARCHMENT" not in {row["kind"] for row in rows}
+
+
+def test_mrp_parchment_follows_the_line_colour_breakup():
+    line = {"parchment_required": True, "parchment_color": None, "qty_ordered": 1000,
+            "color_splits": [{"color": "BLUE", "qty": 400}, {"color": "RED", "qty": 300}]}
+    parchment = {row["material_key"]: row["required_qty"] for row in expand_bom_for_qty(PARITY_BOM, 1000, line) if row["kind"] == "PARCHMENT"}
+    assert parchment == {"PARCHMENT:BLUE": 1.008, "PARCHMENT:RED": 0.756, "PARCHMENT:UNASSIGNED": 0.756}
+
+
+def test_mrp_counts_boxes_and_bags_per_box():
+    packing = {row["item_code"]: row for row in expand_bom_for_qty(PARITY_BOM, 1000, {}) if row["kind"] == "PACKING"}
+    assert packing["G-120"]["required_qty"] == 21 and packing["G-120"]["uom"] == "PCS"
+    assert packing["PB-32"]["required_qty"] == 21
+
+
+def test_wrong_type_item_with_the_same_code_is_not_a_match():
+    kg_box = {"item_id": "i1", "item_code": "G120", "type": "RAW_PAPER", "uom": "KG"}
+    item, state = match_inventory_item({"kind": "PACKING", "item_code": "G-120", "label": "G-120"},
+                                       papers_by_id={}, items_by_code={"G120": kg_box}, items_by_id={})
+    assert item is None and state == "UNKNOWN"
+    box = {"item_id": "i2", "item_code": "G120", "type": "PACKAGING", "uom": "PCS"}
+    item, state = match_inventory_item({"kind": "PACKING", "item_code": "G-120", "label": "G-120"},
+                                       papers_by_id={}, items_by_code={"G120": box}, items_by_id={})
+    assert item is box and state == "MAPPED"

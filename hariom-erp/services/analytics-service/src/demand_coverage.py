@@ -6,6 +6,7 @@ receipts, or apply reorder policy to shortfall.
 """
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Any, Iterable, Optional
@@ -38,10 +39,34 @@ def iso_week_bucket(due_value: Any) -> str:
     return f"{iso.year}-W{iso.week:02d}"
 
 
-def expand_bom_for_qty(bom: dict[str, Any], qty_pcs: float) -> list[dict[str, Any]]:
+def _norm(value: Any) -> str:
+    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+
+
+def _parchment_shares(line: Optional[dict[str, Any]], spec_color: str) -> list[tuple[str, float]]:
+    """Same rule as the purchase schedule: split by the line's colour breakup, rest to the line colour."""
+    line = line or {}
+    splits = [row for row in line.get("color_splits") or [] if _safe_float(row.get("qty")) > 0]
+    if not splits:
+        return [(str(line.get("parchment_color") or spec_color or "").strip(), 1.0)]
+    assigned = sum(_safe_float(row.get("qty")) for row in splits)
+    total_qty = max(assigned, _safe_float(line.get("qty_ordered")))
+    merged: dict[str, float] = {}
+    for row in splits:
+        color = str(row.get("color") or "").strip()
+        merged[color] = merged.get(color, 0.0) + _safe_float(row.get("qty")) / total_qty
+    if total_qty - assigned > 1e-9:  # colour not decided yet: stays unassigned, never guessed
+        color = str(line.get("parchment_color") or "").strip()
+        merged[color] = merged.get(color, 0.0) + (total_qty - assigned) / total_qty
+    return list(merged.items())
+
+
+def expand_bom_for_qty(bom: dict[str, Any], qty_pcs: float, line: Optional[dict[str, Any]] = None) -> list[dict[str, Any]]:
     """Scale a canonical generate_bom payload to a remaining piece quantity.
 
-    Paper/adhesive/parchment weights in generate_bom are per whole bamboo.
+    Mirrors the purchase schedule (BFF material demand) so both show the same numbers:
+    weights are per whole bamboo and a part bamboo is still a whole bamboo wound; parchment
+    only when the line needs it, split by its colour breakup; packing per box from the spec.
     """
     qty = max(0.0, _safe_float(qty_pcs))
     if qty <= 0:
@@ -50,7 +75,7 @@ def expand_bom_for_qty(bom: dict[str, Any], qty_pcs: float) -> list[dict[str, An
     tubes_per_bamboo = _safe_float(expected.get("tubes_per_bamboo"))
     if tubes_per_bamboo <= 0:
         return []
-    bamboo_count = qty / tubes_per_bamboo
+    bamboo_count = float(math.ceil(qty / tubes_per_bamboo - 1e-9))
     raw = dict((bom or {}).get("raw_materials") or {})
     rows: list[dict[str, Any]] = []
 
@@ -76,12 +101,14 @@ def expand_bom_for_qty(bom: dict[str, Any], qty_pcs: float) -> list[dict[str, An
     adhesives = dict(raw.get("adhesives") or {})
     for component in list(adhesives.get("components") or []):
         name = str(component.get("name") or "Adhesive").strip() or "Adhesive"
+        code = str(component.get("item_code") or "").strip()
         required_kg = _safe_float(component.get("weight_kg")) * bamboo_count
         rows.append(
             {
                 "kind": "ADHESIVE",
-                "material_key": f"ADHESIVE:{name.upper()}",
+                "material_key": f"ADHESIVE:{(code or name).upper()}",
                 "paper_id": None,
+                "item_code": code or None,
                 "label": name,
                 "required_qty": round(required_kg, 6),
                 "uom": "KG",
@@ -90,21 +117,40 @@ def expand_bom_for_qty(bom: dict[str, Any], qty_pcs: float) -> list[dict[str, An
 
     parchment = dict(raw.get("parchment") or {})
     parchment_kg = _safe_float(parchment.get("weight_kg")) * bamboo_count
-    if parchment_kg > 0:
-        color = str(parchment.get("color") or "").strip()
-        rows.append(
-            {
-                "kind": "PARCHMENT",
-                "material_key": f"PARCHMENT:{color.upper() or 'UNSPECIFIED'}",
-                "paper_id": None,
-                "color": color or None,
-                "item_code": f"PARCHMENT-{color.upper()}" if color else None,
-                "label": f"Parchment {color}".strip(),
-                "required_qty": round(parchment_kg, 6),
-                "uom": "KG",
-            }
-        )
+    if parchment_kg > 0 and (line or {}).get("parchment_required", True) is not False:
+        for color, share in _parchment_shares(line, str(parchment.get("color") or "")):
+            rows.append(
+                {
+                    "kind": "PARCHMENT",
+                    "material_key": f"PARCHMENT:{color.upper() or 'UNASSIGNED'}",
+                    "paper_id": None,
+                    "color": color or None,
+                    "item_code": f"PARCHMENT-{color.upper()}" if color else None,
+                    "label": f"Parchment {color or 'colour not decided'}",
+                    "required_qty": round(parchment_kg * share, 6),
+                    "uom": "KG",
+                }
+            )
+
+    packing = dict((bom or {}).get("packing") or {})
+    per_box = _safe_float(packing.get("qty_per_box"))
+    if packing.get("box_code") and per_box > 0:
+        boxes = float(math.ceil(qty / per_box - 1e-9))
+        for code, count in ((packing.get("box_code"), boxes),
+                            (packing.get("plastic_sku"), math.ceil(boxes * _safe_float(packing.get("plastic_per_box")) - 1e-9)),
+                            (packing.get("fadda_sku"), math.ceil(boxes * _safe_float(packing.get("fadda_per_box")) - 1e-9))):
+            if code and count > 0:
+                rows.append({"kind": "PACKING", "material_key": f"PACKING:{str(code).upper()}", "paper_id": None,
+                             "item_code": str(code), "label": str(code), "required_qty": float(count), "uom": "PCS"})
     return rows
+
+
+_KIND_TYPES = {"PAPER": {"RAW_PAPER"}, "ADHESIVE": {"ADHESIVE", "OTHER"}, "PARCHMENT": {"PARCHMENT"}, "PACKING": {"PACKAGING"}}
+
+
+def _type_ok(kind: str, item: dict[str, Any]) -> bool:
+    item_type = str(item.get("type") or "").upper()
+    return not item_type or item_type in _KIND_TYPES.get(kind, {item_type})
 
 
 def match_inventory_item(
@@ -114,36 +160,40 @@ def match_inventory_item(
     items_by_code: dict[str, dict[str, Any]],
     items_by_id: dict[str, dict[str, Any]],
 ) -> tuple[Optional[dict[str, Any]], str]:
-    """Exact identity match only. GSM-in-description is not a substitute."""
+    """Exact identity match (code, ignoring spaces/dashes) of the right material type.
+
+    GSM-in-description is not a substitute. Same rules as the purchase schedule.
+    """
     kind = str(need.get("kind") or "").upper()
+    candidates = [item for item in items_by_code.values() if _type_ok(kind, item)]
+
+    def by_code(*codes: Any) -> Optional[dict[str, Any]]:
+        for code in codes:
+            wanted = _norm(code)
+            if not wanted:
+                continue
+            found = [item for item in candidates if _norm(item.get("item_code")) == wanted or (kind != "PAPER" and _norm(item.get("name")) == wanted)]
+            if len(found) == 1:
+                return found[0]
+        return None
+
     if kind == "PAPER":
         paper_id = str(need.get("paper_id") or "")
         catalog = papers_by_id.get(paper_id) or {}
-        code = str(catalog.get("code") or "").strip().upper()
-        if code and code in items_by_code:
-            return items_by_code[code], "MAPPED"
-        if paper_id and paper_id in items_by_id:
-            return items_by_id[paper_id], "MAPPED"
-        # Same code written with different spacing/dashes (KRAFT-230-18BF vs KRAFT 230 18BF).
-        wanted = "".join(ch for ch in code if ch.isalnum())
-        if wanted:
-            for item_code, item in items_by_code.items():
-                if "".join(ch for ch in str(item_code) if ch.isalnum()) == wanted:
-                    return item, "MAPPED"
-        return None, "UNKNOWN"
-    if kind == "ADHESIVE":
-        label = str(need.get("label") or "").strip().upper()
-        if label and label in items_by_code:
-            return items_by_code[label], "MAPPED"
-        return None, "UNKNOWN"
+        item = by_code(catalog.get("code"))
+        if item is None and paper_id in items_by_id and _type_ok(kind, items_by_id[paper_id]):
+            item = items_by_id[paper_id]
+        return (item, "MAPPED") if item else (None, "UNKNOWN")
+    if kind in {"ADHESIVE", "PACKING"}:
+        item = by_code(need.get("item_code"), need.get("label"))
+        return (item, "MAPPED") if item else (None, "UNKNOWN")
     if kind == "PARCHMENT":
-        color = str(need.get("color") or "").strip().upper()
-        code_candidates = [item for item in (need.get("item_code"), f"PARCHMENT-{color}" if color else None) if item]
-        for code in code_candidates:
-            token = str(code).strip().upper()
-            if token and token in items_by_code:
-                return items_by_code[token], "MAPPED"
-        return None, "UNKNOWN"
+        color = _norm(need.get("color"))
+        item = by_code(need.get("item_code"), f"PARCHMENT-{need.get('color')}" if color else None)
+        if item is None and color:
+            found = [row for row in candidates if str(row.get("type") or "").upper() == "PARCHMENT" and (color in _norm(row.get("item_code")) or color in _norm(row.get("name")))]
+            item = found[0] if len(found) == 1 else None
+        return (item, "MAPPED") if item else (None, "UNKNOWN")
     return None, "UNKNOWN"
 
 
@@ -199,7 +249,7 @@ def build_coverage(
             )
             recipes_unknown += 1
             continue
-        expanded = expand_bom_for_qty(bom_wrap["bom"], remaining)
+        expanded = expand_bom_for_qty(bom_wrap["bom"], remaining, line)
         if not expanded:
             unknown_lines.append({**line, "reason": "Canonical BOM did not yield per-piece material weights."})
             recipes_unknown += 1

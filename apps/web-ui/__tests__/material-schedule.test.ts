@@ -70,8 +70,11 @@ const vendors = vendorPositions({
 const byVendor = Object.fromEntries(vendors.map((row) => [row.vendorId, row]))
 assert.equal(byVendor.vatsalya.scheduled, 168000)
 assert.equal(byVendor.vatsalya.pendingPo, 0)
-assert.equal(byVendor.vatsalya.shortPo, 168000) // nothing on order: raise a PO
-assert.equal(byVendor.akhsat.shortPo, -40000) // 40 MT on order not yet scheduled
+// Workbook sign: SHORT PO = PENDING - scheduled
+assert.equal(byVendor.vatsalya.shortPo, -168000) // nothing on order: raise a PO for 168 MT
+assert.equal(byVendor.vatsalya.toRaise, 168000)
+assert.equal(byVendor.akhsat.shortPo, 40000) // 40 MT on order not yet scheduled
+assert.equal(byVendor.akhsat.toRaise, 0)
 
 // Vehicles per day = lanes with an arrival that day
 const cells: Record<string, number> = { '2026-09-05:vp351': 12000, '2026-09-05:ap351': 12000, '2026-09-06:vp230': 0 }
