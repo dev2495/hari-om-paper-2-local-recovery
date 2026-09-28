@@ -138,13 +138,17 @@ def _ensure_schema_compatibility():
         "UPDATE job_cards SET parchment_color = NULLIF(COALESCE(spec_snapshot->>'sales_order_line_parchment_color', spec_snapshot->>'parchment_color'), '') "
         "WHERE parchment_color IS NULL AND COALESCE(spec_snapshot->>'sales_order_line_parchment_color', '') NOT IN ('', 'Multiple colors')",
         # Number existing root cards YY/MM/NN in creation order (series per month), then children ROOT-A, -B …
-        "WITH ranked AS (SELECT id, to_char(created_at, 'YY/MM/') AS prefix, to_char(created_at, 'YYMM') AS mk, "
+        "WITH ranked AS (SELECT id, to_char(created_at, 'YY/MM/') AS prefix, "
         "row_number() OVER (PARTITION BY to_char(created_at, 'YYMM') ORDER BY created_at, id) + "
-        "COALESCE((SELECT last_seq FROM job_card_number_counters k WHERE k.month_key = to_char(j.created_at, 'YYMM')), 0) AS rn "
+        "COALESCE((SELECT MAX(substring(x.job_card_no from '^[0-9][0-9]/[0-9][0-9]/([0-9]+)$')::int) FROM job_cards x "
+        "WHERE x.job_card_no LIKE to_char(j.created_at, 'YY/MM/') || '%'), 0) AS rn "
         "FROM job_cards j WHERE job_card_no IS NULL AND parent_job_card_id IS NULL) "
-        "UPDATE job_cards j SET job_card_no = ranked.prefix || lpad(ranked.rn::text, 2, '0') FROM ranked WHERE j.id = ranked.id",
+        "UPDATE job_cards j SET job_card_no = ranked.prefix || lpad(ranked.rn::text, GREATEST(2, length(ranked.rn::text)), '0') FROM ranked WHERE j.id = ranked.id",
+        # Counters never behind a number already issued (new cards continue after the backfill).
         "INSERT INTO job_card_number_counters (month_key, last_seq) "
-        "SELECT to_char(created_at, 'YYMM'), COUNT(*) FROM job_cards WHERE parent_job_card_id IS NULL GROUP BY 1 "
+        "SELECT substring(job_card_no from 1 for 2) || substring(job_card_no from 4 for 2), "
+        "MAX(substring(job_card_no from '^[0-9][0-9]/[0-9][0-9]/([0-9]+)$')::int) FROM job_cards "
+        "WHERE job_card_no ~ '^[0-9][0-9]/[0-9][0-9]/[0-9]+$' GROUP BY 1 "
         "ON CONFLICT (month_key) DO UPDATE SET last_seq = GREATEST(job_card_number_counters.last_seq, EXCLUDED.last_seq)",
         "WITH kids AS (SELECT c.id, p.job_card_no AS root, row_number() OVER (PARTITION BY c.parent_job_card_id ORDER BY c.created_at, c.id) AS n "
         "FROM job_cards c JOIN job_cards p ON p.id = c.parent_job_card_id WHERE c.job_card_no IS NULL AND p.job_card_no IS NOT NULL) "

@@ -31,8 +31,10 @@ def _stage_has_entry(db: Session, job: JobCard, stage_type: str) -> bool:
     return bool(row and ((row.actuals_snapshot or {}).get("running_log") or float(row.output_qty or 0) > 0 or row.status in ENTRY_STATUSES))
 
 
-def sweep_missed_slots(db: Session, plant_uuid: Optional[uuid.UUID] = None, *, now_local: Optional[datetime] = None) -> list[dict[str, Any]]:
-    """Requeue every overdue silent card (idempotent; cheap indexed scan). Commits when it changed anything."""
+def sweep_missed_slots(db: Session, plant_uuid: uuid.UUID, *, now_local: Optional[datetime] = None) -> list[dict[str, Any]]:
+    """Requeue one plant's overdue silent cards (idempotent; cheap indexed scan). Commits when it changed anything."""
+    if plant_uuid is None:
+        raise ValueError("Missed-slot sweep needs one concrete plant")
     from .planning import PLANT_TIMEZONE, _all_stage_segments, _sync_stage_row_from_segments
 
     now_local = now_local or datetime.now(PLANT_TIMEZONE).replace(tzinfo=None)
@@ -47,8 +49,7 @@ def sweep_missed_slots(db: Session, plant_uuid: Optional[uuid.UUID] = None, *, n
             JobCard.status.notin_(["COMPLETED", "CANCELLED"]),
         )
     )
-    if plant_uuid is not None:
-        query = query.filter(JobCard.plant_id == plant_uuid)
+    query = query.filter(JobCard.plant_id == plant_uuid)
     requeued: list[dict[str, Any]] = []
     seen: set[tuple[uuid.UUID, str]] = set()
     for segment, job in query.all():
