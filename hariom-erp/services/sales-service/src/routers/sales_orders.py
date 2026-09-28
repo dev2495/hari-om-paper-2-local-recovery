@@ -1514,6 +1514,58 @@ def get_spec_usage(
     }
 
 
+@router.get("/delivery-calendar")
+def get_delivery_calendar(
+    date_from: date = Query(...),
+    date_to: date = Query(...),
+    db: Session = Depends(get_db),
+    plant_scope: dict = Depends(get_current_plant_scope),
+    current_user: dict = Depends(get_current_user),
+):
+    """Customer delivery commitments across open orders, by date, for the planner and purchase calendars.
+
+    Each saved call-off is one row. A line with no call-off yet contributes its unscheduled balance
+    on the line due date (source "LINE_DUE"), so nothing the customer expects is left off.
+    """
+    del current_user
+    if (date_to - date_from).days > 400:
+        raise HTTPException(status_code=422, detail="Choose at most 400 days")
+    orders = (
+        apply_plant_scope(db.query(SalesOrder), SalesOrder.plant_id, plant_scope)
+        .options(joinedload(SalesOrder.lines).joinedload(SalesOrderLine.delivery_schedules), joinedload(SalesOrder.lines).joinedload(SalesOrderLine.release_lots))
+        .filter(SalesOrder.status.notin_([SalesOrderStatus.DRAFT, SalesOrderStatus.CLOSED]))
+        .all()
+    )
+    rows = []
+    for order in orders:
+        for line in order.lines or []:
+            open_qty = max(0.0, float(line.qty or 0.0) - float(line.fulfilled_qty or 0.0) - float(line.hold_qty or 0.0))
+            if open_qty <= 1e-6:
+                continue
+            base = {
+                "order_id": str(order.id), "order_no": order.order_no, "customer_id": str(order.customer_id) if order.customer_id else None,
+                "po_number": order.po_number, "line_id": str(line.id), "line_no": int(line.line_no or 1),
+                "product_code": line.product_code, "size_label": getattr(line, "size_label", None),
+                "parchment_color": line.parchment_color if getattr(line, "parchment_required", False) else None,
+                "line_qty": float(line.qty or 0.0), "line_open_qty": round(open_qty, 2),
+                "released_qty": round(sum(float(lot.released_qty or 0.0) for lot in (line.release_lots or []) if str(lot.status or "").lower() != "cancelled"), 2),
+                "is_held": bool(getattr(order, "is_held", False)),
+            }
+            schedules = [row for row in (line.delivery_schedules or []) if str(row.status or "").lower() not in {"cancelled"}]
+            scheduled_qty = 0.0
+            for schedule in schedules:
+                scheduled_qty += float(schedule.quantity or 0.0)
+                if schedule.delivery_date and date_from <= schedule.delivery_date <= date_to:
+                    rows.append({**base, "date": schedule.delivery_date.isoformat(), "qty": round(float(schedule.quantity or 0.0), 2),
+                                 "status": schedule.status, "schedule_id": str(schedule.id), "source": "CALL_OFF"})
+            unscheduled = max(0.0, float(line.qty or 0.0) - scheduled_qty - float(line.fulfilled_qty or 0.0))
+            if unscheduled > 1e-6 and line.due_date and date_from <= line.due_date <= date_to:
+                rows.append({**base, "date": line.due_date.isoformat(), "qty": round(unscheduled, 2), "status": "unscheduled",
+                             "schedule_id": None, "source": "LINE_DUE"})
+    rows.sort(key=lambda row: (row["date"], row["order_no"] or "", row["line_no"]))
+    return {"date_from": date_from.isoformat(), "date_to": date_to.isoformat(), "items": rows}
+
+
 @router.get("/open-demand")
 def list_open_demand(
     db: Session = Depends(get_db),

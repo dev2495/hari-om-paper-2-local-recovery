@@ -344,6 +344,7 @@ export const salesApi = {
   approveOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/approve`, {}, withPlantHeader(plantId)),
   releaseOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/release`, {}, withPlantHeader(plantId)),
   releaseOrderLine: (lineId: string, data: any, plantId?: string) => api.post(`/api/sales/orders/lines/${lineId}/release`, data, withPlantHeader(plantId)),
+  getDeliveryCalendar: (params: { date_from: string; date_to: string }) => api.get(`/api/sales/orders/delivery-calendar`, { params }),
   releaseLinesBulk: (rows: any[], plantId?: string) => api.post(`/api/sales/orders/release-bulk`, rows, withPlantHeader(plantId)),
   updateLineColors: (lineId: string, colorSplits: Array<{ color: string; color_id?: string | null; qty: number }>) =>
     api.put(`/api/sales/orders/lines/${lineId}/colors`, { color_splits: colorSplits }),

@@ -63,3 +63,17 @@ def test_bulk_release_creates_every_lot_and_a_retry_does_not_duplicate(db):
     assert first['count'] == 2 and _lots(db, line) == 2
     again = so.bulk_release_sales_order_lines(rows, db=db, plant_id=PLANT, current_user=USER)
     assert {lot['id'] for lot in again['lots']} == {lot['id'] for lot in first['lots']} and _lots(db, line) == 2
+
+
+def test_delivery_calendar_lists_call_offs_and_the_unscheduled_line_balance(db):
+    from src.models import SalesOrderDeliverySchedule, SalesOrderLine
+    line_id = _approved_line(db)  # 5000 pcs
+    line = db.get(SalesOrderLine, line_id)
+    db.add(SalesOrderDeliverySchedule(sales_order_id=line.sales_order_id, sales_order_line_id=line.id, plant_id=PLANT,
+                                      delivery_date=date.today() + timedelta(days=3), quantity=2000, status='committed'))
+    db.commit()
+    scope = {'scope_all': False, 'selected_plant_id': PLANT, 'allowed_plants': [PLANT]}
+    result = so.get_delivery_calendar(date_from=date.today(), date_to=date.today() + timedelta(days=30), db=db, plant_scope=scope, current_user=USER)
+    mine = [row for row in result['items'] if row['line_id'] == str(line_id)]
+    assert [(row['source'], row['qty']) for row in mine] == [('CALL_OFF', 2000.0), ('LINE_DUE', 3000.0)]
+    assert mine[0]['date'] == (date.today() + timedelta(days=3)).isoformat()

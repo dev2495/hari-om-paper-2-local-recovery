@@ -21,6 +21,7 @@ import {
   TimerReset,
 } from "lucide-react"
 import { PlannerCalendar } from "@/components/planning/planner-calendar"
+import { ScheduleBoard, type BoardTarget, type CardAction } from "@/components/planning/schedule-board"
 import { WinderLoadBars } from "@/components/planning/winder-load-bars"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
@@ -329,19 +330,22 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const needsConcretePlant = activePlant === "ALL"
   const canQuery = !authLoading && Boolean(user) && !needsConcretePlant
 
+  // Board window: 2 days by default (bigger, easier to plan), 3 on request.
+  const windowDays = searchParams?.get("days") === "3" ? 3 : 2
   const day0 = dayjs(startDate).format("YYYY-MM-DD")
   const day1 = dayjs(startDate).add(1, "day").format("YYYY-MM-DD")
   const day2 = dayjs(startDate).add(2, "day").format("YYYY-MM-DD")
-  const previousWindowDate = dayjs(startDate).subtract(3, "day").format("YYYY-MM-DD")
+  const previousWindowDate = dayjs(startDate).subtract(windowDays, "day").format("YYYY-MM-DD")
   const todayWindowDate = dayjs().format("YYYY-MM-DD")
-  const nextWindowDate = dayjs(startDate).add(3, "day").format("YYYY-MM-DD")
+  const nextWindowDate = dayjs(startDate).add(windowDays, "day").format("YYYY-MM-DD")
   const maxPlannerDate = dayjs().add(3, "month").format("YYYY-MM-DD")
   const monthStartDate = dayjs(startDate).startOf("month").format("YYYY-MM-DD")
   const previousMonthDate = dayjs(startDate).subtract(1, "month").startOf("month").format("YYYY-MM-DD")
   const nextMonthDate = dayjs(startDate).add(1, "month").startOf("month").format("YYYY-MM-DD")
 
-  const boardHref = useCallback((next: { section?: string; date?: string; view?: string } = {}) => {
+  const boardHref = useCallback((next: { section?: string; date?: string; view?: string; days?: number } = {}) => {
     const params = new URLSearchParams()
+    if ((next.days ?? windowDays) === 3) params.set("days", "3")
     params.set("section", next.section || section)
     params.set("plan_date", next.date || startDate)
     params.set("view", (next.view || plannerView) === "calendar" ? "calendar" : "schedule")
@@ -353,7 +357,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
       return `/planning/${target === "summary" ? "overview" : target}?${params.toString()}`
     }
     return `/planning/board?${params.toString()}`
-  }, [focusedJobCardId, focusedOrderId, plannerView, section, startDate, sectionOverride])
+  }, [focusedJobCardId, focusedOrderId, plannerView, section, startDate, sectionOverride, windowDays])
 
   // ---- zoom between the month calendar and the 3-day board -------------------------------
   // The motion is decided once per view/window (a key), so later re-renders never cut it off.
@@ -1259,113 +1263,60 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         className="min-w-0 max-w-full space-y-3 overflow-x-hidden pb-3"
         data-testid="planner-page"
       >
-        <section
-          className={`shrink-0 overflow-hidden rounded-[1.45rem] border bg-gradient-to-br ${stageTheme.tint} px-4 py-2.5 shadow-[0_18px_52px_rgba(15,23,42,0.07)]`}
-        >
-          <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11.5px] font-semibold ${stageTheme.pill}`}>
-                  <Layers3 className="h-3.5 w-3.5" />
-                  Planning board
-                </div>
-                <div className="rounded-full border border-border/80 bg-card/80 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                  {formatDate(day0, "DD MMM")} - {formatDate(day2, "DD MMM")}
-                </div>
-              <div className="rounded-full border border-border/80 bg-card/80 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                {plannerShifts.map((shift: any) => shift.label || shift.code).join(" · ")}
-              </div>
-              {dayjs(startDate).isBefore(dayjs(), "day") ? (
-                <div className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-3 py-1 text-[11px] font-semibold text-signal-amber-ink">
-                  Past window: check unfinished output
-                </div>
-              ) : null}
-              </div>
-              <div className="mt-2 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
-                <div>
-                  <p className="text-[11.5px] font-semibold text-muted-foreground">{meta.title}</p>
-                  <h1 className="mt-1 text-[1.65rem] font-semibold tracking-tight text-foreground">
-                    Machine scheduling across 3 days
-                  </h1>
-                </div>
-                <p className="max-w-2xl text-xs leading-5 text-muted-foreground">{meta.subtitle}</p>
-              </div>
-            </div>
-
-            <div className="grid gap-2 sm:grid-cols-5 2xl:w-[45rem]">
-              {heroMetricCards.map((card) => (
-                <div key={card.label} className={`rounded-[1.05rem] border px-3 py-2 shadow-sm ring-1 ring-white/70 ${card.className}`}>
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-[12px] font-semibold opacity-70">{card.label}</p>
-                    <card.icon className="h-3.5 w-3.5 opacity-70" />
-                  </div>
-                  <p className="mt-1 text-xl font-semibold leading-none">{card.value}</p>
-                  <p className="mt-1 text-[10px] leading-4 opacity-75">{card.hint}</p>
-                </div>
-              ))}
-            </div>
+        {/* One slim toolbar: stage, view, window, live figures. The board gets the rest of the screen. */}
+        <section className="sticky top-0 z-30 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/95 px-3 py-2 shadow-sm backdrop-blur" data-testid="planner-toolbar">
+          <label className="sr-only" htmlFor="planner-stage">Planning workspace</label>
+          <select id="planner-stage" aria-label="Planning workspace" value={section} className="h-8 rounded-lg border border-border bg-card px-2 text-[13px] font-semibold text-foreground" onChange={event => {
+            const params = new URLSearchParams(searchParams?.toString())
+            params.delete("section")
+            const target = event.target.value
+            router.push(`/planning/${target === "summary" ? "overview" : target}?${params.toString()}`)
+          }}>
+            {tabs.map(tab => <option key={tab.key} value={tab.key}>{tab.key === "summary" ? "Planning overview" : `${tab.key.charAt(0).toUpperCase()}${tab.key.slice(1)} planning`} · {stageCounts.get(tab.key) || 0}</option>)}
+          </select>
+          <div className="tube-segment !h-8" role="group" aria-label="Planner view">
+            <Link href={boardHref({ view: "calendar" })} aria-current={plannerView === "calendar" ? "page" : undefined} className="inline-flex items-center px-3">Month</Link>
+            <Link href={boardHref({ view: "schedule" })} aria-current={plannerView === "schedule" ? "page" : undefined} className="inline-flex items-center px-3">Board</Link>
           </div>
-
-          <div className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <label className="flex flex-wrap items-center gap-2 text-xs font-medium text-muted-foreground">Planning workspace
-                <select aria-label="Planning workspace" value={section} className="h-10 rounded-lg border border-border bg-card px-3 text-foreground" onChange={event => {
-                  const params = new URLSearchParams(searchParams?.toString())
-                  params.delete("section")
-                  const target = event.target.value
-                  router.push(`/planning/${target === "summary" ? "overview" : target}?${params.toString()}`)
-                }}>
-                  {tabs.map(tab => <option key={tab.key} value={tab.key}>{tab.key === "summary" ? "Planning overview" : `${tab.key.charAt(0).toUpperCase()}${tab.key.slice(1)} planning`} · {stageCounts.get(tab.key) || 0}</option>)}
-                </select>
-              </label>
-              <Link
-                href={`/planning/print?section=${section}&plan_date=${startDate}`}
-                className="inline-flex items-center gap-2 rounded-[0.95rem] border border-border/80 bg-card/85 px-3 py-2 text-xs font-semibold text-muted-foreground transition-all duration-200 hover:-translate-y-0.5 hover:bg-card"
-              >
-                Print shop-floor plan
-                <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-              {focusedOrderId || focusedJobCardId ? (
-                <div className={`rounded-full border px-3 py-2 text-xs font-semibold ${stageTheme.pill}`}>
-                  Focused on {focusedJobCardId ? `job ${focusedJobCardId.slice(0, 8)}` : `order ${focusedOrderId.slice(0, 8)}`}
-                </div>
-              ) : null}
-            </div>
-            {plannerControls}
+          {plannerView === "schedule" ? (
+            <>
+              <div className="flex items-center gap-1">
+                <Link href={boardHref({ date: previousWindowDate, view: "schedule" })} className="tube-icon-button !h-8 !w-8" aria-label={`Previous ${windowDays} days`}><ChevronLeft size={16} /></Link>
+                <span className="min-w-[9.5rem] text-center text-[13px] font-semibold tabular-nums" data-testid="planner-window">
+                  {dayjs(day0).format("ddd D")} – {dayjs(windowDays === 3 ? day2 : day1).format("ddd D MMM")}
+                </span>
+                <Link href={boardHref({ date: dayjs(nextWindowDate).isAfter(dayjs(maxPlannerDate), "day") ? maxPlannerDate : nextWindowDate, view: "schedule" })} className="tube-icon-button !h-8 !w-8" aria-label={`Next ${windowDays} days`}><ChevronRight size={16} /></Link>
+                <Link href={boardHref({ date: todayWindowDate, view: "schedule" })} className="erp-btn-secondary !h-8 !px-2.5 text-[12px]">Today</Link>
+              </div>
+              <div className="tube-segment !h-8" role="group" aria-label="Days shown">
+                <Link href={boardHref({ days: 2 })} aria-current={windowDays === 2 ? "page" : undefined} className="inline-flex items-center px-2.5">2 days</Link>
+                <Link href={boardHref({ days: 3 })} aria-current={windowDays === 3 ? "page" : undefined} className="inline-flex items-center px-2.5">3 days</Link>
+              </div>
+              <input type="date" aria-label="Jump to date" value={dateDraft} max={maxPlannerDate} onChange={(event) => { setDateDraft(event.target.value); if (event.target.value) router.push(boardHref({ date: event.target.value, view: "schedule" })) }} className="h-8 rounded-lg border border-border bg-card px-2 text-[12px]" />
+            </>
+          ) : null}
+          {dayjs(startDate).isBefore(dayjs(), "day") && plannerView === "schedule" ? (
+            <span className="rounded-full border border-signal-amber-line bg-signal-amber-soft px-2 py-0.5 text-[11px] font-semibold text-signal-amber-ink">Past window</span>
+          ) : null}
+          {focusedOrderId || focusedJobCardId ? (
+            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${stageTheme.pill}`}>Focused on {focusedJobCardId ? "one job card" : "one order"}</span>
+          ) : null}
+          <div className="ml-auto flex flex-wrap items-center gap-1.5 text-[11.5px]">
+            {heroMetricCards.slice(0, 5).map((card) => (
+              <span key={card.label} title={card.hint} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold ${card.className}`}>
+                <card.icon className="h-3 w-3 opacity-70" />{card.label} <span className="tabular-nums">{card.value}</span>
+              </span>
+            ))}
+            <Link href={`/planning/print?section=${section}&plan_date=${startDate}`} className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-muted-foreground hover:text-foreground">
+              Print<ArrowRight className="h-3.5 w-3.5" />
+            </Link>
           </div>
+          {plannerView === "schedule" ? <span className="hidden basis-full text-[11px] text-muted-foreground xl:block">Drag cards onto a machine and shift · hover a card for edit, split, manage · drag a placed card back to the queue to unschedule · Esc returns to the month</span> : null}
         </section>
 
-        {plannerView === "calendar" ? null : <KeyboardScheduleForm
-          jobs={queuedJobs}
-          machines={machineRows}
-          dates={[day0, day1, day2]}
-          shifts={plannerShifts.map((shift: any) => ({ code: String(shift.code || ""), label: shift.label }))}
-          selectedJob={keyboardJob}
-          onSelectJob={setKeyboardJob}
-          onSchedule={scheduleSegment}
-          busy={moveCard.isPending}
-        />}
+
 
         <div key={viewKey} className={motion.current.className} style={{ transformOrigin: motion.current.origin }} data-testid="planner-view" data-view={plannerView}>
-        {plannerView === "schedule" ? (
-          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm" data-testid="planner-zoom-bar">
-            <Link href={boardHref({ view: "calendar" })} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-muted-foreground transition hover:-translate-y-0.5 hover:text-foreground" title="Back to the month calendar (Esc)">
-              <ChevronLeft className="h-3.5 w-3.5" />{dayjs(day0).format("MMMM")}
-            </Link>
-            <nav aria-label="Planner zoom" className="flex min-w-0 items-center gap-1.5 text-[12.5px]">
-              <span className="text-muted-foreground">Month</span>
-              <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              <span className="font-semibold text-foreground">{dayjs(day0).format("ddd D")} – {dayjs(day2).format("ddd D MMM")}</span>
-            </nav>
-            <div className="ml-auto flex items-center gap-1">
-              <Link href={boardHref({ date: previousWindowDate, view: "schedule" })} className="tube-icon-button" aria-label="Previous 3 days"><ChevronLeft size={16} /></Link>
-              <Link href={boardHref({ date: todayWindowDate, view: "schedule" })} className="erp-btn-secondary !h-8 !px-2.5 text-[12px]">Today</Link>
-              <Link href={boardHref({ date: dayjs(nextWindowDate).isAfter(dayjs(maxPlannerDate), "day") ? maxPlannerDate : nextWindowDate, view: "schedule" })} className="tube-icon-button" aria-label="Next 3 days"><ChevronRight size={16} /></Link>
-            </div>
-            <span className="hidden text-[11px] text-muted-foreground lg:inline">Esc returns to the month</span>
-            {windowRefreshing ? <span className="basis-full"><span className="block h-0.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/3 animate-[progress-indeterminate_1.1s_ease-in-out_infinite] rounded-full bg-primary" /></span></span> : null}
-          </div>
-        ) : null}
         {plannerView === "calendar" ? (
           <PlannerCalendar
             stage={stage}
@@ -1378,449 +1329,50 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
             onPrefetchWindow={prefetchFrom}
             onZoom={(date) => router.push(boardHref({ date, view: "schedule" }), { scroll: false })}
             recentWindow={motion.current.recentWindow}
+            windowDays={windowDays}
           />
         ) : (
-        <div className="grid h-[calc(100vh-9rem)] min-h-[650px] min-w-0 gap-3 xl:grid-cols-[minmax(0,330px)_minmax(0,1fr)]">
-          <aside className="flex min-h-0 min-w-0 flex-col gap-3">
-            {section === "winder" ? (
-              <WinderLoadBars
-                machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
-                selected={queueFilter === "all" ? null : queueFilter}
-                onSelect={(machineId) => setQueueFilter(machineId || "all")}
-              />
-            ) : null}
-            <section className="flex min-h-0 flex-1 flex-col rounded-[1.65rem] border border-border bg-card p-3 shadow-[0_16px_45px_rgba(15,23,42,0.06)]">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[12px] font-semibold text-muted-foreground">Open queue</p>
-                  <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">
-                    {section === "winder" ? "Grouped by release hint" : "Shared stage backlog"}
-                  </h2>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                    {section === "winder"
-                      ? "The release winder is a hint. Schedule on any available winder; capacity splits apply."
-                      : "Plan ahead even before the previous stage entry lands."}
-                  </p>
-                </div>
-                <div className={`rounded-full border px-3 py-2 text-xs font-semibold ${stageTheme.pill}`}>
-                  {filteredQueuedJobs.length}/{queuedJobs.length}
-                </div>
-              </div>
-
-              {queueFilterOptions.length > 1 ? (
-                <div className="mt-3 flex shrink-0 gap-2 overflow-x-auto pb-1">
-                  {queueFilterOptions.map((option) => {
-                    const active = queueFilter === option.key
-                    return (
-                      <button
-                        key={option.key}
-                        type="button"
-                        onClick={() => setQueueFilter(option.key)}
-                        className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-semibold transition-all duration-200 ${
-                          active
-                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                            : "border-border bg-muted text-muted-foreground hover:-translate-y-0.5 hover:bg-card"
-                        }`}
-                      >
-                        {option.label} · {option.count}
-                      </button>
-                    )
-                  })}
-                </div>
-              ) : null}
-
-              <div className="mt-2 flex shrink-0 items-center gap-2">
-                <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-lg border border-input bg-card px-2.5 focus-within:ring-2 focus-within:ring-ring/30">
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <input aria-label="Search queue" value={queueSearch} onChange={(event) => setQueueSearch(event.target.value)} placeholder="Card, customer, size, color…" className="w-full min-w-0 bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
-                </div>
-                <select aria-label="Sort queue" value={queueSort} onChange={(event) => setQueueSort(event.target.value as "due" | "qty" | "age")} className="h-9 rounded-lg border border-input bg-card px-2 text-[12px]">
-                  <option value="due">Due first</option>
-                  <option value="qty">Largest</option>
-                  <option value="age">Oldest</option>
-                </select>
-              </div>
-
-              <div
-                className={`mt-3 shrink-0 rounded-[1.1rem] border border-dashed bg-muted/80 px-3 py-3 text-xs text-muted-foreground transition-all ${
-                  draggedJob ? `${stageTheme.border} ${stageTheme.dropRing}` : "border-border"
-                }`}
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={() => handleDrop({ machine_id: null, plan_date: null, shift_code: null, sequence_no: 1 })}
-              >
-                Drag a planned slot back here to unschedule it and return it to the queue.
-              </div>
-
-              <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
-                {visibleQueueGroups.length === 0 || visibleQueueGroups.every((group) => group.jobs.length === 0) ? (
-                  <EmptyState label={queueFilter !== "all" ? `Nothing queued for ${queueFilter === "unassigned" ? "cards without a winder" : machineLabelMap.get(queueFilter) || "this winder"}${queueSearch ? " matching the search" : ""}.` : queueSearch ? "No queued card matches the search." : "No unscheduled cards in this stage."} />
-                ) : (
-                  visibleQueueGroups.map((group) => (
-                    <div key={group.key} className="rounded-[1.25rem] border border-border bg-muted/75 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-[12px] font-semibold text-muted-foreground">{group.title}</p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{group.subtitle}</p>
-                        </div>
-                        <div className="rounded-full border border-border bg-card px-3 py-1 text-xs font-semibold text-muted-foreground">
-                          {group.jobs.length}
-                        </div>
-                      </div>
-
-                      <div className="mt-3 space-y-1.5">
-                        {group.jobs.map((job: any) => {
-                          const assignedMachine = machineStatsMap.get(String(job.assigned_winder_machine_id || ""))
-                          const preferredCapacity = Number(
-                            assignedMachine?.capacity_value || job.machine_capacity_value || 0,
-                          )
-                          const perShiftCapacity = preferredCapacity > 0 ? preferredCapacity : 0
-                          const capacityNeed = capacityNeedFor(section, job)
-                          const mustSplit = perShiftCapacity > 0 && capacityNeed > perShiftCapacity
-                          const dueRisk = classifyDueRisk(job.due_date)
-                          const dueSoon = dueRisk === DUE_RISK_PRIORITY
-                          const overdue = dueRisk === DUE_RISK_OVERDUE
-
-                          return (
-                            <article
-                              key={job.segment_id}
-                              data-testid={`planner-card:${plannerJobCardId(job)}`}
-                              draggable
-                              tabIndex={0}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                  event.preventDefault()
-                                  setKeyboardJob(job)
-                                }
-                              }}
-                              onMouseEnter={(event) => showJobDetail(event, job, "Queue card")}
-                              onMouseMove={(event) => showJobDetail(event, job, "Queue card")}
-                              onMouseLeave={() => setHoverDetail(null)}
-                              onDragStart={() => {
-                                setHoverDetail(null)
-                                setDraggedJob(job)
-                              }}
-                              onDragEnd={() => { setDraggedJob(null); setHoverSlot(null) }}
-                              className={`group relative overflow-hidden rounded-[0.85rem] border bg-card px-2.5 py-1.5 transition-all duration-200 ${
-                                draggedJob?.segment_id === job.segment_id
-                                  ? `${stageTheme.border} ${stageTheme.dropRing}`
-                                  : "border-border shadow-sm hover:-translate-y-0.5 hover:shadow-md"
-                              }`}
-                            >
-                              <div className={`absolute inset-y-1.5 left-1.5 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
-                              <div className="min-w-0 pl-3">
-                                <div className="flex min-w-0 items-center gap-1.5">
-                                  <p className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground">
-                                    <span data-testid={`planner-job-link:${plannerJobCardId(job)}`}>
-                                      <JobCardNo job={job} />
-                                    </span>
-                                  </p>
-                                  <CarryForwardBadge job={job} />
-                                  <StaleSlotBadge job={job} />
-                                  <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[9px] font-bold text-muted-foreground">
-                                    {formatWhole(job.segment_planned_qty)}
-                                  </span>
-                                  {mustSplit ? <span className="shrink-0 rounded-full bg-signal-rose-soft px-1.5 py-0.5 text-[9px] font-bold text-signal-rose-ink">Split</span> : null}
-                                  {dueSoon ? <span className="shrink-0 rounded-full bg-signal-amber-soft px-1.5 py-0.5 text-[9px] font-bold text-signal-amber-ink">Priority</span> : null}
-                                  {overdue ? <span className="shrink-0 rounded-full bg-signal-rose-soft px-1.5 py-0.5 text-[9px] font-bold text-signal-rose-ink">Overdue</span> : null}
-                                  <GripVertical className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                </div>
-                                <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[10px] text-muted-foreground">
-                                  {job.parchment_color ? <span className="h-2 w-2 shrink-0 rounded-full ring-1 ring-inset ring-black/15" style={{ background: swatchFor(job.parchment_color) }} title={job.parchment_color} /> : null}
-                                  <span className="truncate font-semibold text-muted-foreground">{plannerSize(job)}</span>
-                                  <span className="shrink-0 text-muted-foreground">|</span>
-                                  <span className="truncate">{job.customer_name || "-"}</span>
-                                  <span className="shrink-0 text-muted-foreground">|</span>
-                                  <span className="truncate">
-                                    {assignedMachine
-                                      ? `Pref ${assignedMachine.code}`
-                                      : section === "winder"
-                                        ? "No winder selected"
-                                        : "Free assignment"}
-                                  </span>
-                                </div>
-                                <div className="mt-1 flex items-center justify-end gap-2 text-[10px] text-muted-foreground">
-                                  {job.parchment_color ? <ColorChip color={job.parchment_color} className="mr-auto !text-[11px]" /> : null}
-                                  <button
-                                    type="button"
-                                    onClick={(event) => { event.stopPropagation(); setHoverDetail(null); setSheetJobId(String(plannerJobCardId(job))) }}
-                                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground transition hover:bg-muted"
-                                  >
-                                    <Settings2 className="h-3 w-3" />Manage
-                                  </button>
-                                  {(stage === "WINDER" || stage === "PROCESS") && Number(job.segment_planned_qty || 0) > 1 ? (
-                                    <button
-                                      type="button"
-                                      onClick={(event) => {
-                                        event.stopPropagation()
-                                        setSplitDialogJob(job)
-                                        setSplitQty(String(Math.floor(Number(job.segment_planned_qty || 0) / 2)))
-                                      }}
-                                      className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground transition hover:bg-muted"
-                                    >
-                                      Split
-                                    </button>
-                                  ) : null}
-                                </div>
-                              </div>
-                            </article>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </section>
-
-          </aside>
-
-          <section className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-[1.65rem] border border-border bg-card shadow-[0_18px_60px_rgba(15,23,42,0.08)]">
-            <div className="shrink-0 border-b border-border px-4 py-2.5">
-              <div className="flex flex-col gap-1.5 xl:flex-row xl:items-end xl:justify-between">
-                <div>
-                  <p className="text-[11.5px] font-semibold text-muted-foreground">Schedule canvas</p>
-                  <h2 className="mt-1 text-lg font-semibold tracking-tight text-foreground">
-                    Machine rows across {scheduledDays.length} days and {plannerShifts.length} shifts
-                  </h2>
-                </div>
-                <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
-                  Empty and scheduled machines stay visible; drag queue cards into exact machine-shift slots.
-                </p>
-              </div>
-            </div>
-
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto">
-              <div className="min-w-[1720px] px-4 py-3">
-                <div
-                  className="grid gap-3"
-                  style={{ gridTemplateColumns: `240px repeat(${Math.max(shiftHeaders.length, 1)}, minmax(170px, 1fr))` }}
-                >
-                  <div />
-                  {scheduledDays.map((entry) => (
-                    <div
-                      key={`day-header-${entry.date}`}
-                      style={{ gridColumn: `span ${plannerShifts.length}` }}
-                      className="rounded-[1.2rem] border border-border bg-muted px-4 py-3"
-                    >
-                      <p className="text-[12px] font-semibold text-muted-foreground">Plan day</p>
-                      <p className="mt-1 text-base font-semibold text-foreground">{dayKey(entry.date)}</p>
-                    </div>
-                  ))}
-
-                  <div className="rounded-[1.15rem] border border-border bg-muted px-4 py-3 text-sm font-semibold text-muted-foreground">
-                    Machine lane
-                  </div>
-                  {shiftHeaders.map((header, index) => (
-                    <div key={`${header.date}-${header.shift_code}-${index}`} className="rounded-[1.15rem] border border-border bg-muted px-3 py-3">
-                      <p className="text-[11.5px] font-semibold text-muted-foreground">
-                        {formatDate(header.date, "ddd DD MMM")}
-                      </p>
-                      <p className="mt-1 text-sm font-semibold text-foreground">{header.shift_label}</p>
-                    </div>
-                  ))}
-
-                  {machineRows.length === 0 ? (
-                    <div
-                      className="rounded-[1.4rem] border border-dashed border-border bg-muted px-4 py-10 text-center text-sm text-muted-foreground"
-                      style={{ gridColumn: `span ${Math.max(shiftHeaders.length + 1, 2)}` }}
-                    >
-                      No machine rows are available for this stage yet.
-                    </div>
-                  ) : (
-                    machineRows.map((machine) => (
-                      <div key={machine.id} className="contents">
-                        <div className="rounded-[1.4rem] border border-border bg-muted/85 p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[12px] font-semibold text-muted-foreground">Machine</p>
-                              <h3 className="mt-1 text-lg font-semibold text-foreground">{machine.code}</h3>
-                              <p className="mt-1 text-xs text-muted-foreground">{machine.name}</p>
-                            </div>
-                            <div className="rounded-full border border-border bg-card px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                              {machine.status}
-                            </div>
-                          </div>
-                          <div className="mt-4 space-y-2 text-xs text-muted-foreground">
-                            <p>{machineCapacitySummary(machine)}</p>
-                            <p>
-                              {machine.status === "UP"
-                                ? "Available for scheduling"
-                                : machine.status === "MAINT"
-                                  ? "Maintenance state"
-                                  : "Unavailable until machine is restored"}
-                            </p>
-                          </div>
-                        </div>
-
-                        {machine.dayColumns.flatMap((dayColumn) =>
-                          dayColumn.shifts.map((lane: any, slotIndex: number) => {
-                            const isBlockedMachine = machine.status === "DOWN" || machine.status === "MAINT"
-                            const ratio = loadRatio(lane.current_load, lane.capacity_value)
-                            const flatIndex = `${machine.id}-${dayColumn.date}-${lane.shift_code}-${slotIndex}`
-                            const capacity = Number(lane.capacity_value || 0)
-                            const alreadyHere = draggedJob && (lane.jobs || []).some((job: any) => job.segment_id === draggedJob.segment_id)
-                            const dragNeed = draggedJob && !alreadyHere ? capacityNeedFor(section, draggedJob) : 0
-                            const projected = Number(lane.current_load || 0) + dragNeed
-                            const projectedRatio = capacity > 0 ? (projected / capacity) * 100 : 0
-                            const fit: "none" | "ok" | "tight" | "over" | "blocked" = !draggedJob ? "none" : isBlockedMachine ? "blocked" : capacity <= 0 || dragNeed <= 0 ? "ok" : projectedRatio > 100 ? "over" : projectedRatio >= 85 ? "tight" : "ok"
-                            const isHover = hoverSlot === flatIndex
-                            const slotTarget = { machine_id: lane.machine_id || machine.id, plan_date: dayColumn.date, shift_code: lane.shift_code || null, sequence_no: (lane.jobs || []).length + 1 }
-
-                            return (
-                              <div
-                                key={flatIndex}
-                                data-fit={fit}
-                                data-hover={isHover || undefined}
-                                className={`planner-slot relative flex min-h-[210px] flex-col rounded-xl border p-3 transition-all duration-200 ${isBlockedMachine ? "bg-muted/80" : "bg-card"} ${fit === "none" ? "border-border" : ""}`}
-                                onDragOver={(event) => { event.preventDefault(); if (hoverSlot !== flatIndex) setHoverSlot(flatIndex) }}
-                                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setHoverSlot((current) => (current === flatIndex ? null : current)) }}
-                                onDrop={() => {
-                                  setHoverSlot(null)
-                                  if (isBlockedMachine) {
-                                    setDraggedJob(null)
-                                    showToast(`Cannot schedule on ${machine.code} while it is ${machine.status}.`, "error")
-                                    return
-                                  }
-                                  if (fit === "over" && draggedJob) {
-                                    setPendingDrop({ job: draggedJob, target: slotTarget, label: `${machine.code || machine.name} · ${dayjs(dayColumn.date).format("DD MMM")} · ${lane.shift_label || lane.shift_code || "shift"}`, overBy: projected - capacity, unit: lane.capacity_unit || capacityUnitFor(section) })
-                                    setDraggedJob(null)
-                                    return
-                                  }
-                                  void handleDrop(slotTarget)
-                                }}
-                              >
-                                {draggedJob && isHover ? (
-                                  <span className={`pointer-events-none absolute -top-2.5 left-3 z-10 rounded-full px-2 py-0.5 text-[10.5px] font-semibold shadow-sm animate-scale-in ${fit === "over" ? "bg-signal-rose-ink text-background" : fit === "tight" ? "bg-signal-amber-ink text-background" : fit === "blocked" ? "bg-muted-foreground text-background" : "bg-signal-emerald-ink text-background"}`}>
-                                    {fit === "blocked" ? "Machine unavailable" : fit === "over" ? `Over by ${formatLoad(projected - capacity)} — will split` : capacity > 0 ? `Fits · ${Math.round(projectedRatio)}% after drop` : "Drop here"}
-                                  </span>
-                                ) : null}
-                                <div className="flex items-start justify-between gap-2">
-                                  <div>
-                                    <p className="text-[11.5px] font-semibold text-muted-foreground">
-                                      {lane.shift_label || lane.shift_code || "Shift"}
-                                    </p>
-                                    <p className="mt-1 text-xs text-muted-foreground">{dayjs(dayColumn.date).format("DD MMM")}</p>
-                                  </div>
-                                  {lane.warning ? <StatusBadge value="BLOCKED" label={lane.warning} /> : null}
-                                </div>
-
-                                <div className="relative mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                                  {draggedJob && dragNeed > 0 && capacity > 0 ? (
-                                    <div
-                                      className={`planner-projection absolute inset-y-0 left-0 rounded-full ${projectedRatio > 100 ? "bg-signal-rose-ink/40" : projectedRatio >= 85 ? "bg-signal-amber-ink/40" : "bg-signal-emerald-ink/35"}`}
-                                      style={{ width: `${Math.min(100, projectedRatio)}%` }}
-                                    />
-                                  ) : null}
-                                  <div
-                                    className={`relative h-2 rounded-full transition-[width] duration-500 ${
-                                      ratio >= 100 ? "bg-rose-500" : ratio >= 85 ? "bg-amber-500" : stageTheme.fill
-                                    }`}
-                                    style={{ width: `${ratio}%` }}
-                                  />
-                                </div>
-
-                                <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                                  <span>
-                                    {formatLoad(lane.current_load)} / {formatLoad(lane.capacity_value)} {lane.capacity_unit || ""}
-                                  </span>
-                                  <span>{Math.round(ratio)}%</span>
-                                </div>
-
-                                <div className="mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1">
-                                  {(lane.jobs || []).map((job: any) => {
-                                    const otherWinderUsed =
-                                      stage === "WINDER" &&
-                                      job.assigned_winder_machine_id &&
-                                      lane.machine_id &&
-                                      String(job.assigned_winder_machine_id) !== String(lane.machine_id)
-                                    return (
-                                    <article
-                                      key={job.segment_id}
-                                      data-testid={`planner-card:${plannerJobCardId(job)}`}
-                                      draggable
-                                      tabIndex={0}
-                                      onKeyDown={(event) => {
-                                        if (event.key === "Enter" || event.key === " ") {
-                                          event.preventDefault()
-                                          setKeyboardJob(job)
-                                        }
-                                      }}
-                                      onDoubleClick={() => { setHoverDetail(null); setSheetJobId(String(plannerJobCardId(job))) }}
-                                      onMouseEnter={(event) => showJobDetail(event, job, "Pinned card")}
-                                      onMouseMove={(event) => showJobDetail(event, job, "Pinned card")}
-                                      onMouseLeave={() => setHoverDetail(null)}
-                                      onDragStart={() => {
-                                        setHoverDetail(null)
-                                        setDraggedJob(job)
-                                      }}
-                                      onDragEnd={() => { setDraggedJob(null); setHoverSlot(null) }}
-                                      className={`group relative overflow-hidden rounded-lg border px-2 py-1 text-xs transition-all duration-200 ${
-                                        draggedJob?.segment_id === job.segment_id
-                                          ? `${stageTheme.border} bg-card ${stageTheme.dropRing}`
-                                          : "border-border bg-muted hover:-translate-y-0.5 hover:bg-card hover:shadow-md"
-                                      }`}
-                                    >
-                                      <div className={`absolute inset-y-1.5 left-1.5 w-1 rounded-full bg-gradient-to-b ${stageTheme.accentBar}`} />
-                                      <div className="flex min-w-0 items-center gap-2 pl-3">
-                                        <p className="min-w-0 flex-1 truncate font-semibold text-foreground">
-                                          <span data-testid={`planner-job-link:${plannerJobCardId(job)}`}>
-                                            <JobCardNo job={job} />
-                                          </span>
-                                        </p>
-                                        <CarryForwardBadge job={job} />
-                                        <StaleSlotBadge job={job} />
-                                        <span className="shrink-0 rounded-full bg-card px-1.5 py-0.5 text-[9px] font-semibold text-muted-foreground">
-                                          {formatWhole(job.segment_planned_qty)}
-                                        </span>
-                                        <MoveHorizontal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                                      </div>
-                                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5 pl-3 text-[9px] text-muted-foreground">
-                                        {job.parchment_color ? <span className="h-2 w-2 shrink-0 rounded-full ring-1 ring-inset ring-black/15" style={{ background: swatchFor(job.parchment_color) }} title={job.parchment_color} /> : null}
-                                        <span className="truncate font-semibold">{plannerSize(job)}</span>
-                                        <span className="shrink-0 text-muted-foreground">|</span>
-                                        <span className="truncate">{job.customer_name || "-"}</span>
-                                        <span className="shrink-0 text-muted-foreground">|</span>
-                                        <span>
-                                          {stage === "WINDER"
-                                            ? `${formatLoad(winderMeterLoad(job))} m`
-                                            : `${formatWhole(job.target_bamboo_count)} bmb`}
-                                        </span>
-                                      </div>
-                                      {otherWinderUsed ? (
-                                        <div className="mt-0.5 pl-3">
-                                          <span className="rounded-full bg-signal-amber-soft px-2 py-0.5 text-[12px] font-semibold text-signal-amber-ink">
-                                            Other winder used
-                                          </span>
-                                        </div>
-                                      ) : null}
-                                    </article>
-                                    )
-                                  })}
-
-                                  {(lane.jobs || []).length === 0 ? (
-                                    <div
-                                      className={`rounded-[1.05rem] border border-dashed px-3 py-6 text-center text-xs text-muted-foreground ${
-                                        isBlockedMachine
-                                          ? "border-border bg-muted"
-                                          : `${stageTheme.border} bg-muted/70`
-                                      }`}
-                                    >
-                                      {isBlockedMachine ? `${machine.status} machine` : "Drop planner cards here"}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              </div>
-                            )
-                          }),
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </div>
-          </section>
-        </div>
+        <ScheduleBoard
+          days={[day0, day1, day2].slice(0, windowDays)}
+          shifts={plannerShifts.map((shift: any) => ({ code: String(shift.code || ""), label: shift.label }))}
+          machines={machineRows as any}
+          queueGroups={visibleQueueGroups}
+          queueTotal={queuedJobs.length}
+          queueSearch={queueSearch}
+          onQueueSearch={setQueueSearch}
+          queueSort={queueSort}
+          onQueueSort={setQueueSort}
+          loadBars={section === "winder" ? (
+            <WinderLoadBars
+              machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
+              selected={queueFilter === "all" ? null : queueFilter}
+              onSelect={(machineId) => setQueueFilter(machineId || "all")}
+            />
+          ) : undefined}
+          machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
+          loadOf={(job) => capacityNeedFor(section, job)}
+          unit={capacityUnitFor(section)}
+          busy={moveCard.isPending || windowRefreshing}
+          onSchedule={(job, target: BoardTarget) => void scheduleSegment(job, target)}
+          onOverCapacity={(job, target: BoardTarget, label, overBy, unitLabel) => setPendingDrop({ job, target, label, overBy, unit: unitLabel })}
+          onAction={(job, action: CardAction) => {
+            if (action === "segment_split") { setSplitDialogJob(job); setSplitQty(""); return }
+            setSheetAction(action === "manage" ? null : action)
+            setSheetJobId(String(job.job_card_id || job.id))
+          }}
+          keyboardForm={
+            <KeyboardScheduleForm
+              jobs={queuedJobs}
+              machines={machineRows}
+              dates={[day0, day1, day2].slice(0, windowDays)}
+              shifts={plannerShifts.map((shift: any) => ({ code: String(shift.code || ""), label: shift.label }))}
+              selectedJob={keyboardJob}
+              onSelectJob={setKeyboardJob}
+              onSchedule={scheduleSegment}
+              busy={moveCard.isPending}
+            />
+          }
+        />
         )}
         </div>
       </div>

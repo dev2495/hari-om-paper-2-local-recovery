@@ -98,6 +98,8 @@ function invalidateSalesQueries(queryClient: ReturnType<typeof useQueryClient>, 
   queryClient.invalidateQueries({ queryKey: ["sales", "order-aggregates"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
   queryClient.invalidateQueries({ queryKey: ["sales", "released-lines"] })
+  queryClient.invalidateQueries({ queryKey: ["sales", "delivery-calendar"] })
+  queryClient.invalidateQueries({ queryKey: ["purchase-v2", "sales-bom-demand"] })
   if (orderId) {
     queryClient.invalidateQueries({ queryKey: ["sales", "order", orderId] })
     queryClient.invalidateQueries({ queryKey: ["sales", "timeline", orderId] })
@@ -373,5 +375,21 @@ export function useReleaseSalesOrderLine() {
       const orderId = String(response?.data?.order_id || "")
       invalidateSalesQueries(queryClient, orderId || undefined)
     },
+  })
+}
+
+export type DeliveryCalendarRow = {
+  date: string; qty: number; status: string; source: "CALL_OFF" | "LINE_DUE"; schedule_id: string | null
+  order_id: string; order_no: string; customer_id: string | null; po_number?: string | null
+  line_id: string; line_no: number; product_code?: string | null; size_label?: string | null; parchment_color?: string | null
+  line_qty: number; line_open_qty: number; released_qty: number; is_held: boolean
+}
+
+/** Customer delivery commitments (call-offs + unscheduled line balances) by date, plant-wide. */
+export function useDeliveryCalendar(dateFrom: string, dateTo: string, enabled = true) {
+  return useQuery({
+    queryKey: ["sales", "delivery-calendar", dateFrom, dateTo],
+    enabled: enabled && Boolean(dateFrom && dateTo),
+    queryFn: async () => ((await salesApi.getDeliveryCalendar({ date_from: dateFrom, date_to: dateTo })).data?.items || []) as DeliveryCalendarRow[],
   })
 }
