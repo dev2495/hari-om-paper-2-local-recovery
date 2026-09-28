@@ -3,6 +3,7 @@ const bffInternalUrl = process.env.BFF_INTERNAL_URL || process.env.NEXT_PUBLIC_B
 
 const nextConfig = {
   reactStrictMode: true,
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   async redirects() {
     return [
       {

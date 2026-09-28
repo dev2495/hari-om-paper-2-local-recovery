@@ -281,3 +281,16 @@ def test_queued_job_keeps_the_customer_date():
     result = residual_result(job_issues=[{'job_id':'wip','item_id':'paper','net_issued_qty':4500}])
     work = result['requirements'][0]
     assert work['source'] == 'RELEASED_QUEUE' and work['date'] == '2026-09-20'
+
+
+def test_adhesive_mass_from_bom_converts_to_stock_litres():
+    from src.services.procurement_demand import explode_other_demand
+    rows, warning = explode_other_demand(
+        {"id": "so", "order_no": "SO-L"},
+        {"id": "line", "due_date": "2026-09-20", "release_remaining_qty": 10},
+        {"id": "spec"},
+        {"expected_output": {"tubes_per_bamboo": 5}, "raw_materials": {"adhesives": {"components": [{"item_code": "GLUE", "name": "Glue", "weight_kg": 6}]}}},
+        [{"id": "glue", "item_code": "GLUE", "name": "Glue", "type": "ADHESIVE", "uom": "L", "density_kg_per_litre": 1.2}],
+        date(2026, 9, 1), date(2026, 9, 30))
+    assert warning is None
+    assert rows[0]["qty"] == 10 and rows[0]["uom"] == "L"

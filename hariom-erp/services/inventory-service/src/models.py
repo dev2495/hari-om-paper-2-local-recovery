@@ -52,6 +52,7 @@ class TrackingMode(str, enum.Enum):
 
 
 class UOM(str, enum.Enum):
+    L = "L"
     KG = "KG"
     PCS = "PCS"
 
@@ -242,6 +243,7 @@ class ItemMaster(Base):
     type = Column(SQLEnum(ItemType), nullable=False)
     tracking_mode = Column(SQLEnum(TrackingMode), nullable=False, default=TrackingMode.BULK)
     uom = Column(SQLEnum(UOM), nullable=False)
+    density_kg_per_litre = Column(Numeric(12, 6), nullable=True)
     unit_cost = Column(Float, nullable=True)
     cost_source = Column(String(20), nullable=True)
     reorder_level = Column(Float, nullable=False, default=0.0)
@@ -1571,3 +1573,33 @@ class RmCostComponent(Base):
     version = relationship("RmCostVersion", back_populates="components")
 
     __table_args__ = (CheckConstraint("normalized_per_kg >= 0", name="ck_rm_cost_component_nonnegative"),)
+
+
+class PurchaseRequisition(Base):
+    __tablename__ = "purchase_requisitions"
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    plant_id = Column(String(50), nullable=False, index=True)
+    pr_no = Column(String(80), nullable=False)
+    request_id = Column(UUID(as_uuid=True), nullable=False)
+    request_fingerprint = Column(String(64), nullable=False)
+    pr_date = Column(Date, nullable=False)
+    item_id = Column(UUID(as_uuid=True), ForeignKey("item_master.id"), nullable=False)
+    item_name = Column(String(200), nullable=False)
+    quantity = Column(Numeric(18, 3), nullable=False)
+    uom = Column(String(12), nullable=False)
+    reason = Column(Text, nullable=False)
+    requested_by = Column(String(200), nullable=False)
+    status = Column(String(20), nullable=False, default="SUBMITTED")
+    version = Column(Integer, nullable=False, default=1)
+    decided_by = Column(String(200), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    decision_reason = Column(Text, nullable=True)
+    purchase_order_id = Column(UUID(as_uuid=True), ForeignKey("purchase_orders.id"), nullable=True, unique=True)
+    history = Column(JSONB, nullable=False, default=list)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        UniqueConstraint("plant_id", "pr_no", name="uq_pr_plant_number"),
+        UniqueConstraint("plant_id", "request_id", name="uq_pr_plant_request"),
+        CheckConstraint("quantity > 0", name="ck_pr_positive_quantity"),
+        CheckConstraint("status IN ('SUBMITTED','APPROVED','REJECTED','CONVERTED')", name="ck_pr_status"),
+    )

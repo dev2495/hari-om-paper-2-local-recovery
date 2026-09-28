@@ -215,7 +215,7 @@ class ReelScanResponse(BaseModel):
 
 
 class SlitChildCreate(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "allow_inf_nan": False}
 
     weight_kg: float = Field(gt=0)
     width_mm: Optional[float] = Field(default=None, gt=0)
@@ -223,7 +223,7 @@ class SlitChildCreate(BaseModel):
 
 
 class ReelSlitCreate(BaseModel):
-    model_config = {"extra": "forbid"}
+    model_config = {"extra": "forbid", "allow_inf_nan": False}
 
     parent_reel_id: uuid.UUID
     children: list[SlitChildCreate] = Field(min_length=1, max_length=60)
@@ -289,7 +289,7 @@ def create_reel_inward(
     ).first()
     if not paper:
         raise HTTPException(status_code=404, detail="Paper item not found in this plant")
-    if paper.type != ItemType.RAW_PAPER:
+    if paper.type not in {ItemType.RAW_PAPER, ItemType.PARCHMENT}:
         raise HTTPException(status_code=400, detail="paper_id must reference a RAW_PAPER item")
     if paper.tracking_mode != TrackingMode.REEL:
         raise HTTPException(status_code=400, detail="paper_id must reference a REEL-tracked RAW_PAPER item")
@@ -463,11 +463,11 @@ def slit_reel(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Store", "PlantManager"])),
 ):
-    """Record slitting output for a coil that was issued to the slitting section.
+    """Record slitting output for a reel that was issued to the slitting section.
 
-    Every slit reel becomes its own AT identity (REEL form, label, lineage to the
-    coil and its PO receipt). The coil's open slitting issue closes with
-    consumed = slit reels + trim wastage; any unslit balance stays on the coil.
+    Every output coil becomes its own AT identity (COIL form, label, lineage to the
+    reel and its PO receipt). The reel's open slitting issue closes with
+    consumed = output coils + trim wastage; any unslit balance stays on the reel.
     """
     plant_uuid = _to_uuid(plant_id)
     parent = db.query(PaperReel).filter(
@@ -475,33 +475,36 @@ def slit_reel(
         PaperReel.plant_id == plant_uuid,
     ).with_for_update().first()
     if not parent:
-        raise HTTPException(status_code=404, detail="Coil not found in this plant")
-    if str(parent.physical_form or "REEL").upper() != "COIL":
-        raise HTTPException(status_code=400, detail=f"{parent.reel_code} is a reel; only coils are slit")
+        raise HTTPException(status_code=404, detail="Reel not found in this plant")
+    if str(parent.physical_form or "REEL").upper() != "REEL":
+        raise HTTPException(status_code=400, detail=f"{parent.reel_code} is a coil; only reels are slit")
     issue = db.query(ReelIssue).filter(
         ReelIssue.reel_id == parent.id,
         ReelIssue.plant_id == plant_uuid,
         ReelIssue.status == ReelIssueStatus.OPEN,
     ).with_for_update().first()
     if not issue or str(issue.issue_section or "") != "SLITTING_SECTION":
-        raise HTTPException(status_code=409, detail=f"Issue coil {parent.reel_code} to slitting before recording slit output")
+        raise HTTPException(status_code=409, detail=f"Issue reel {parent.reel_code} to slitting before recording slit output")
+
+    if parent.stock_status not in {"UNRESTRICTED", "WIP"} or parent.commercial_status not in {None, "CLEAR", "RELEASED_WITH_CLAIM"}:
+        raise HTTPException(status_code=409, detail="The parent reel is held; clear QC and commercial holds before slitting")
 
     child_total = round(sum(float(child.weight_kg) for child in payload.children), 3)
     consumed = round(child_total + float(payload.trim_wastage_kg or 0.0), 3)
     if consumed > float(issue.issued_weight_kg) + 1e-6:
         raise HTTPException(
             status_code=400,
-            detail=f"Slit reels + trim ({consumed:.3f} kg) exceed the {float(issue.issued_weight_kg):.3f} kg issued to slitting",
+            detail=f"Output coils + trim ({consumed:.3f} kg) exceed the {float(issue.issued_weight_kg):.3f} kg issued to slitting",
         )
     if consumed > float(parent.current_weight_kg or 0.0) + 1e-6:
-        raise HTTPException(status_code=400, detail="Slit reels + trim exceed the coil balance")
+        raise HTTPException(status_code=400, detail="Output coils + trim exceed the reel balance")
 
     location_ids = {child.location_id for child in payload.children if child.location_id}
     if location_ids and db.query(InventoryLocation).filter(
         InventoryLocation.id.in_(location_ids),
         InventoryLocation.plant_id == plant_id,
     ).count() != len(location_ids):
-        raise HTTPException(status_code=404, detail="Slit reel location not found in this plant")
+        raise HTTPException(status_code=404, detail="Output coil location not found in this plant")
 
     paper = db.query(ItemMaster).filter(ItemMaster.id == parent.paper_id).first()
     slit_date = payload.slit_date or date.today()
@@ -515,16 +518,17 @@ def slit_reel(
     for offset, child in enumerate(payload.children, start=1):
         at_no = f"{parent.reel_code}-S{existing_children + offset}"
         metadata = {
+            **dict(parent.inward_metadata or {}),
             **lineage,
             "amigo_no": at_no,
-            "physical_form": "REEL",
+            "physical_form": "COIL",
             "parent_reel_id": str(parent.id),
             "parent_reel_code": parent.reel_code,
             "source_document_type": "SLIT",
             "slit_issue_id": str(issue.id),
             "slit_weight_kg": float(child.weight_kg),
             "slit_date": slit_date.isoformat(),
-            # Printed on the label so the floor can trace a slit reel to its coil.
+            # Printed on the label so the floor can trace an output coil to its parent reel.
             "source_reel_no": f"{parent.source_reel_no or parent.reel_code} / S{existing_children + offset}",
         }
         db_child = PaperReel(
@@ -539,7 +543,7 @@ def slit_reel(
             inward_weight_kg=float(child.weight_kg),
             net_weight_kg=float(child.weight_kg),
             current_weight_kg=float(child.weight_kg),
-            physical_form="REEL",
+            physical_form="COIL",
             width_mm=child.width_mm,
             commercial_status=parent.commercial_status or "CLEAR",
             unit_cost=parent.unit_cost,

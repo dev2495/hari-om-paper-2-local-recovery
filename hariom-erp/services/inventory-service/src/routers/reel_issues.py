@@ -29,9 +29,8 @@ VALID_SHIFTS = {"A", "B", "C", "GENERAL", "DAY", "NIGHT"}
 VALID_STATUSES = {"OPEN", "CLOSED"}
 VALID_SECTIONS = {"WINDER_SECTION", "SLITTING_SECTION"}
 ISSUABLE_STOCK_STATUSES = {"UNRESTRICTED", "WIP"}
-# A coil is too narrow to wind as received: it is slit first and the slit
-# reels go to the winder. A reel is winder-ready and never goes to slitting.
-SECTION_FOR_FORM = {"COIL": "SLITTING_SECTION", "REEL": "WINDER_SECTION"}
+# Incoming reels must be slit into production-ready coils before winding.
+SECTION_FOR_FORM = {"REEL": "SLITTING_SECTION", "COIL": "WINDER_SECTION"}
 
 
 def _reel_form(reel: PaperReel) -> str:
@@ -43,14 +42,14 @@ def _require_section_for_form(reel: PaperReel, section: str) -> None:
     expected = SECTION_FOR_FORM.get(form, "WINDER_SECTION")
     if section == expected:
         return
-    if form == "COIL":
+    if form == "REEL":
         raise HTTPException(
             status_code=400,
-            detail=f"{reel.reel_code} is a coil. Issue it to slitting; the slit reels are then issued to the winder.",
+            detail=f"{reel.reel_code} is a reel. Issue it to slitting; the output coils are then issued to production.",
         )
     raise HTTPException(
         status_code=400,
-        detail=f"{reel.reel_code} is a reel. Issue it directly to a winder; only coils go to slitting.",
+        detail=f"{reel.reel_code} is a coil. Issue it directly to production; reels must go through slitting.",
     )
 
 
@@ -100,6 +99,8 @@ def _parse_uuid_list(value: Optional[str], field_name: str) -> list[uuid.UUID]:
 
 
 class ReelIssueCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
     reel_id: uuid.UUID
     issue_section: Optional[str] = None
     machine_id: Optional[uuid.UUID] = None
@@ -131,6 +132,8 @@ class ReelIssueCreate(BaseModel):
 
 
 class ReelIssueClosePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
     consumed_weight_kg: float = Field(ge=0)
 
 
@@ -187,7 +190,7 @@ def create_reel_issue(
     reel = db.query(PaperReel).filter(
         PaperReel.id == payload.reel_id,
         PaperReel.plant_id == _to_uuid(plant_id),
-    ).first()
+    ).with_for_update().populate_existing().first()
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found in this plant")
     if reel.status in {ReelStatus.CONSUMED, ReelStatus.SCRAP} or float(reel.current_weight_kg or 0.0) <= 0:
@@ -340,21 +343,23 @@ def close_reel_issue(
     ).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Reel issue not found")
-    if issue.status != ReelIssueStatus.OPEN:
-        raise HTTPException(status_code=400, detail="Reel issue is already closed")
-
     reel = db.query(PaperReel).filter(
         PaperReel.id == issue.reel_id,
         PaperReel.plant_id == _to_uuid(plant_id),
-    ).first()
+    ).with_for_update().populate_existing().first()
     if not reel:
         raise HTTPException(status_code=404, detail="Linked reel not found")
+
+    # Lock parent then issue, the same order used by slitting, to serialize returns.
+    issue = db.query(ReelIssue).filter(ReelIssue.id == issue_id).with_for_update().populate_existing().one()
+    if issue.status != ReelIssueStatus.OPEN:
+        raise HTTPException(status_code=409, detail="Reel issue is already closed")
 
     consumed = float(payload.consumed_weight_kg)
     if str(issue.issue_section or "") == "SLITTING_SECTION" and consumed > 0:
         raise HTTPException(
             status_code=409,
-            detail="Record slitting output on this coil so the slit reels are created; close with 0 kg only to return the coil unslit.",
+            detail="Record slitting output on this reel so the output coils are created; close with 0 kg only to return the reel unslit.",
         )
     if consumed > float(issue.issued_weight_kg):
         raise HTTPException(status_code=400, detail="Consumed weight cannot exceed issued weight")

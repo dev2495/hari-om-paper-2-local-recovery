@@ -419,18 +419,18 @@ def _fetch_paper_catalog(token: str, plant_id: str) -> dict[str, dict[str, Any]]
                 headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
             )
         if response.status_code != 200:
-            return {}
+            raise HTTPException(503, "Material catalogs are unavailable; reconciliation cannot be calculated safely")
         rows = response.json() or []
         catalog: dict[str, dict[str, Any]] = {}
         for row in rows:
             catalog[str(row.get("id") or "")] = row
         return catalog
     except httpx.HTTPError:
-        return {}
+        raise HTTPException(503, "Material catalogs are unavailable; reconciliation cannot be calculated safely")
 
 
 def _fetch_inventory_item_catalog(token: str, plant_id: str) -> dict[str, dict[str, Any]]:
-    """Inventory item lookup for books-state. Unreachable inventory must not 500 the shell."""
+    """Inventory item lookup for books-state. An unavailable catalog must not silently change reconciliation totals."""
     try:
         with httpx.Client(timeout=15.0) as client:
             response = client.get(
@@ -438,7 +438,7 @@ def _fetch_inventory_item_catalog(token: str, plant_id: str) -> dict[str, dict[s
                 headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
             )
         if response.status_code != 200:
-            return {}
+            raise HTTPException(503, "Material catalogs are unavailable; reconciliation cannot be calculated safely")
         rows = response.json() or []
         catalog: dict[str, dict[str, Any]] = {}
         for row in rows:
@@ -448,7 +448,7 @@ def _fetch_inventory_item_catalog(token: str, plant_id: str) -> dict[str, dict[s
             catalog[code] = row
         return catalog
     except httpx.HTTPError:
-        return {}
+        raise HTTPException(503, "Material catalogs are unavailable; reconciliation cannot be calculated safely")
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -478,7 +478,7 @@ def _fetch_ledger_consumption(
                 headers={"Authorization": f"Bearer {token}", "X-Plant-ID": plant_id},
             )
         if response.status_code != 200:
-            return {}
+            raise HTTPException(503, "Inventory issue ledger is unavailable; reconciliation cannot be calculated")
         rows = response.json() or []
         out: dict[str, dict[str, Any]] = {}
         for row in rows:
@@ -491,8 +491,8 @@ def _fetch_ledger_consumption(
                 "ledger_issued_kg": float(row.get("issued_kg") or 0.0),
             }
         return out
-    except httpx.HTTPError:
-        return {}
+    except httpx.HTTPError as exc:
+        raise HTTPException(503, "Inventory issue ledger is unavailable; retry reconciliation") from exc
 
 
 def _fetch_stock_certification_for_period(
@@ -984,6 +984,8 @@ def _build_monthly_material_summary(
         )
         bucket["actual_consumption_kg"] += float(row.actual_consumed_weight_kg or 0.0)
         bucket["actual_cost"] += float(getattr(row, "actual_cost", 0.0) or 0.0)
+        if row.notes:
+            bucket["notes"] = "\n".join(filter(None, [bucket.get("notes"), row.notes]))
         if not bucket.get("item_name") and row.item_name:
             bucket["item_name"] = row.item_name
 

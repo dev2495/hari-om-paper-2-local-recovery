@@ -13,7 +13,7 @@ from src.routers.quality import QualityInspectionCreate, create_quality_inspecti
 
 PLANT = '00000000-0000-0000-0000-0000000000a1'
 MAKER = {'sub': 'receipt-maker', 'roles': ['Store']}
-CHECKER = {'sub': 'receipt-checker', 'roles': ['PlantManager']}
+CHECKER = {'sub': 'receipt-checker', 'roles': ['Owner']}
 QC = {'sub': 'qc-inspector', 'roles': ['QC']}
 
 

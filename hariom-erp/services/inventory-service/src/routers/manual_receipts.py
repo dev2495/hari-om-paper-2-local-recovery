@@ -21,7 +21,7 @@ from ..models import (
     ReelScanSource, ReelStatus, CostSource, TransactionType, ReferenceType,
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
-from ..services.labels import reel_label_payload
+from ..services.labels import reel_label_payload, batch_label_payload
 from ..services.receipt_quality import initial_quality
 from ..services.procurement import canonical_hash, normalize_invoice_number
 from ..utils.auth import get_current_plant, require_role
@@ -57,6 +57,8 @@ def _manual_checks(payload, db, plant_id):
         item = db.query(ItemMaster).filter(ItemMaster.id == requested.item_id, ItemMaster.plant_id == plant_id).first()
         if not item or item.active != "true" or _enum(item.type) == "FINISHED_GOOD":
             raise HTTPException(422, f"Line {index}: select a raw or packing material in this plant")
+        if _enum(item.type) in {"TOOL", "OTHER"}:
+            raise HTTPException(422, "Tools and other purchases require an approved requisition and linked PO receipt")
         is_reel = _enum(item.tracking_mode) == "REEL"
         qty = sum((Decimal(str(lot.net_weight_kg)) for lot in requested.lots), Decimal(0)) if is_reel else Decimal(str(requested.quantity or 0))
         if qty <= 0 or (is_reel != bool(requested.lots)):
@@ -68,6 +70,8 @@ def _manual_checks(payload, db, plant_id):
             if not source or source in seen:
                 raise HTTPException(422, f"Duplicate or blank vendor reel number: {source}")
             seen.add(source)
+            if _enum(item.type) == "PARCHMENT" and lot.physical_form != "COIL":
+                raise HTTPException(422, "Parchment must be inwarded as coils")
             if not lot.physical_form:
                 raise HTTPException(422, f"Select reel or coil for vendor lot {source}")
             if lot.gross_weight_kg is not None and lot.tare_weight_kg is not None and abs(Decimal(str(lot.gross_weight_kg)) - Decimal(str(lot.tare_weight_kg)) - Decimal(str(lot.net_weight_kg))) > Decimal("0.001"):
@@ -175,6 +179,11 @@ def post_manual_receipt(payload: ManualReceiptCreate, db: Session = Depends(get_
                     quantity=qty, po_rate=rate, invoice_rate=rate, delta=invoice_qty - qty,
                     claimable_amount=max(Decimal(0), (invoice_qty - qty) * Decimal(str(rate))), status="OPEN"))
     try:
+        for receipt_line in receipt.lines:
+            if receipt_line.batch_id:
+                batch = db.get(StockBatch, receipt_line.batch_id)
+                batch.inward_metadata = {**(batch.inward_metadata or {}), "bill_no": payload.invoice_no}
+                batch.inward_metadata = {**batch.inward_metadata, "saved_label": batch_label_payload(batch, inward_date=payload.received_date)}
         db.commit()
     except IntegrityError as exc:
         db.rollback()

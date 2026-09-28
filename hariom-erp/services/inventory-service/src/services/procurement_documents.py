@@ -304,8 +304,9 @@ def render_debit_note_pdf(note: Any, discrepancy_rows: Iterable[dict[str, Any]])
 
 
 def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: str = "PAPER_LOT_4X2") -> bytes:
-    """Render one saved QR per physical lot at an explicit printer paper size."""
+    """Saved physical identities on thermal stock or the client's 2 x 4 A4 sheet."""
     from reportlab.pdfgen import canvas
+    from reportlab.pdfbase.pdfmetrics import stringWidth
     from reportlab.graphics import renderPDF
     from reportlab.graphics.shapes import Drawing
     from reportlab.graphics.barcode.qr import QrCodeWidget
@@ -313,29 +314,43 @@ def build_lot_label_pdf(labels: list[dict[str, Any]], copies: int = 1, profile: 
     thermal = profile == "PAPER_LOT_4X2"
     page_size = (101.6 * mm, 50.8 * mm) if thermal else A4
     pdf = canvas.Canvas(output, pagesize=page_size)
-    pdf.setTitle("Paper reel and coil labels")
-    width, height = page_size
-    for label in labels:
-        for _ in range(copies):
-            left = 4 * mm; top = height - 5 * mm
-            def text(value, x, y, size=8, bold=False):
-                pdf.setFont("Helvetica-Bold" if bold else "Helvetica", size)
-                pdf.drawString(x, y, str(value or "-"))
-            text("AMIGO | MATERIAL LOT", left, top, 8, True)
-            text(label.get("amigo_no") or label.get("code"), left, top - 5*mm, 11, True)
-            # Bounded wrapping reserves a separate QR column.
-            for index, line in enumerate(__import__('textwrap').wrap(str(label.get("item_code") or "") + " | " + str(label.get("item_name") or ""), width=39)[:2]):
-                text(line, left, top - (10 + index*3.5)*mm, 7)
-            source = label.get("source_reel_no") or (label.get("metadata") or {}).get("source_reel_no") or "-"
-            text(f"Vendor lot: {source}", left, top - 21*mm, 8)
-            text(f"{label.get('physical_form') or 'REEL'} | {label.get('inward_qty', label.get('qty', 0))} kg | {label.get('width_mm') or '-'} mm", left, top - 26*mm, 9, True)
-            text(f"PO: {label.get('po_no') or 'Manual GRN'}", left, top - 31*mm, 8)
-            text(f"Inward: {label.get('inward_date') or '-'}", left, top - 36*mm, 8)
-            qr = QrCodeWidget(label["qr_value"])
-            bounds = qr.getBounds(); qr_width = bounds[2] - bounds[0]; qr_height = bounds[3] - bounds[1]
-            size = 26 * mm
-            drawing = Drawing(size, size, transform=[size/qr_width,0,0,size/qr_height,0,0]); drawing.add(qr)
-            renderPDF.draw(drawing, pdf, width - size - 4*mm, height - size - 4*mm)
+    pdf.setTitle("Material reel and coil labels")
+    all_labels = [label for label in labels for _ in range(copies)]
+    per_page = 1 if thermal else 8
+    for index, label in enumerate(all_labels):
+        slot = index % per_page
+        w, h = (101.6 * mm, 50.8 * mm) if thermal else (94 * mm, 65 * mm)
+        x = 0 if thermal else (10 + (slot % 2) * 98) * mm
+        y = 0 if thermal else page_size[1] - (13 + (slot // 2 + 1) * 65 + (slot // 2) * 3) * mm
+        pdf.saveState(); pdf.translate(x, y)
+        pdf.setLineWidth(.6); pdf.rect(1 * mm, 1 * mm, w - 2 * mm, h - 2 * mm)
+        def text(value, xx, yy, max_width, size=9, bold=False):
+            value = str(value if value is not None and value != "" else "-")
+            font = "Helvetica-Bold" if bold else "Helvetica"
+            length = stringWidth(value, font, size)
+            actual = min(size, size * max_width / length) if length else size
+            pdf.setFont(font, actual); pdf.drawString(xx, yy, value)
+        meta = label.get("metadata") or {}
+        is_batch = label.get("entity_type") == "BATCH"
+        left, top = 3 * mm, h - 5 * mm
+        text(meta.get("legal_entity") or "AMIGO INDUSTRIES", left, top, w - 6 * mm, 10, True)
+        text(label.get("supplier_name"), left, top - 5 * mm, w * .56, 8)
+        text(label.get("inward_date"), w * .64, top - 5 * mm, w * .32, 8)
+        text(f"Bill: {label.get('bill_no') or meta.get('invoice_no') or '-'}", left, top - 9 * mm, w - 6 * mm, 8)
+        text((label.get("item_name") or label.get("item_code")) if is_batch else f"PLYBOND {label.get('ply_bond') or '-'}   VARIETY {label.get('variety') or label.get('item_code') or '-'}   GSM {label.get('gsm') or '-'}", left, top - 14 * mm, w - 6 * mm, 8, True)
+        text(f"BATCH {label.get('batch_no') or '-'}" if is_batch else f"ROLL NO. {label.get('source_reel_no') or '-'}", left, top - 19 * mm, w - 6 * mm, 9, True)
+        text(label.get("amigo_no") or label.get("code"), left, top - 28 * mm, w - 25 * mm, 23, True)
+        text(f"{label.get('inward_qty', label.get('qty', 0))} {label.get('uom') or 'KG'}", left, top - 37 * mm, w - 26 * mm, 22, True)
+        text("BATCH | " + str(label.get("item_code") or "") if is_batch else f"{label.get('physical_form') or 'REEL'} | {label.get('width_mm') or '-'} mm", left, 3 * mm, w - 6 * mm, 8)
+        if not thermal:
+            text(f"PO {label.get('po_no') or 'Manual inward'}", left, 8 * mm, w - 6 * mm, 8)
+            text(label.get("stock_status") or "QC required", left, 13 * mm, w - 26 * mm, 8)
+        qr = QrCodeWidget(label["qr_value"])
+        bounds = qr.getBounds(); size = 22 * mm
+        drawing = Drawing(size, size, transform=[size/(bounds[2]-bounds[0]),0,0,size/(bounds[3]-bounds[1]),0,0]); drawing.add(qr)
+        renderPDF.draw(drawing, pdf, w - size - 2 * mm, 7 * mm)
+        pdf.restoreState()
+        if slot == per_page - 1 or index == len(all_labels) - 1:
             pdf.showPage()
     pdf.save()
     return output.getvalue()

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import text
@@ -52,11 +52,12 @@ def enqueue_incoming_qc_task(
             "grn_no": grn_no,
             "po_no": po_no,
             "stock_status": stock_status,
+            "due_at": (occurred + timedelta(hours=24)).isoformat() + "Z",
         },
         # Fan-out request for the relay; stripped before the audit record is written.
         "notify": {
             "title": f"Incoming QC: GRN {grn_no}",
-            "message": f"{lot_kind} received on GRN {grn_no}{f' (PO {po_no})' if po_no else ''} is held until incoming QC.",
+            "message": f"{lot_kind} received on GRN {grn_no}{f' (PO {po_no})' if po_no else ''} requires QC within 24 hours and stays held until accepted.",
             "href": "/quality/incoming",
             "recipient_roles": ["QC"],
             "role_context": "QC",

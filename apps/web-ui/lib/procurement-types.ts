@@ -7,7 +7,7 @@ export type PurchaseLine = {
   qty_ordered: number
   qty_received: number
   qty_short_closed: number
-  uom: "KG" | "PCS"
+  uom: "KG" | "L" | "PCS"
   expected_unit_count?: number | null
   received_unit_count?: number | null
   count_basis?: "ESTIMATED" | "CONTRACTUAL" | null

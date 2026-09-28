@@ -11,7 +11,7 @@ const formatNumber = (value: unknown, digits = 2) =>
   Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: digits })
 
 const itemTypes = ["RAW_PAPER", "ADHESIVE", "PARCHMENT", "PACKAGING", "TOOL", "FINISHED_GOOD", "OTHER"]
-const uoms = ["KG", "PCS"]
+const uoms = ["KG", "L", "PCS"]
 const trackingModes = ["BULK", "REEL"]
 
 export default function InventoryItemsPage() {
@@ -30,6 +30,7 @@ export default function InventoryItemsPage() {
     type: "RAW_PAPER",
     tracking_mode: "REEL",
     uom: "KG",
+    density_kg_per_litre: "",
     reorder_level: "",
     safety_stock: "",
     lead_time_days: "",
@@ -61,6 +62,7 @@ export default function InventoryItemsPage() {
       type: form.type,
       tracking_mode: form.tracking_mode,
       uom: form.uom,
+      density_kg_per_litre: form.density_kg_per_litre ? Number(form.density_kg_per_litre) : undefined,
       reorder_level: form.reorder_level ? Number(form.reorder_level) : 0,
       safety_stock: form.safety_stock ? Number(form.safety_stock) : 0,
       lead_time_days: form.lead_time_days ? Number(form.lead_time_days) : 0,
@@ -151,6 +153,7 @@ export default function InventoryItemsPage() {
                   {uoms.map((uom) => <option key={uom} value={uom}>{uom}</option>)}
                 </select>
               </label>
+              {form.uom === "L" ? <label className="space-y-2 text-sm">Density (kg per litre)<input aria-label="Density kg per litre" className="h-11 w-full rounded-xl border border-border px-3" type="number" required min="0.000001" step="0.000001" value={form.density_kg_per_litre} onChange={(event) => setForm((current) => ({ ...current, density_kg_per_litre: event.target.value }))} /><span className="text-xs text-muted-foreground">Used to convert the specification BOM from kg to litres.</span></label> : null}
             </div>
             <label className="space-y-1 text-sm font-semibold text-muted-foreground">
               Tracking mode

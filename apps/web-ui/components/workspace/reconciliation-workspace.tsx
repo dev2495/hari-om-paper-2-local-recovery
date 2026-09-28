@@ -53,6 +53,7 @@ const numberValue = (value: unknown) => {
 }
 const fmtKg = (value: unknown, digits = 2) =>
   `${numberValue(value).toLocaleString("en-IN", { maximumFractionDigits: digits })} kg`
+const fmtQuantity = (value: unknown, unit?: string) => `${numberValue(value).toLocaleString("en-IN", { maximumFractionDigits: 2 })} ${unit || "KG"}`
 const fmtPct = (value: unknown) => `${numberValue(value).toFixed(2)}%`
 const fmtCurrency = (value: unknown) =>
   `₹${numberValue(value).toLocaleString("en-IN", { maximumFractionDigits: 0 })}`
@@ -151,7 +152,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
         actual_cost: Number(value.actual_cost || 0),
         notes: value.notes?.trim() || undefined,
       }))
-      .filter((r) => r.item_code && (r.actual_consumed_weight_kg > 0 || r.actual_cost > 0 || r.notes))
+      .filter((r) => r.item_code && actualDraft[r.item_code]?.actual_consumed_weight_kg.trim() !== "")
     importMutation.mutate(
       { payload: { month, rows: payload }, plantId: selectedPlant },
       {
@@ -214,9 +215,9 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
       />
 
       <MetricRail className="xl:grid-cols-5 2xl:grid-cols-5">
-        <MetricCard label="Theoretical" value={fmtKg(summary?.total_theoretical_consumption_kg)} detail="From job-card BOM snapshots" icon={Sigma} tone="blue" href="#streams" />
-        <MetricCard label="Ledger issued" value={fmtKg(summary?.total_ledger_issued_kg)} detail="Daily production issues" icon={Workflow} tone="teal" href="#streams" />
-        <MetricCard label="Actual" value={fmtKg(summary?.total_actual_consumption_kg)} detail="Plant register import" icon={ClipboardCheck} tone="violet" href="?view=actuals" />
+        <MetricCard label="Theoretical" value={fmtKg(summary?.total_theoretical_consumption_kg)} detail="KG materials · BOM snapshots" icon={Sigma} tone="blue" href="#streams" />
+        <MetricCard label="Ledger issued" value={fmtKg(summary?.total_ledger_issued_kg)} detail="KG materials · net issues less returns" icon={Workflow} tone="teal" href="#streams" />
+        <MetricCard label="Actual" value={fmtKg(summary?.total_actual_consumption_kg)} detail="KG materials · month-end actuals" icon={ClipboardCheck} tone="violet" href="?view=actuals" />
         <MetricCard
           label="Variance"
           value={fmtKg(summary?.total_variance_kg)}
@@ -366,13 +367,13 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                               <span className="block text-[11px] text-muted-foreground">{row.item_name || "—"}</span>
                             </td>
                             <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
-                              {fmtKg(row.theoretical_consumption_kg)}
+                              {fmtQuantity(row.theoretical_consumption_kg, row.item_uom)}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums">
-                              <span className="font-semibold text-signal-cyan-ink">{fmtKg(row.ledger_issued_kg)}</span>
+                              <span className="font-semibold text-signal-cyan-ink">{fmtQuantity(row.ledger_issued_kg, row.item_uom)}</span>
                             </td>
                             <td className="px-3 py-2.5 text-right font-semibold tabular-nums text-foreground">
-                              {fmtKg(row.actual_consumption_kg)}
+                              {fmtQuantity(row.actual_consumption_kg, row.item_uom)}
                             </td>
                             <td
                               className={cn(
@@ -380,7 +381,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                                 Math.abs(numberValue(row.variance_kg)) > 0 ? (numberValue(row.variance_kg) >= 0 ? "text-signal-rose-ink" : "text-signal-amber-ink") : "text-signal-emerald-ink",
                               )}
                             >
-                              {fmtKg(row.variance_kg)}
+                              {fmtQuantity(row.variance_kg, row.item_uom)}
                             </td>
                             <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">
                               {fmtPct(row.variance_percent)}
@@ -431,7 +432,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
           </Panel>
 
           <div className="grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-            <Panel title="Stream contributions" subtitle="Theoretical vs ledger vs actual at the period level.">
+            <Panel title="Stream contributions" subtitle="KG materials only. Litres and pieces remain separate in the item rows.">
               <div className="h-[260px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart
@@ -535,7 +536,7 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                     <th className="px-4 py-3 text-left">Item</th>
                     <th className="px-3 py-3 text-right">Theoretical</th>
                     <th className="px-3 py-3 text-right">Ledger</th>
-                    <th className="px-3 py-3 text-right">Actual kg</th>
+                    <th className="px-3 py-3 text-right">Actual · item unit</th>
                     <th className="px-3 py-3 text-right">Actual cost</th>
                     <th className="px-3 py-3 text-left">Notes (required if over tolerance)</th>
                   </tr>
@@ -553,8 +554,8 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                           <span className="block font-mono text-[12px] font-bold text-signal-cyan-ink">{row.item_code}</span>
                           <span className="block text-[11px] text-muted-foreground">{row.item_name || "—"}</span>
                         </td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtKg(row.theoretical_consumption_kg)}</td>
-                        <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtKg(row.ledger_issued_kg)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtQuantity(row.theoretical_consumption_kg, row.item_uom)}</td>
+                        <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtQuantity(row.ledger_issued_kg, row.item_uom)}</td>
                         <td className="px-3 py-2.5 text-right">
                           <input
                             type="number"
@@ -666,9 +667,9 @@ export function ReconciliationWorkspace({ view = "workspace" }: { view?: "worksp
                             <span className="block font-mono text-[12px] font-bold text-signal-cyan-ink">{row.item_code}</span>
                             <span className="block text-[11px] text-muted-foreground">{row.item_name || "—"}</span>
                           </td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtKg(row.theoretical_kg)}</td>
-                          <td className="px-3 py-2.5 text-right tabular-nums text-signal-cyan-ink font-semibold">{fmtKg(row.ledger_issued_kg)}</td>
-                          <td className={cn("px-3 py-2.5 text-right tabular-nums font-bold", row.running_variance_kg >= 0 ? "text-signal-rose-ink" : "text-signal-amber-ink")}>{fmtKg(row.running_variance_kg)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtQuantity(row.theoretical_kg, row.item_uom)}</td>
+                          <td className="px-3 py-2.5 text-right tabular-nums text-signal-cyan-ink font-semibold">{fmtQuantity(row.ledger_issued_kg, row.item_uom)}</td>
+                          <td className={cn("px-3 py-2.5 text-right tabular-nums font-bold", row.running_variance_kg >= 0 ? "text-signal-rose-ink" : "text-signal-amber-ink")}>{fmtQuantity(row.running_variance_kg, row.item_uom)}</td>
                           <td className="px-3 py-2.5 text-right tabular-nums text-muted-foreground">{fmtPct(row.running_variance_percent)}</td>
                           <td className="px-3 py-2.5 text-center">
                             <span

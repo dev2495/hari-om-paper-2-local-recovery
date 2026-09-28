@@ -4,14 +4,14 @@ import { useAuth } from "@/context/AuthContext"
 import { businessDate } from "@/lib/business-date"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { Plus, Save, Trash2 } from "lucide-react"
 
 import { ProcurementShell, Field, MessageBar, WorkPanel, areaClass, fieldClass, primaryButton, secondaryButton } from "@/components/procurement/procurement-shell"
 import { useInventoryItems } from "@/hooks/use-inventory"
 import { useVendors } from "@/hooks/use-master-data"
-import { purchaseApi } from "@/lib/api"
+import { api, purchaseApi } from "@/lib/api"
 
 const today = () => businessDate()
 type LineDraft = { logical_line_id?: string; metadata_json?: Record<string, any>; uom: string; incoming_qc_required: boolean; key: string; item_id: string; description: string; qty_ordered: string; unit_cost: string; width_mm: string; width_tolerance_mm: string; gsm: string; plybond: string; bulk: string; cobb: string; expected_unit_count: string; count_basis: "ESTIMATED" | "CONTRACTUAL" }
@@ -25,6 +25,11 @@ function message(error: any) {
 export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
   const { activePlant } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const [requisitionId, setRequisitionId] = useState(searchParams.get("requisition") || "")
+  const requisitionsQuery = useQuery({ queryKey: ["purchase-requisitions", activePlant, "APPROVED"], enabled: Boolean(activePlant && activePlant !== "ALL"), queryFn: () => api.get("/api/purchase/requisitions", { params: { status: "APPROVED" } }) })
+  const requisitions = requisitionsQuery.data?.data?.items || []
+  const appliedRequisition = useRef("")
   const requestKey = useRef(crypto.randomUUID())
   const [changeReason, setChangeReason] = useState("")
   const existingQuery = useQuery({ queryKey: ["purchase-v2", "edit", orderId, activePlant], refetchOnWindowFocus: false, queryFn: () => purchaseApi.getOrder(orderId!), enabled: Boolean(activePlant && activePlant !== "ALL") && Boolean(orderId) })
@@ -49,6 +54,16 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
     setLines(existing.lines.map((row: any) => ({ ...emptyLine(), ...Object.fromEntries(Object.keys(emptyLine()).filter((key) => !["key", "incoming_qc_required"].includes(key)).map((key) => [key, row[key] == null ? "" : String(row[key])])), key: row.id, logical_line_id: row.logical_line_id, incoming_qc_required: row.incoming_qc_required, metadata_json: row.metadata_json, uom: row.uom, count_basis: row.count_basis || "ESTIMATED" })))
   }, [existing])
 
+  useEffect(() => {
+    if (!requisitionId) { appliedRequisition.current = ""; return }
+    if (orderId || appliedRequisition.current === requisitionId) return
+    const pr = requisitionsQuery.data?.data?.items?.find((row: any) => row.id === requisitionId)
+    if (!pr) return
+    appliedRequisition.current = requisitionId
+    setHeader((current) => ({ ...current, category: "OT" }))
+    setLines([{ ...emptyLine(), item_id: pr.item_id, description: pr.item_name, qty_ordered: String(pr.quantity), uom: pr.uom }])
+  }, [requisitionId, requisitionsQuery.data, orderId])
+
   function submit(event: React.FormEvent) {
     event.preventDefault(); setError("")
     if (!selectedVendor || lines.some((line) => !line.item_id || Number(line.qty_ordered) <= 0 || Number(line.unit_cost) < 0)) {
@@ -56,6 +71,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
     }
     if (orderId && changeReason.trim().length < 3) { setError("Explain the vendor change before saving a new revision."); return }
     create.mutate({
+      requisition_id: requisitionId || undefined,
       request_id: requestKey.current, category: header.category, po_date: header.po_date,
       supplier_id: selectedVendor.id, supplier_name: selectedVendor.name, expected_date: header.expected_date,
       supplier_contact: header.supplier_contact || undefined, supplier_address: header.supplier_address || undefined,
@@ -82,6 +98,7 @@ export default function PurchaseOrderEditor({ orderId }: { orderId?: string }) {
       description="The server assigns the next RP-PM or OT number. Paper quantities stay in kg; an expected reel or coil count is optional planning information and never creates stock.">
       {error ? <MessageBar tone="error">{error}</MessageBar> : null}
       <form onSubmit={submit} className="space-y-5">
+        {!orderId ? <WorkPanel title="Approved requisition" description="Required for tools, spares and other purchases. Select the approved request to fill its material and quantity."><Field label="PR reference"><select className={fieldClass} value={requisitionId} onChange={(event) => setRequisitionId(event.target.value)}><option value="">No requisition · RM / PM purchase</option>{requisitions.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.pr_no} · {pr.item_name} · {pr.quantity} {pr.uom}</option>)}</select></Field>{requisitionsQuery.isError ? <MessageBar tone="error">Approved requisitions could not load. Retry before creating an OT purchase.</MessageBar> : null}</WorkPanel> : null}
         {orderId ? <WorkPanel title="Reason for revision" description="Any vendor, item, quantity, rate, specification or term change creates a fresh draft requiring independent approval. The old approved document remains in history."><Field label="Change reason"><input required minLength={3} className={fieldClass} value={changeReason} onChange={(event) => setChangeReason(event.target.value)} /></Field></WorkPanel> : null}
         <WorkPanel title="Document and vendor" description="PO identity is automatic. Vendor and legal terms are snapshotted into this revision.">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">

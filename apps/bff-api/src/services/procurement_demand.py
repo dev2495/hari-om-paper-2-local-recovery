@@ -143,7 +143,7 @@ MATERIAL_ITEM_UOM = {"ADHESIVE": "KG", "PARCHMENT": "KG", "PACKING": "PCS"}
 def resolve_material_item(material_class, code, name, items):
     """Spec BOM component -> stock item of the right class by code (ignoring spaces/dashes), then by name."""
     types = MATERIAL_ITEM_TYPES[material_class]
-    pool = [row for row in items if row.get("type") in types and row.get("uom") == MATERIAL_ITEM_UOM[material_class]]
+    pool = [row for row in items if row.get("type") in types and (row.get("uom") == MATERIAL_ITEM_UOM[material_class] or (material_class == "ADHESIVE" and row.get("uom") == "L" and float(row.get("density_kg_per_litre") or 0) > 0))]
     for wanted in filter(None, (normalize_code(code), normalize_code(name))):
         match = [row for row in pool if normalize_code(row.get("item_code")) == wanted or normalize_code(row.get("name")) == wanted]
         if len(match) == 1:
@@ -221,6 +221,8 @@ def explode_other_demand(order, line, spec, bom, items, start, end):
         if not mapped:
             problems.append(f"{material_class.title()} {code or name or '?'} has no stock item yet")
         key = item["id"] if mapped else f"{material_class.lower()}:{normalize_code(code or name) or 'UNSPECIFIED'}"
+        if mapped and item.get("uom") == "L":
+            qty = qty / Decimal(str(item["density_kg_per_litre"]))
         step = Decimal(1).scaleb(-places)
         amount = float(qty.quantize(step, rounding=ROUND_CEILING))
         if key in grouped:

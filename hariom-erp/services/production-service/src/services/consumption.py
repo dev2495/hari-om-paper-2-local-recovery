@@ -425,6 +425,11 @@ def compose_streams_for_period(
         inventory_item = inventory_catalog.get(code, {}) or {}
 
         provisional_kg = float(prov.get("theoretical_consumption_kg") or 0.0)
+        if inventory_item.get("uom") == "L" and provisional_kg:
+            density = float(inventory_item.get("density_kg_per_litre") or 0)
+            if density <= 0:
+                raise ValueError(f"Material {code} requires kg/litre density before reconciliation")
+            provisional_kg /= density
         actual_kg = float(actual.get("actual_consumption_kg") or 0.0)
         ledger_kg = float(ledger.get("ledger_issued_kg") or 0.0)
 
@@ -478,10 +483,10 @@ def summarize_streams(rows: list[ConsumptionStreams]) -> dict[str, Any]:
         "rows_needing_explanation": 0,
     }
     for row in rows:
-        totals["total_theoretical_consumption_kg"] += row.theoretical_kg
-        totals["total_provisional_theory_consumption_kg"] += row.provisional_theory_kg
-        totals["total_ledger_issued_kg"] += row.ledger_issued_kg
-        totals["total_actual_consumption_kg"] += row.actual_kg
+        totals["total_theoretical_consumption_kg"] += row.theoretical_kg if row.item_uom in {None, "KG"} else 0
+        totals["total_provisional_theory_consumption_kg"] += row.provisional_theory_kg if row.item_uom in {None, "KG"} else 0
+        totals["total_ledger_issued_kg"] += row.ledger_issued_kg if row.item_uom in {None, "KG"} else 0
+        totals["total_actual_consumption_kg"] += row.actual_kg if row.item_uom in {None, "KG"} else 0
         totals["total_theoretical_cost"] += row.theoretical_cost
         totals["total_actual_cost"] += row.actual_cost
         if row.over_tolerance:

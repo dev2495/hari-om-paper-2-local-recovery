@@ -117,7 +117,8 @@ test("job card, spec dialog, and quality desks keep stage-specific fields", () =
   assert.match(nextConfig, /source: "\/production\/eod-entry"/)
   assert.match(nextConfig, /destination: "\/production\/supervisor-entry"/)
   assert.doesNotMatch(incoming, /Pass and release/)
-  assert.match(incoming, /Client status/)
+  assert.match(incoming, /Save QC inspection/)
+  assert.doesNotMatch(incoming, /status: "PASS"/)
 })
 
 test("spec dialog and remaining shells keep product context and shared headers", () => {

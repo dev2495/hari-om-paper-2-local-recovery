@@ -17,6 +17,10 @@ PAPER_MANDATORY_KEYS = frozenset({"gsm", "bf", "moisture_pct", "clear_for_slitti
 RETURN_DEFECT_KEYS = frozenset({"reject_reason", "rework_possible", "visual_defect"})
 
 QC_TEMPLATE_PRESETS: tuple[dict[str, Any], ...] = (
+    {"material_type": "RAW_PAPER", "parameter_key": "width_mm", "label": "Paper width (mm)", "input_type": "number", "options": [], "required": True, "sort_order": 11},
+    {"material_type": "RAW_PAPER", "parameter_key": "reel_weight_kg", "label": "Reel weight (kg)", "input_type": "number", "options": [], "required": True, "sort_order": 12},
+    {"material_type": "PARCHMENT", "parameter_key": "color", "label": "Color", "input_type": "text", "options": [], "required": True, "sort_order": 21},
+    {"material_type": "PARCHMENT", "parameter_key": "weight_kg", "label": "Weight (kg)", "input_type": "number", "options": [], "required": True, "sort_order": 22},
     {"material_type": "ADHESIVE", "parameter_key": "viscosity", "label": "Viscosity", "input_type": "number", "options": [], "required": True, "sort_order": 10},
     {"material_type": "ADHESIVE", "parameter_key": "temperature", "label": "Temperature", "input_type": "number", "options": [], "required": True, "sort_order": 20},
     {"material_type": "ADHESIVE", "parameter_key": "solid_content", "label": "Solid Content", "input_type": "number", "options": [], "required": True, "sort_order": 30},

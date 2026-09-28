@@ -3,6 +3,7 @@ from datetime import date
 from unittest.mock import patch
 
 import httpx
+from fastapi import HTTPException
 
 from src.routers.reconciliation import (
     _calculate_reconciliation,
@@ -103,15 +104,31 @@ class ReconciliationTests(unittest.TestCase):
         self.assertIsNotNone(cert)
         self.assertEqual(cert["id"], "current")
 
-    def test_catalog_lookups_return_empty_when_peer_hostname_unresolved(self):
+    def test_catalog_lookups_fail_closed_when_peer_hostname_unresolved(self):
         class _FailingClient(_FakeClient):
             def get(self, *args, **kwargs):
                 raise httpx.ConnectError("[Errno 8] nodename nor servname provided, or not known")
 
         with patch("src.routers.reconciliation.httpx.Client", _FailingClient):
-            self.assertEqual(_fetch_paper_catalog("token", "00000000-0000-0000-0000-0000000000a1"), {})
-            self.assertEqual(_fetch_inventory_item_catalog("token", "00000000-0000-0000-0000-0000000000a1"), {})
+            for lookup in (_fetch_paper_catalog, _fetch_inventory_item_catalog):
+                with self.assertRaises(HTTPException) as error:
+                    lookup("token", "00000000-0000-0000-0000-0000000000a1")
+                self.assertEqual(error.exception.status_code, 503)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_reconciliation_converts_bom_mass_but_preserves_zero_counted_use():
+    from src.services.consumption import compose_streams_for_period, summarize_streams
+    rows = compose_streams_for_period(
+        provisional_map={"GLUE": {"theoretical_consumption_kg": 12}},
+        actual_map={"GLUE": {"actual_consumption_kg": 0, "notes": "No glue consumed"}},
+        ledger_map={"GLUE": {"ledger_issued_kg": 10}},
+        inventory_catalog={"GLUE": {"type": "ADHESIVE", "uom": "L", "density_kg_per_litre": 1.2, "unit_cost": 30}},
+        paper_codes=set())
+    assert rows[0].provisional_theory_kg == 10
+    assert rows[0].actual_kg == 0 and rows[0].item_uom == "L"
+    assert rows[0].notes == "No glue consumed"
+    assert summarize_streams(rows)["total_theoretical_consumption_kg"] == 0

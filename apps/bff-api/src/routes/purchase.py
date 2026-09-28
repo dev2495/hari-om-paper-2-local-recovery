@@ -303,3 +303,12 @@ async def purchase_create_material_items(request: Request, token: str = Depends(
 @router.patch("/schedules/{schedule_id}")
 async def patch_supplier_schedule(schedule_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/schedules/{schedule_id}", request, token)
+
+
+@router.api_route("/requisitions", methods=["GET", "POST"])
+async def requisitions(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/inventory/purchase/requisitions", request, token)
+
+@router.post("/requisitions/{requisition_id}/decision")
+async def requisition_decision(requisition_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, f"/inventory/purchase/requisitions/{requisition_id}/decision", request, token)

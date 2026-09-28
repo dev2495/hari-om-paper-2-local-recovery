@@ -7,12 +7,13 @@ import { emptyIncomingProfile, formatAllowedRange } from "@/lib/qc-measurement"
 type ItemQualityProfileFormProps = {
   item: any
   saving?: boolean
+  allowExemption?: boolean
   onSave: (profile: any) => Promise<void> | void
   onCopyTemplate?: () => Promise<void> | void
   onApprove?: (exemption?: boolean) => Promise<void> | void
 }
 
-export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, onApprove }: ItemQualityProfileFormProps) {
+export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, onApprove, allowExemption = true }: ItemQualityProfileFormProps) {
   const [formError, setFormError] = useState("")
   const [savedMessage, setSavedMessage] = useState("")
   const [profile, setProfile] = useState(() => item?.quality_profile || emptyIncomingProfile())
@@ -163,14 +164,14 @@ export function ItemQualityProfileForm({ item, saving, onSave, onCopyTemplate, o
         >
           Approve profile
         </button>
-        <button
+        {allowExemption ? <button
           type="button"
           disabled={saving || !item || !onApprove}
           onClick={() => onApprove?.(true)}
           className="rounded-xl border border-signal-amber-ink/40 px-3 py-2 text-sm font-semibold text-signal-amber-ink disabled:opacity-50"
         >
           Approve exemption
-        </button>
+        </button> : null}
       </div>
     </form>
   )

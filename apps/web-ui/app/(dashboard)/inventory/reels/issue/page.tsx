@@ -76,7 +76,7 @@ export default function ReelIssuePage() {
 
   const selected = reels.find((row) => String(row.id) === form.reel_id)
   const selectedForm = selected ? formOf(selected) : null
-  const section = selectedForm === "COIL" ? "SLITTING_SECTION" : "WINDER_SECTION"
+  const section = selectedForm === "REEL" ? "SLITTING_SECTION" : "WINDER_SECTION"
   const department = section === "SLITTING_SECTION" ? "SLITTING" : "WINDER"
   const sectionMachines = machines.filter(
     (row: any) => String(row.department || "").toUpperCase() === department && String(row.status || "UP").toUpperCase() === "UP",
@@ -114,7 +114,7 @@ export default function ReelIssuePage() {
     }
     chooseReel(String(matched.id))
     setScanCode("")
-    setNotice({ tone: "info", text: `${matched.reel_code} selected · ${formOf(matched) === "COIL" ? "coil → slitting" : "reel → winder"}.` })
+    setNotice({ tone: "info", text: `${matched.reel_code} selected · ${formOf(matched) === "REEL" ? "reel → slitting" : "coil → production"}.` })
   }
 
   async function submitIssue(event: FormEvent) {
@@ -175,13 +175,13 @@ export default function ReelIssuePage() {
   }
 
   async function submitSlit() {
-    if (!slitIssue) return setNotice({ tone: "error", text: "Choose the coil on the slitter." })
+    if (!slitIssue) return setNotice({ tone: "error", text: "Choose the reel on the slitter." })
     const rows = slitRows.filter((row) => row.weight_kg !== "")
     if (!rows.length || rows.some((row) => !(Number(row.weight_kg) > 0))) {
-      return setNotice({ tone: "error", text: "Enter the weighed kg of every slit reel." })
+      return setNotice({ tone: "error", text: "Enter the weighed kg of every output coil." })
     }
     if (trim < 0 || slitBalance < -1e-6) {
-      return setNotice({ tone: "error", text: `Slit reels + trim (${kg(slitConsumed)}) exceed the ${kg(slitIssued)} issued.` })
+      return setNotice({ tone: "error", text: `Output coils + trim (${kg(slitConsumed)}) exceed the ${kg(slitIssued)} issued.` })
     }
     try {
       const { data } = await slitCoil.mutateAsync({
@@ -196,7 +196,7 @@ export default function ReelIssuePage() {
       setTrimKg("")
       setNotice({
         tone: "success",
-        text: `${data.children.length} slit reels created from ${data.parent_reel_code}. ${kg(data.remaining_weight_kg)} stays on the coil.`,
+        text: `${data.children.length} output coils created from ${data.parent_reel_code}. ${kg(data.remaining_weight_kg)} stays on the reel.`,
       })
     } catch (error) {
       setNotice({ tone: "error", text: errorText(error) })
@@ -207,7 +207,7 @@ export default function ReelIssuePage() {
     id: child.id,
     at_no: child.at_no,
     source_reel_no: child.label?.source_reel_no || `Slit from ${slitResult.parent_reel_code}`,
-    physical_form: "REEL",
+    physical_form: "COIL",
     net_weight_kg: child.weight_kg,
     width_mm: child.width_mm,
     label: child.label,
@@ -219,7 +219,7 @@ export default function ReelIssuePage() {
       <ProcurementShell
         eyebrow="Stores / production issue"
         title="Issue paper to production"
-        description="Reels go straight to a winder. Coils go to slitting first; the slit reels then get their own labels and are issued to the winder."
+        description="Reels go to slitting first. Each output coil gets its own label and can then be issued to production. Received coils go directly to production after QC."
       >
         {notice ? <MessageBar tone={notice.tone}>{notice.text}</MessageBar> : null}
         {reelsQuery.isError || issuesQuery.isError ? <MessageBar tone="error">Stock could not load. Refresh before issuing.</MessageBar> : null}
@@ -253,7 +253,7 @@ export default function ReelIssuePage() {
                 ))}
               </select>
             </Field>
-            <Field label="Goes to" hint={selectedForm === "COIL" ? "coils are slit first" : undefined}>
+            <Field label="Goes to" hint={selectedForm === "REEL" ? "reels are slit first" : undefined}>
               <input className={fieldClass} readOnly value={!selected ? "" : section === "SLITTING_SECTION" ? "Slitting section" : "Winder section"} />
             </Field>
             <Field label={section === "SLITTING_SECTION" ? "Slitter · optional" : "Winder"}>
@@ -273,19 +273,19 @@ export default function ReelIssuePage() {
             <div className="md:col-span-2 xl:col-span-5 flex flex-wrap items-center justify-between gap-3">
               <p className="text-xs text-muted-foreground">Issue date {dayjs(form.issue_date).format("DD MMM YYYY")} · each issue is logged as a scan on the reel&apos;s history.</p>
               <button type="submit" className={primaryButton} disabled={busy || !selected}>
-                <PackageCheck className="h-4 w-4" /> {section === "SLITTING_SECTION" ? "Issue coil to slitting" : "Issue reel to winder"}
+                <PackageCheck className="h-4 w-4" /> {section === "SLITTING_SECTION" ? "Issue reel to slitting" : "Issue coil to production"}
               </button>
             </div>
           </form>
         </WorkPanel>
 
-        <WorkPanel title="Coils on the slitter" description="Weigh each slit reel as it comes off. Every slit reel gets its own AT number and label; unslit balance stays on the coil.">
-          {slittingIssues.length === 0 ? <p className="text-sm text-muted-foreground">No coil is issued to slitting.</p> : (
+        <WorkPanel title="Reels on the slitter" description="Weigh each output coil as it comes off. Every output coil gets its own AT number and label; unslit balance stays on the reel.">
+          {slittingIssues.length === 0 ? <p className="text-sm text-muted-foreground">No reel is issued to slitting.</p> : (
             <div className="space-y-4">
               <div className="grid gap-3 md:grid-cols-3">
                 <Field label="Coil">
                   <select className={fieldClass} value={slitIssueId} onChange={(event) => { setSlitIssueId(event.target.value); setSlitResult(null) }}>
-                    <option value="">Select coil</option>
+                    <option value="">Select reel</option>
                     {slittingIssues.map((row) => <option key={row.id} value={row.id}>{row.reel_code || row.reel_id.slice(0, 8)} · {kg(row.issued_weight_kg)} issued · shift {row.shift}</option>)}
                   </select>
                 </Field>
@@ -293,9 +293,9 @@ export default function ReelIssuePage() {
                   <input className={fieldClass} type="number" min="0" step="0.001" value={trimKg} disabled={!slitIssue} onChange={(event) => setTrimKg(event.target.value)} />
                 </Field>
                 <div className="self-end rounded-lg bg-muted px-3 py-2 text-sm tabular-nums">
-                  <p><strong>{slitRows.filter((row) => row.weight_kg).length}</strong> slit reels · {kg(slitTotal)} + trim {kg(trim)}</p>
+                  <p><strong>{slitRows.filter((row) => row.weight_kg).length}</strong> output coils · {kg(slitTotal)} + trim {kg(trim)}</p>
                   <p className={slitBalance < -1e-6 ? "font-semibold text-signal-rose-ink" : "text-muted-foreground"}>
-                    {slitIssue ? (slitBalance < -1e-6 ? `Over by ${kg(-slitBalance)}` : `${kg(slitBalance)} returns to the coil`) : "Select a coil"}
+                    {slitIssue ? (slitBalance < -1e-6 ? `Over by ${kg(-slitBalance)}` : `${kg(slitBalance)} returns to the reel`) : "Select a reel"}
                   </p>
                 </div>
               </div>
@@ -303,25 +303,25 @@ export default function ReelIssuePage() {
                 <>
                   <div className="overflow-x-auto rounded-lg border border-border">
                     <table className="w-full min-w-[480px] text-sm">
-                      <thead className="bg-muted text-left text-xs text-muted-foreground"><tr><th className="px-2 py-3">#</th><th className="px-2 py-3">Slit reel kg</th><th className="px-2 py-3">Width mm</th><th /></tr></thead>
+                      <thead className="bg-muted text-left text-xs text-muted-foreground"><tr><th className="px-2 py-3">#</th><th className="px-2 py-3">Output coil kg</th><th className="px-2 py-3">Width mm</th><th /></tr></thead>
                       <tbody onKeyDown={slitKeys}>
                         {slitRows.map((row, index) => (
                           <tr key={row.key} className="border-t border-border">
                             <td className="px-2 tabular-nums text-muted-foreground">{index + 1}</td>
-                            <td className="p-1"><input id={`slit-weight-${row.key}`} aria-label={`Slit reel ${index + 1} kg`} className={fieldClass} type="number" min="0.001" step="0.001" value={row.weight_kg} onChange={(event) => setSlitRows((rows) => rows.map((candidate) => candidate.key === row.key ? { ...candidate, weight_kg: event.target.value } : candidate))} /></td>
-                            <td className="p-1"><input aria-label={`Slit reel ${index + 1} width`} className={fieldClass} type="number" min="1" step="0.1" value={row.width_mm} onChange={(event) => setSlitRows((rows) => rows.map((candidate) => candidate.key === row.key ? { ...candidate, width_mm: event.target.value } : candidate))} /></td>
-                            <td className="p-1"><button type="button" aria-label={`Remove slit reel ${index + 1}`} className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-signal-rose-soft disabled:opacity-30" disabled={slitRows.length === 1} onClick={() => setSlitRows((rows) => rows.filter((candidate) => candidate.key !== row.key))}><Trash2 className="h-4 w-4" /></button></td>
+                            <td className="p-1"><input id={`slit-weight-${row.key}`} aria-label={`Output coil ${index + 1} kg`} className={fieldClass} type="number" min="0.001" step="0.001" value={row.weight_kg} onChange={(event) => setSlitRows((rows) => rows.map((candidate) => candidate.key === row.key ? { ...candidate, weight_kg: event.target.value } : candidate))} /></td>
+                            <td className="p-1"><input aria-label={`Output coil ${index + 1} width`} className={fieldClass} type="number" min="1" step="0.1" value={row.width_mm} onChange={(event) => setSlitRows((rows) => rows.map((candidate) => candidate.key === row.key ? { ...candidate, width_mm: event.target.value } : candidate))} /></td>
+                            <td className="p-1"><button type="button" aria-label={`Remove output coil ${index + 1}`} className="flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-signal-rose-soft disabled:opacity-30" disabled={slitRows.length === 1} onClick={() => setSlitRows((rows) => rows.filter((candidate) => candidate.key !== row.key))}><Trash2 className="h-4 w-4" /></button></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                   <div className="flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-xs text-muted-foreground">Enter moves to the next field; Enter on the last width adds the next slit reel.</p>
+                    <p className="text-xs text-muted-foreground">Enter moves to the next field; Enter on the last width adds the next output coil.</p>
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" className={secondaryButton} onClick={addSlitRow}><Plus className="h-4 w-4" /> Add slit reel</button>
-                      <button type="button" className={secondaryButton} disabled={busy} onClick={() => returnBalance(slitIssue, 0)}><Undo2 className="h-4 w-4" /> Return coil unslit</button>
-                      <button type="button" className={primaryButton} disabled={busy || slitBalance < -1e-6 || slitTotal <= 0} onClick={submitSlit}><Scissors className="h-4 w-4" /> Save slit reels</button>
+                      <button type="button" className={secondaryButton} onClick={addSlitRow}><Plus className="h-4 w-4" /> Add output coil</button>
+                      <button type="button" className={secondaryButton} disabled={busy} onClick={() => returnBalance(slitIssue, 0)}><Undo2 className="h-4 w-4" /> Return reel unslit</button>
+                      <button type="button" className={primaryButton} disabled={busy || slitBalance < -1e-6 || slitTotal <= 0} onClick={submitSlit}><Scissors className="h-4 w-4" /> Save output coils</button>
                     </div>
                   </div>
                 </>
@@ -336,7 +336,7 @@ export default function ReelIssuePage() {
           ) : null}
         </WorkPanel>
 
-        <WorkPanel title="Reels on winders" description="When the reel comes off, enter the kg consumed. The balance goes back to store on the same AT number and label.">
+        <WorkPanel title="Coils in production" description="When the coil comes off, enter the kg consumed. The balance goes back to store on the same AT number and label.">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-sm">
               <thead><tr className="border-b border-border text-left text-xs text-muted-foreground">
@@ -362,7 +362,7 @@ export default function ReelIssuePage() {
                     </tr>
                   )
                 })}
-                {winderIssues.length === 0 ? <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">No reels open on winders.</td></tr> : null}
+                {winderIssues.length === 0 ? <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">No coils open in production.</td></tr> : null}
               </tbody>
             </table>
           </div>

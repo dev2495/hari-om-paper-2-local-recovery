@@ -22,6 +22,7 @@ export default function IncomingQualityPage() {
   const [readings, setReadings] = useState<Record<string, string>>({})
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [notes, setNotes] = useState("")
+  const [disposition, setDisposition] = useState("AUTO")
   const pendingQualityQuery = usePendingInventoryQuality()
   const concessionsQuery = useInventoryQualityConcessions()
   const createInventoryInspection = useCreateInventoryQualityInspection()
@@ -54,14 +55,12 @@ export default function IncomingQualityPage() {
         readings: numericReadings,
         reasons,
         notes: notes || undefined,
-        status: "PASS",
-        disposition: "ACCEPT",
+        disposition: disposition === "AUTO" ? undefined : disposition,
       })
       const payload = response?.data || {}
       const verdict = payload.status
-      const ignored = payload.ignored_client_status
       showToast(
-        `Incoming QC verdict ${verdict}. Client status ${ignored || "PASS"} was not trusted.`,
+        `Inspection saved: ${verdict}. ${payload.stock_status === "UNRESTRICTED" ? "Material released for issue." : "Material remains held."}`,
         verdict === "FAIL" ? "error" : "success",
       )
       setReadings({})
@@ -74,13 +73,13 @@ export default function IncomingQualityPage() {
   }
 
   return (
-    <RoleGate allow={["QC", "PlantManager", "Store"]}>
+    <RoleGate allow={["QC"]} omitOwnerAdmin>
       <div className="space-y-6" data-testid="quality-incoming-page">
         <ExecutiveHero
           appearance={MODULE_APPEARANCES.analytics}
           badge="Incoming QC"
           title="Incoming inspection"
-          description="The measured result is computed from owned item rules. A client-authored PASS, FAIL, or disposition cannot decide the verdict."
+          description="Inspect inward material within 24 hours. Approved master tolerances determine the result; held or rejected material stays unavailable for issue."
         />
         <QualityDeskNav />
         <div className="grid gap-5 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
@@ -106,6 +105,7 @@ export default function IncomingQualityPage() {
                     type="button"
                     onClick={() => {
                       setSelectedPendingId(key)
+                      setDisposition("AUTO")
                       setReadings({})
                       setReasons({})
                       setNotes("")
@@ -116,13 +116,14 @@ export default function IncomingQualityPage() {
                       <p className="text-sm font-semibold text-foreground">{row.label}</p>
                       <StatusBadge value={row.stock_status} />
                     </div>
-                    <p className="mt-1 text-xs text-muted-foreground">{row.material_type} · {row.source}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{row.material_type} · {row.qty} {row.uom || "KG"} · {row.supplier_or_customer || row.source}</p>
+                    {row.due_at ? <p className={`mt-1 text-xs ${row.overdue ? "font-semibold text-signal-rose-ink" : "text-muted-foreground"}`}>{row.overdue ? "Overdue · " : "Due · "}{new Date(row.due_at).toLocaleString("en-IN")}</p> : null}
                   </button>
                 )
               })
             )}
           </Panel>
-          <Panel title="Item profile readings" subtitle="No result or disposition shortcut. The server returns PASS, FAIL, INCOMPLETE, or INVALID.">
+          <Panel title="Item profile readings" subtitle="Enter measurements against the approved tolerance. Failed or incomplete readings remain on hold.">
             <form onSubmit={handleSubmit} className="space-y-4">
               <p className="text-sm font-semibold text-foreground">{selectedPending ? selectedPending.label : "Select held material"}</p>
               {selectedPending && !parameters.length ? (
@@ -141,6 +142,13 @@ export default function IncomingQualityPage() {
               ) : selectedPending ? (
                 <p className="text-xs text-muted-foreground">Open Inventory → Items to add owned incoming parameters. {formatAllowedRange(null)}</p>
               ) : null}
+              <label className="block text-sm font-medium">Disposition
+                <select className="mt-2 h-11 w-full rounded-xl border border-border bg-card px-3" value={disposition} onChange={(event) => setDisposition(event.target.value)}>
+                  <option value="AUTO">Accept only if all checks pass</option>
+                  <option value="HOLD">Hold for review</option>
+                  <option value="REJECT">Reject inward material</option>
+                </select>
+              </label>
               <textarea
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
@@ -152,7 +160,7 @@ export default function IncomingQualityPage() {
                 disabled={!selectedPending || createInventoryInspection.isPending}
                 className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-60"
               >
-                Submit readings — server verdict
+                Save QC inspection
               </button>
             </form>
           </Panel>

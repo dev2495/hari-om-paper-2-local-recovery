@@ -1,5 +1,6 @@
 "use client"
 
+import { BulkMaterialReturns } from "@/components/procurement/bulk-material-returns"
 import { useDeferredValue, useEffect, useMemo, useState } from "react"
 import { ArrowRight, Barcode, PackageCheck, RefreshCw, Search } from "lucide-react"
 
@@ -498,6 +499,7 @@ export default function InventoryProductionIssuePage() {
           </button>
         </div>
       </form>
+      <BulkMaterialReturns />
     </div>
   )
 }

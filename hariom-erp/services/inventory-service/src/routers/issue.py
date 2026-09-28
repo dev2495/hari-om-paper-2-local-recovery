@@ -1,10 +1,13 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 import logging
 from typing import Optional
 import uuid
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import func, text
 from sqlalchemy.orm import Session
+from ..services.procurement import canonical_hash
 
 from ..concession_use import guard_concession_stock
 from ..database import get_db
@@ -36,9 +39,10 @@ MANUAL_REASON_CODES = {
 
 
 class IssueCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     item_id: uuid.UUID
     batch_id: Optional[uuid.UUID] = None
-    qty: float
+    qty: float = Field(gt=0)
     production_job_id: uuid.UUID
     reason_code: str
     notes: Optional[str] = None
@@ -76,15 +80,15 @@ def create_issue(
     item = db.query(ItemMaster).filter(
         ItemMaster.id == issue.item_id,
         ItemMaster.plant_id == plant_id
-    ).first()
+    ).with_for_update().populate_existing().first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
     if item.type == ItemType.FINISHED_GOOD:
         raise HTTPException(status_code=400, detail="Finished goods cannot be manually issued to production")
-    if item.type == ItemType.RAW_PAPER and not issue.allow_raw_paper_exception:
+    if str(getattr(item.tracking_mode, "value", item.tracking_mode)) == "REEL":
         raise HTTPException(
             status_code=400,
-            detail="Use RM Issue to Section for raw paper. Manual raw-paper issue is exception-only and requires an explicit raw-paper override.",
+            detail="Use reel/coil issue so physical identities and mandatory slitting are preserved.",
         )
 
     if not validate_sufficient_stock(str(issue.item_id), issue.qty, db):
@@ -99,8 +103,9 @@ def create_issue(
     if selected_batch_id:
         batch = db.query(StockBatch).filter(
             StockBatch.id == selected_batch_id,
+            StockBatch.item_id == issue.item_id,
             StockBatch.plant_id == plant_id
-        ).first()
+        ).with_for_update().populate_existing().first()
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found in this plant")
         guard_concession_stock(
@@ -126,6 +131,8 @@ def create_issue(
                 StockBatch.stock_status.in_(["UNRESTRICTED", "WIP"])
             )
             .order_by(StockBatch.created_at.asc())
+            .with_for_update()
+            .populate_existing()
             .all()
         )
         for batch in batches:
@@ -193,3 +200,75 @@ def create_issue(
         batch_balance=get_batch_balance(str(selected_batch_id), db),
         message=f"Issued {issue.qty} {item.uom.value} of {item.name} as a manual exception against production",
     )
+
+
+class ProductionReturnCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    request_id: uuid.UUID
+    issue_id: uuid.UUID
+    quantity: float = Field(gt=0)
+    effective_date: date
+    reason: str = Field(min_length=3, max_length=1000)
+
+
+def _returned_quantity(db, plant_id, issue_id):
+    return float(db.query(func.coalesce(func.sum(StockTransaction.qty_change), 0)).filter(
+        StockTransaction.plant_id == plant_id,
+        StockTransaction.transaction_type == TransactionType.PRODUCTION_RETURN,
+        StockTransaction.movement_metadata["original_issue_id"].as_string() == str(issue_id),
+    ).scalar())
+
+
+@router.get("/returnable")
+def list_returnable_issues(db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin"]))):
+    issues = db.query(StockTransaction, ItemMaster, StockBatch).join(ItemMaster, ItemMaster.id == StockTransaction.item_id).join(
+        StockBatch, StockBatch.id == StockTransaction.batch_id).filter(
+        StockTransaction.plant_id == plant_id, StockTransaction.transaction_type == TransactionType.ISSUE_PRODUCTION,
+    ).order_by(StockTransaction.created_at.desc()).all()
+    returned = dict(db.query(StockTransaction.movement_metadata["original_issue_id"].as_string(),
+        func.sum(StockTransaction.qty_change)).filter(StockTransaction.plant_id == plant_id,
+        StockTransaction.transaction_type == TransactionType.PRODUCTION_RETURN).group_by(
+        StockTransaction.movement_metadata["original_issue_id"].as_string()).all())
+    rows = []
+    for issue, item, batch in issues:
+        remaining = round(-float(issue.qty_change) - float(returned.get(str(issue.id), 0)), 6)
+        if remaining > 0:
+            rows.append({"id": str(issue.id), "item_code": item.item_code, "item_name": item.name,
+                "batch_no": batch.batch_no, "uom": str(getattr(item.uom, "value", item.uom)),
+                "issued": -float(issue.qty_change), "returnable": remaining,
+                "issue_date": issue.effective_date, "production_job_id": str(issue.reference_id)})
+    return {"items": rows}
+
+
+@router.post("/returns")
+def return_from_production(payload: ProductionReturnCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant), current_user: dict = Depends(require_role(["Store", "Admin"]))):
+    fingerprint = canonical_hash(payload.model_dump(mode="json", exclude={"request_id"}))
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": f"production-return:{plant_id}:{payload.request_id}"})
+    existing = db.query(StockTransaction).filter(StockTransaction.plant_id == plant_id,
+        StockTransaction.transaction_type == TransactionType.PRODUCTION_RETURN,
+        StockTransaction.movement_metadata["request_id"].as_string() == str(payload.request_id)).first()
+    if existing:
+        if existing.movement_metadata.get("request_fingerprint") != fingerprint:
+            raise HTTPException(409, "Request key already used with different return details")
+        return {"transaction_id": str(existing.id), "returned": float(existing.qty_change), "idempotent": True}
+    # Lock the source issue before measuring remaining returns: concurrent returns cannot over-credit stock.
+    issue = db.query(StockTransaction).filter_by(id=payload.issue_id, plant_id=plant_id,
+        transaction_type=TransactionType.ISSUE_PRODUCTION).with_for_update().populate_existing().first()
+    if not issue or not issue.batch_id:
+        raise HTTPException(404, "Production issue not found in this plant")
+    if payload.effective_date > datetime.now(ZoneInfo("Asia/Kolkata")).date() or (issue.effective_date and payload.effective_date < issue.effective_date):
+        raise HTTPException(422, "Return date must be between the original issue date and today")
+    if len(payload.reason.strip()) < 3:
+        raise HTTPException(422, "Explain why the material is being returned")
+    remaining = -float(issue.qty_change) - _returned_quantity(db, plant_id, issue.id)
+    if payload.quantity > remaining + 0.000001:
+        raise HTTPException(409, f"Return exceeds the {remaining:g} still outstanding from this issue")
+    batch = db.query(StockBatch).filter_by(id=issue.batch_id, plant_id=plant_id).with_for_update().populate_existing().one()
+    transaction = StockTransaction(item_id=issue.item_id, batch_id=batch.id,
+        plant_id=plant_id, transaction_type=TransactionType.PRODUCTION_RETURN, qty_change=payload.quantity,
+        reference_type=issue.reference_type, reference_id=issue.reference_id, location_id=batch.location_id,
+        stock_status=batch.stock_status, effective_date=payload.effective_date,
+        movement_metadata={"original_issue_id": str(issue.id), "request_id": str(payload.request_id),
+            "request_fingerprint": fingerprint, "reason": payload.reason.strip(), "returned_by": current_user.get("sub")})
+    db.add(transaction); db.commit(); db.refresh(transaction)
+    return {"transaction_id": str(transaction.id), "returned": float(transaction.qty_change), "idempotent": False}

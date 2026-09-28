@@ -129,6 +129,7 @@ const navigationUnits: NavGroup[] = [
       },
       { name: "Supplier deliveries", href: "/purchase/supplier-deliveries", icon: Truck, description: "Confirmed arrivals, changed promises and partial receipts.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
       { name: "Create purchase order", href: "/purchase/new", icon: FileText, description: "Multi-item PO with automatic numbering and vendor terms.", roles: ["Owner", "Admin", "Store", "Planner", "PlantManager"] },
+      { name: "Purchase requisitions", href: "/purchase/requisitions", icon: FileText, description: "Request a tool or material for Owner approval." },
       { name: "PO approvals", href: "/purchase/approvals", icon: ShieldCheck, description: "Review submitted PO revisions before goods receipt.", roles: ["Owner", "Admin", "PlantManager"] },
       { name: "Invoice differences", href: "/purchase/discrepancies", icon: ScrollText, description: "Review rates, quantities and specifications.", roles: ["Owner", "Admin", "Store", "Accounts", "PlantManager"] },
       { name: "Debit notes", href: "/purchase/debit-notes", icon: FileText, description: "Vendor claims, approvals and settlements.", roles: ["Owner", "Admin", "Accounts", "PlantManager"] },

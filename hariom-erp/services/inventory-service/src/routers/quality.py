@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 import re
 import uuid
@@ -52,7 +52,7 @@ router = APIRouter(prefix="/inventory/quality", tags=["inventory-quality"])
 VALID_ENTITY_TYPES = {"BATCH", "REEL", "CUSTOMER_REJECTION"}
 VALID_SOURCES = {"INWARD", "CUSTOMER_REJECTION", "PROCESS_STAGE"}
 VALID_INSPECTION_STATUS = {"PASS", "FAIL", "SKIPPED"}
-VALID_DISPOSITIONS = {"ACCEPT", "REWORK", "REHEAT", "SEGREGATE", "SCRAP", "BLOCK"}
+VALID_DISPOSITIONS = {"HOLD", "REJECT", "ACCEPT", "REWORK", "REHEAT", "SEGREGATE", "SCRAP", "BLOCK"}
 CONCESSION_PERMISSION = "qc:disposition:approve"
 CONCESSION_ROLES = {"Owner", "Admin"}
 CONCESSION_ELIGIBILITY = "RELEASED_BY_CONCESSION"
@@ -172,6 +172,8 @@ def normalize_disposition(value: str) -> str:
 
 def stock_status_for_disposition(disposition: str) -> str:
     normalized = normalize_disposition(disposition)
+    if normalized == "HOLD":
+        return "QC_HOLD"
     if normalized == "ACCEPT":
         return "UNRESTRICTED"
     if normalized in {"REWORK", "REHEAT", "SEGREGATE"}:
@@ -250,7 +252,7 @@ def _paper_reel_for_plant(db: Session, plant_id: str, reel_id: uuid.UUID) -> Pap
         plant_uuid = uuid.UUID(str(plant_id))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid plant_id") from exc
-    reel = db.query(PaperReel).filter(PaperReel.id == reel_id, PaperReel.plant_id == plant_uuid).first()
+    reel = db.query(PaperReel).filter(PaperReel.id == reel_id, PaperReel.plant_id == plant_uuid).with_for_update().populate_existing().first()
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
     return reel
@@ -391,6 +393,9 @@ class PendingQualityItem(BaseModel):
     supplier_or_customer: Optional[str] = None
     created_at: Optional[datetime] = None
     source: str
+    uom: str = "KG"
+    due_at: Optional[datetime] = None
+    overdue: bool = False
     item_id: Optional[uuid.UUID] = None
     quality_profile: Optional[dict[str, Any]] = None
 
@@ -602,6 +607,14 @@ def upsert_quality_template(
     return _template_response(row)
 
 
+def _incoming_deadline(created_at):
+    if created_at is None:
+        return {"due_at": None, "overdue": False}
+    received = created_at.replace(tzinfo=timezone.utc) if created_at.tzinfo is None else created_at
+    due = received + timedelta(hours=24)
+    return {"due_at": due, "overdue": datetime.now(timezone.utc) > due}
+
+
 @router.get("/pending", response_model=list[PendingQualityItem])
 def list_pending_quality(
     db: Session = Depends(get_db),
@@ -614,7 +627,7 @@ def list_pending_quality(
     batches = (
         db.query(StockBatch)
         .filter(StockBatch.plant_id.in_(plant_filter), StockBatch.stock_status.in_(["QC_HOLD", "BLOCKED"]))
-        .order_by(StockBatch.created_at.desc())
+        .order_by(StockBatch.created_at.asc())
         .limit(200)
         .all()
     )
@@ -630,6 +643,8 @@ def list_pending_quality(
                 qty=float(get_batch_balance(str(batch.id), db)),
                 supplier_or_customer=batch.supplier_name_snapshot,
                 created_at=batch.created_at,
+                uom=str(getattr(item.uom, "value", item.uom)) if item else "KG",
+                **_incoming_deadline(batch.created_at),
                 source="INWARD",
                 item_id=item.id if item else None,
                 quality_profile=(batch.inward_metadata or {}).get("quality_profile"),
@@ -644,7 +659,7 @@ def list_pending_quality(
         reels = (
             db.query(PaperReel)
             .filter(PaperReel.plant_id.in_(plant_uuids), PaperReel.stock_status.in_(["QC_HOLD", "BLOCKED"]))
-            .order_by(PaperReel.created_at.desc())
+            .order_by(PaperReel.created_at.asc())
             .limit(200)
             .all()
         )
@@ -655,11 +670,12 @@ def list_pending_quality(
                     entity_type="REEL",
                     entity_id=reel.id,
                     label=f"{reel.reel_code} · paper reel",
-                    material_type="RAW_PAPER",
+                    material_type=_material_type_for_item(paper) if paper else "RAW_PAPER",
                     stock_status=reel.stock_status,
                     qty=float(reel.current_weight_kg or 0.0),
                     supplier_or_customer=reel.supplier_name_snapshot or reel.supplier_name,
                     created_at=reel.created_at,
+                    **_incoming_deadline(reel.created_at),
                     source="INWARD",
                     item_id=paper.id if paper else getattr(reel, "paper_id", None),
                     quality_profile=(reel.inward_metadata or {}).get("quality_profile"),
@@ -691,7 +707,7 @@ def list_pending_quality(
             )
         )
 
-    return sorted(rows, key=lambda row: row.created_at or datetime.min, reverse=True)
+    return sorted(rows, key=lambda row: (not row.overdue, row.due_at.timestamp() if row.due_at else float("inf")))
 
 
 @router.post("/inspections", response_model=QualityInspectionResponse)
@@ -701,6 +717,8 @@ def create_quality_inspection(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "PlantManager", "QC", "Store"])),
 ):
+    if "QC" not in set(current_user.get("actual_roles", current_user.get("roles")) or []) or "QC" not in set(current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Incoming inspection must be recorded by the QC department")
     stock_status: Optional[str] = None
     batch: Optional[StockBatch] = None
     reel: Optional[PaperReel] = None
@@ -710,13 +728,13 @@ def create_quality_inspection(
     # derived from the owned lot, never trusted from the request body. This closes
     # the trust shortcut where a caller could select a permissive template.
     if payload.entity_type == "BATCH":
-        batch = db.query(StockBatch).filter(StockBatch.id == payload.entity_id, StockBatch.plant_id == plant_id).first()
+        batch = db.query(StockBatch).filter(StockBatch.id == payload.entity_id, StockBatch.plant_id == plant_id).with_for_update().populate_existing().first()
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
         material_type = _material_type_for_item(batch.item)
     elif payload.entity_type == "REEL":
         reel = _paper_reel_for_plant(db, plant_id, payload.entity_id)
-        material_type = "RAW_PAPER"
+        material_type = _material_type_for_item(reel.paper) if reel.paper else "RAW_PAPER"
     else:
         rejection = db.query(CustomerRejection).filter(CustomerRejection.id == payload.entity_id, CustomerRejection.plant_id == plant_id).first()
         if not rejection:
@@ -1500,7 +1518,7 @@ def consume_destructive_sample(
         raise HTTPException(status_code=404, detail="Quality inspection not found")
     if str(inspection.entity_type or "").upper() != "BATCH":
         raise HTTPException(status_code=400, detail="Destructive sample consumption applies to batch inspections")
-    batch = db.query(StockBatch).filter(StockBatch.id == inspection.entity_id, StockBatch.plant_id == plant_id).first()
+    batch = db.query(StockBatch).filter(StockBatch.id == inspection.entity_id, StockBatch.plant_id == plant_id).with_for_update().populate_existing().first()
     if batch is None:
         raise HTTPException(status_code=404, detail="Inspected batch not found")
     item = db.query(ItemMaster).filter(ItemMaster.id == batch.item_id).first()
@@ -1697,7 +1715,7 @@ def dispose_customer_rejection(
     effective_date_value = payload.effective_date or date.today()
     computed_scrap_cost: Optional[float] = None
     if rejection.batch_id:
-        batch = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).first()
+        batch = db.query(StockBatch).filter(StockBatch.id == rejection.batch_id, StockBatch.plant_id == plant_id).with_for_update().populate_existing().first()
         if batch:
             batch_qty_before_disposition = max(0.0, float(get_batch_balance(str(batch.id), db)))
             batch.stock_status = target_stock_status

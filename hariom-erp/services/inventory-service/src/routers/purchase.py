@@ -20,6 +20,7 @@ from ..models import (
     ItemMaster,
     PurchaseLineSchedule,
     PurchaseOrder,
+    PurchaseRequisition,
     PurchaseApprovalDecision,
     PurchaseOrderLine,
     PurchaseOrderRevision,
@@ -238,7 +239,7 @@ class PurchaseOrderLineCreate(BaseModel):
     logical_line_id: Optional[uuid.UUID] = None
     qty_ordered: float = Field(gt=0)
     unit_cost: float = Field(ge=0)
-    uom: str = Field(default="KG", pattern="^(KG|PCS)$")
+    uom: str = Field(default="KG", pattern="^(KG|PCS|L)$")
     expected_unit_count: Optional[int] = Field(default=None, gt=0)
     count_basis: Optional[str] = Field(default=None, pattern="^(ESTIMATED|CONTRACTUAL)$")
     incoming_qc_required: bool = True
@@ -259,6 +260,7 @@ class PurchaseOrderCreate(BaseModel):
 
     po_no: Optional[str] = Field(default=None, max_length=80)
     request_id: uuid.UUID
+    requisition_id: Optional[uuid.UUID] = None
     category: str = Field(default="RM_PM", pattern="^(RM_PM|OT)$")
     po_date: Optional[date] = None
     supplier_id: uuid.UUID
@@ -649,6 +651,17 @@ def create_purchase_order(
         if existing_request.request_fingerprint != fingerprint:
             raise HTTPException(status_code=409, detail="This PO request key already exists with different details")
         return _serialize_order(existing_request)
+    requested_items = db.query(ItemMaster).filter(ItemMaster.id.in_([line.item_id for line in payload.lines]), ItemMaster.plant_id == plant_id).all()
+    needs_requisition = payload.category == "OT" or any(str(getattr(item.type, "value", item.type)) in {"TOOL", "OTHER"} for item in requested_items)
+    requisition = None
+    if needs_requisition and not payload.requisition_id:
+        raise HTTPException(422, "Tools and other purchases require an Owner-approved requisition before PO creation")
+    if payload.requisition_id:
+        requisition = db.query(PurchaseRequisition).filter_by(id=payload.requisition_id, plant_id=plant_id).with_for_update().first()
+        if not requisition or requisition.status != "APPROVED" or requisition.purchase_order_id:
+            raise HTTPException(409, "Select an approved requisition that has not already become a PO")
+        if len(payload.lines) != 1 or payload.lines[0].item_id != requisition.item_id or payload.lines[0].uom != requisition.uom or abs(payload.lines[0].qty_ordered - float(requisition.quantity)) > 0.000001:
+            raise HTTPException(422, "PO material, unit and quantity must match the approved requisition")
     po_no = _next_purchase_order_no(db, plant_id, payload.category)
 
     order = PurchaseOrder(
@@ -665,6 +678,9 @@ def create_purchase_order(
         notes=payload.notes,
         metadata_json={
             **dict(payload.metadata_json or {}),
+            "requisition_id": str(requisition.id) if requisition else None,
+            "pr_no": requisition.pr_no if requisition else None,
+            "requested_by": requisition.requested_by if requisition else None,
             "po_date": (payload.po_date or date.today()).isoformat(),
             "supplier_contact": payload.supplier_contact,
             "supplier_address": payload.supplier_address,
@@ -687,6 +703,8 @@ def create_purchase_order(
         item = db.query(ItemMaster).filter(ItemMaster.id == line.item_id, ItemMaster.plant_id == plant_id).first()
         if not item:
             raise HTTPException(status_code=404, detail=f"Item not found for PO line {idx}")
+        if line.uom != str(getattr(item.uom, "value", item.uom)):
+            raise HTTPException(422, f"PO line {idx} unit must match the material master")
         live_profile = dict(item.quality_profile) if isinstance(item.quality_profile, dict) else None
         raw_qualifiers = [str(value).strip() for value in (line.qualifiers or []) if str(value).strip()]
         if line.cobb and str(line.cobb).strip() not in raw_qualifiers:
@@ -732,6 +750,9 @@ def create_purchase_order(
         saved_lines.append(saved_line)
     db.flush()
     _persist_revision(db, order, saved_lines, revision_no=1, request_id=payload.request_id, actor=_actor(current_user))
+    if requisition:
+        requisition.status = "CONVERTED"; requisition.purchase_order_id = order.id; requisition.version += 1
+        requisition.history = [*(requisition.history or []), {"action": "CONVERTED", "actor": _actor(current_user), "at": datetime.utcnow().isoformat(), "po_no": order.po_no}]
     db.commit()
     db.refresh(order)
     try:
@@ -818,6 +839,11 @@ def create_purchase_order_revision(
         raise HTTPException(status_code=422, detail="A PO category cannot change after its automatic series number is assigned")
     if order.receipts and payload.supplier_id != order.supplier_id:
         raise HTTPException(status_code=409, detail="Vendor cannot change after an inward exists; short-close the balance and create a new PO")
+    pr_id = (order.metadata_json or {}).get("requisition_id")
+    if pr_id:
+        pr = db.query(PurchaseRequisition).filter_by(id=pr_id, plant_id=plant_id).first()
+        if not pr or len(payload.lines) != 1 or payload.lines[0].item_id != pr.item_id or payload.lines[0].uom != pr.uom or abs(payload.lines[0].qty_ordered - float(pr.quantity)) > 0.000001:
+            raise HTTPException(422, "An approved requisition fixes the PO material, unit and quantity")
     existing_by_logical = {str(line.logical_line_id): line for line in order.lines or []}
     touched: set[str] = set()
     revised_lines: list[PurchaseOrderLine] = []
@@ -827,6 +853,8 @@ def create_purchase_order_revision(
             raise HTTPException(status_code=404, detail=f"Item not found for revision line {index}")
         if getattr(item.type, "value", item.type) == "RAW_PAPER" and requested.uom != "KG":
             raise HTTPException(status_code=422, detail=f"Paper revision line {index} must use KG")
+        if requested.uom != str(getattr(item.uom, "value", item.uom)):
+            raise HTTPException(422, f"Revision line {index} unit must match the material master")
         logical_id = str(requested.logical_line_id) if requested.logical_line_id else ""
         line = existing_by_logical.get(logical_id)
         if line:
@@ -872,7 +900,8 @@ def create_purchase_order_revision(
     order.notes = payload.notes
     order.category = payload.category
     order.metadata_json = {
-        **dict(payload.metadata_json or {}), "po_date": (payload.po_date or date.today()).isoformat(),
+        **dict(payload.metadata_json or {}),
+        **{key: (order.metadata_json or {}).get(key) for key in ("requisition_id", "pr_no", "requested_by")}, "po_date": (payload.po_date or date.today()).isoformat(),
         "supplier_contact": payload.supplier_contact, "supplier_address": payload.supplier_address,
         "supplier_gst_no": payload.supplier_gst_no, "freight_terms": payload.freight_terms,
         "tax_terms": payload.tax_terms, "payment_terms": payload.payment_terms,
@@ -921,6 +950,8 @@ def approve_purchase_order(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "PlantManager", "Owner"])),
 ):
+    if "Owner" not in set(current_user.get("actual_roles", current_user.get("roles")) or []) or "Owner" not in set(current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Only the Owner may decide purchase order approval")
     order = db.query(PurchaseOrder).filter(
         PurchaseOrder.id == po_id,
         PurchaseOrder.plant_id == plant_id,
@@ -987,6 +1018,8 @@ def reject_purchase_order(
 ):
     if not payload.reason or len(payload.reason.strip()) < 3:
         raise HTTPException(status_code=422, detail="A rejection reason is required")
+    if "Owner" not in set(current_user.get("actual_roles", current_user.get("roles")) or []) or "Owner" not in set(current_user.get("roles") or []):
+        raise HTTPException(status_code=403, detail="Only the Owner may decide purchase order approval")
     order = db.query(PurchaseOrder).filter(PurchaseOrder.id == po_id, PurchaseOrder.plant_id == plant_id).with_for_update().first()
     if not order:
         raise HTTPException(status_code=404, detail="Purchase order not found")

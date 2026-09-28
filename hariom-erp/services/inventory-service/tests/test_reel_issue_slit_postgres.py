@@ -1,7 +1,7 @@
 """PO receipt → coil/reel routing → slitting → winder issue → balance return.
 
-Coils are slit before winding; reels go straight to a winder. Every slit reel
-is its own labelled AT identity traced to the coil and its PO receipt, and kg
+Reels are slit before winding; coils go straight to a winder. Every output coil
+is its own labelled AT identity traced to the parent reel and its PO receipt, and kg
 is conserved across receipt, slitting, trim and winder consumption.
 """
 import os
@@ -26,7 +26,7 @@ from src.routers.reels import ReelSlitCreate, slit_reel
 # Own plant: document series (PO, GRN, AT) stay independent of other suites.
 PLANT = str(uuid.uuid4())
 MAKER = {"sub": "store.maker@example.com", "roles": ["Store"], "token": ""}
-CHECKER = {"sub": "plant.checker@example.com", "roles": ["PlantManager"], "token": ""}
+CHECKER = {"sub": "plant.checker@example.com", "roles": ["Owner"], "token": ""}
 QC = {"sub": "qc-inspector", "roles": ["QC"], "token": ""}
 WINDER = uuid.uuid4()
 
@@ -76,15 +76,15 @@ def _close(db, issue_id, consumed):
         return close_reel_issue(issue_id, ReelIssueClosePayload(consumed_weight_kg=consumed), db, PLANT, MAKER)
 
 
-def test_po_linked_coil_is_slit_then_reels_wind_and_kg_is_conserved():
+def test_po_linked_reel_is_slit_then_coils_wind_and_kg_is_conserved():
     db = SessionLocal()
     try:
         item = _paper(db)
         with patch("src.routers.purchase.emit_audit_event"):
             po = _approved_po(db, item)
         receipt = _receive(db, po, [
-            {"source_reel_no": "C-100", "net_weight_kg": 1000, "width_mm": 90, "physical_form": "COIL"},
-            {"source_reel_no": "R-200", "net_weight_kg": 1200, "width_mm": 1020, "physical_form": "REEL"},
+            {"source_reel_no": "C-100", "net_weight_kg": 1000, "width_mm": 90, "physical_form": "REEL"},
+            {"source_reel_no": "R-200", "net_weight_kg": 1200, "width_mm": 1020, "physical_form": "COIL"},
         ])
         line = db.get(PurchaseOrderLine, uuid.UUID(po["lines"][0]["id"]))
         assert float(line.qty_received) == 2200 and line.received_unit_count == 2
@@ -100,7 +100,7 @@ def test_po_linked_coil_is_slit_then_reels_wind_and_kg_is_conserved():
 
         # PO balance: 800 kg still open, a 900 kg receipt is refused.
         with pytest.raises(HTTPException) as over:
-            _receive(db, po, [{"source_reel_no": "R-201", "net_weight_kg": 900, "width_mm": 1020, "physical_form": "REEL"}])
+            _receive(db, po, [{"source_reel_no": "R-201", "net_weight_kg": 900, "width_mm": 1020, "physical_form": "COIL"}])
         assert over.value.status_code == 422
 
         # Routing: coil never goes to a winder, reel never to slitting, winder is required.
@@ -137,7 +137,7 @@ def test_po_linked_coil_is_slit_then_reels_wind_and_kg_is_conserved():
         assert float(db.get(ReelIssue, slit_issue.id).consumed_weight_kg) == pytest.approx(962)
         children = db.query(PaperReel).filter(PaperReel.parent_reel_id == coil_id).all()
         assert sorted(float(row.current_weight_kg) for row in children) == [470, 480]
-        assert {row.physical_form for row in children} == {"REEL"}
+        assert {row.physical_form for row in children} == {"COIL"}
         assert all((row.inward_metadata or {}).get("po_no") == po["po_no"] for row in children)
         assert db.query(LotLabelRecord).filter(LotLabelRecord.reel_id.in_([row.id for row in children])).count() == 2
         assert {row["label"]["source_reel_no"] for row in [c.model_dump() for c in slit.children]} == {"C-100 / S1", "C-100 / S2"}
@@ -169,13 +169,13 @@ def test_po_linked_coil_is_slit_then_reels_wind_and_kg_is_conserved():
         db.close()
 
 
-def test_coil_can_return_to_store_unslit():
+def test_reel_can_return_to_store_unslit():
     db = SessionLocal()
     try:
         item = _paper(db)
         with patch("src.routers.purchase.emit_audit_event"):
             po = _approved_po(db, item, qty=500)
-        receipt = _receive(db, po, [{"source_reel_no": "C-900", "net_weight_kg": 500, "width_mm": 80, "physical_form": "COIL"}])
+        receipt = _receive(db, po, [{"source_reel_no": "C-900", "net_weight_kg": 500, "width_mm": 80, "physical_form": "REEL"}])
         coil_id = uuid.UUID(receipt["created_lots"][0]["id"])
         _pass_incoming_qc(db, coil_id)
         issue = _issue(db, coil_id, issued_weight_kg=500)

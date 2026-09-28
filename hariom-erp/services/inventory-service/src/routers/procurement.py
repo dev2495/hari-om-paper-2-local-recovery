@@ -62,7 +62,7 @@ from ..models import (
     TransactionType,
 )
 from ..quality_task_queue import enqueue_incoming_qc_task
-from ..services.labels import reel_label_payload
+from ..services.labels import reel_label_payload, batch_label_payload
 from ..services.receipt_quality import initial_quality, refresh_receipt_stock
 from ..services.procurement import (
     ProcurementRuleError,
@@ -161,6 +161,13 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
                     "stock_status": reel.stock_status, "commercial_status": reel.commercial_status,
                     "label": label.content_snapshot if label else None,
                 })
+        elif allocation.batch_id:
+            batch = db.get(StockBatch, allocation.batch_id)
+            if batch:
+                label = (batch.inward_metadata or {}).get("saved_label") or batch_label_payload(batch, inward_date=receipt.received_date)
+                lots.append({"id": str(batch.id), "at_no": batch.batch_no, "entity_type": "BATCH", "quantity": float(batch.received_qty),
+                    "uom": label.get("uom"), "stock_status": batch.stock_status, "label": label})
+
     return {
         "id": str(receipt.id), "request_id": str(receipt.request_id) if receipt.request_id else None,
         "purchase_order_id": str(receipt.purchase_order_id) if receipt.purchase_order_id else None,
@@ -180,7 +187,7 @@ def _receipt_payload(receipt: PurchaseReceipt, db: Session) -> dict[str, Any]:
             "po_rate": float(line.po_rate) if line.po_rate is not None else None, "invoice_rate": float(line.invoice_rate) if line.invoice_rate is not None else None,
             "tracking_mode": line.tracking_mode, "qc_status": line.qc_status, "commercial_status": line.commercial_status,
         } for line in receipt.lines or []],
-        "lots": lots, "lot_count": len(lots), "received_kg": round(sum(float(row["net_weight_kg"]) for row in lots), 3),
+        "lots": lots, "lot_count": len(lots), "received_kg": round(sum(float(row.get("net_weight_kg", 0)) for row in lots), 3),
     }
 
 
@@ -368,7 +375,7 @@ def post_governed_receipt(
             raise HTTPException(status_code=409, detail=f"Approved paper line {index} is not in KG")
         remaining = Decimal(str(po_line.qty_ordered)) - Decimal(str(po_line.qty_received)) - Decimal(str(po_line.qty_short_closed or 0))
         if qty > remaining:
-            raise HTTPException(status_code=422, detail=f"Receipt line {index} exceeds open PO kg")
+            raise HTTPException(status_code=422, detail=f"Receipt line {index} exceeds the open PO quantity")
         invoice_qty = qty if requested.invoice_quantity is None else Decimal(str(requested.invoice_quantity))
         comparison = None if payload.invoice_pending else compare_rates(qty, revision_line.unit_rate, requested.invoice_rate)
         width_evidence = _width_variance(requested.lots, revision_line.specification_json or {}) if is_reel else None
@@ -402,7 +409,9 @@ def post_governed_receipt(
                     measured_net = round(lot.gross_weight_kg - lot.tare_weight_kg, 3)
                     if abs(measured_net - lot.net_weight_kg) > 0.001:
                         raise HTTPException(status_code=422, detail=f"Lot {lot_index} gross minus tare does not equal net kg")
-                form = lot.physical_form or physical_form(lot.width_mm)
+                form = lot.physical_form or ("COIL" if _enum(po_line.item.type) == "PARCHMENT" else physical_form(lot.width_mm))
+                if _enum(po_line.item.type) == "PARCHMENT" and form != "COIL":
+                    raise HTTPException(422, "Parchment is received as production-ready coils")
                 at_no = _next_doc_no(db, PaperReel, _plant_uuid(plant_id), "reel_code", "AT")
                 reel = PaperReel(
                     plant_id=_plant_uuid(plant_id), reel_code=at_no, purchase_receipt_line_id=receipt_line.id,
@@ -455,6 +464,9 @@ def post_governed_receipt(
                     batch_id=str(batch.id), grn_no=grn_no, po_no=order.po_no, stock_status=stock_status)
                 batch.inward_metadata = {**batch.inward_metadata,
                     "incoming_qc_task": {**batch.inward_metadata["incoming_qc_task"], "outbox_event_id": event_id}}
+            batch.inward_metadata = {**batch.inward_metadata, "po_no": order.po_no, "bill_no": payload.invoice_no,
+                "legal_entity": order.legal_entity if hasattr(order, "legal_entity") else None}
+            batch.inward_metadata = {**batch.inward_metadata, "saved_label": batch_label_payload(batch, po_line.item, inward_date=payload.received_date)}
             db.add(StockTransaction(item_id=po_line.item_id, batch_id=batch.id, transaction_type=TransactionType.INWARD,
                 qty_change=float(qty), reference_type=ReferenceType.PURCHASE, reference_id=order.id, plant_id=plant_id,
                 effective_date=payload.received_date, location_id=requested.location_id, stock_status=stock_status,
@@ -1836,6 +1848,15 @@ class LabelJobCreate(BaseModel):
     reprint_reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+def _saved_lot_labels(db, plant_id, lot_ids):
+    labels = {str(row.reel_id): row.content_snapshot for row in db.query(LotLabelRecord).filter(
+        LotLabelRecord.plant_id == plant_id, LotLabelRecord.reel_id.in_(lot_ids)).all()}
+    for batch in db.query(StockBatch).filter(StockBatch.plant_id == plant_id, StockBatch.id.in_(lot_ids)).all():
+        if (batch.inward_metadata or {}).get("saved_label"):
+            labels[str(batch.id)] = batch.inward_metadata["saved_label"]
+    return labels
+
+
 @router.post("/label-jobs")
 def create_label_job(payload: LabelJobCreate, db: Session = Depends(get_db), plant_id: str = Depends(get_current_plant),
                      current_user: dict = Depends(require_role(["Store", "PlantManager"]))):
@@ -1846,7 +1867,7 @@ def create_label_job(payload: LabelJobCreate, db: Session = Depends(get_db), pla
             raise HTTPException(status_code=409, detail="This label request key already exists with different details")
         return {"id": str(replay.id), "lot_ids": replay.lot_ids, "copies": replay.copies,
                 "profile": replay.profile, "status": replay.status, "idempotent": True}
-    records = db.query(LotLabelRecord).filter(LotLabelRecord.plant_id == plant_id, LotLabelRecord.reel_id.in_(payload.lot_ids)).all()
+    records = _saved_lot_labels(db, plant_id, payload.lot_ids)
     if len(records) != len(set(payload.lot_ids)):
         raise HTTPException(status_code=404, detail="One or more saved lot labels were not found")
     prior = db.query(LabelPrintJob).filter(LabelPrintJob.plant_id == plant_id).all()
@@ -1858,7 +1879,7 @@ def create_label_job(payload: LabelJobCreate, db: Session = Depends(get_db), pla
         reprint_reason=payload.reprint_reason, created_by=_actor(current_user))
     db.add(job); db.commit(); db.refresh(job)
     return {"id": str(job.id), "lot_ids": job.lot_ids, "copies": job.copies, "profile": job.profile,
-        "status": job.status, "labels": [record.content_snapshot for record in records], "idempotent": False}
+        "status": job.status, "labels": list(records.values()), "idempotent": False}
 
 
 @router.get("/label-jobs/{job_id}/pdf")
@@ -1867,13 +1888,13 @@ def label_job_pdf(job_id: uuid.UUID, db: Session = Depends(get_db), plant_id: st
     job = db.query(LabelPrintJob).filter_by(id=job_id, plant_id=plant_id).first()
     if not job:
         raise HTTPException(404, "Label job not found in this plant")
-    records = {str(record.reel_id): record for record in db.query(LotLabelRecord).filter(LotLabelRecord.plant_id == plant_id, LotLabelRecord.reel_id.in_([uuid.UUID(value) for value in job.lot_ids])).all()}
+    records = _saved_lot_labels(db, plant_id, [uuid.UUID(value) for value in job.lot_ids])
     labels = []
     for lot_id in job.lot_ids:
         record = records.get(lot_id)
         if not record:
             raise HTTPException(409, "A saved label is unavailable; printing stopped")
-        label = dict(record.content_snapshot)
+        label = dict(record)
         # Old snapshots predate width/form fields; preserve their QR and original weight.
         reel = db.get(PaperReel, uuid.UUID(lot_id))
         if reel:

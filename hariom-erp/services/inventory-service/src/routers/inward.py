@@ -267,6 +267,8 @@ def create_inward(
     ).first()
     if not item:
         raise HTTPException(status_code=404, detail="Item not found")
+    if str(getattr(item.type, "value", item.type)) in {"TOOL", "OTHER"}:
+        raise HTTPException(422, "Tools and other purchases require an approved requisition and linked PO receipt")
     if item.tracking_mode != TrackingMode.BULK:
         raise HTTPException(status_code=400, detail="Use reel inward for reel-tracked raw paper")
 

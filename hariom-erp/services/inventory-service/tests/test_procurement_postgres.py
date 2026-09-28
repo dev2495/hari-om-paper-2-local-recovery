@@ -75,14 +75,20 @@ from src.routers.purchase import (
 )
 
 
-PLANT = "00000000-0000-0000-0000-0000000000a1"
+PLANT = str(uuid.uuid4())
 MAKER = {"sub": "store.maker@example.com", "roles": ["Store"], "token": ""}
-CHECKER = {"sub": "plant.checker@example.com", "roles": ["PlantManager"], "token": ""}
+CHECKER = {"sub": "plant.checker@example.com", "roles": ["Owner"], "actual_roles": ["Owner"], "role": "Owner", "token": ""}
 ACCOUNTS = {"sub": "accounts.maker@example.com", "roles": ["Accounts"], "token": ""}
 
 
 def _paper(db):
-    return db.query(ItemMaster).filter(ItemMaster.item_code == "PAPER-SEED-A-STEP5").one()
+    row = db.query(ItemMaster).filter_by(item_code="PAPER-SEED-A-STEP5", plant_id=PLANT).first()
+    if row is None:
+        row = ItemMaster(item_code="PAPER-SEED-A-STEP5", name="Test paper", type="RAW_PAPER", tracking_mode="REEL", uom="KG", plant_id=PLANT, active="true", unit_cost=30,
+                         quality_profile={"status":"approved", "revision":1, "parameters":[{"code":"gsm", "min":200, "max":260}]})
+        db.add(row)
+        db.commit()
+    return row
 
 
 def test_duplicate_month_plan_returns_conflict_and_exact_retry_returns_saved_plan():
@@ -176,7 +182,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
             create_label_job(label_request.model_copy(update={"copies": 2}), db, PLANT, MAKER)
         assert changed_label_retry.value.status_code == 409
 
-        discrepancies = db.query(PurchaseDiscrepancy).order_by(PurchaseDiscrepancy.discrepancy_type).all()
+        discrepancies = db.query(PurchaseDiscrepancy).filter_by(plant_id=PLANT).order_by(PurchaseDiscrepancy.discrepancy_type).all()
         assert {row.discrepancy_type for row in discrepancies} == {"RATE", "QUANTITY", "SPECIFICATION"}
         rate_case = next(row for row in discrepancies if row.discrepancy_type == "RATE")
         qty_case = next(row for row in discrepancies if row.discrepancy_type == "QUANTITY")
@@ -201,7 +207,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         assert asyncio.run(_response_bytes(debit_note_pdf(uuid.UUID(note["id"]), db, PLANT, ACCOUNTS))).startswith(b"%PDF-")
         note = settle_debit_note(uuid.UUID(note["id"]), SettlementCreate(amount=2000, settlement_date=date(2026, 9, 25), reference="CN-1"), db, PLANT, ACCOUNTS)
         assert note["status"] == "PARTIALLY_SETTLED" and note["open_amount"] == 3000
-        assert db.query(PurchaseDebitNote).count() == 1
+        assert db.query(PurchaseDebitNote).filter_by(plant_id=PLANT).count() == 1
         with pytest.raises(HTTPException) as settled_void:
             act_on_debit_note(uuid.UUID(note["id"]), DebitNoteAction(action="VOID", expected_version=note["version"], reason="Cannot void settled history"), db, PLANT, CHECKER)
         assert settled_void.value.status_code == 409
@@ -237,7 +243,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         )
         second = post_governed_receipt(second_request, db, PLANT, MAKER)
         assert second["lot_count"] == 5
-        assert db.query(SupplierInvoice).count() == 1  # one invoice may cover multiple physical receipts
+        assert db.query(SupplierInvoice).filter_by(plant_id=PLANT).count() == 1  # one invoice may cover multiple physical receipts
         saved_po = db.query(PurchaseOrder).filter_by(id=po["id"]).one()
         assert saved_po.status == "RECEIVED"
         assert saved_po.lines[0].qty_received == 10000
@@ -246,7 +252,7 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
         assert db.query(LotLabelRecord).join(PaperReel).filter(PaperReel.purchase_receipt_line_id.in_(
             [line.id for line in receipt.lines] + [line.id for line in db.query(PurchaseReceipt).filter_by(id=uuid.UUID(second["id"])).one().lines]
         )).count() == 9
-        assert db.query(LabelPrintJob).count() == 1
+        assert db.query(LabelPrintJob).filter_by(plant_id=PLANT).count() == 1
     finally:
         db.close()
 
@@ -254,11 +260,16 @@ def test_po_to_nine_physical_lots_invoice_variance_claim_and_retry():
 def test_concurrent_series_allocation_produces_distinct_ot_numbers():
     supplier_id = uuid.uuid4()
 
+    from src.routers.requisitions import RequisitionCreate, RequisitionDecision, create_requisition, decide_requisition
+    with SessionLocal() as db:
+        paper_id = _paper(db).id
     def create_one(index):
         session = SessionLocal()
         try:
+            request = create_requisition(RequisitionCreate(request_id=uuid.uuid4(), pr_date=date.today(), item_id=paper_id, quantity=1, reason="Concurrent series test"), session, PLANT, MAKER)
+            decide_requisition(uuid.UUID(request["id"]), RequisitionDecision(expected_version=1, decision="APPROVED", reason="Reviewed request"), session, PLANT, CHECKER)
             payload = PurchaseOrderCreate(
-                request_id=uuid.uuid4(), category="OT", supplier_id=supplier_id,
+                request_id=uuid.uuid4(), requisition_id=uuid.UUID(request["id"]), category="OT", supplier_id=supplier_id,
                 supplier_name=f"Other Vendor {index}",
                 lines=[{"item_id": _paper(session).id, "qty_ordered": 1, "unit_cost": 1, "uom": "KG"}],
             )
@@ -274,7 +285,7 @@ def test_concurrent_series_allocation_produces_distinct_ot_numbers():
 
 def test_owner_cost_history_stock_policy_mrp_and_plan_conversion():
     db = SessionLocal()
-    owner = {"sub": "owner@example.com", "actual_sub": "owner@example.com", "roles": ["Owner"], "effective_roles": ["Owner"]}
+    owner = {"sub": "owner@example.com", "actual_sub": "owner@example.com", "roles": ["Owner"], "effective_roles": ["Owner"], "actual_roles": ["Owner"], "role": "Owner"}
     planner = {"sub": "planner@example.com", "roles": ["Planner"]}
     try:
         item = _paper(db)

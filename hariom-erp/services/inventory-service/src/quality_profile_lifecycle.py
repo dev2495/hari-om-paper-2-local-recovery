@@ -59,6 +59,9 @@ def apply_profile_save(
     if status not in WRITABLE_STATUSES:
         status = "draft"
     current = dict(current or {})
+    if current and incoming.get("revision") is not None and int(incoming["revision"]) != int(current.get("revision") or 1):
+        raise ProfileLifecycleError("The QC profile changed. Reload before saving.", code="STALE_REVISION", status_code=409)
+    payload.pop("history", None)
     # Approval provenance belongs to the server. A draft cannot forge or erase
     # the approved revision used by receipts arriving while review is pending.
     payload.pop("approved_snapshot", None)
@@ -68,13 +71,15 @@ def apply_profile_save(
     revision = int(current.get("revision") or 1)
     if current_status in {"approved", "approved_exemption", "exemption", "not_required"}:
         snapshot = current.get("approved_snapshot") or {
-            key: value for key, value in current.items() if key != "approved_snapshot"
+            key: value for key, value in current.items() if key not in {"approved_snapshot", "history"}
         }
         payload["approved_snapshot"] = snapshot
         payload["supersedes_revision"] = revision
         revision = revision + 1
     elif not current:
         revision = 1
+    else:
+        revision += 1
     payload["status"] = status
     payload["setup_status"] = status
     payload["revision"] = revision
@@ -113,7 +118,7 @@ def apply_profile_approve(
     payload["inspection_required"] = True
     payload["approved_by"] = actor
     payload["approved_at"] = datetime.utcnow().isoformat()
-    payload["approved_snapshot"] = dict(payload)
+    payload["approved_snapshot"] = {key: value for key, value in payload.items() if key not in {"approved_snapshot", "history"}}
     return payload
 
 
@@ -156,5 +161,5 @@ def apply_profile_exemption(
     }
     payload["approved_by"] = actor
     payload["approved_at"] = datetime.utcnow().isoformat()
-    payload["approved_snapshot"] = dict(payload)
+    payload["approved_snapshot"] = {key: value for key, value in payload.items() if key not in {"approved_snapshot", "history"}}
     return payload

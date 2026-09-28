@@ -680,7 +680,7 @@ async def slit_coil(request: Request, token: str = Depends(get_token)):
         token=token,
         event_type="COIL_SLIT_RECORDED",
         title="Coil slitting recorded",
-        message="Slit reels are available for winder issue.",
+        message="Slit coils are available for production issue.",
         href="/inventory/reels/issue",
         recipient_roles=["Owner", "Admin", "Store", "PlantManager", "Operator"],
     )
@@ -1075,3 +1075,15 @@ async def issue_batch_to_wip(request: Request, token: str = Depends(get_token)):
         },
     )
     return response
+
+
+@router.get("/issue/returnable")
+async def returnable_production_issues(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/issue/returnable", request, token)
+
+
+@router.post("/issue/returns")
+async def return_production_material(request: Request, token: str = Depends(get_token)):
+    body = await request.json()
+    await assert_not_backdated(token, request.headers.get("X-Plant-ID", ""), effective_date=body.get("effective_date"))
+    return await proxy_to_service(INVENTORY_SERVICE_URL, "/issue/returns", request, token, json_body=body)

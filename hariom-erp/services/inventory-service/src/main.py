@@ -18,6 +18,7 @@ from .routers import (
     ledger,
     locations,
     purchase,
+    requisitions,
     procurement,
     quality,
     reel_issues,
@@ -34,6 +35,8 @@ Base.metadata.create_all(bind=engine)
 
 def ensure_runtime_schema() -> None:
   with engine.begin() as connection:
+    connection.execute(text("ALTER TYPE uom ADD VALUE IF NOT EXISTS 'L'"))
+    connection.execute(text("ALTER TABLE item_master ADD COLUMN IF NOT EXISTS density_kg_per_litre NUMERIC(12,6)"))
     connection.execute(
       text(
         "DO $$ BEGIN "
@@ -846,6 +849,7 @@ app.include_router(dispatch.router)
 app.include_router(reservations.router)
 app.include_router(locations.router)
 app.include_router(purchase.router)
+app.include_router(requisitions.router)
 from .routers import manual_receipts  # registers routes on the shared procurement router
 app.include_router(procurement.router)
 app.include_router(quality.router)

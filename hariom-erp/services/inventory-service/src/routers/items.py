@@ -2,7 +2,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import date, datetime
 import uuid
 from ..database import get_db
@@ -15,6 +15,13 @@ _audit_logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/items", tags=["items"])
 
+def _validate_material_unit(material_type, uom, density):
+    if material_type in {"RAW_PAPER", "PARCHMENT"} and uom != "KG":
+        raise HTTPException(422, "Paper and parchment stock must use KG")
+    if uom == "L" and (material_type != "ADHESIVE" or density is None or float(density) <= 0):
+        raise HTTPException(422, "Litre stock requires an adhesive material and a positive kg/litre density for BOM conversion")
+
+
 # Pydantic schemas
 class ItemCreate(BaseModel):
     item_code: str
@@ -22,6 +29,7 @@ class ItemCreate(BaseModel):
     type: str  # RAW_PAPER, ADHESIVE, PARCHMENT, FINISHED_GOOD, PACKAGING, TOOL, OTHER
     tracking_mode: str | None = None  # REEL, BULK
     uom: str   # KG, PCS
+    density_kg_per_litre: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
     unit_cost: float | None = None
     cost_source: str | None = None
     reorder_level: float | None = 0
@@ -74,8 +82,8 @@ class ItemCreate(BaseModel):
     @classmethod
     def validate_uom(cls, value: str):
         normalized = value.strip().upper()
-        if normalized not in {"KG", "PCS"}:
-            raise ValueError("uom must be KG or PCS")
+        if normalized not in {"KG", "PCS", "L"}:
+            raise ValueError("uom must be KG, L or PCS")
         return normalized
 
 class ItemResponse(BaseModel):
@@ -85,6 +93,7 @@ class ItemResponse(BaseModel):
     type: str
     tracking_mode: str
     uom: str
+    density_kg_per_litre: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
     unit_cost: float | None = None
     cost_source: str | None = None
     reorder_level: float | None = 0
@@ -109,6 +118,7 @@ class ItemUpdate(BaseModel):
     type: Optional[str] = None
     tracking_mode: Optional[str] = None
     uom: Optional[str] = None
+    density_kg_per_litre: Optional[float] = Field(default=None, gt=0, allow_inf_nan=False)
     unit_cost: Optional[float] = None
     cost_source: Optional[str] = None
     reorder_level: Optional[float] = None
@@ -159,8 +169,8 @@ class ItemUpdate(BaseModel):
         if value is None:
             return value
         normalized = value.strip().upper()
-        if normalized not in {"KG", "PCS"}:
-            raise ValueError("uom must be KG or PCS")
+        if normalized not in {"KG", "PCS", "L"}:
+            raise ValueError("uom must be KG, L or PCS")
         return normalized
 
     @field_validator("active")
@@ -216,17 +226,19 @@ def create_item(
     payload = item.model_dump()
     item_type = payload["type"]
     tracking_mode = payload.get("tracking_mode") or (
-        TrackingMode.REEL.value if item_type == ItemType.RAW_PAPER.value else TrackingMode.BULK.value
+        TrackingMode.REEL.value if item_type in {ItemType.RAW_PAPER.value, ItemType.PARCHMENT.value} else TrackingMode.BULK.value
     )
-    if item_type != ItemType.RAW_PAPER.value and tracking_mode == TrackingMode.REEL.value:
-        raise HTTPException(status_code=400, detail="Only RAW_PAPER items can use REEL tracking")
+    if item_type not in {ItemType.RAW_PAPER.value, ItemType.PARCHMENT.value} and tracking_mode == TrackingMode.REEL.value:
+        raise HTTPException(status_code=400, detail="Only paper or parchment items can use physical reel/coil tracking")
 
+    _validate_material_unit(item_type, payload["uom"], payload.get("density_kg_per_litre"))
     db_item = ItemMaster(
         item_code=payload["item_code"],
         name=payload["name"],
         type=item_type,
         tracking_mode=tracking_mode,
         uom=payload["uom"],
+        density_kg_per_litre=payload.get("density_kg_per_litre"),
         unit_cost=payload.get("unit_cost"),
         cost_source=payload.get("cost_source"),
         reorder_level=payload.get("reorder_level") or 0,
@@ -284,15 +296,23 @@ def update_item(
         "tracking_mode",
         db_item.tracking_mode.value if hasattr(db_item.tracking_mode, "value") else db_item.tracking_mode,
     )
-    if next_type != ItemType.RAW_PAPER.value and next_tracking == TrackingMode.REEL.value:
-        raise HTTPException(status_code=400, detail="Only RAW_PAPER items can use REEL tracking")
+    if next_type not in {ItemType.RAW_PAPER.value, ItemType.PARCHMENT.value} and next_tracking == TrackingMode.REEL.value:
+        raise HTTPException(status_code=400, detail="Only paper or parchment items can use physical reel/coil tracking")
 
+    next_uom = payload.get("uom", str(getattr(db_item.uom, "value", db_item.uom)))
+    _validate_material_unit(next_type, next_uom, payload.get("density_kg_per_litre", db_item.density_kg_per_litre))
+    # Existing quantities have the original unit; never reinterpret historical stock.
+    if next_uom != str(getattr(db_item.uom, "value", db_item.uom)):
+        raise HTTPException(409, "Create a new material code to change its base unit; existing stock and BOM history retain their unit")
+    if "density_kg_per_litre" in payload and payload["density_kg_per_litre"] != (float(db_item.density_kg_per_litre) if db_item.density_kg_per_litre is not None else None):
+        raise HTTPException(409, "Create a new material code to change density; historical BOM and stock conversions retain their basis")
     changed_fields: list[str] = []
     for field in (
         "name",
         "type",
         "tracking_mode",
         "uom",
+        "density_kg_per_litre",
         "unit_cost",
         "cost_source",
         "reorder_level",
@@ -371,6 +391,15 @@ def _actor_roles(current_user: dict) -> list[str]:
     return [str(item) for item in raw]
 
 
+def _profile_history(before, after, action, actor):
+    before = before if isinstance(before, dict) else {}
+    return {**after, "history": [*(before.get("history") or []), {
+        "action": action, "actor": actor, "at": datetime.utcnow().isoformat() + "Z",
+        "revision": after.get("revision"), "status": after.get("status"),
+        "before_parameters": before.get("parameters") or [], "parameters": after.get("parameters") or [],
+    }]}
+
+
 @router.put("/{item_id}/quality-profile", response_model=ItemResponse)
 def upsert_item_quality_profile(
     item_id: uuid.UUID,
@@ -379,13 +408,14 @@ def upsert_item_quality_profile(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "Store"])),
 ):
-    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
     incoming = dict(payload.quality_profile or {})
     parameters = incoming.get("parameters")
     if parameters is not None and not isinstance(parameters, list):
         raise HTTPException(status_code=400, detail="quality_profile.parameters must be a list")
+    previous_profile = dict(db_item.quality_profile or {})
     try:
         db_item.quality_profile = apply_profile_save(
             db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
@@ -395,6 +425,7 @@ def upsert_item_quality_profile(
         )
     except ProfileLifecycleError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
+    db_item.quality_profile = _profile_history(previous_profile, db_item.quality_profile, "SAVED", current_user.get("sub"))
     db.commit()
     db.refresh(db_item)
     return db_item
@@ -408,9 +439,10 @@ def approve_item_quality_profile(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner"])),
 ):
-    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
+    previous_profile = dict(db_item.quality_profile or {})
     try:
         if payload.exemption:
             db_item.quality_profile = apply_profile_exemption(
@@ -432,6 +464,7 @@ def approve_item_quality_profile(
             )
     except ProfileLifecycleError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
+    db_item.quality_profile = _profile_history(previous_profile, db_item.quality_profile, "APPROVED", current_user.get("sub"))
     db.commit()
     db.refresh(db_item)
     return db_item
@@ -445,7 +478,7 @@ def copy_item_quality_template(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Admin", "Owner", "QC", "Store"])),
 ):
-    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).first()
+    db_item = db.query(ItemMaster).filter(ItemMaster.id == item_id, ItemMaster.plant_id == plant_id).with_for_update().populate_existing().first()
     if not db_item:
         raise HTTPException(status_code=404, detail="Item not found")
     material = str(
@@ -490,6 +523,7 @@ def copy_item_quality_template(
         },
         "inspection_required": True,
     }
+    previous_profile = dict(db_item.quality_profile or {})
     try:
         db_item.quality_profile = apply_profile_save(
             db_item.quality_profile if isinstance(db_item.quality_profile, dict) else None,
@@ -499,6 +533,7 @@ def copy_item_quality_template(
         )
     except ProfileLifecycleError as exc:
         raise HTTPException(status_code=exc.status_code, detail=exc.as_dict()) from exc
+    db_item.quality_profile = _profile_history(previous_profile, db_item.quality_profile, "TEMPLATE_COPIED", current_user.get("sub"))
     db.commit()
     db.refresh(db_item)
     return db_item

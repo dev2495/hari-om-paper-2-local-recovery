@@ -143,7 +143,7 @@ const guides: GuideContent[] = [
       "Verify the current revision is approved before asking stores to receive it.",
     ],
     outputs: ["Automatic PO number", "Approved revision", "Printable saved PO"],
-    relatedRoutes: ["/purchase/new", "/purchase/approvals", "/purchase/inward", "/purchase/scheduler"],
+    relatedRoutes: ["/purchase/requisitions", "/purchase/new", "/purchase/approvals", "/purchase/inward", "/purchase/scheduler"],
   },
   {
     id: "purchase-inward",

@@ -249,6 +249,12 @@ def aggregate_transactions_by_item(
     if not type_filter:
         type_filter = ["ISSUE_PRODUCTION"]
 
+    if end_date < start_date:
+        raise HTTPException(422, "Period end must not precede its start")
+    net_issues = "ISSUE_PRODUCTION" in types_requested
+    if net_issues and "PRODUCTION_RETURN" not in type_filter:
+        type_filter.append("PRODUCTION_RETURN")
+    quantity = -StockTransaction.qty_change if net_issues else func.abs(StockTransaction.qty_change)
     business_date = _business_date_expression()
 
     query = (
@@ -257,7 +263,7 @@ def aggregate_transactions_by_item(
             ItemMaster.item_code.label("item_code"),
             ItemMaster.name.label("item_name"),
             ItemMaster.type.label("item_type"),
-            func.coalesce(func.sum(func.abs(StockTransaction.qty_change)), 0.0).label("issued_kg"),
+            func.coalesce(func.sum(quantity), 0.0).label("issued_kg"),
             func.count(StockTransaction.id).label("txn_count"),
         )
         .join(ItemMaster, ItemMaster.id == StockTransaction.item_id)
@@ -270,8 +276,7 @@ def aggregate_transactions_by_item(
 
     if plant_scope.get("scope_all"):
         allowed = plant_scope.get("allowed_plants") or []
-        if allowed:
-            query = query.filter(StockTransaction.plant_id.in_(allowed))
+        query = query.filter(StockTransaction.plant_id.in_(allowed))
     else:
         query = query.filter(StockTransaction.plant_id == plant_scope["selected_plant_id"])
 
@@ -292,6 +297,30 @@ def aggregate_transactions_by_item(
                 "txn_count": int(row.txn_count or 0),
             }
         )
+    if "ISSUE_FROM_REEL" in types_requested:
+        from ..models import PaperReel, ReelIssue
+        from sqlalchemy import String, cast
+        from zoneinfo import ZoneInfo
+        from datetime import timezone
+        plants = (plant_scope.get("allowed_plants") or []) if plant_scope.get("scope_all") else [plant_scope["selected_plant_id"]]
+        issues = db.query(ReelIssue, ItemMaster).join(PaperReel, PaperReel.id == ReelIssue.reel_id).join(ItemMaster, ItemMaster.id == PaperReel.paper_id).filter(
+            cast(ReelIssue.plant_id, String).in_(plants), ReelIssue.issue_section == "WINDER_SECTION",
+            ReelIssue.issue_date <= end_date).all()
+        by_id = {row["item_id"]: row for row in out}
+        for issue, item in issues:
+            quantity = float(issue.issued_weight_kg) if start_date <= issue.issue_date <= end_date else 0.0
+            if issue.closed_at:
+                closed = issue.closed_at.replace(tzinfo=timezone.utc) if issue.closed_at.tzinfo is None else issue.closed_at
+                if start_date <= closed.astimezone(ZoneInfo("Asia/Kolkata")).date() <= end_date:
+                    quantity -= float(issue.issued_weight_kg) - float(issue.consumed_weight_kg or 0)
+            if not quantity:
+                continue
+            key = str(item.id)
+            if key not in by_id:
+                by_id[key] = {"item_id": key, "item_code": item.item_code, "item_name": item.name, "item_type": str(getattr(item.type, "value", item.type)), "issued_kg": 0.0, "txn_count": 0}
+                out.append(by_id[key])
+            by_id[key]["issued_kg"] += quantity
+            by_id[key]["txn_count"] += 1
     return out
 
 

@@ -5,9 +5,9 @@ umask 077
 release="${1:?exact 40-character Git commit required}"
 expected="${2:?expected currently deployed Git commit required}"
 [[ "$release" =~ ^[a-f0-9]{40}$ && "$expected" =~ ^[a-f0-9]{40}$ ]]
-[[ "$(cat /opt/hariom/DEPLOYED_COMMIT)" == "$expected" ]] || { echo 'Live release changed; stop and review'; exit 1; }
 exec 8>/opt/hariom/release.lock
 flock -n 8 || { echo 'A release is already running'; exit 1; }
+[[ "$(cat /opt/hariom/DEPLOYED_COMMIT)" == "$expected" ]] || { echo 'Live release changed; stop and review'; exit 1; }
 app=/opt/hariom/app
 deploy="$app/deploy/aws-ec2"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -50,7 +50,21 @@ compose build erp-app
 bash "$deploy/backup_databases.sh"
 db_user="$(sed -n 's/^DB_USER=//p' "$deploy/.env" | tail -n 1)"
 compose exec -T postgres psql -U "$db_user" -d productiondb -v ON_ERROR_STOP=1 < "$deploy/migrations/20260910-production.sql"
+# Refuse cutover if stock was created using the old reversed section mapping.
+# Resolve those physical records explicitly instead of silently relabelling stock.
+compose stop -t 90 erp-app
 activated=1
+compose exec -T postgres psql -U "$db_user" -d inventorydb -v ON_ERROR_STOP=1 <<'SQL'
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM paper_reels WHERE parent_reel_id IS NOT NULL AND physical_form = 'REEL') OR
+     EXISTS (SELECT 1 FROM reel_issues i JOIN paper_reels r ON r.id=i.reel_id
+             WHERE i.status='OPEN' AND ((r.physical_form='COIL' AND i.issue_section='SLITTING_SECTION') OR
+                                       (r.physical_form='REEL' AND i.issue_section='WINDER_SECTION'))) THEN
+    RAISE EXCEPTION 'Legacy paper routing needs reviewed reconciliation before this release';
+  END IF;
+END $$;
+SQL
+compose exec -T postgres psql -U "$db_user" -d inventorydb -v ON_ERROR_STOP=1 < "$deploy/migrations/20260928-procurement.sql"
 compose up -d --no-deps erp-app
 ready=0
 for attempt in $(seq 1 60); do
