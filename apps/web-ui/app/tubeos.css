@@ -484,6 +484,10 @@ a.tube-kpi:hover .tube-kpi-icon, button:hover > .tube-kpi .tube-kpi-icon { trans
   .tube-shell[data-rail="compact"] .tube-rail .tube-brand { padding:0 16px; justify-content:flex-start; }
   .tube-shell[data-rail="compact"] .tube-rail .tube-user { padding:6px; margin:8px 6px; justify-content:flex-start; }
   .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-subnav { display:block; opacity:0; pointer-events:none; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-nav-group { margin:0 0 4px; padding-top:0; border-top:0; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-nav-link { justify-content:flex-start; padding:8px 14px; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-brand { padding:0 16px; justify-content:flex-start; }
+  .tube-shell[data-rail="compact"] .tube-rail:not(:hover):not(:focus-within) .tube-user { padding:6px; margin:8px 6px; justify-content:flex-start; }
   .tube-shell[data-rail="compact"] .tube-navigation { scrollbar-gutter:stable; }
 }
 .tube-nav-group[data-open="true"] .tube-nav-items > div > div { animation:none; }
