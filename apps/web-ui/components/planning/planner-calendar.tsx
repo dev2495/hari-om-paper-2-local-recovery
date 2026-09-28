@@ -3,7 +3,7 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import { useMemo, useState } from "react"
-import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Flame, GripVertical, Scissors, Search, Settings2 } from "lucide-react"
+import { AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Flame, GripVertical, Scissors, Search, Settings2, ZoomIn } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
@@ -35,6 +35,9 @@ export function PlannerCalendar({
   maxPlannerDate,
   hrefFor,
   onOpenCard,
+  onZoom,
+  onPrefetchWindow,
+  recentWindow,
 }: {
   stage: string
   jobs: any[]
@@ -43,6 +46,11 @@ export function PlannerCalendar({
   maxPlannerDate: string
   hrefFor: (next: { date?: string; view?: string }) => string
   onOpenCard: (jobCardId: string, action?: "split" | "emergency" | "edit" | "force_close") => void
+  /** Open the 3-day board starting at this date (the workspace animates the zoom). */
+  onZoom?: (date: string) => void
+  onPrefetchWindow?: (date: string) => void
+  /** The 3-day window just left, briefly highlighted after zooming out. */
+  recentWindow?: string | null
 }) {
   const { showToast } = useApp()
   const moveCard = usePlanningBoardMove()
@@ -52,6 +60,17 @@ export function PlannerCalendar({
   const [winderFilter, setWinderFilter] = useState<string | null>(null)
   const [dragged, setDragged] = useState<any | null>(null)
   const [hoverDay, setHoverDay] = useState<string | null>(null)
+  const [windowStart, setWindowStart] = useState<string | null>(null)
+  const inWindow = (key: string, start: string | null | undefined) => {
+    if (!start) return false
+    const offset = dayjs(key).diff(dayjs(start), "day")
+    return offset >= 0 && offset <= 2
+  }
+  const hoverWindow = (key: string) => {
+    if (dragged || windowStart === key) return
+    setWindowStart(key)
+    onPrefetchWindow?.(key)
+  }
   const [placing, setPlacing] = useState<{ job: any; date: string } | null>(null)
   const [placeMachine, setPlaceMachine] = useState("")
   const [placeShift, setPlaceShift] = useState("SHIFT_A")
@@ -267,7 +286,7 @@ export function PlannerCalendar({
           </div>
         </div>
         <div className="overflow-x-auto p-3">
-          <div className="grid min-w-[760px] grid-cols-7 gap-1.5">
+          <div className="grid min-w-[760px] grid-cols-7 gap-1.5" onMouseLeave={() => setWindowStart(null)}>
             {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((label) => (
               <div key={label} className="px-2 pb-1 text-[11.5px] font-semibold text-muted-foreground">{label}</div>
             ))}
@@ -276,12 +295,21 @@ export function PlannerCalendar({
               return (
                 <div
                   key={day.key}
+                  onMouseEnter={() => { if (!day.beyond) hoverWindow(day.key) }}
+                  onClick={(event) => {
+                    if (dragged || day.beyond || !onZoom) return
+                    if ((event.target as HTMLElement).closest("button, a")) return
+                    onZoom(day.key)
+                  }}
                   onDragOver={(event) => { if (!day.isPast && !day.beyond) { event.preventDefault(); if (hoverDay !== day.key) setHoverDay(day.key) } }}
                   onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) setHoverDay((current) => (current === day.key ? null : current)) }}
                   onDrop={() => { setHoverDay(null); if (dragged && !day.isPast && !day.beyond) openPlacer(dragged, day.key); setDragged(null) }}
                   className={cn(
                     "group relative flex min-h-[132px] flex-col rounded-lg border p-2 transition-all duration-200",
+                    onZoom && !day.beyond && !dragged && "cursor-zoom-in",
                     day.inMonth ? "bg-card" : "bg-muted/40",
+                    !dragged && inWindow(day.key, windowStart) && "border-primary/50 bg-primary/[.045]",
+                    recentWindow && inWindow(day.key, recentWindow) && "planner-window-pulse ring-1 ring-primary/40",
                     day.isToday ? "border-primary ring-2 ring-primary/25" : "border-border",
                     droppable && "border-dashed",
                     hoverDay === day.key && droppable && "scale-[1.02] border-primary bg-primary/5 shadow-md",
@@ -295,6 +323,16 @@ export function PlannerCalendar({
                     {day.due ? <span title={`${day.due} card(s) due to the customer`} className="rounded bg-signal-rose-soft px-1 text-[10.5px] font-semibold text-signal-rose-ink">{day.due} due</span> : null}
                     {day.missed ? <span title="Slot passed without entry" className="text-signal-amber-ink"><AlertTriangle className="h-3 w-3" /></span> : null}
                     {day.pcs ? <span className="ml-auto text-[11px] font-semibold tabular-nums text-muted-foreground">{fmt(day.pcs)}</span> : null}
+                    {!day.beyond && windowStart === day.key && !dragged ? (
+                      <Link
+                        href={hrefFor({ date: day.key, view: "schedule" })}
+                        onClick={(event) => { if (onZoom) { event.preventDefault(); onZoom(day.key) } }}
+                        className={cn("inline-flex h-5 items-center gap-0.5 rounded bg-primary px-1 text-[10.5px] font-semibold text-primary-foreground shadow-sm animate-scale-in", !day.pcs && "ml-auto")}
+                        aria-label={`Open ${day.date.format("D")}–${day.date.add(2, "day").format("D MMM")} on the 3-day board`}
+                      >
+                        <ZoomIn className="h-3 w-3" />3d
+                      </Link>
+                    ) : null}
                   </div>
                   {day.pcs ? (
                     <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
@@ -324,7 +362,7 @@ export function PlannerCalendar({
             })}
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-4 text-[11.5px] text-muted-foreground">
-            <span>Click a date for its 3-day machine board.</span>
+            <span>Hover a day to see its 3-day window; click to zoom into the machine board.</span>
             <span className="inline-flex items-center gap-1"><Flame className="h-3 w-3 text-signal-rose-ink" />emergency</span>
             <span className="inline-flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-signal-amber-ink" />slot passed, no entry</span>
             <span className="inline-flex items-center gap-1"><span className="rounded bg-signal-rose-soft px-1 font-semibold text-signal-rose-ink">n due</span>customer due date</span>

@@ -340,7 +340,7 @@ export function ReleaseToQueueDialog({
   }, {})
   const loadRows = winders.map((machine) => {
     const load = winderLoad.data?.machines.find((entry) => entry.machine_id === String(machine.id))
-    return { id: String(machine.id), label: String(machine.code || machine.name || ""), queued: load?.queued_pcs || 0, scheduled: load?.scheduled_pcs || 0, running: load?.running_pcs || 0, cards: load?.cards || 0, adding: addedByWinder[String(machine.id)] || 0 }
+    return { id: String(machine.id), label: String(machine.code || machine.name || ""), queued: load?.queued_pcs || 0, scheduled: load?.scheduled_pcs || 0, running: load?.running_pcs || 0, cards: load?.cards || 0, adding: addedByWinder[String(machine.id)] || 0, openM: load?.open_m || 0, days: load?.days_of_work ?? null }
   })
   const maxLoad = Math.max(1, ...loadRows.map((row) => row.queued + row.scheduled + row.running + row.adding))
 
@@ -495,7 +495,7 @@ export function ReleaseToQueueDialog({
                   <div key={row.id} className={cn("rounded-lg p-2 transition-colors", selected && "bg-primary/5 ring-1 ring-inset ring-primary/20")}>
                     <div className="flex items-baseline justify-between gap-2 text-[12.5px]">
                       <span className="font-semibold">{row.label}</span>
-                      <span className="tabular-nums text-muted-foreground">{fmt(total)}{row.adding ? <span className="font-semibold text-primary"> +{fmt(row.adding)}</span> : null}</span>
+                      <span className="tabular-nums text-muted-foreground">{fmt(total)} pcs{row.adding ? <span className="font-semibold text-primary"> +{fmt(row.adding)}</span> : null}</span>
                     </div>
                     <div className="mt-1.5 flex h-3 overflow-hidden rounded-full bg-muted">
                       <div className="h-full origin-left animate-[bar-grow_700ms_var(--ease-workspace)_both] bg-signal-amber-ink/80" style={{ width: `${(row.running / maxLoad) * 100}%` }} title={`Running ${fmt(row.running)}`} />
@@ -503,7 +503,7 @@ export function ReleaseToQueueDialog({
                       <div className="h-full origin-left animate-[bar-grow_700ms_var(--ease-workspace)_both] bg-[hsl(var(--chart-2))]" style={{ width: `${(row.queued / maxLoad) * 100}%` }} title={`In queue ${fmt(row.queued)}`} />
                       <div className="h-full bg-[repeating-linear-gradient(45deg,hsl(var(--primary))_0_4px,hsl(var(--primary)/.45)_4px_8px)] transition-[width] duration-300" style={{ width: `${(row.adding / maxLoad) * 100}%` }} />
                     </div>
-                    <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{row.cards} cards · {fmt(row.queued)} queue · {fmt(row.scheduled)} scheduled</p>
+                    <p className="mt-1 text-[11px] tabular-nums text-muted-foreground">{fmt(row.openM)} m · {row.cards} cards · {fmt(row.queued)} pcs queue · {fmt(row.scheduled)} scheduled{row.days !== null ? ` · ≈ ${row.days} days` : ""}</p>
                   </div>
                 )
               }) : <p className="text-[12px] text-muted-foreground">{winderLoad.isLoading ? "Loading queues…" : "No winder queues yet."}</p>}

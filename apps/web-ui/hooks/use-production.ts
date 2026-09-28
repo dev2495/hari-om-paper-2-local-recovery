@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { productionApi } from "@/lib/api"
 
 // ----- Per-plant tolerance settings -----
@@ -108,7 +108,23 @@ export function usePlanningBoard(
       return data
     },
     enabled,
+    // Moving the 3-day window keeps the last board on screen while the next one loads (no blank gap).
+    placeholderData: keepPreviousData,
   })
+}
+
+/** Warm the 3 boards of a window (calendar hover) so zooming in opens instantly. */
+export function usePrefetchPlanningWindow() {
+  const queryClient = useQueryClient()
+  return (stage: string, dates: string[], plantId?: string) => {
+    for (const planDate of dates) {
+      queryClient.prefetchQuery({
+        queryKey: ["planning-board", stage || "all", planDate || "none", true, plantId || "default"],
+        queryFn: async () => (await productionApi.getPlanningBoard({ stage, plan_date: planDate, include_unscheduled: true, plant_id: plantId })).data,
+        staleTime: 30_000,
+      })
+    }
+  }
 }
 
 export function usePlanningJobCards(params?: any, enabled = true) {

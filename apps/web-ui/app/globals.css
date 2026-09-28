@@ -291,3 +291,18 @@ html.theme-switching, html.theme-switching *, html.theme-switching *::before, ht
 .tube-sheet-right[data-state="closed"] { animation: sheet-out-right 180ms ease both !important; }
 @keyframes sheet-in-right { from { transform: translateX(100%); } to { transform: translateX(0); } }
 @keyframes sheet-out-right { from { transform: translateX(0); } to { transform: translateX(100%); } }
+
+/* Planner zoom: month calendar <-> 3-day board. Origin is the day that was opened. */
+@keyframes planner-zoom-in { from { opacity: 0; transform: scale(.9); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes planner-zoom-out { from { opacity: 0; transform: scale(1.06); filter: blur(3px); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes planner-slide-next { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes planner-slide-prev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes planner-window-pulse { 0% { box-shadow: 0 0 0 0 hsl(var(--primary) / .45); } 100% { box-shadow: 0 0 0 10px hsl(var(--primary) / 0); } }
+.planner-zoom-in { animation: planner-zoom-in 420ms var(--ease-workspace, cubic-bezier(.2,.8,.2,1)) both; will-change: transform, opacity; }
+.planner-zoom-out { animation: planner-zoom-out 380ms var(--ease-workspace, cubic-bezier(.2,.8,.2,1)) both; will-change: transform, opacity; }
+.planner-slide-next { animation: planner-slide-next 320ms var(--ease-workspace, cubic-bezier(.2,.8,.2,1)) both; }
+.planner-slide-prev { animation: planner-slide-prev 320ms var(--ease-workspace, cubic-bezier(.2,.8,.2,1)) both; }
+.planner-window-pulse { animation: planner-window-pulse 900ms ease-out 2; }
+@media (prefers-reduced-motion: reduce) {
+  .planner-zoom-in, .planner-zoom-out, .planner-slide-next, .planner-slide-prev, .planner-window-pulse { animation: none; filter: none; }
+}

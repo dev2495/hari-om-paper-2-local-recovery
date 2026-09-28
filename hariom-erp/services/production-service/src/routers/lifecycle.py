@@ -35,7 +35,7 @@ from ..lifecycle_rules import (
     stage_units_to_pcs,
     within_output_tolerance,
 )
-from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment
+from ..models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, MachineStageCapacityProfile
 from ..utils.auth import get_current_plant, require_role
 from .missed_slots import restore_missed_slot_for_late_entry, sweep_missed_slots
 from .planning import (
@@ -59,6 +59,7 @@ from .planning import (
     _routing_stages_from_snapshot,
     _sync_stage_row_from_segments,
     _to_uuid,
+    _winder_capacity_meters_for_qty,
 )
 
 router = APIRouter(tags=["job-card-lifecycle"])
@@ -775,7 +776,11 @@ def winder_queue_load(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales"])),
 ):
-    """Open pcs per winder: waiting in queue vs already on the calendar, next 7 days."""
+    """Open load per winder in pieces and winding metres: running, on the calendar, waiting in queue.
+
+    Winder output is counted in bamboos, so what is left = planned pcs - bamboos made x pcs per bamboo.
+    Metres use the card's bamboo plan (whole bamboos x bamboo length), the unit winder capacity is set in.
+    """
     plant_uuid = _to_uuid(plant_id)
     rows = (
         db.query(JobCardStageSegment, JobCard)
@@ -788,37 +793,53 @@ def winder_queue_load(
         )
         .all()
     )
+    capacity = {
+        str(row.machine_id): float(row.capacity_value or 0.0)
+        for row in db.query(MachineStageCapacityProfile).filter(
+            MachineStageCapacityProfile.plant_id == plant_uuid,
+            MachineStageCapacityProfile.stage_type == "WINDER",
+            MachineStageCapacityProfile.active.is_(True),
+            MachineStageCapacityProfile.capacity_unit == "METERS_PER_DAY",
+        ).all()
+    }
     today = datetime.now(PLANT_TIMEZONE).date()
     machines: dict[str, dict[str, Any]] = {}
     for segment, job in rows:
         machine_key = str(segment.machine_id or job.assigned_winder_machine_id or "unassigned")
-        bucket = machines.setdefault(machine_key, {"machine_id": machine_key, "queued_pcs": 0.0, "scheduled_pcs": 0.0, "running_pcs": 0.0, "cards": set(), "by_day": {}})
-        remaining = max(0.0, float(segment.planned_qty or 0.0) - float(segment.output_qty or 0.0))
+        bucket = machines.setdefault(machine_key, {"machine_id": machine_key, "cards": set(), "by_day": {},
+                                                   **{f"{kind}_{unit}": 0.0 for kind in ("queued", "scheduled", "running") for unit in ("pcs", "m")}})
+        ppb = _ppb(job) or 1
+        remaining_pcs = max(0.0, float(segment.planned_qty or 0.0) - float(segment.output_qty or 0.0) * ppb)
+        remaining_m = _winder_capacity_meters_for_qty(remaining_pcs, job.spec_snapshot or {}) if remaining_pcs > 0 else 0.0
         bucket["cards"].add(str(job.id))
         if segment.status == "RUNNING":
-            bucket["running_pcs"] += remaining
+            kind = "running"
         elif segment.shift_code and segment.machine_id:
-            bucket["scheduled_pcs"] += remaining
+            kind = "scheduled"
             if segment.plan_date and 0 <= (segment.plan_date - today).days < 7:
-                key = str(segment.plan_date)
-                bucket["by_day"][key] = bucket["by_day"].get(key, 0.0) + remaining
+                day = bucket["by_day"].setdefault(str(segment.plan_date), {"pcs": 0.0, "m": 0.0})
+                day["pcs"] += remaining_pcs
+                day["m"] += remaining_m
         else:
-            bucket["queued_pcs"] += remaining
-    return {
-        "as_of": str(today),
-        "machines": [
-            {
-                "machine_id": key,
-                "queued_pcs": round(value["queued_pcs"], 0),
-                "scheduled_pcs": round(value["scheduled_pcs"], 0),
-                "running_pcs": round(value["running_pcs"], 0),
-                "open_pcs": round(value["queued_pcs"] + value["scheduled_pcs"] + value["running_pcs"], 0),
-                "cards": len(value["cards"]),
-                "by_day": [{"date": day, "pcs": round(pcs, 0)} for day, pcs in sorted(value["by_day"].items())],
-            }
-            for key, value in sorted(machines.items())
-        ],
-    }
+            kind = "queued"
+        bucket[f"{kind}_pcs"] += remaining_pcs
+        bucket[f"{kind}_m"] += remaining_m
+    out = []
+    for key, value in sorted(machines.items()):
+        open_m = value["queued_m"] + value["scheduled_m"] + value["running_m"]
+        per_day = capacity.get(key) or 0.0
+        out.append({
+            "machine_id": key,
+            **{name: round(value[name], 0) for name in ("queued_pcs", "scheduled_pcs", "running_pcs")},
+            **{name: round(value[name], 1) for name in ("queued_m", "scheduled_m", "running_m")},
+            "open_pcs": round(value["queued_pcs"] + value["scheduled_pcs"] + value["running_pcs"], 0),
+            "open_m": round(open_m, 1),
+            "capacity_m_per_day": round(per_day, 1) or None,
+            "days_of_work": round(open_m / per_day, 1) if per_day > 0 else None,
+            "cards": len(value["cards"]),
+            "by_day": [{"date": day, "pcs": round(load["pcs"], 0), "m": round(load["m"], 1)} for day, load in sorted(value["by_day"].items())],
+        })
+    return {"as_of": str(today), "machines": out}
 
 
 # ── missed slots (scheduled, no entry for 36h after the shift) ─────────────

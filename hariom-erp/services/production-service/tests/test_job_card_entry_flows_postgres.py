@@ -463,3 +463,17 @@ def test_force_close_refused_by_sales_keeps_the_card_open(db, monkeypatch):
     db.expire_all()
     fresh = db.get(JobCard, job.id)
     assert fresh.status != 'CANCELLED' and not fresh.close_mode
+
+
+def test_winder_load_counts_pieces_and_metres_with_bamboo_output_converted(db):
+    running, waiting = _card(db, qty=2000), _card(db, qty=960)
+    _schedule(db, running, machine=SMALL_WINDER)
+    lifecycle.add_running_entry(running.id, lifecycle.RunningEntryPayload(stage='WINDER', qty=50), db, PLANT, SUPERVISOR)  # 400 pcs made
+    running.assigned_winder_machine_id = SMALL_WINDER
+    waiting.assigned_winder_machine_id = SMALL_WINDER
+    db.flush()
+    load = {row['machine_id']: row for row in lifecycle.winder_queue_load(db, PLANT, PLANNER)['machines']}[str(SMALL_WINDER)]
+    assert load['running_pcs'] == 1600  # 2000 - 50 bamboos x 8, not 2000 - 50
+    assert load['running_m'] == 240.0   # 200 bamboos x 1.2 m
+    assert load['queued_pcs'] == 960 and load['queued_m'] == 144.0
+    assert load['open_m'] == 384.0 and load['capacity_m_per_day'] == 600.0 and load['days_of_work'] == 0.6

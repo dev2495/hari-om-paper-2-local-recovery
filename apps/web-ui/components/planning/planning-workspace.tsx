@@ -3,7 +3,7 @@
 import Link from "next/link"
 import dayjs from "dayjs"
 import type { MouseEvent } from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   ArrowRight,
@@ -25,6 +25,7 @@ import { WinderLoadBars } from "@/components/planning/winder-load-bars"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
 import { useMissedSlotSweep } from "@/hooks/use-lifecycle"
+import { usePrefetchPlanningWindow } from "@/hooks/use-production"
 
 import { KeyboardScheduleForm } from "@/components/planning/keyboard-schedule-form"
 import { EmptyState, StatusBadge } from "@/components/erp/shell"
@@ -282,6 +283,19 @@ type HoverDetail = {
   placement: "left" | "right"
 }
 
+/** Where a date sits in the month calendar (queue column + 7x6 grid), as a transform origin. */
+function monthCellOrigin(date: string) {
+  const day = dayjs(date)
+  const first = day.startOf("month")
+  const gridStart = first.subtract((first.day() + 6) % 7, "day")
+  const index = Math.max(0, day.diff(gridStart, "day"))
+  const col = index % 7
+  const row = Math.floor(index / 7)
+  const x = 28 + ((col + 0.5) / 7) * 72
+  const y = 12 + ((row + 0.5) / 6) * 80
+  return `${x.toFixed(1)}% ${Math.min(95, y).toFixed(1)}%`
+}
+
 export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: string }) {
   const searchParams = useSearchParams()
   const router = useRouter()
@@ -340,6 +354,51 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     }
     return `/planning/board?${params.toString()}`
   }, [focusedJobCardId, focusedOrderId, plannerView, section, startDate, sectionOverride])
+
+  // ---- zoom between the month calendar and the 3-day board -------------------------------
+  // The motion is decided once per view/window (a key), so later re-renders never cut it off.
+  const viewKey = plannerView === "schedule" ? `schedule:${day0}` : `calendar:${monthStartDate}`
+  const lastView = useRef<{ key: string; view: string; day0: string } | null>(null)
+  const motion = useRef<{ key: string; className: string; origin: string; recentWindow: string | null }>({ key: "", className: "", origin: "50% 50%", recentWindow: null })
+  if (motion.current.key !== viewKey) {
+    const previous = lastView.current
+    let className = ""
+    let origin = "50% 40%"
+    let recentWindow: string | null = null
+    if (previous && previous.key !== viewKey) {
+      if (previous.view !== plannerView) {
+        recentWindow = plannerView === "calendar" ? previous.day0 : null
+        className = plannerView === "schedule" ? "planner-zoom-in" : "planner-zoom-out"
+        origin = monthCellOrigin(plannerView === "schedule" ? day0 : previous.day0)
+      } else if (plannerView === "schedule") {
+        className = day0 > previous.day0 ? "planner-slide-next" : "planner-slide-prev"
+      } else {
+        className = "planner-slide-" + (monthStartDate > dayjs(previous.day0).startOf("month").format("YYYY-MM-DD") ? "next" : "prev")
+      }
+    }
+    motion.current = { key: viewKey, className, origin, recentWindow }
+  }
+  useEffect(() => {
+    lastView.current = { key: viewKey, view: plannerView, day0 }
+  }, [viewKey, plannerView, day0])
+  const dialogOpen = Boolean(sheetJobId || pendingDrop || splitDialogJob)
+  useEffect(() => {
+    if (plannerView !== "schedule") return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || dialogOpen || event.defaultPrevented) return
+      const target = event.target as HTMLElement | null
+      if (target && (target.closest("input, textarea, select, [contenteditable=true]") || target.closest("[role=dialog]"))) return
+      router.push(boardHref({ view: "calendar" }), { scroll: false })
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [boardHref, dialogOpen, plannerView, router])
+  const prefetchWindow = usePrefetchPlanningWindow()
+  const prefetchFrom = useCallback((date: string) => {
+    if (!canQuery) return
+    const start = dayjs(date)
+    prefetchWindow(stage, [0, 1, 2].map((offset) => start.add(offset, "day").format("YYYY-MM-DD")), scopedPlantId)
+  }, [canQuery, prefetchWindow, scopedPlantId, stage])
 
   useEffect(() => {
     setDateDraft(dayjs(startDate).isValid() ? dayjs(startDate).format("YYYY-MM-DD") : dayjs().format("YYYY-MM-DD"))
@@ -479,12 +538,6 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     [queueGroups, queuedJobs.length],
   )
 
-  useEffect(() => {
-    if (queueFilter === "all") return
-    if (!queueGroups.some((group) => group.key === queueFilter)) {
-      setQueueFilter("all")
-    }
-  }, [queueFilter, queueGroups])
 
   const visibleQueueGroups = useMemo(() => {
     const needle = queueSearch.trim().toLowerCase()
@@ -529,7 +582,9 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     () => scheduledDays.flatMap((entry) => entry.lanes).filter((lane: any) => Boolean(lane.warning)).length,
     [scheduledDays],
   )
-  const loading = board0.isLoading || board1.isLoading || board2.isLoading || jobsQuery.isLoading
+  // Full-page loader only on the very first load; moving windows keeps the last board visible.
+  const loading = jobsQuery.isLoading || [board0, board1, board2].some((board) => board.isLoading && !board.data)
+  const windowRefreshing = [board0, board1, board2].some((board) => board.isPlaceholderData || (board.isFetching && !board.isLoading))
   const loadFailed = board0.isError || board1.isError || board2.isError || jobsQuery.isError
   const requiresExplicitPlant = boards.some((entry) => entry.response?.requires_explicit_plant)
 
@@ -677,6 +732,15 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         }),
       }))
   }, [machinesQuery.data, plannerShifts, scheduledDays, stage])
+  // A winder picked from the load bars stays selected even when nothing of it is queued
+  // (the queue then says so); only stale non-winder groups fall back to All.
+  const winderKeys = useMemo(() => new Set(machineRows.map((machine: any) => String(machine.id)).concat("unassigned")), [machineRows])
+  useEffect(() => {
+    if (queueFilter === "all" || winderKeys.has(queueFilter)) return
+    if (!queueGroups.some((group) => group.key === queueFilter)) {
+      setQueueFilter("all")
+    }
+  }, [queueFilter, queueGroups, winderKeys])
 
   const shiftHeaders = useMemo(
     () =>
@@ -1282,6 +1346,26 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           busy={moveCard.isPending}
         />}
 
+        <div key={viewKey} className={motion.current.className} style={{ transformOrigin: motion.current.origin }} data-testid="planner-view" data-view={plannerView}>
+        {plannerView === "schedule" ? (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 shadow-sm" data-testid="planner-zoom-bar">
+            <Link href={boardHref({ view: "calendar" })} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 text-[12px] font-semibold text-muted-foreground transition hover:-translate-y-0.5 hover:text-foreground" title="Back to the month calendar (Esc)">
+              <ChevronLeft className="h-3.5 w-3.5" />{dayjs(day0).format("MMMM")}
+            </Link>
+            <nav aria-label="Planner zoom" className="flex min-w-0 items-center gap-1.5 text-[12.5px]">
+              <span className="text-muted-foreground">Month</span>
+              <ChevronRight className="h-3 w-3 text-muted-foreground" />
+              <span className="font-semibold text-foreground">{dayjs(day0).format("ddd D")} – {dayjs(day2).format("ddd D MMM")}</span>
+            </nav>
+            <div className="ml-auto flex items-center gap-1">
+              <Link href={boardHref({ date: previousWindowDate, view: "schedule" })} className="tube-icon-button" aria-label="Previous 3 days"><ChevronLeft size={16} /></Link>
+              <Link href={boardHref({ date: todayWindowDate, view: "schedule" })} className="erp-btn-secondary !h-8 !px-2.5 text-[12px]">Today</Link>
+              <Link href={boardHref({ date: dayjs(nextWindowDate).isAfter(dayjs(maxPlannerDate), "day") ? maxPlannerDate : nextWindowDate, view: "schedule" })} className="tube-icon-button" aria-label="Next 3 days"><ChevronRight size={16} /></Link>
+            </div>
+            <span className="hidden text-[11px] text-muted-foreground lg:inline">Esc returns to the month</span>
+            {windowRefreshing ? <span className="basis-full"><span className="block h-0.5 overflow-hidden rounded-full bg-muted"><span className="block h-full w-1/3 animate-[progress-indeterminate_1.1s_ease-in-out_infinite] rounded-full bg-primary" /></span></span> : null}
+          </div>
+        ) : null}
         {plannerView === "calendar" ? (
           <PlannerCalendar
             stage={stage}
@@ -1291,6 +1375,9 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
             maxPlannerDate={maxPlannerDate}
             hrefFor={(next) => boardHref(next)}
             onOpenCard={(id, action) => { setSheetAction(action || null); setSheetJobId(id) }}
+            onPrefetchWindow={prefetchFrom}
+            onZoom={(date) => router.push(boardHref({ date, view: "schedule" }), { scroll: false })}
+            recentWindow={motion.current.recentWindow}
           />
         ) : (
         <div className="grid h-[calc(100vh-9rem)] min-h-[650px] min-w-0 gap-3 xl:grid-cols-[minmax(0,330px)_minmax(0,1fr)]">
@@ -1366,7 +1453,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
 
               <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                 {visibleQueueGroups.length === 0 || visibleQueueGroups.every((group) => group.jobs.length === 0) ? (
-                  <EmptyState label="No unscheduled cards in this stage." />
+                  <EmptyState label={queueFilter !== "all" ? `Nothing queued for ${queueFilter === "unassigned" ? "cards without a winder" : machineLabelMap.get(queueFilter) || "this winder"}${queueSearch ? " matching the search" : ""}.` : queueSearch ? "No queued card matches the search." : "No unscheduled cards in this stage."} />
                 ) : (
                   visibleQueueGroups.map((group) => (
                     <div key={group.key} className="rounded-[1.25rem] border border-border bg-muted/75 p-3">
@@ -1735,6 +1822,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           </section>
         </div>
         )}
+        </div>
       </div>
 
       <JobCardLifecycleSheet jobCardId={sheetJobId} initialAction={sheetAction} open={Boolean(sheetJobId)} onOpenChange={(next) => { if (!next) { setSheetJobId(null); setSheetAction(null) } }} />

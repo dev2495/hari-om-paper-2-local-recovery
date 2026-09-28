@@ -63,12 +63,22 @@ export function useJobCardLifecycle(jobCardId?: string | null) {
   })
 }
 
+export type WinderLoadRow = {
+  machine_id: string
+  queued_pcs: number; scheduled_pcs: number; running_pcs: number; open_pcs: number
+  queued_m: number; scheduled_m: number; running_m: number; open_m: number
+  capacity_m_per_day: number | null
+  days_of_work: number | null
+  cards: number
+  by_day: Array<{ date: string; pcs: number; m: number }>
+}
+
 export function useWinderLoad(enabled = true) {
   return useQuery({
     queryKey: ["winder-load"],
     queryFn: async () => (await productionApi.getWinderLoad()).data as {
       as_of: string
-      machines: Array<{ machine_id: string; queued_pcs: number; scheduled_pcs: number; running_pcs: number; open_pcs: number; cards: number; by_day: Array<{ date: string; pcs: number }> }>
+      machines: WinderLoadRow[]
     },
     enabled,
     staleTime: 30_000,
