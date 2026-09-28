@@ -69,19 +69,23 @@ test("owner landing rupee totals come from the sales aggregate endpoint", () => 
   assert.doesNotMatch(page, /totals\.booked \+= qty \* rate/)
 })
 
-test("order detail shows persisted delivery schedules and schedule-entire-PO preview/commit", () => {
+test("order detail edits customer call-offs per line (reviewed by the server, then committed) and shows the delivery plan", () => {
   const page = readFileSync(resolve(process.cwd(), "app/(dashboard)/sales-orders/[orderId]/page.tsx"), "utf8")
-  assert.match(page, /DeliverySchedulePanel/)
-  const panel = readFileSync(resolve(process.cwd(), "components/sales/delivery-schedule-panel.tsx"), "utf8")
-  assert.match(panel, /schedule-entire-po:preview/)
-  assert.match(panel, /schedule-entire-po:commit/)
-  assert.match(panel, /Customer delivery schedule/)
+  assert.match(page, /LineDeliveryEditor/)
+  assert.match(page, /data-testid="delivery-plan"/)
+  assert.match(page, /delivery-shift-preview/)
+  assert.match(page, /useOrderProductionTrail/)
+  const editor = readFileSync(resolve(process.cwd(), "components/sales/line-delivery-editor.tsx"), "utf8")
+  assert.match(editor, /preview\.mutateAsync/)
+  assert.match(editor, /commit\.mutateAsync/)
+  assert.match(editor, /expected_revision: checked\.data\.schedule_revision/)
 })
 
 test("planning board has a keyboard scheduling path equivalent to drag", () => {
   const page = readFileSync(resolve(process.cwd(), "components/planning/planning-workspace.tsx"), "utf8")
   assert.match(page, /KeyboardScheduleForm/)
-  assert.match(page, /tabIndex=\{0\}/)
+  const board = readFileSync(resolve(process.cwd(), "components/planning/schedule-board.tsx"), "utf8")
+  assert.match(board, /tabIndex=\{0\}/)
   const form = readFileSync(resolve(process.cwd(), "components/planning/keyboard-schedule-form.tsx"), "utf8")
   assert.match(form, /planner-keyboard-schedule/)
   assert.match(form, /Same move as drag-and-drop/)

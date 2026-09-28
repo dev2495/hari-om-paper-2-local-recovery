@@ -410,6 +410,7 @@ export const productionApi = {
   postRunningEntry: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/running-entry`, data),
   emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason: string }) =>
     api.post("/api/production/planning/emergency-insert", data),
+  getOrderTrail: (salesOrderId: string) => api.get(`/api/production/planning/order-trail`, { params: { sales_order_id: salesOrderId } }),
   getWinderLoad: () => api.get("/api/production/planning/winder-load"),
   sweepMissedSlots: () => api.post("/api/production/planning/missed-slots/sweep", {}),
   getMissedSlots: (params?: { include_resolved?: boolean }) => api.get("/api/production/planning/missed-slots", { params }),

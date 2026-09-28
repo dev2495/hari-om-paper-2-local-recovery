@@ -842,6 +842,38 @@ def winder_queue_load(
     return {"as_of": str(today), "machines": out}
 
 
+@router.get("/planning/order-trail")
+def order_production_trail(
+    sales_order_id: uuid.UUID,
+    limit: int = 300,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales", "QC", "Store"])),
+):
+    """Every production event on an order's job cards (release, plan moves, entries, splits, closes), newest first."""
+    plant_uuid = _to_uuid(plant_id)
+    cards = {row.id: row for row in db.query(JobCard).filter(JobCard.plant_id == plant_uuid, JobCard.sales_order_id == sales_order_id).all()}
+    if not cards:
+        return {"items": []}
+    events = (
+        db.query(AuditEvent)
+        .filter(AuditEvent.job_card_id.in_(list(cards.keys())))
+        .order_by(AuditEvent.event_ts.desc())
+        .limit(max(1, min(int(limit or 300), 1000)))
+        .all()
+    )
+    return {"items": [
+        {
+            "id": str(event.id), "action": event.action, "entity_type": event.entity_type,
+            "job_card_id": str(event.job_card_id), "job_card_no": getattr(cards.get(event.job_card_id), "job_card_no", None),
+            "actor": event.actor_id, "actor_role": event.actor_role,
+            "at": event.event_ts.isoformat() if event.event_ts else None,
+            "payload": event.payload or {},
+        }
+        for event in events
+    ]}
+
+
 # ── missed slots (scheduled, no entry for 36h after the shift) ─────────────
 
 

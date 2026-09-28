@@ -225,6 +225,9 @@ export function useCommitDeliverySchedules() {
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
       queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-calendar"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "order", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2", "sales-bom-demand"] })
       queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
     },
   })
@@ -243,6 +246,9 @@ export function useCommitScheduleEntirePo() {
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
       queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-calendar"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "order", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2", "sales-bom-demand"] })
       queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
     },
   })
@@ -256,6 +262,9 @@ export function usePatchDeliverySchedule() {
     onSuccess: (_response, variables) => {
       invalidateSalesQueries(queryClient, variables.orderId)
       queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-calendar"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "order", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2", "sales-bom-demand"] })
     },
   })
 }
@@ -268,6 +277,9 @@ export function useMoveDeliverySchedule() {
       if (!variables.data.preview_only) {
         invalidateSalesQueries(queryClient, variables.orderId)
         queryClient.invalidateQueries({ queryKey: ["sales", "delivery-schedules", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "delivery-calendar"] })
+      queryClient.invalidateQueries({ queryKey: ["sales", "order", variables.orderId] })
+      queryClient.invalidateQueries({ queryKey: ["purchase-v2", "sales-bom-demand"] })
         queryClient.invalidateQueries({ queryKey: ["sales", "pending-orders"] })
       }
     },

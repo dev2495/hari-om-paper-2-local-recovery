@@ -477,3 +477,14 @@ def test_winder_load_counts_pieces_and_metres_with_bamboo_output_converted(db):
     assert load['running_m'] == 240.0   # 200 bamboos x 1.2 m
     assert load['queued_pcs'] == 960 and load['queued_m'] == 144.0
     assert load['open_m'] == 384.0 and load['capacity_m_per_day'] == 600.0 and load['days_of_work'] == 0.6
+
+
+def test_order_trail_collects_every_card_event_of_the_order(db):
+    job = _card(db, qty=3000)
+    _schedule(db, job)
+    lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='trail-split'), db, PLANT, PLANNER)
+    trail = lifecycle.order_production_trail(job.sales_order_id, 300, db, PLANT, PLANNER)['items']
+    actions = {row['action'] for row in trail}
+    assert {'job_card_split', 'job_card_created_by_split'} <= actions
+    assert all(row['job_card_no'] for row in trail)
+    assert trail == sorted(trail, key=lambda row: row['at'], reverse=True)

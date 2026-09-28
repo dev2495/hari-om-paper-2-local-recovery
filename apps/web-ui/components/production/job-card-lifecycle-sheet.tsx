@@ -33,7 +33,7 @@ const STEPS: Array<{ key: string; label: string }> = [
   { key: "COMPLETED", label: "Done" },
 ]
 
-const EVENT_LABEL: Record<string, string> = {
+export const EVENT_LABEL: Record<string, string> = {
   release_sync_create: "Released from the sales order",
   release_sync_replay_noop: "Release re-synced (no change)",
   job_card_amended: "Qty / color edited",
@@ -50,7 +50,7 @@ const EVENT_LABEL: Record<string, string> = {
   missed_slot_late_entry: "Late entry — slot restored",
 }
 
-function eventText(event: JobCardLifecycle["events"][number]) {
+export function eventText(event: { action: string; payload?: Record<string, any> | null }) {
   const p = event.payload || {}
   switch (event.action) {
     case "job_card_amended":

@@ -310,6 +310,11 @@ async def retry_job_card_fg_inward(job_card_id: str, request: Request, token: st
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/fg-inward/retry", request, token)
 
 
+@router.get("/planning/order-trail")
+async def get_order_production_trail(request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, "/planning/order-trail", request, token)
+
+
 @router.get("/job-cards/{job_card_id}/lifecycle")
 async def get_job_card_lifecycle(job_card_id: str, request: Request, token: str = Depends(get_token)):
     return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/lifecycle", request, token)

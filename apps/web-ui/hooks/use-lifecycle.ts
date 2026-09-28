@@ -150,3 +150,14 @@ export function useMissedSlots(includeResolved = false) {
 export function newRequestId() {
   return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
+
+export type OrderTrailEvent = { id: string; action: string; entity_type: string; job_card_id: string; job_card_no: string | null; actor: string | null; actor_role: string | null; at: string | null; payload: Record<string, any> }
+
+/** Production events on all job cards of one sales order (plan moves, entries, splits, closes). */
+export function useOrderProductionTrail(salesOrderId?: string) {
+  return useQuery({
+    queryKey: ["production", "order-trail", salesOrderId],
+    enabled: Boolean(salesOrderId),
+    queryFn: async () => ((await productionApi.getOrderTrail(String(salesOrderId))).data?.items || []) as OrderTrailEvent[],
+  })
+}
