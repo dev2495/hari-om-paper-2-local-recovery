@@ -1452,27 +1452,41 @@ def bulk_release_sales_order_lines(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
+    """Release several rows (lines and colours) together: every lot is created, or none is.
+
+    Pass a release_lot_id per row so a retry after a lost response returns the same lots.
+    """
     if not payload:
         raise HTTPException(status_code=400, detail="Bulk release requires at least one line")
+    created = []
+    try:
+        for index, item in enumerate(payload, start=1):
+            try:
+                created.append(_release_line_in_transaction(
+                    db,
+                    item.line_id,
+                    SalesOrderLineReleasePayload(
+                        release_qty=item.release_qty,
+                        winder_machine_id=item.winder_machine_id,
+                        product_code=item.product_code,
+                        release_lot_id=item.release_lot_id,
+                        parchment_color=item.parchment_color,
+                        parchment_color_id=item.parchment_color_id,
+                    ),
+                    plant_id,
+                    current_user,
+                ))
+            except HTTPException as exc:
+                raise HTTPException(status_code=exc.status_code, detail=f"Row {index}: {exc.detail}. Nothing was released.") from exc
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     lots = []
-    for item in payload:
-        lots.append(
-            release_sales_order_line(
-                item.line_id,
-                SalesOrderLineReleasePayload(
-                    release_qty=item.release_qty,
-                    winder_machine_id=item.winder_machine_id,
-                    product_code=item.product_code,
-                    release_lot_id=item.release_lot_id,
-                    parchment_color=item.parchment_color,
-                    parchment_color_id=item.parchment_color_id,
-                ),
-                db=db,
-                plant_id=plant_id,
-                current_user=current_user,
-            )
-        )
-    return {"lots": lots, "count": len(lots), "policy": "line_release"}
+    for lot, order_id in created:
+        db.refresh(lot)
+        lots.append(_lot_payload(lot, order_id))
+    return {"lots": lots, "count": len(lots), "policy": "all_or_nothing"}
 
 
 @router.get("/spec-usage/{spec_id}")
@@ -2048,6 +2062,18 @@ def release_sales_order_line(
     plant_id: str = Depends(get_current_plant),
     current_user: dict = Depends(require_role(["Owner", "Admin", "Sales", "Planner"])),
 ):
+    try:
+        lot, order_id = _release_line_in_transaction(db, line_id, payload, plant_id, current_user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    db.refresh(lot)
+    return _lot_payload(lot, order_id)
+
+
+def _release_line_in_transaction(db: Session, line_id: uuid.UUID, payload: SalesOrderLineReleasePayload, plant_id: str, current_user: dict):
+    """One release lot, flushed but not committed: the caller commits (a whole batch commits once)."""
     # Lock the quantity-owning line row for the duration of the transaction so
     # concurrent or retried releases serialize instead of each reading a stale
     # unreleased balance and inserting a lot (audit finding S04 — over-allocation).
@@ -2088,9 +2114,8 @@ def release_sales_order_line(
         if not existing_lot.job_card_id:
             existing_lot.winder_machine_id = payload.winder_machine_id
             existing_lot.product_code = (payload.product_code or line.product_code or "").strip() or None
-            db.commit()
-            db.refresh(existing_lot)
-        return _lot_payload(existing_lot, order.id)
+            db.flush()
+        return existing_lot, order.id
 
     # Re-read the already-released quantity from committed rows *inside* the locked
     # transaction (not from a possibly-stale relationship snapshot) before deciding
@@ -2130,10 +2155,8 @@ def release_sales_order_line(
     _sync_release_status(order)
     order.released_by = current_user.get("sub")
     order.released_at = order.released_at or datetime.utcnow()
-    db.commit()
-    db.refresh(lot)
-
-    return _lot_payload(lot, order.id)
+    db.flush()
+    return lot, order.id
 
 
 @router.post("/release-lots/{release_lot_id}/sync-job-card", response_model=SalesOrderReleaseLotResponse)

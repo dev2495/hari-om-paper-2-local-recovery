@@ -169,7 +169,7 @@ export default function SalesOrderDetailPage() {
       <MetricRail className="lg:grid-cols-3 2xl:grid-cols-6">
         <MetricCard label="Ordered" value={fmt(totals.ordered)} detail={`${(order.lines || []).length} line(s)`} icon={Layers3} tone="slate" />
         <MetricCard label="Released" value={fmt(totals.released)} detail={`${fmt(totals.unreleased)} not released yet`} icon={Rocket} tone="blue" progress={totals.ordered ? (totals.released / totals.ordered) * 100 : 0} />
-        <MetricCard label="In production" value={fmt(totals.inProduction)} detail={`${orderJobs.length} job card(s)`} icon={Factory} tone="violet" />
+        <MetricCard label="In production" value={jobCardsQuery.isError ? "—" : fmt(totals.inProduction)} detail={jobCardsQuery.isError ? "Job cards did not load" : `${orderJobs.length} job card(s)`} icon={Factory} tone={jobCardsQuery.isError ? "rose" : "violet"} />
         <MetricCard label="Dispatched" value={fmt(totals.dispatched)} detail={`${fmt(Math.max(0, totals.ordered - totals.dispatched - totals.hold))} pending`} icon={Truck} tone="emerald" progress={totals.ordered ? (totals.dispatched / totals.ordered) * 100 : 0} />
         <MetricCard label="Returned by force-close" value={fmt(totals.returned)} detail="Back to unreleased for re-release" icon={Undo2} tone={totals.returned ? "amber" : "slate"} />
         <MetricCard label="Customer hold" value={fmt(totals.hold)} detail={order.is_held ? order.hold_reason || "Held" : "No hold"} icon={History} tone={totals.hold ? "rose" : "slate"} />
@@ -192,7 +192,13 @@ export default function SalesOrderDetailPage() {
           {unsyncedReleaseLots.length} released lot{unsyncedReleaseLots.length === 1 ? " is" : "s are"} not in planning yet — the job card sync did not finish. Click Release to resume; the pending lot is picked up automatically.
         </div>
       ) : null}
-      {orderJobs.length === 0 && unsyncedReleaseLots.length === 0 && !jobCardsQuery.isLoading ? (
+      {jobCardsQuery.isError ? (
+        <div role="alert" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft px-4 py-3 text-sm text-signal-rose-ink">
+          Job cards for this order did not load, so production figures are not shown.{" "}
+          <button type="button" className="font-semibold underline" onClick={() => jobCardsQuery.refetch()}>Try again</button>
+        </div>
+      ) : null}
+      {orderJobs.length === 0 && unsyncedReleaseLots.length === 0 && !jobCardsQuery.isLoading && !jobCardsQuery.isError ? (
         <div data-testid="sales-order-detail:planner-handoff-hint" className="rounded-xl border border-signal-amber-line bg-signal-amber-soft px-4 py-3 text-sm text-signal-amber-ink">
           {canApprove
             ? "No job card yet. Click Approve + Release, pick one color per card, the winder queue and quantity — each row becomes one job card in the planner's open queue."
@@ -219,7 +225,7 @@ export default function SalesOrderDetailPage() {
           ))}
         </div>
 
-        <Panel title="Audit trail" subtitle="Every commercial and release event on this order.">
+        <Panel title="Audit trail" subtitle={timeline.some((event: any) => event.derived) ? "Basic history only — this server has no full audit trail." : "Every commercial and release event on this order."}>
           {timeline.length ? (
             <ol className="relative max-h-[70vh] space-y-3 overflow-y-auto border-l border-border pl-5">
               {[...timeline].sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || ""))).map((event: any) => {
@@ -245,7 +251,7 @@ export default function SalesOrderDetailPage() {
               })}
             </ol>
           ) : (
-            <p className="text-[13px] text-muted-foreground">{timelineQuery.isLoading ? "Loading trail…" : "No events yet."}</p>
+            <p className={timelineQuery.isError ? "text-[13px] text-signal-rose-ink" : "text-[13px] text-muted-foreground"}>{timelineQuery.isLoading ? "Loading trail…" : timelineQuery.isError ? "Audit trail did not load — refresh to try again." : "No events yet."}</p>
           )}
         </Panel>
       </div>

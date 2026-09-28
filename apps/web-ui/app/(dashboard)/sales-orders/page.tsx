@@ -54,6 +54,7 @@ import {
   useResumeSalesOrder,
   useSalesOrderAggregates,
   useSalesOrders,
+  fetchAllSalesOrders,
 } from "@/hooks/use-sales"
 import {
   isInternalOrigin,
@@ -174,6 +175,9 @@ export default function SalesOrdersPage() {
   const hasNextPage = serverRows.length > pageSize
   const orders = useMemo(() => serverRows.slice(0, pageSize), [serverRows, pageSize])
   const aggregates = aggregatesQuery.data || {}
+  // Never show zeros for a summary that did not load.
+  const aggReady = Boolean(aggregatesQuery.data) && !aggregatesQuery.isError
+  const aggValue = (text: string) => (aggReady ? text : "—")
   const metrics = {
     draftOrders: Number(aggregates.draft_count || 0),
     readyOrders: Number(aggregates.ready_count || 0),
@@ -214,12 +218,29 @@ export default function SalesOrdersPage() {
     setReleaseDialogOrder(order)
   }
 
+  const [exporting, setExporting] = useState(false)
   const exportRegister = async () => {
+    // Every order matching the filters, not only the page on screen.
+    setExporting(true)
+    let allOrders: any[] = []
+    let complete = true
+    try {
+      const { limit: _limit, offset: _offset, ...filterParams } = salesQueryParams as any
+      const result = await fetchAllSalesOrders(filterParams)
+      allOrders = result.rows
+      complete = result.complete
+    } catch (error: any) {
+      setExporting(false)
+      showToast(`Export failed: ${error?.response?.data?.detail || error?.message || "orders did not load"}. Nothing was downloaded.`, "error")
+      return
+    }
+    setExporting(false)
     const ExcelJS = await import("exceljs")
     const workbook = new ExcelJS.Workbook()
     const sheet = workbook.addWorksheet("Sales orders")
     sheet.addRow(["SO No", "Customer", "PO Date", "PO No", "Line", "Size", "Color", "PO Qty", "Released", "Delivered", "Pending", "Hold", "Expiry", "Due", "Status"])
-    for (const order of orders as any[]) {
+    if (!complete) showToast("Export stopped at 10,000 orders — narrow the filters for the rest.", "error")
+    for (const order of allOrders) {
       for (const line of order.lines || []) {
         const pendingQty = Number(line.pending_qty ?? Math.max(0, Number(line.qty || 0) - Number(line.fulfilled_qty || 0) - Number(line.hold_qty || 0)))
         sheet.addRow([
@@ -306,17 +327,18 @@ export default function SalesOrdersPage() {
           }
         />
 
+        {aggregatesQuery.isError ? <p role="alert" className="text-[13px] text-signal-rose-ink">Order summary did not load — the figures below show “—” instead of zero. <button type="button" className="font-semibold underline" onClick={() => aggregatesQuery.refetch()}>Try again</button></p> : null}
         <MetricRail className="md:grid-cols-3 2xl:grid-cols-6">
           <button type="button" className="text-left" onClick={() => setStatusFilter("draft")}>
-            <MetricCard label="Awaiting approval" value={metrics.draftOrders.toLocaleString("en-IN")} detail="Draft orders waiting for commercial approval" icon={CheckCircle2} tone="amber" />
+            <MetricCard label="Awaiting approval" value={aggValue(metrics.draftOrders.toLocaleString("en-IN"))} detail="Draft orders waiting for commercial approval" icon={CheckCircle2} tone="amber" />
           </button>
           <button type="button" className="text-left" onClick={() => setStatusFilter("open")}>
-            <MetricCard label="Ready to release" value={metrics.readyOrders.toLocaleString("en-IN")} detail="Approved orders with lines still to release" icon={ArrowRightLeft} tone="cyan" />
+            <MetricCard label="Ready to release" value={aggValue(metrics.readyOrders.toLocaleString("en-IN"))} detail="Approved orders with lines still to release" icon={ArrowRightLeft} tone="cyan" />
           </button>
-          <MetricCard label="Linked to planning" value={metrics.syncedOrders.toLocaleString("en-IN")} detail="Orders already mapped to job cards" icon={ClipboardCheck} tone="emerald" />
-          <MetricCard label="Open quantity" value={`${metrics.openQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`} detail="Pieces still open across all in-scope orders" icon={Factory} tone="violet" />
-          <MetricCard label="Expired SOs" value={metrics.expiredOpen.toLocaleString("en-IN")} detail={`${metrics.expiringSoon} more expire within 7 days · consider a customer hold`} icon={TimerOff} tone={metrics.expiredOpen ? "rose" : "slate"} />
-          <MetricCard label="On customer hold" value={`${metrics.holdQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`} detail={`${metrics.heldOrders} order${metrics.heldOrders === 1 ? "" : "s"} held and closed`} icon={PauseCircle} tone="amber" />
+          <MetricCard label="Linked to planning" value={aggValue(metrics.syncedOrders.toLocaleString("en-IN"))} detail="Orders already mapped to job cards" icon={ClipboardCheck} tone="emerald" />
+          <MetricCard label="Open quantity" value={aggValue(`${metrics.openQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`)} detail="Pieces still open across all in-scope orders" icon={Factory} tone="violet" />
+          <MetricCard label="Expired SOs" value={aggValue(metrics.expiredOpen.toLocaleString("en-IN"))} detail={`${metrics.expiringSoon} more expire within 7 days · consider a customer hold`} icon={TimerOff} tone={metrics.expiredOpen ? "rose" : "slate"} />
+          <MetricCard label="On customer hold" value={aggValue(`${metrics.holdQty.toLocaleString("en-IN", { maximumFractionDigits: 0 })} pcs`)} detail={`${metrics.heldOrders} order${metrics.heldOrders === 1 ? "" : "s"} held and closed`} icon={PauseCircle} tone="amber" />
         </MetricRail>
 
         <section className="erp-panel min-w-0 overflow-hidden rounded-xl" aria-label="Sales order register">
@@ -366,7 +388,7 @@ export default function SalesOrdersPage() {
             <button type="button" aria-expanded={filtersOpen} onClick={() => setFiltersOpen((value) => !value)} className={`erp-btn-secondary !h-9 ${activeFilterCount ? "!border-primary/40 !text-primary" : ""}`}>
               <SlidersHorizontal className="h-4 w-4" />Filters{activeFilterCount ? <span className="rounded-full bg-primary px-1.5 text-[11px] font-semibold text-primary-foreground">{activeFilterCount}</span> : null}
             </button>
-            <button type="button" className="erp-btn-secondary !h-9" onClick={() => void exportRegister()} disabled={!orders.length}><Download className="h-4 w-4" /><span className="hidden sm:inline">Excel</span></button>
+            <button type="button" className="erp-btn-secondary !h-9" onClick={() => void exportRegister()} disabled={!orders.length || exporting}><Download className="h-4 w-4" /><span className="hidden sm:inline">Excel</span></button>
             <button type="button" className="erp-btn-secondary !h-9" onClick={() => window.print()}><Printer className="h-4 w-4" /><span className="hidden sm:inline">Print</span></button>
             <span className="ml-auto text-xs tabular-nums text-muted-foreground" aria-live="polite">
               {ordersQuery.isFetching ? "Refreshing…" : orders.length ? `${offset + 1}–${offset + orders.length}${hasNextPage ? "+" : ""}` : ""}

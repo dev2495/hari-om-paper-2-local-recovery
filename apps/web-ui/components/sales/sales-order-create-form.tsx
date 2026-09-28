@@ -431,6 +431,16 @@ export function SalesOrderCreateForm({ orderId }: { orderId?: string }) {
     return <p className="text-sm text-muted-foreground">Loading sales order...</p>
   }
 
+  // Editing must never fall back to an empty form: saving it would overwrite the order.
+  if (editing && (existingOrder.isError || !existingOrder.data)) {
+    return (
+      <div role="alert" className="rounded-xl border border-signal-rose-line bg-signal-rose-soft p-4 text-sm text-signal-rose-ink">
+        <p className="font-semibold">This sales order could not be loaded, so it cannot be edited right now.</p>
+        <button type="button" className="mt-2 font-semibold underline" onClick={() => existingOrder.refetch()}>Try again</button>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-6">
       <header className="flex flex-wrap items-end justify-between gap-3">

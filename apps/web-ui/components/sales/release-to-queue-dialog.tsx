@@ -18,7 +18,7 @@ import { useAuth } from "@/context/AuthContext"
 import { useParchments } from "@/hooks/use-master-data"
 import { useWinderLoad } from "@/hooks/use-lifecycle"
 import { usePreflightSalesOrderRelease, useReleaseSyncSalesOrder } from "@/hooks/use-production"
-import { useReleaseSalesOrderLine } from "@/hooks/use-sales"
+import { useReleaseSalesOrderLinesBulk } from "@/hooks/use-sales"
 import { type ReleaseMachine } from "@/lib/sales-release"
 import { cn } from "@/lib/utils"
 
@@ -146,7 +146,7 @@ export function ReleaseToQueueDialog({
   const { showToast } = useApp()
   const { setActivePlant } = useAuth()
   const releasePreflight = usePreflightSalesOrderRelease()
-  const releaseOrderLine = useReleaseSalesOrderLine()
+  const releaseLinesBulk = useReleaseSalesOrderLinesBulk()
   const releaseSync = useReleaseSyncSalesOrder()
   const winderLoad = useWinderLoad(open)
   const { data: parchments } = useParchments()
@@ -282,22 +282,33 @@ export function ReleaseToQueueDialog({
       showToast(Array.from(problems.values())[0] || "Nothing to release.", "error")
       return
     }
-    const persisted = []
-    for (const row of normalized) {
-      const response = await releaseOrderLine.mutateAsync({
-        lineId: row.sales_order_line_id,
+    // One request: every row's lot is created or none is. Each row keeps its own lot id, so
+    // pressing Release again after a lost response returns the same lots instead of new ones.
+    let lots: any[] = []
+    try {
+      const response = await releaseLinesBulk.mutateAsync({
         plantId: orderPlantId(order),
-        data: {
+        rows: normalized.map((row) => ({
+          line_id: row.sales_order_line_id,
           release_qty: row.qty,
           winder_machine_id: row.winder_machine_id,
           product_code: row.product_code || null,
           release_lot_id: row.release_lot_id,
           parchment_color: row.parchment_required ? row.color : null,
           parchment_color_id: row.parchment_required ? row.color_id : null,
-        },
+        })),
       })
-      persisted.push({ ...row, release_lot_id: String(response?.data?.release_lot_id || row.release_lot_id), color: String(response?.data?.parchment_color || row.color || "") })
+      lots = Array.isArray(response?.data?.lots) ? response.data.lots : []
+    } catch (error: any) {
+      const detail = error?.response?.data?.detail
+      showToast(error?.response ? (typeof detail === "string" ? detail : "Release failed. Nothing was released.") : "No answer from the server. Press Release again — it will not release twice.", "error")
+      return
     }
+    const persisted = normalized.map((row, index) => ({
+      ...row,
+      release_lot_id: String(lots[index]?.release_lot_id || lots[index]?.id || row.release_lot_id),
+      color: String(lots[index]?.parchment_color || row.color || ""),
+    }))
     const syncPayload = {
       line_ids: Array.from(new Set(persisted.map((row) => row.sales_order_line_id))),
       release_rows: persisted.map((row) => ({
@@ -525,7 +536,7 @@ export function ReleaseToQueueDialog({
                 <button
                   type="button"
                   data-testid={tid("confirm-release")}
-                  disabled={!hydrated || problems.size > 0 || releasePreflight.isPending || releaseOrderLine.isPending || releaseSync.isPending}
+                  disabled={!hydrated || problems.size > 0 || releasePreflight.isPending || releaseLinesBulk.isPending || releaseSync.isPending}
                   onClick={() => confirm().catch((error: any) => {
                     const detail = error?.response?.data?.detail || error?.message || "Release failed."
                     showToast(typeof detail === "string" ? detail : JSON.stringify(detail), "error")

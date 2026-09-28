@@ -204,6 +204,9 @@ test("sales release resolves winders through the order plant; every page uses th
   assert.match(dialog, /parchment_color: row\.parchment_required \? row\.color/)
   assert.doesNotMatch(salesPage, /machineBelongsToPlant/)
   assert.doesNotMatch(salesPage, /releaseOrderLine\.mutateAsync/)
+  // one all-or-nothing request, never a per-row loop that can half-release
+  assert.match(dialog, /releaseLinesBulk\.mutateAsync/)
+  assert.doesNotMatch(dialog, /releaseOrderLine\.mutateAsync/)
 })
 
 test("print contracts: job card front (final client format) and the spec sheet on the back", () => {

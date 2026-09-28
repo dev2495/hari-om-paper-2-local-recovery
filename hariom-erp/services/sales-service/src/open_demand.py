@@ -43,7 +43,13 @@ def serialize_open_demand_line(order: SalesOrder, line: SalesOrderLine) -> dict[
         "line_no": int(line.line_no or 1),
         "approved_spec_id": str(line.approved_spec_id) if line.approved_spec_id else None,
         "product_code": line.product_code,
+        "parchment_required": bool(getattr(line, "parchment_required", False)),
         "parchment_color": line.parchment_color,
+        "color_splits": [
+            {"color": row.color, "qty": float(row.qty or 0.0)}
+            for row in (getattr(line, "color_splits", None) or [])
+            if float(row.qty or 0.0) > 0
+        ],
         "qty_ordered": float(line.qty or 0.0),
         "fulfilled_qty": float(line.fulfilled_qty or 0.0),
         "remaining_qty": round(remaining_qty, 4),

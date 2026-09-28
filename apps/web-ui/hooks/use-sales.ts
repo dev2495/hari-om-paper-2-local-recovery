@@ -53,7 +53,7 @@ export function normalizeSalesOrder(order: any) {
   }
 }
 
-function normalizeOrdersPayload(data: any) {
+export function normalizeOrdersPayload(data: any) {
   return asArray(data).map(normalizeSalesOrder)
 }
 
@@ -147,6 +147,19 @@ export function useSalesOrders(params?: any) {
       return normalizeOrdersPayload(data)
     },
   })
+}
+
+/** Every order matching the register filters (not just the visible page), for export. */
+export async function fetchAllSalesOrders(params: any, pageSize = 200, maxPages = 50) {
+  const rows: any[] = []
+  for (let page = 0; page < maxPages; page += 1) {
+    const { data } = await salesApi.getOrders({ ...params, limit: pageSize, offset: page * pageSize })
+    const batch = normalizeOrdersPayload(data)
+    const list = Array.isArray(batch) ? batch : []
+    rows.push(...list)
+    if (list.length < pageSize) return { rows, complete: true }
+  }
+  return { rows, complete: false }
 }
 
 export function useSalesOrderAggregates(enabled = true) {
@@ -277,9 +290,12 @@ export function useSalesOrderTimeline(orderId?: string) {
       try {
         const { data } = await salesApi.getOrderTimeline(String(orderId))
         return asArray(data)
-      } catch {
+      } catch (error: any) {
+        // Only an older server without the timeline route falls back to basic history, and it is
+        // marked as such. Any other failure is an error, never a made-up trail.
+        if (error?.response?.status !== 404) throw error
         const { data } = await salesApi.getOrder(String(orderId))
-        return fallbackTimeline(normalizeSalesOrder(data))
+        return fallbackTimeline(normalizeSalesOrder(data)).map((event: any) => ({ ...event, derived: true }))
       }
     },
     enabled: Boolean(orderId),
@@ -333,6 +349,18 @@ export function useReleaseSalesOrder() {
     onSuccess: (_response, input) => {
       const orderId = typeof input === "string" ? input : input.orderId
       invalidateSalesQueries(queryClient, orderId)
+    },
+  })
+}
+
+/** Several release rows (lines x colours) in one request: every lot is created, or none. */
+export function useReleaseSalesOrderLinesBulk() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ rows, plantId }: { rows: any[]; plantId?: string }) => salesApi.releaseLinesBulk(rows, plantId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sales-orders"] })
+      queryClient.invalidateQueries({ queryKey: ["sales-order"] })
     },
   })
 }
