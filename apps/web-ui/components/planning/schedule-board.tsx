@@ -96,7 +96,7 @@ const PlanCard = memo(function PlanCard({ job, compact, machineLabel, loadOf, un
 })
 
 export function ScheduleBoard({
-  days, shifts, machines, queueGroups, queueTotal, queueSearch, onQueueSearch, queueSort, onQueueSort, loadBars,
+  days, shifts, machines, queueGroups, queueTotal, queueSearch, onQueueSearch, queueSort, onQueueSort, queueFilterLabel, onClearQueueFilter,
   machineLabel, loadOf, unit, onSchedule, onOverCapacity, onAction, keyboardForm, busy,
 }: {
   days: string[]
@@ -108,7 +108,8 @@ export function ScheduleBoard({
   onQueueSearch: (value: string) => void
   queueSort: "due" | "qty" | "age"
   onQueueSort: (value: "due" | "qty" | "age") => void
-  loadBars?: ReactNode
+  queueFilterLabel?: string
+  onClearQueueFilter?: () => void
   machineLabel: (id: string) => string
   loadOf: (job: any) => number
   unit: string
@@ -121,7 +122,6 @@ export function ScheduleBoard({
   const [dragged, setDragged] = useState<any | null>(null)
   const [hover, setHover] = useState<string | null>(null)
   const [queueHover, setQueueHover] = useState(false)
-  const [barsOpen, setBarsOpen] = useState(false)
   const deliveries = useDeliveryCalendar(days[0], days[days.length - 1])
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   const queueJobs = useMemo(() => queueGroups.flatMap((group) => group.jobs), [queueGroups])
@@ -152,14 +152,6 @@ export function ScheduleBoard({
     <div className="grid h-[calc(100dvh-17rem)] min-h-[480px] min-w-0 gap-3 lg:grid-cols-[320px_minmax(0,1fr)]" data-testid="schedule-board">
       {/* Queue */}
       <aside className="flex min-h-0 min-w-0 flex-col gap-2">
-        {loadBars ? (
-          <div className="shrink-0">
-            <button type="button" onClick={() => setBarsOpen((value) => !value)} aria-expanded={barsOpen} className="mb-1 flex w-full items-center justify-between px-1 text-[11.5px] font-semibold text-muted-foreground hover:text-foreground">
-              Open workload by release winder <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", !barsOpen && "-rotate-90")} />
-            </button>
-            {barsOpen ? <div className="max-h-[34dvh] overflow-y-auto animate-slide-down">{loadBars}</div> : null}
-          </div>
-        ) : null}
         <section
           className={cn("flex min-h-0 flex-1 flex-col rounded-xl border bg-card shadow-sm transition-colors", dragged && (dragged.machine_id && dragged.shift_code) ? "border-dashed border-primary/60" : "border-border", queueHover && "bg-primary/[.04]")}
           onDragOver={(event) => { if (dragged?.machine_id && dragged?.shift_code) { event.preventDefault(); setQueueHover(true) } }}
@@ -172,6 +164,7 @@ export function ScheduleBoard({
               <h2 className="text-[14px] font-semibold">Open queue</h2>
               <span className="text-[11.5px] tabular-nums text-muted-foreground">{queueJobs.length}/{queueTotal} cards · {fmt(queuePcs)} pcs</span>
             </div>
+            {queueFilterLabel ? <button type="button" onClick={onClearQueueFilter} className="mt-2 flex w-full items-center justify-between rounded-lg bg-primary/10 px-2 py-1.5 text-xs font-semibold text-primary" aria-label="Show all queue machines"><span>Machine: {queueFilterLabel}</span><span>Clear ×</span></button> : null}
             <div className="mt-2 flex gap-1.5">
               <label className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-input bg-card px-2 focus-within:ring-2 focus-within:ring-ring/30">
                 <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

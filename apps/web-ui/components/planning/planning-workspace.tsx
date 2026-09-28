@@ -23,7 +23,8 @@ import {
 import { PlannerCalendar } from "@/components/planning/planner-calendar"
 import { CustomerCommitments } from "@/components/planning/customer-commitments"
 import { ScheduleBoard, type BoardTarget, type CardAction } from "@/components/planning/schedule-board"
-import { WinderLoadBars } from "@/components/planning/winder-load-bars"
+import { FloatingWorkload } from "@/components/planning/floating-workload"
+import { workloadMachine, type WorkloadGrouping } from "@/lib/planner-workload"
 import { ColorChip, JobCardNo, swatchFor } from "@/components/production/lifecycle-chips"
 import { JobCardLifecycleSheet } from "@/components/production/job-card-lifecycle-sheet"
 import { useMissedSlotSweep } from "@/hooks/use-lifecycle"
@@ -309,7 +310,8 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const [keyboardJob, setKeyboardJob] = useState<any | null>(null)
   const [splitDialogJob, setSplitDialogJob] = useState<any | null>(null)
   const [splitQty, setSplitQty] = useState("")
-  const [queueFilter, setQueueFilter] = useState("all")
+  const [queueMachine, setQueueMachine] = useState<string | null>(null)
+  const [workloadGrouping, setWorkloadGrouping] = useState<WorkloadGrouping>("release")
   const [hoverDetail, setHoverDetail] = useState<HoverDetail | null>(null)
   const [dateDraft, setDateDraft] = useState("")
   const [queueSearch, setQueueSearch] = useState("")
@@ -324,6 +326,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
   const bareLanding = !sectionOverride && !searchParams?.get("section") && !searchParams?.get("plan_date") && !searchParams?.get("order_id") && !searchParams?.get("job_card_id")
   const plannerView = String(searchParams?.get("view") || (bareLanding ? "calendar" : "schedule")).toLowerCase() === "calendar" ? "calendar" : "schedule"
   const stage = isSummaryView ? "WINDER" : SECTION_STAGE_MAP[section] || "WINDER"
+  useEffect(() => { setQueueMachine(null); setWorkloadGrouping("release") }, [stage, activePlant])
   const startDate = searchParams?.get("plan_date") || dayjs().format("YYYY-MM-DD")
   const focusedOrderId = String(searchParams?.get("order_id") || "")
   const focusedJobCardId = String(searchParams?.get("job_card_id") || "")
@@ -535,22 +538,13 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
     return [...staleGroup, ...Array.from(grouped.values()).sort((left, right) => left.title.localeCompare(right.title))]
   }, [machineLabelMap, queuedJobs, section, stage])
 
-  const queueFilterOptions = useMemo(
-    () => [
-      { key: "all", label: "All", count: queuedJobs.length },
-      ...queueGroups.map((group) => ({ key: group.key, label: group.title, count: group.jobs.length })),
-    ],
-    [queueGroups, queuedJobs.length],
-  )
-
-
   const visibleQueueGroups = useMemo(() => {
     const needle = queueSearch.trim().toLowerCase()
-    const groups = queueFilter === "all" ? queueGroups : queueGroups.filter((group) => group.key === queueFilter)
-    return groups
+    return queueGroups
       .map((group) => ({
         ...group,
         jobs: group.jobs
+          .filter((job: any) => !queueMachine || workloadMachine(job, stage, workloadGrouping) === queueMachine)
           .filter((job: any) =>
             !needle ||
             [job.job_card_no, job.job_card_ref, job.customer_name, job.product_code, job.product_size_label, job.parchment_color, job.sales_order_ref]
@@ -567,7 +561,7 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           }),
       }))
       .filter((group) => group.jobs.length > 0)
-  }, [queueFilter, queueGroups, queueSearch, queueSort])
+  }, [queueMachine, workloadGrouping, stage, queueGroups, queueSearch, queueSort])
 
   const filteredQueuedJobs = useMemo(
     () => visibleQueueGroups.flatMap((group) => group.jobs),
@@ -737,16 +731,6 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
         }),
       }))
   }, [machinesQuery.data, plannerShifts, scheduledDays, stage])
-  // A winder picked from the load bars stays selected even when nothing of it is queued
-  // (the queue then says so); only stale non-winder groups fall back to All.
-  const winderKeys = useMemo(() => new Set(machineRows.map((machine: any) => String(machine.id)).concat("unassigned")), [machineRows])
-  useEffect(() => {
-    if (queueFilter === "all" || winderKeys.has(queueFilter)) return
-    if (!queueGroups.some((group) => group.key === queueFilter)) {
-      setQueueFilter("all")
-    }
-  }, [queueFilter, queueGroups, winderKeys])
-
   const shiftHeaders = useMemo(
     () =>
       scheduledDays.flatMap((entry) =>
@@ -1320,12 +1304,17 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
 
 
 
+        {plannerView === "schedule" ? <FloatingWorkload key={`${stage}:${activePlant}`} jobs={queuedJobs} stage={stage} scope={String(activePlant)} machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)} selected={queueMachine} grouping={workloadGrouping} onGrouping={setWorkloadGrouping} onSelect={setQueueMachine} refreshing={windowRefreshing} /> : null}
         {plannerView === "schedule" ? <CustomerCommitments dateFrom={day0} dateTo={windowDays === 3 ? day2 : day1} onDate={date => router.push(boardHref({ date, view: "schedule" }))} /> : null}
         <div key={viewKey} className={motion.current.className} style={{ transformOrigin: motion.current.origin }} data-testid="planner-view" data-view={plannerView}>
         {plannerView === "calendar" ? (
           <PlannerCalendar
+            key={`${stage}:${activePlant}`}
             stage={stage}
+            scope={String(activePlant)}
             jobs={allJobCards}
+            queueEntries={queuedJobs}
+            workloadLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
             machines={machineRows.map((machine: any) => ({ id: String(machine.id), code: String(machine.code || machine.name || ""), capacity_value: machine.capacity_value, capacity_unit: machine.capacity_unit, status: machine.status }))}
             monthDate={startDate}
             maxPlannerDate={maxPlannerDate}
@@ -1347,13 +1336,8 @@ export function PlanningWorkspace({ sectionOverride }: { sectionOverride?: strin
           onQueueSearch={setQueueSearch}
           queueSort={queueSort}
           onQueueSort={setQueueSort}
-          loadBars={section === "winder" ? (
-            <WinderLoadBars
-              machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
-              selected={queueFilter === "all" ? null : queueFilter}
-              onSelect={(machineId) => setQueueFilter(machineId || "all")}
-            />
-          ) : undefined}
+          queueFilterLabel={queueMachine ? (queueMachine === "unassigned" ? "Unassigned" : machineLabelMap.get(queueMachine) || queueMachine.slice(0, 8)) : undefined}
+          onClearQueueFilter={() => setQueueMachine(null)}
           machineLabel={(id) => machineLabelMap.get(id) || id.slice(0, 8)}
           loadOf={(job) => capacityNeedFor(section, job)}
           unit={capacityUnitFor(section)}

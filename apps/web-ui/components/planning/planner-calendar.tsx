@@ -12,7 +12,8 @@ import { apiErrorText } from "@/hooks/use-lifecycle"
 import { usePlanningBoardMove } from "@/hooks/use-production"
 import { useDeliveryCalendar } from "@/hooks/use-sales"
 import { useCustomers } from "@/hooks/use-master-data"
-import { WinderLoadBars } from "@/components/planning/winder-load-bars"
+import { FloatingWorkload } from "@/components/planning/floating-workload"
+import { workloadMachine, type WorkloadGrouping } from "@/lib/planner-workload"
 import { cn } from "@/lib/utils"
 
 type Machine = { id: string; code: string; name?: string; capacity_value?: number | null; capacity_unit?: string | null; status?: string }
@@ -31,7 +32,10 @@ function queueFilterMatch(job: any, filter: string) {
 
 export function PlannerCalendar({
   stage,
+  scope,
   jobs,
+  queueEntries,
+  workloadLabel,
   machines,
   monthDate,
   maxPlannerDate,
@@ -43,7 +47,10 @@ export function PlannerCalendar({
   windowDays = 2,
 }: {
   stage: string
+  scope: string
   jobs: any[]
+  queueEntries: any[]
+  workloadLabel: (id: string) => string
   machines: Machine[]
   monthDate: string
   maxPlannerDate: string
@@ -63,6 +70,7 @@ export function PlannerCalendar({
   const [filter, setFilter] = useState("all")
   const [sort, setSort] = useState<"due" | "qty" | "age">("due")
   const [winderFilter, setWinderFilter] = useState<string | null>(null)
+  const [grouping, setGrouping] = useState<WorkloadGrouping>("release")
   const [dragged, setDragged] = useState<any | null>(null)
   const [hoverDay, setHoverDay] = useState<string | null>(null)
   const [windowStart, setWindowStart] = useState<string | null>(null)
@@ -81,12 +89,12 @@ export function PlannerCalendar({
   const [placeShift, setPlaceShift] = useState("SHIFT_A")
 
   const stageJobs = useMemo(() => jobs.filter((job) => OPEN_STATUSES(job) && String(job.current_stage || "").toUpperCase() === stage), [jobs, stage])
+  const allQueued = useMemo(() => queueEntries.map(job => ({ ...job, id: job.job_card_id || job.id, active_segment_id: job.segment_id || job.active_segment_id, planned_qty: job.segment_planned_qty ?? job.planned_qty })), [queueEntries])
   const queue = useMemo(() => {
     const needle = search.trim().toLowerCase()
-    const rows = stageJobs
-      .filter((job) => !job.current_shift_code)
+    const rows = allQueued
       .filter((job) => queueFilterMatch(job, filter))
-      .filter((job) => !winderFilter || String(job.assigned_winder_machine_id || "unassigned") === winderFilter)
+      .filter((job) => !winderFilter || workloadMachine(job, stage, grouping) === winderFilter)
       .filter((job) =>
         !needle ||
         [job.job_card_no, job.job_card_ref, job.customer_name, job.product_code, job.product_size_label, job.parchment_color, job.sales_order_ref]
@@ -101,8 +109,7 @@ export function PlannerCalendar({
       if (a.is_emergency !== b.is_emergency) return a.is_emergency ? -1 : 1
       return String(a.due_date || "9999").localeCompare(String(b.due_date || "9999"))
     })
-  }, [filter, search, sort, stageJobs, winderFilter])
-  const allQueued = stageJobs.filter((job) => !job.current_shift_code)
+  }, [filter, search, sort, allQueued, winderFilter, stage, grouping])
   const queueCounts = {
     all: allQueued.length,
     priority: allQueued.filter((job) => queueFilterMatch(job, "priority")).length,
@@ -178,7 +185,7 @@ export function PlannerCalendar({
 
   const openPlacer = (job: any, date: string) => {
     setPlacing({ job, date })
-    setPlaceMachine(String(job.assigned_winder_machine_id || machines[0]?.id || ""))
+    setPlaceMachine(String(machines.some(machine => machine.id === job.machine_id) ? job.machine_id : stage === "WINDER" && machines.some(machine => machine.id === job.assigned_winder_machine_id) ? job.assigned_winder_machine_id : machines[0]?.id || ""))
     setPlaceShift("SHIFT_A")
   }
 
@@ -205,15 +212,14 @@ export function PlannerCalendar({
   return (
     <div className="grid min-w-0 gap-3 xl:grid-cols-[340px_minmax(0,1fr)]" data-testid="planner-calendar">
       <div className="flex min-h-0 flex-col gap-3 xl:h-[calc(100dvh-13rem)] xl:min-h-[640px]">
-      {stage === "WINDER" ? (
-        <details className="rounded-xl border border-border bg-card p-3"><summary className="cursor-pointer text-xs font-semibold text-muted-foreground">Open workload by release winder</summary><WinderLoadBars className="mt-2 !border-0 !p-0" machineLabel={(id) => machineCode.get(id) || id.slice(0, 8)} selected={winderFilter} onSelect={setWinderFilter} /></details>
-      ) : null}
+      <FloatingWorkload jobs={allQueued} stage={stage} scope={scope} machineLabel={workloadLabel} selected={winderFilter} grouping={grouping} onGrouping={setGrouping} onSelect={setWinderFilter} />
       <aside className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
         <div className="border-b border-border p-3">
           <div className="flex items-baseline justify-between gap-2">
             <h2 className="text-[15px] font-semibold">Open queue</h2>
-            <span className="text-[12px] tabular-nums text-muted-foreground">{fmt(allQueued.length)} cards · {fmt(queuePcs)} pcs</span>
+            <span className="text-[12px] tabular-nums text-muted-foreground">{fmt(queue.length)}/{fmt(allQueued.length)} parts · {fmt(queue.reduce((sum, job) => sum + Number(job.planned_qty || 0), 0))} pcs</span>
           </div>
+          {winderFilter ? <button type="button" onClick={() => setWinderFilter(null)} className="mt-2 flex w-full items-center justify-between rounded-lg bg-primary/10 px-2 py-1.5 text-xs font-semibold text-primary" aria-label="Show all queue machines"><span>Machine: {winderFilter === "unassigned" ? "Unassigned" : workloadLabel(winderFilter)}</span><span>Clear ×</span></button> : null}
           <div className="mt-2 flex h-9 items-center gap-2 rounded-lg border border-input bg-card px-2.5 focus-within:ring-2 focus-within:ring-ring/30">
             <Search className="h-4 w-4 text-muted-foreground" />
             <input aria-label="Search queue" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Card no, customer, size, color…" className="w-full bg-transparent text-[13px] outline-none placeholder:text-muted-foreground" />
@@ -248,7 +254,7 @@ export function PlannerCalendar({
             const dueDays = job.due_date ? dayjs(job.due_date).startOf("day").diff(dayjs().startOf("day"), "day") : null
             return (
               <li
-                key={job.id}
+                key={job.active_segment_id || job.id}
                 draggable
                 onDragStart={() => setDragged(job)}
                 onDragEnd={() => { setDragged(null); setHoverDay(null) }}
