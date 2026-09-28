@@ -109,6 +109,6 @@ export function FloatingWorkload({ jobs, stage, scope, machineLabel, selected, g
         </div>
         <p className="mt-3 text-[10px] leading-relaxed text-muted-foreground">{refreshing ? "Refreshing queue… " : ""}Bars compare queued load, including missed slots. They do not measure machine utilization. {grouping === "release" ? "Release winder is the job’s origin; it does not assign this stage." : "Work without a machine stays unassigned."}{totals.unknown ? ` ${totals.unknown} parts need load data; use pieces for a complete comparison.` : ""}</p>
       </div> : null}
-    </aside>, document.body,
+    </aside>, document.querySelector(".tube-workspace") || document.body,
   )
 }
