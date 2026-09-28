@@ -88,8 +88,8 @@ function lifecycleMutation<TVars>(fn: (vars: TVars) => Promise<any>) {
 export const useAmendJobCard = lifecycleMutation(({ jobCardId, data }: { jobCardId: string; data: Parameters<typeof productionApi.amendJobCard>[1] }) =>
   productionApi.amendJobCard(jobCardId, data),
 )
-export const useSplitJobCard = lifecycleMutation(({ jobCardId, qty, reason }: { jobCardId: string; qty: number; reason?: string }) =>
-  productionApi.splitJobCard(jobCardId, { qty, reason }),
+export const useSplitJobCard = lifecycleMutation(({ jobCardId, qty, reason, requestId }: { jobCardId: string; qty: number; reason?: string; requestId?: string }) =>
+  productionApi.splitJobCard(jobCardId, { qty, reason, request_id: requestId }),
 )
 export const useForceCloseJobCard = lifecycleMutation(({ jobCardId, reason }: { jobCardId: string; reason: string }) =>
   productionApi.forceCloseJobCard(jobCardId, { reason }),
@@ -131,4 +131,12 @@ export function useMissedSlots(includeResolved = false) {
     queryFn: async () => (await productionApi.getMissedSlots({ include_resolved: includeResolved })).data as any[],
     staleTime: 60_000,
   })
+}
+
+/**
+ * Request id for a write that must not happen twice: kept until the server answers, so pressing
+ * the button again after a lost response replays the first request instead of repeating it.
+ */
+export function newRequestId() {
+  return typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `req-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..config import get_settings
 from ..database import get_db
+from contextvars import ContextVar
 from ..job_card_numbering import allocate_child_job_card_no, allocate_job_card_no
 from ..lifecycle_rules import OUTPUT_TOLERANCE, missed_slot_deadline, planned_in_stage_units, within_output_tolerance
 from ..models import (
@@ -65,6 +66,7 @@ from ..due_risk import (
 )
 from ..schemas.planning import (
     AssignMachinePayload,
+    StageOutputBatchPayload,
     BoardMovePayload,
     JobCardAggregatesResponse,
     JobCardCreate,
@@ -1816,6 +1818,11 @@ def _validate_execution_capacity(
             raise HTTPException(status_code=409, detail=message)
 
 
+# Set while a whole-card batch runs in one DB transaction: calls to other services are
+# recorded here and made only after the commit, so a failed stage never leaves them behind.
+_DEFERRED_EXTERNAL: ContextVar[Optional[list[dict[str, Any]]]] = ContextVar("deferred_external_calls", default=None)
+
+
 def _post_fg_inward_if_configured(
     job_card: JobCard,
     final_stage_row: JobCardStage,
@@ -1823,6 +1830,11 @@ def _post_fg_inward_if_configured(
     token: str,
     plant_id: str,
 ) -> Optional[dict[str, Any]]:
+    deferred = _DEFERRED_EXTERNAL.get()
+    if deferred is not None:
+        deferred.append({"kind": "fg_inward", "job_card_id": job_card.id, "stage_id": final_stage_row.id,
+                         "packing_record_id": packing_record.id if packing_record else None})
+        return None
     snapshot = final_stage_row.entry_snapshot or {}
     fg_item_id = snapshot.get("fg_item_id") or (job_card.spec_snapshot or {}).get("fg_item_id")
     if not fg_item_id:
@@ -2848,6 +2860,11 @@ def _record_physical_tool_usage(
     current_user: dict,
 ) -> list[str]:
     """Post actual completed-stage output against QR asset IDs, idempotently."""
+    deferred = _DEFERRED_EXTERNAL.get()
+    if deferred is not None:
+        deferred.append({"kind": "tool_usage", "job_card_id": job_card.id, "stage_id": stage.id,
+                         "segment_id": segment.id if segment is not None else None, "stage": selected_stage})
+        return []
     entry = dict(stage.entry_snapshot or {})
     raw_ids = entry.get("tool_asset_ids") or []
     if isinstance(raw_ids, str):
@@ -3312,13 +3329,18 @@ def _move_or_split_segment(
 
 
 def _sweep_missed_slots_safely(db: Session, plant_id: Any) -> None:
-    """Scheduled-but-silent cards go back to the queue 36h after their shift (flagged)."""
+    """Scheduled-but-silent cards go back to the queue 36h after their shift (flagged).
+
+    Only ever for the one concrete plant the reader selected: an ALL-plants view never writes.
+    """
     from .missed_slots import sweep_missed_slots
 
+    if not plant_id or str(plant_id).upper() == "ALL":
+        return
     try:
-        plant_uuid = _to_uuid(str(plant_id)) if plant_id and str(plant_id).upper() != "ALL" else None
+        plant_uuid = _to_uuid(str(plant_id))
     except HTTPException:
-        plant_uuid = None
+        return
     try:
         sweep_missed_slots(db, plant_uuid)
     except Exception as exc:  # pragma: no cover - never break a read over the sweep
@@ -7158,6 +7180,134 @@ def assign_machine_to_current_stage(
         remaining_open_segments=open_count,
         reel_issue_ids=[str(value) for value in (stage.reel_issue_ids or [])],
     )
+
+
+class _FlushOnCommit:
+    """Session stand-in for a batch: each stage's commit becomes a flush; the batch commits once."""
+
+    def __init__(self, session: Session):
+        self._session = session
+
+    def commit(self) -> None:
+        self._session.flush()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._session, name)
+
+
+def _run_deferred_external(db: Session, deferred: list[dict[str, Any]], *, token: str, plant_id: str, current_user: dict) -> list[str]:
+    """After the batch commit: FG inward and tool usage (both idempotent). Failures come back as warnings."""
+    problems: list[str] = []
+    for call in deferred:
+        try:
+            job_card = db.get(JobCard, call["job_card_id"])
+            stage = db.get(JobCardStage, call["stage_id"])
+            if call["kind"] == "fg_inward":
+                record = db.get(PackingRecord, call["packing_record_id"]) if call.get("packing_record_id") else None
+                result = _post_fg_inward_if_configured(job_card=job_card, final_stage_row=stage, packing_record=record, token=token, plant_id=plant_id)
+                _apply_fg_inward_snapshot(record, result)
+                db.commit()
+            else:
+                segment = db.get(JobCardStageSegment, call["segment_id"]) if call.get("segment_id") else None
+                _record_physical_tool_usage(stage=stage, segment=segment, job_card=job_card, selected_stage=call["stage"],
+                                            token=token, plant_id=plant_id, current_user=current_user)
+        except Exception as exc:  # the stage data is saved; report what still needs posting
+            db.rollback()
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            label = "Finished-goods inward" if call["kind"] == "fg_inward" else f"{call['stage']} tool usage"
+            problems.append(f"{label} not posted yet: {detail}. Retry from the job card.")
+    return problems
+
+
+@router.post("/job-cards/{job_card_id}/stage-outputs/batch")
+def capture_stage_outputs_batch(
+    job_card_id: uuid.UUID,
+    payload: StageOutputBatchPayload,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager"])),
+):
+    """A whole card handed in at once: complete every filled stage in route order, all or nothing.
+
+    All stages are saved in one database transaction. If any stage is rejected, none is saved
+    and the error names that stage. Calls to other services (FG inward, tool usage) run only
+    after the commit. A repeated request_id returns the first result instead of posting twice.
+    """
+    plant_uuid = _to_uuid(plant_id)
+    job_card = db.query(JobCard).filter(JobCard.id == job_card_id, JobCard.plant_id == plant_uuid).first()
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    if payload.request_id:
+        earlier = (
+            db.query(AuditEvent)
+            .filter(AuditEvent.job_card_id == job_card.id, AuditEvent.action == "stage_batch_completed", AuditEvent.request_id == payload.request_id)
+            .first()
+        )
+        if earlier is not None:
+            return {**(earlier.payload or {}), "replayed": True}
+    routing = list((job_card.routing_snapshot or {}).get("stages") or _routing_stages_from_snapshot(job_card.spec_snapshot or {}))
+    stages = [_normalize_stage(entry.stage or "") for entry in payload.entries]
+    if len(set(stages)) != len(stages):
+        raise HTTPException(status_code=400, detail="Each stage can appear only once in a whole-card entry")
+    if any(stage not in routing for stage in stages):
+        raise HTTPException(status_code=400, detail="Every stage must be on this job card's route")
+    if stages != sorted(stages, key=routing.index):
+        raise HTTPException(status_code=400, detail=f"Enter stages in route order: {' → '.join(stage for stage in routing if stage in stages)}")
+    if any((entry.save_mode or "complete") != "complete" for entry in payload.entries):
+        raise HTTPException(status_code=400, detail="Whole-card entry completes stages; save drafts one stage at a time")
+
+    deferred: list[dict[str, Any]] = []
+    marker = _DEFERRED_EXTERNAL.set(deferred)
+    batch_db = _FlushOnCommit(db)
+    results: list[dict[str, Any]] = []
+    try:
+        for stage, entry in zip(stages, payload.entries):
+            try:
+                response = capture_stage_output(job_card.id, entry.model_copy(update={"stage": stage}), batch_db, plant_id, current_user)
+            except HTTPException as exc:
+                detail = exc.detail if isinstance(exc.detail, str) else (exc.detail or {}).get("message") if isinstance(exc.detail, dict) else str(exc.detail)
+                raise HTTPException(status_code=exc.status_code, detail=f"{stage}: {detail} Nothing on this card was saved.") from exc
+            results.append({"stage": stage, "stage_status": response.stage_status, "segment_id": str(response.segment_id) if response.segment_id else None,
+                            "quality_hold_ids": [str(value) for value in (response.quality_hold_ids or [])], "warnings": list(response.warnings or [])})
+        db.refresh(job_card)
+        summary = {"job_card_id": str(job_card.id), "saved_stages": stages, "results": results,
+                   "current_stage": job_card.current_stage, "job_card_status": job_card.status}
+        _record_audit_event(db=db, plant_id=plant_uuid, entity_type="job_card", entity_id=job_card.id,
+                            action="stage_batch_completed", actor_id=current_user.get("sub"),
+                            actor_role=_current_actor_role(current_user), job_card_id=job_card.id,
+                            request_id=payload.request_id, payload=summary)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        _DEFERRED_EXTERNAL.reset(marker)
+    pending = _run_deferred_external(db, deferred, token=current_user.get("token", ""), plant_id=plant_id, current_user=current_user)
+    return {**summary, "external_pending": pending}
+
+
+@router.post("/job-cards/{job_card_id}/fg-inward/retry")
+def retry_fg_inward(
+    job_card_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    plant_id: str = Depends(get_current_plant),
+    current_user: dict = Depends(require_role(["Owner", "Admin", "PlantManager", "Store"])),
+):
+    """Post a completed card's finished goods to stock if that step did not go through (idempotent)."""
+    job_card = db.query(JobCard).filter(JobCard.id == job_card_id, JobCard.plant_id == _to_uuid(plant_id)).first()
+    if not job_card:
+        raise HTTPException(status_code=404, detail="Job card not found")
+    packing = db.query(JobCardStage).filter(JobCardStage.job_card_id == job_card.id, JobCardStage.stage_type == "PACKING").first()
+    if packing is None or packing.status != "COMPLETED":
+        raise HTTPException(status_code=409, detail="Packing is not completed on this card")
+    record = db.query(PackingRecord).filter(PackingRecord.job_card_id == job_card.id).order_by(PackingRecord.created_at.desc()).first()
+    if record is not None and (record.snapshot or {}).get("inventory_transaction_id"):
+        return {"posted": False, "already_posted": True, "inventory_transaction_id": record.snapshot["inventory_transaction_id"]}
+    result = _post_fg_inward_if_configured(job_card=job_card, final_stage_row=packing, packing_record=record,
+                                           token=current_user.get("token", ""), plant_id=plant_id)
+    _apply_fg_inward_snapshot(record, result)
+    db.commit()
+    return {"posted": bool(result), "inventory_transaction_id": (result or {}).get("transaction_id")}
 
 
 @router.post("/job-cards/{job_card_id}/stage-output", response_model=StageActionResponse)

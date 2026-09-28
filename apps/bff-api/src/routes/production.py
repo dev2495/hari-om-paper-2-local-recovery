@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import JSONResponse
 import os
 
 from src.middleware.auth import get_token
 from src.services.books_guard import assert_not_backdated, invalidate_books_cache
 from src.services.http_client import proxy_to_service
 from src.services import handoff_events
+from src.services.workspace import response_body_json
 
 router = APIRouter()
 PRODUCTION_SERVICE_URL = os.getenv("PRODUCTION_SERVICE_URL", "http://127.0.0.1:18004")
@@ -271,6 +273,41 @@ async def post_planning_stage_output(job_card_id: str, request: Request, token: 
     )
     handoff_events.notify_stage_output(response, request, token, job_card_id)
     return response
+
+
+@router.post("/job-cards/{job_card_id}/stage-outputs/batch")
+async def post_planning_stage_outputs_batch(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    """Whole-card entry (all stages in one production transaction); books guard on every stage."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    plant_id = request.headers.get("X-Plant-ID") or ""
+    entries = body.get("entries") if isinstance(body, dict) else None
+    for entry in entries or []:
+        if isinstance(entry, dict):
+            candidate = entry.get("end_time") or entry.get("actual_end") or entry.get("work_date")
+            if candidate:
+                await assert_not_backdated(token, plant_id, effective_date=candidate)
+    response = await proxy_to_service(
+        PRODUCTION_SERVICE_URL,
+        f"/job-cards/{job_card_id}/stage-outputs/batch",
+        request,
+        token,
+        json_body=body if isinstance(body, dict) else None,
+    )
+    result = response_body_json(response) if 200 <= response.status_code < 300 else None
+    if isinstance(result, dict) and not result.get("replayed"):
+        for row in result.get("results") or []:
+            per_stage = JSONResponse({**row, "entry_saved": True, "current_stage": result.get("current_stage"),
+                                      "job_card_status": result.get("job_card_status")})
+            handoff_events.notify_stage_output(per_stage, request, token, job_card_id)
+    return response
+
+
+@router.post("/job-cards/{job_card_id}/fg-inward/retry")
+async def retry_job_card_fg_inward(job_card_id: str, request: Request, token: str = Depends(get_token)):
+    return await proxy_to_service(PRODUCTION_SERVICE_URL, f"/job-cards/{job_card_id}/fg-inward/retry", request, token)
 
 
 @router.get("/job-cards/{job_card_id}/lifecycle")

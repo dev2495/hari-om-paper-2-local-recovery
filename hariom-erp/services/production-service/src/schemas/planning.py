@@ -801,6 +801,15 @@ class StageOutputPayload(BaseModel):
         return normalized.lower()
 
 
+class StageOutputBatchPayload(BaseModel):
+    """Whole-card entry: several completed stages, applied together in route order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[StageOutputPayload] = Field(..., min_length=1, max_length=8)
+    request_id: Optional[str] = Field(default=None, max_length=120)
+
+
 class StageActionResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

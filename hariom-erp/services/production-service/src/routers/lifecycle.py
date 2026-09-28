@@ -332,19 +332,27 @@ def amend_job_card(
     before = {"planned_qty": float(job.planned_qty or 0.0), "parchment_color": job.parchment_color}
     token = current_user.get("token", "")
 
-    lot = _sales_call(
-        f"/release-lots/{job.release_lot_id}/amend",
-        {"job_card_id": str(job.id), "release_qty": new_qty, "parchment_color": new_color, "parchment_color_id": str(payload.parchment_color_id) if payload.parchment_color_id else None, "reason": payload.reason},
-        token,
-        plant_id,
-    )
-    job.parchment_color = lot.get("parchment_color") or new_color
-    job.planned_qty = round(new_qty, 4)
-    job.released_qty = round(new_qty, 4)
-    _rebuild_snapshots(job, qty=new_qty, color=job.parchment_color, token=token, plant_id=plant_id)
-    _resize_open_first_stage(db, job, new_qty)
-    _audit(db, job, "job_card_amended", current_user, {"before": before, "after": {"planned_qty": new_qty, "parchment_color": job.parchment_color}, "reason": payload.reason}, before)
-    db.commit()
+    # Production side first (snapshot rebuild can fail on a remote read); sales is told last, so a
+    # refusal or failure anywhere leaves both sides unchanged. Sales amend is idempotent on retry.
+    try:
+        job.parchment_color = new_color
+        job.planned_qty = round(new_qty, 4)
+        job.released_qty = round(new_qty, 4)
+        _rebuild_snapshots(job, qty=new_qty, color=new_color, token=token, plant_id=plant_id)
+        _resize_open_first_stage(db, job, new_qty)
+        db.flush()
+        lot = _sales_call(
+            f"/release-lots/{job.release_lot_id}/amend",
+            {"job_card_id": str(job.id), "release_qty": new_qty, "parchment_color": new_color, "parchment_color_id": str(payload.parchment_color_id) if payload.parchment_color_id else None, "reason": payload.reason},
+            token,
+            plant_id,
+        )
+        job.parchment_color = lot.get("parchment_color") or new_color
+        _audit(db, job, "job_card_amended", current_user, {"before": before, "after": {"planned_qty": new_qty, "parchment_color": job.parchment_color}, "reason": payload.reason}, before)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     return get_job_card_lifecycle(job.id, db, plant_id, current_user)
 
 
@@ -355,6 +363,8 @@ class SplitPayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
     qty: float = Field(..., gt=0)
     reason: Optional[str] = Field(default=None, max_length=500)
+    # Same id on a retry (lost response) returns the first split instead of cutting a second card.
+    request_id: Optional[str] = Field(default=None, max_length=120)
 
 
 @router.post("/job-cards/{job_card_id}/split")
@@ -367,6 +377,10 @@ def split_job_card(
 ):
     """Cut ``qty`` of the not-yet-started balance into a new card ``ROOT-A`` (same color, own lot)."""
     job = _load_job(db, job_card_id, plant_id)
+    child_id = uuid.uuid5(uuid.NAMESPACE_URL, f"hariom:split:{job.id}:{payload.request_id}") if payload.request_id else uuid.uuid4()
+    earlier = db.get(JobCard, child_id) if payload.request_id else None
+    if earlier is not None:
+        return {"parent": get_job_card_lifecycle(job.id, db, plant_id, current_user), "child_job_card_id": str(earlier.id), "child_job_card_no": earlier.job_card_no, "replayed": True}
     state, views = _state(db, job)
     if state not in {"QUEUED", "SCHEDULED", "RUNNING"}:
         raise HTTPException(status_code=409, detail=f"A {state.lower().replace('_', ' ')} job card cannot be split")
@@ -400,7 +414,6 @@ def split_job_card(
     if stage_row is not None:
         _sync_stage_row_from_segments(stage_row, _all_stage_segments(db, job.id, first))
 
-    child_id = uuid.uuid4()
     child = JobCard(
         id=child_id,
         plant_id=job.plant_id,
@@ -445,12 +458,16 @@ def split_job_card(
         child_stage.machine_id, child_stage.shift_code = None, None
         _sync_stage_row_from_segments(child_stage, _all_stage_segments(db, child.id, first))
 
-    lot = _sales_call(
-        f"/release-lots/{job.release_lot_id}/reallocate-carry-forward",
-        {"carry_forward_job_card_id": str(child.id), "gap_qty": qty, "release_lot_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"hariom:split-release:{child.id}"))},
-        token,
-        plant_id,
-    )
+    try:
+        lot = _sales_call(
+            f"/release-lots/{job.release_lot_id}/reallocate-carry-forward",
+            {"carry_forward_job_card_id": str(child.id), "gap_qty": qty, "release_lot_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"hariom:split-release:{child.id}"))},
+            token,
+            plant_id,
+        )
+    except Exception:
+        db.rollback()
+        raise
     child.release_lot_id = uuid.UUID(str(lot.get("release_lot_id") or lot.get("id")))
     _audit(db, job, "job_card_split", current_user, {"child_job_card_id": str(child.id), "child_job_card_no": child.job_card_no, "qty": qty, "reason": payload.reason}, before)
     _audit(db, child, "job_card_created_by_split", current_user, {"parent_job_card_id": str(job.id), "parent_job_card_no": job.job_card_no, "qty": qty, "reason": payload.reason})
@@ -546,12 +563,16 @@ def force_close_job_card(
     job.closed_at = now
     job.closed_by = current_user.get("sub")
     db.flush()
-    _sales_call(
-        f"/release-lots/{job.release_lot_id}/return-balance",
-        {"job_card_id": str(job.id), "returned_qty": returned, "reason": payload.reason},
-        current_user.get("token", ""),
-        plant_id,
-    )
+    try:  # sales last: if it refuses, the card stays open; return-balance is idempotent on retry
+        _sales_call(
+            f"/release-lots/{job.release_lot_id}/return-balance",
+            {"job_card_id": str(job.id), "returned_qty": returned, "reason": payload.reason},
+            current_user.get("token", ""),
+            plant_id,
+        )
+    except Exception:
+        db.rollback()
+        raise
     _audit(db, job, "job_card_force_closed", current_user, {"made_qty": made, "made_in_stage_unit": made_units, "stage": first, "returned_qty": returned, "reason": payload.reason, "mode": job.close_mode}, before)
     db.commit()
     return get_job_card_lifecycle(job.id, db, plant_id, current_user)
@@ -656,6 +677,8 @@ class RunningEntryPayload(BaseModel):
     entry_date: Optional[date] = None
     machine_id: Optional[uuid.UUID] = None
     note: Optional[str] = Field(default=None, max_length=300)
+    # Same id on a retry (lost response) is recorded once.
+    request_id: Optional[str] = Field(default=None, max_length=120)
 
 
 @router.post("/job-cards/{job_card_id}/running-entry")
@@ -683,6 +706,8 @@ def add_running_entry(
     if stage_row.status == "COMPLETED":
         raise HTTPException(status_code=409, detail=f"{stage_type} is already finalised")
     log = list((stage_row.actuals_snapshot or {}).get("running_log") or [])
+    if payload.request_id and any(entry.get("request_id") == payload.request_id for entry in log):
+        return {**get_job_card_lifecycle(job.id, db, plant_id, current_user), "replayed": True}
     total = sum(float(entry.get("qty") or 0.0) for entry in log) + float(payload.qty)
     planned_units = planned_in_stage_units(stage_type, float(job.planned_qty or 0.0), _ppb(job))
     if stage_type == "WINDER" and not within_output_tolerance(planned_units, total):
@@ -710,6 +735,7 @@ def add_running_entry(
         "machine_id": str(payload.machine_id) if payload.machine_id else (str(stage_row.machine_id) if stage_row.machine_id else None),
         "by": current_user.get("sub"),
         "note": payload.note,
+        "request_id": payload.request_id,
     }
     stage_row.actuals_snapshot = {**(stage_row.actuals_snapshot or {}), "running_log": log + [entry]}
     segment_rows = _open_stage_segments(db, job.id, stage_type)
@@ -805,8 +831,7 @@ def run_missed_slot_sweep(
     current_user: dict = Depends(require_role(ROLES_FLOOR + ["Sales"])),
 ):
     """Requeue overdue silent cards now; returns the ones moved (BFF notifies the planners)."""
-    plant_uuid = None if str(plant_id).upper() == "ALL" else _to_uuid(plant_id)
-    return {"requeued": sweep_missed_slots(db, plant_uuid)}
+    return {"requeued": sweep_missed_slots(db, _to_uuid(plant_id))}
 
 
 @router.get("/planning/missed-slots")

@@ -19,7 +19,7 @@ from src.database import Base, SessionLocal, engine
 from src.job_card_numbering import allocate_job_card_no
 from src.models import AuditEvent, JobCard, JobCardStage, JobCardStageSegment, MachineStageCapacityProfile, SalesOrder, PLANT_A_UUID
 from src.routers import lifecycle, missed_slots, planning
-from src.schemas.planning import ReorderQueuePayload, StageOutputPayload
+from src.schemas.planning import ReorderQueuePayload, StageOutputBatchPayload, StageOutputPayload
 
 IST = timezone(timedelta(hours=5, minutes=30))
 PLANT = str(PLANT_A_UUID)
@@ -81,17 +81,17 @@ def db(monkeypatch):
         conn.close()
 
 
-def _card(db, qty=2000, color='BLUE'):
+def _card(db, qty=2000, color='BLUE', route=ROUTE):
     order = SalesOrder(plant_id=PLANT_A_UUID, customer_id=uuid.uuid4(), spec_id=uuid.uuid4(), order_qty=qty * 4, due_date=date.today() + timedelta(days=9))
     db.add(order)
     db.flush()
     job = JobCard(plant_id=PLANT_A_UUID, sales_order_id=order.id, sales_order_line_id=uuid.uuid4(), release_lot_id=uuid.uuid4(),
-                  spec_id=order.spec_id, spec_snapshot=dict(SPEC), routing_snapshot={'stages': ROUTE, 'first_stage': 'WINDER'},
+                  spec_id=order.spec_id, spec_snapshot=dict(SPEC), routing_snapshot={'stages': route, 'first_stage': 'WINDER'},
                   material_plan_snapshot={}, released_qty=qty, planned_qty=qty, status='PLANNED', current_stage='WINDER',
                   parchment_color=color, job_card_no=allocate_job_card_no(db))
     db.add(job)
     db.flush()
-    planning._ensure_job_card_stages(db=db, job_card=job, routing_stages=ROUTE, first_stage='WINDER')
+    planning._ensure_job_card_stages(db=db, job_card=job, routing_stages=route, first_stage='WINDER')
     for row in planning._open_stage_segments(db, job.id, 'WINDER'):
         row.machine_id = None; row.shift_code = None; row.status = 'QUEUED'; row.planned_qty = qty
     db.flush()
@@ -321,3 +321,145 @@ def test_missed_slot_requeues_and_a_late_entry_restores_it(db):
     restored = db.query(JobCardStageSegment).filter_by(job_card_id=job.id, stage_type='WINDER').filter(JobCardStageSegment.status != 'CANCELLED').one()
     assert restored.machine_id == BIG_WINDER and restored.plan_date == ran_on
     assert {'missed_slot_requeued', 'missed_slot_late_entry'} <= set(_audits(db, job))
+
+
+def test_sweep_for_one_plant_never_touches_another_plant(db):
+    other_plant = uuid.uuid4()
+    mine, theirs = _card(db), _card(db)
+    theirs.plant_id = other_plant
+    db.flush()
+    ran_on = date.today() - timedelta(days=3)
+    _schedule(db, mine, day=date.today())
+    for row in db.query(JobCardStageSegment).filter_by(job_card_id=theirs.id, stage_type='WINDER').all():
+        row.machine_id = BIG_WINDER; row.shift_code = 'SHIFT_A'; row.status = 'ASSIGNED'; row.plan_date = ran_on
+    for row in db.query(JobCardStageSegment).filter_by(job_card_id=mine.id, stage_type='WINDER').all():
+        row.plan_date = ran_on
+    db.flush()
+    moved = {str(item['job_card_id']) for item in missed_slots.sweep_missed_slots(db, PLANT_A_UUID)}
+    assert str(mine.id) in moved and str(theirs.id) not in moved
+    db.refresh(theirs)
+    assert not theirs.missed_slot_open
+    assert db.query(JobCardStageSegment).filter_by(job_card_id=theirs.id, stage_type='WINDER').one().status == 'ASSIGNED'
+
+
+# ---- whole card in one request -----------------------------------------------------------
+
+def _entry(stage, output, **extra):
+    payload = {'stage': stage, 'save_mode': 'complete', 'output_qty': output, 'shift_code': 'SHIFT_A', **_times(9, 2)}
+    if stage == 'WINDER':
+        payload['reel_issue_ids'] = [uuid.uuid4()]
+    if stage == 'OVEN':
+        payload['entry_snapshot'] = dict(OVEN_CARD)
+        payload.update(_times(8, 2.5))
+    payload.update(extra)
+    return StageOutputPayload(**payload)
+
+
+def _batch(db, job, entries, request_id=None):
+    return planning.capture_stage_outputs_batch(job.id, StageOutputBatchPayload(entries=entries, request_id=request_id), db, PLANT, SUPERVISOR)
+
+
+def _planned_whole_route(db):
+    job = _card(db)
+    _schedule(db, job)
+    _preassign(db, job, 'OVEN', OVEN)
+    _preassign(db, job, 'PROCESS', LINE)
+    _preassign(db, job, 'PACKING', PACK)
+    return job
+
+
+def test_whole_card_batch_saves_every_stage_in_one_go(db):
+    job = _planned_whole_route(db)
+    result = _batch(db, job, [_entry('WINDER', 250, input_qty=250), _entry('OVEN', 248, input_qty=250),
+                              _entry('PROCESS', 1980, scrap_qty=4), _entry('PACKING', 1980)], request_id='card-1')
+    assert result['saved_stages'] == ROUTE and result['external_pending'] == []
+    db.refresh(job)
+    assert job.current_stage == 'DONE' and all(_stage(db, job, stage).status == 'COMPLETED' for stage in ROUTE)
+    assert 'stage_batch_completed' in _audits(db, job)
+    # a retried request (lost response) does not post twice
+    assert _batch(db, job, [_entry('WINDER', 250)], request_id='card-1')['replayed'] is True
+
+
+def test_whole_card_batch_saves_nothing_when_a_later_stage_is_rejected(db):
+    job = _planned_whole_route(db)
+    bad_oven = _entry('OVEN', 248, input_qty=250, entry_snapshot={'pre_weight': 3300})  # moisture missing
+    with pytest.raises(HTTPException) as error:
+        _batch(db, job, [_entry('WINDER', 250), bad_oven, _entry('PROCESS', 1980)])
+    assert error.value.detail.startswith('OVEN:') and 'Nothing on this card was saved' in error.value.detail
+    db.expire_all()
+    assert _stage(db, job, 'WINDER').status != 'COMPLETED'
+    assert db.get(JobCard, job.id).current_stage == 'WINDER'
+
+
+def test_whole_card_batch_needs_route_order_and_unique_stages(db):
+    job = _planned_whole_route(db)
+    with pytest.raises(HTTPException) as order:
+        _batch(db, job, [_entry('OVEN', 248, input_qty=250), _entry('WINDER', 250)])
+    assert 'route order' in order.value.detail
+    with pytest.raises(HTTPException) as twice:
+        _batch(db, job, [_entry('WINDER', 250), _entry('WINDER', 10)])
+    assert 'only once' in twice.value.detail
+
+
+def test_route_with_qc_stage_needs_final_inspection_or_owner_override(db):
+    job = _card(db, route=ROUTE + ['QC'])
+    _schedule(db, job)
+    _preassign(db, job, 'OVEN', OVEN)
+    _preassign(db, job, 'PROCESS', LINE)
+    _preassign(db, job, 'PACKING', PACK)
+    _batch(db, job, [_entry('WINDER', 250), _entry('OVEN', 248, input_qty=250), _entry('PROCESS', 1980), _entry('PACKING', 1980)])
+    db.refresh(job)
+    assert job.current_stage == 'QC' and job.status != 'COMPLETED'
+    for user, reason in ((SUPERVISOR, None), (SUPERVISOR, 'Plant manager wants to close')):
+        with pytest.raises(HTTPException) as blocked:
+            _enter(db, job, 'QC', 1980, user=user, **({'override_reason': reason} if reason else {}))
+        assert blocked.value.status_code == 409 and 'Final QC' in str(blocked.value.detail)
+        db.rollback()
+    _enter(db, job, 'QC', 1980, user=OWNER, override_reason='Customer accepted on joint inspection; report attached')
+    db.refresh(job)
+    assert job.current_stage == 'DONE' and job.status == 'COMPLETED'
+
+
+# ---- retries and cross-service refusals ---------------------------------------------------
+
+def test_split_retry_with_same_request_id_does_not_cut_a_second_card(db):
+    job = _card(db, qty=3000)
+    first = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='split-1'), db, PLANT, PLANNER)
+    again = lifecycle.split_job_card(job.id, lifecycle.SplitPayload(qty=1000, request_id='split-1'), db, PLANT, PLANNER)
+    assert again['replayed'] is True and again['child_job_card_id'] == first['child_job_card_id']
+    db.refresh(job)
+    assert round(float(job.planned_qty)) == 2000
+    assert sum(1 for path, _ in db.sales_calls if path.endswith('/reallocate-carry-forward')) == 1
+
+
+def test_running_entry_retry_is_recorded_once(db):
+    job = _card(db)
+    _schedule(db, job)
+    for _ in range(2):
+        lifecycle.add_running_entry(job.id, lifecycle.RunningEntryPayload(stage='WINDER', qty=40, request_id='log-1'), db, PLANT, SUPERVISOR)
+    assert _stage(db, job, 'WINDER').output_qty == 40
+
+
+def test_amend_refused_by_sales_leaves_the_card_unchanged(db, monkeypatch):
+    job = _card(db)
+    db.commit()  # an existing card
+    def refuse(path, body, token, plant_id):
+        raise HTTPException(status_code=409, detail='Blue has only 500 pcs open')
+    monkeypatch.setattr(lifecycle, '_sales_call', refuse)
+    with pytest.raises(HTTPException):
+        lifecycle.amend_job_card(job.id, lifecycle.AmendPayload(planned_qty=2600, parchment_color='BLUE'), db, PLANT, PLANNER)
+    db.expire_all()
+    fresh = db.get(JobCard, job.id)
+    assert round(float(fresh.planned_qty)) == 2000 and fresh.parchment_color == 'BLUE'
+    assert 'job_card_amended' not in _audits(db, fresh)
+
+
+def test_force_close_refused_by_sales_keeps_the_card_open(db, monkeypatch):
+    job = _card(db)
+    _schedule(db, job)
+    monkeypatch.setattr(lifecycle, '_sales_call', lambda *args: (_ for _ in ()).throw(HTTPException(status_code=502, detail='Sales service unreachable')))
+    with pytest.raises(HTTPException):
+        lifecycle.force_close_job_card(job.id, lifecycle.ForceClosePayload(reason='Customer cut the order'), db, PLANT, PLANNER)
+    db.expire_all()
+    fresh = db.get(JobCard, job.id)
+    assert fresh.status != 'CANCELLED' and not fresh.close_mode

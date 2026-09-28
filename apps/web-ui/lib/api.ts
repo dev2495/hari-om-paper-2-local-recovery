@@ -344,6 +344,7 @@ export const salesApi = {
   approveOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/approve`, {}, withPlantHeader(plantId)),
   releaseOrder: (id: string, plantId?: string) => api.post(`/api/sales/orders/${id}/release`, {}, withPlantHeader(plantId)),
   releaseOrderLine: (lineId: string, data: any, plantId?: string) => api.post(`/api/sales/orders/lines/${lineId}/release`, data, withPlantHeader(plantId)),
+  releaseLinesBulk: (rows: any[], plantId?: string) => api.post(`/api/sales/orders/release-bulk`, rows, withPlantHeader(plantId)),
   updateLineColors: (lineId: string, colorSplits: Array<{ color: string; color_id?: string | null; qty: number }>) =>
     api.put(`/api/sales/orders/lines/${lineId}/colors`, { color_splits: colorSplits }),
 }
@@ -403,7 +404,7 @@ export const productionApi = {
   getJobCardLifecycle: (jobCardId: string) => api.get(`/api/production/job-cards/${jobCardId}/lifecycle`),
   amendJobCard: (jobCardId: string, data: { planned_qty?: number; parchment_color?: string; parchment_color_id?: string | null; reason?: string }) =>
     api.post(`/api/production/job-cards/${jobCardId}/amend`, data),
-  splitJobCard: (jobCardId: string, data: { qty: number; reason?: string }) => api.post(`/api/production/job-cards/${jobCardId}/split`, data),
+  splitJobCard: (jobCardId: string, data: { qty: number; reason?: string; request_id?: string }) => api.post(`/api/production/job-cards/${jobCardId}/split`, data),
   forceCloseJobCard: (jobCardId: string, data: { reason: string }) => api.post(`/api/production/job-cards/${jobCardId}/force-close`, data),
   postRunningEntry: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/running-entry`, data),
   emergencyInsert: (data: { job_card_id: string; machine_id: string; plan_date: string; shift_code: string; reason: string }) =>
@@ -414,6 +415,8 @@ export const productionApi = {
   reorderPlanningQueue: (data: any) => api.patch("/api/production/planning/queues/reorder", data),
   assignMachine: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/assign-machine`, data),
   postStageOutput: (jobCardId: string, data: any) => api.post(`/api/production/job-cards/${jobCardId}/stage-output`, data),
+  postStageOutputsBatch: (jobCardId: string, data: { entries: any[]; request_id: string }) => api.post(`/api/production/job-cards/${jobCardId}/stage-outputs/batch`, data),
+  retryFgInward: (jobCardId: string) => api.post(`/api/production/job-cards/${jobCardId}/fg-inward/retry`, {}),
   getQualityInspections: (params?: any) => api.get("/api/production/quality/inspections", { params }),
   getJobQcTemplate: (jobCardId: string, params?: any, plantId?: string) =>
     api.get(`/api/production/quality/job-cards/${jobCardId}/template`, { params, ...(withPlantHeader(plantId) || {}) }),

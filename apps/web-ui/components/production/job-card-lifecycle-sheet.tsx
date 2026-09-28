@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { ArrowUpRight, CalendarClock, ChevronRight, Flame, History, Pencil, Printer, Scissors, Undo2 } from "lucide-react"
 
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
@@ -11,6 +11,7 @@ import { useParchments } from "@/hooks/use-master-data"
 import { useMachines } from "@/hooks/use-production"
 import {
   apiErrorText,
+  newRequestId,
   useAmendJobCard,
   useEmergencyInsert,
   useForceCloseJobCard,
@@ -113,6 +114,8 @@ export function JobCardLifecycleSheet({
                   <ColorChip color={data.parchment_color} empty="Plain (no parchment)" />
                   <span className="tabular-nums text-muted-foreground">{fmt(data.planned_qty)} pcs</span>
                 </>
+              ) : query.isError ? (
+                "Could not load"
               ) : (
                 "Loading lifecycle…"
               )}
@@ -121,14 +124,17 @@ export function JobCardLifecycleSheet({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {query.isLoading || !data ? (
+          {query.isError && !data ? (
+            <div className="rounded-lg border border-signal-rose-line bg-signal-rose-soft p-3 text-[13px] text-signal-rose-ink" role="alert">
+              <p>{apiErrorText(query.error, "The job card could not be loaded.")}</p>
+              <button type="button" className="mt-2 font-semibold underline" onClick={() => query.refetch()}>Try again</button>
+            </div>
+          ) : query.isLoading || !data ? (
             <div className="space-y-3">
               <div className="skeleton h-14 rounded-xl" />
               <div className="skeleton h-24 rounded-xl" />
               <div className="skeleton h-40 rounded-xl" />
             </div>
-          ) : query.isError ? (
-            <p className="rounded-lg border border-signal-rose-line bg-signal-rose-soft p-3 text-[13px] text-signal-rose-ink">{apiErrorText(query.error)}</p>
           ) : (
             <LifecycleBody data={data} action={action} setAction={setAction} onOpenCard={(id) => { setCurrentId(id); setAction(null) }} />
           )}
@@ -413,14 +419,18 @@ function SplitForm({ data, onDone, onOpenCard }: { data: JobCardLifecycle; onDon
   const [qty, setQty] = useState(String(Math.floor(max / 2) || 1))
   const [reason, setReason] = useState("")
   const value = Math.min(max, Math.max(1, Number(qty) || 0))
+  const requestId = useRef<string | null>(null)
   const submit = async () => {
+    requestId.current ||= newRequestId()
     try {
-      const response = await split.mutateAsync({ jobCardId: data.id, qty: value, reason: reason || undefined })
+      const response = await split.mutateAsync({ jobCardId: data.id, qty: value, reason: reason || undefined, requestId: requestId.current })
+      requestId.current = null
       const childNo = response?.data?.child_job_card_no
       showToast(`${childNo || "New card"} created with ${fmt(value)} pcs — place it on the board.`, "success")
       onDone()
       if (response?.data?.child_job_card_id) onOpenCard(String(response.data.child_job_card_id))
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response) requestId.current = null // the server answered, so a new attempt is a new split
       showToast(apiErrorText(error), "error")
     }
   }

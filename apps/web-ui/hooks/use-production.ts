@@ -381,6 +381,20 @@ export function useCompleteStageEntry() {
   })
 }
 
+/** Whole card in one request: every filled stage saved together (all or nothing) in route order. */
+export function useCompleteStagesBatch() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ jobCardId, entries, requestId }: { jobCardId: string; entries: any[]; requestId: string }) =>
+      productionApi.postStageOutputsBatch(jobCardId, { entries: entries.map((entry) => ({ ...entry, save_mode: "complete" })), request_id: requestId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["planning-queue"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-cards"] })
+      queryClient.invalidateQueries({ queryKey: ["planning-job-card"] })
+    },
+  })
+}
+
 export function useCreatePlanningSalesOrder() {
   const queryClient = useQueryClient()
   return useMutation({

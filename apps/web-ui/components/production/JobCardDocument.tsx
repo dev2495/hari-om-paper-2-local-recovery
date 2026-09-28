@@ -14,6 +14,7 @@ import { useEmployees, useMandrels, useShifts } from "@/hooks/use-master-data"
 import { displayPlantScope } from "@/lib/plant-scope"
 import {
   useCompleteStageEntry,
+  useCompleteStagesBatch,
   useMachines,
   usePlanningJobCard,
   useSaveStageDraft,
@@ -520,7 +521,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
   const jobCardQuery = usePlanningJobCard(jobCardId)
   const saveDraftMutation = useSaveStageDraft()
   const completeStageMutation = useCompleteStageEntry()
-  const [bulkSaving, setBulkSaving] = useState(false)
+  const completeBatchMutation = useCompleteStagesBatch()
+  const [wholeCard, setWholeCard] = useState(false)
+  const [batchRequestId, setBatchRequestId] = useState<string | null>(null)
   const machineLabelMap = useMachineLabelMap()
   const mandrelsQuery = useMandrels()
   const shiftsQuery = useShifts()
@@ -696,6 +699,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       recipeSummary?.predicted_dry_tube_g ??
       0,
   )
+  // The card shows the spec's target weight per piece; the recipe's modelled weight only when it disagrees.
+  const targetTubeWeightG = Number(clientSpec?.tube_weight?.avg || card?.spec_snapshot?.target_tube_weight || 0)
+  const targetWeightText = targetTubeWeightG > 0
+    ? `${formatNumber(targetTubeWeightG)} g${tubeDryWeightG > 0 && Math.abs(tubeDryWeightG - targetTubeWeightG) > 2 ? ` (recipe ${formatNumber(tubeDryWeightG)} g)` : ""}`
+    : tubeDryWeightG > 0 ? `${formatNumber(tubeDryWeightG)} g (recipe)` : "-"
   const tubeWetWeightG = Number(
     manufacturingSpec?.tube_wet_weight_g ??
       documentSnapshot?.header?.tube_wet_weight_g ??
@@ -1153,9 +1161,11 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
   const BULK_ENTRY_STAGES: StageName[] = ["SLITTING", "WINDER", "OVEN", "PROCESS", "PACKING", "QC"]
 
+  // A stage counts as written on the card when it has any output, rejects or QC hold quantity.
   function stageHasActuals(stage: StageName) {
     const payload: any = completePayload(stage)
-    return Number(payload?.output_qty || 0) > 0
+    const entry = stageForms[stage]?.entry_snapshot || {}
+    return [payload?.output_qty, payload?.scrap_qty, stage === "QC" ? entry.hold_qty : 0].some((value) => Number(value || 0) > 0)
   }
 
   function openBulkStages(): Array<{ stage: StageName; filled: boolean }> {
@@ -1165,15 +1175,28 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       .map((stage: StageName) => ({ stage, filled: stageHasActuals(stage) }))
   }
 
-  // A whole card handed in at once: validate every filled stage first, capture all payloads
-  // (each save refetches the card and resets the forms), then complete them in route order.
+  // Whole card handed in at once: one request, saved in a single transaction in route order.
+  // If the server rejects any stage, none of them is saved. The request id makes a retry after a
+  // lost response safe (the server returns the first result instead of saving twice).
   async function saveAllFilledStages() {
-    if (!jobCardId || bulkSaving) return
-    const queue = openBulkStages().filter((row) => row.filled).map((row) => row.stage)
-    if (!queue.length) {
-      showToast("Fill the output of at least one open stage first.", "info")
+    if (!jobCardId || completeBatchMutation.isPending) return
+    const open = openBulkStages()
+    const firstFilled = open.findIndex((row) => row.filled)
+    if (firstFilled < 0) {
+      showToast("Fill at least one stage from the card first.", "info")
       return
     }
+    const lastFilled = open.map((row) => row.filled).lastIndexOf(true)
+    const gap = open.slice(firstFilled, lastFilled + 1).find((row) => !row.filled)
+    if (open[0] && !open[0].filled) {
+      showToast(`${open[0].stage} comes first on this card. Fill it, or save the stages one at a time.`, "error")
+      return
+    }
+    if (gap) {
+      showToast(`${gap.stage} is empty between filled stages. Fill it from the card; stages are saved in route order.`, "error")
+      return
+    }
+    const queue = open.filter((row) => row.filled).map((row) => row.stage)
     for (const stage of queue) {
       if (stageAssignment(stage).missingRequiredAssignment) {
         showToast(`${stage}: the planner must assign machine and shift first. Nothing was saved.`, "error")
@@ -1192,23 +1215,25 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
         return
       }
     }
-    const payloads = queue.map((stage) => ({ stage, data: completePayload(stage) }))
-    const done: StageName[] = []
-    setBulkSaving(true)
+    const requestId = batchRequestId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `batch-${Date.now()}`)
+    setBatchRequestId(requestId)
     try {
-      for (const { stage, data } of payloads) {
-        const response: any = await completeStageMutation.mutateAsync({ jobCardId, data })
-        done.push(stage)
-        showStageWarnings(response)
-      }
-      showToast(`${done.join(" → ")} saved as completed`, "success")
+      const response: any = await completeBatchMutation.mutateAsync({
+        jobCardId,
+        requestId,
+        entries: queue.map((stage) => ({ ...completePayload(stage), stage })),
+      })
+      setBatchRequestId(null)
+      const result = response?.data || {}
+      showToast(`${(result.saved_stages || queue).join(" → ")} saved as completed${result.replayed ? " (already saved earlier)" : ""}`, "success")
+      for (const row of result.results || []) showStageWarnings({ warnings: row.warnings })
+      if (Array.isArray(result.external_pending) && result.external_pending.length) showToast(result.external_pending.join(" "), "error")
+      setWholeCard(false)
     } catch (error: any) {
-      const failed = payloads[done.length]?.stage
-      const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Unable to save stage"
-      const text = typeof message === "string" ? message : JSON.stringify(message)
-      showToast(`${done.length ? `${done.join(" → ")} saved. ` : ""}${failed} not saved: ${text}`, "error")
+      if (error?.response) setBatchRequestId(null) // the server answered: a new attempt gets a new id
+      const message = error?.response?.data?.detail || error?.response?.data?.message || error?.message || "Unable to save the card"
+      showToast(error?.response ? (typeof message === "string" ? message : JSON.stringify(message)) : `${message}. The card may have been saved — press save again to check (it will not save twice).`, "error")
     } finally {
-      setBulkSaving(false)
       jobCardQuery.refetch()
     }
   }
@@ -1222,31 +1247,57 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
       <section className="no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3" data-testid="whole-card-entry">
         <div className="min-w-0">
           <p className="text-sm font-semibold text-foreground">Whole card entry</p>
-          <p className="text-xs text-muted-foreground">Card handed in with several stages written? Fill each section below, then save them together in route order.</p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {rows.map((row) => (
-              <span key={row.stage} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${row.filled ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-muted text-muted-foreground"}`}>
-                {row.filled ? <CheckCircle2 className="h-3 w-3" /> : null}{row.stage}
-              </span>
-            ))}
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {wholeCard
+              ? "Every open stage is shown below. Fill what is written on the card, then save: all stages are saved together, or none if one is rejected."
+              : "Card handed in with several stages written? Open every stage and save them together."}
+          </p>
+          {wholeCard ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {rows.map((row) => (
+                <span key={row.stage} className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${row.filled ? "border-signal-emerald-line bg-signal-emerald-soft text-signal-emerald-ink" : "border-border bg-muted text-muted-foreground"}`}>
+                  {row.filled ? <CheckCircle2 className="h-3 w-3" /> : null}{row.stage}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
-        <button
-          type="button"
-          onClick={saveAllFilledStages}
-          disabled={!filled || bulkSaving || completeStageMutation.isPending}
-          data-testid="save-all-filled-stages"
-          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          <CheckCircle2 className="h-4 w-4" />
-          {bulkSaving ? "Saving stages…" : filled ? `Save ${filled} filled stage${filled === 1 ? "" : "s"}` : "Save filled stages"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => setWholeCard((value) => !value)} aria-pressed={wholeCard} data-testid="toggle-whole-card"
+            className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground">
+            {wholeCard ? "Current stage only" : `Enter whole card (${rows.length} stages)`}
+          </button>
+          {wholeCard ? (
+            <button
+              type="button"
+              onClick={saveAllFilledStages}
+              disabled={!filled || completeBatchMutation.isPending}
+              data-testid="save-all-filled-stages"
+              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+              {completeBatchMutation.isPending ? "Saving card…" : filled ? `Save ${filled} stage${filled === 1 ? "" : "s"} together` : "Save stages together"}
+            </button>
+          ) : null}
+        </div>
       </section>
     )
   }
 
+  function renderWholeCardSections() {
+    return openBulkStages().map((row) => (
+      <div key={row.stage} className="space-y-3" data-testid={`whole-card-stage-${row.stage}`}>
+        <div className="flex items-center justify-between rounded-xl border border-border bg-muted px-4 py-2">
+          <span className="text-sm font-semibold text-foreground">{row.stage}</span>
+          <span className="text-xs text-muted-foreground">{stageAssignment(row.stage).missingRequiredAssignment ? "Not planned yet — planner must assign machine and shift" : stageAssignment(row.stage).shiftLabel || ""}</span>
+        </div>
+        {renderCurrentStageSection(row.stage)}
+      </div>
+    ))
+  }
+
   function sectionActions(stage: StageName) {
-    if (mode !== "supervisor") return null
+    if (mode !== "supervisor" || wholeCard) return null
     const disabled = !stageEditable(stage) || saveDraftMutation.isPending || completeStageMutation.isPending
     return (
       <div className="mt-3 flex flex-wrap gap-2 no-print">
@@ -1508,6 +1559,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1.45fr)_26rem]">
           <div className="space-y-4">
+            {wholeCard && mode === "supervisor" ? renderWholeCardSections() : (<>
             {renderSegmentSelector(currentStage)}
             <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm">
               <div className="flex items-start justify-between gap-3">
@@ -1527,6 +1579,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
             <section className="rounded-[1.35rem] border border-border bg-card p-4 shadow-sm" data-testid="physical-tool-issue">
               {renderToolAssignment(currentStage)}
             </section>
+            </>)}
           </div>
           <div className="space-y-4">
             <section className="rounded-[1.4rem] border border-border bg-card p-5 shadow-sm">
@@ -2926,7 +2979,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           : "",
       ],
       ["Denier", "डेनियर", blankDash(header.denier || "")],
-      ["Weight / Pc", "वजन / पीस", withUnit(tubeDryWeightG || clientSpec?.tube_weight?.avg, "g")],
+      ["Weight / Pc", "वजन / पीस", targetWeightText],
       ["Required C.S", "आवश्यक C.S", num(requiredCs) ? `${num(requiredCs)} kgf` : ""],
       ["Pcs / Bamboo", "पीस / बैम्बू", num(pcsPerBamboo, 0)],
       ["Remarks", "टिप्पणी", blankDash(header.remarks || "")],
@@ -3036,9 +3089,9 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <td className="jc-label"><L en="Pasting" hi="चिपकना" /></td>
                 <td className="jc-label jc-combo" colSpan={2} rowSpan={6}>
                   <div className="jc-combo-title"><L en="Combination (Recipe)" hi="रेसिपी" /></div>
-                  <table className="jc-combo-table">
+                  <table className={`jc-combo-table${recipeRows.length > 7 ? " jc-combo-dense" : ""}`}>
                     <tbody>
-                      {recipeRows.slice(0, 7).map((row: any, index: number) => (
+                      {recipeRows.map((row: any, index: number) => (
                         <tr key={`combo-${index}`}>
                           <td className="jc-combo-code">{row.code || row.variety || "Paper"}</td>
                           <td className="jc-combo-num">{num(row.gsm, 0)}</td>
@@ -3250,8 +3303,16 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
                 <td className="jc-label" colSpan={2}><L en="Pending Quantity" hi="पेंडिंग क्वांटिटी" /></td>
                 <td className="jc-label" colSpan={2}><L en="Supervisor Sign" hi="सुपरवाइजर साइन" /></td>
               </tr>
-              {Array.from({ length: 2 }, (_, index) => {
-                const shipment = dispatchRows[index]
+              {/* Two blank rows for the floor; up to four filled; beyond that the latest three and a total line. */}
+              {dispatchRows.length > 4 ? (
+                <tr className="jc-row-entry">
+                  <td className="jc-value jc-actual" colSpan={6}>
+                    {dispatchRows.length - 3} earlier dispatches · {num(dispatchRows.slice(0, dispatchRows.length - 3).reduce((sum: number, row: any) => sum + Number(row.dispatch_qty || 0), 0), 0)} pcs (see dispatch register)
+                  </td>
+                </tr>
+              ) : null}
+              {Array.from({ length: dispatchRows.length > 4 ? 3 : Math.max(2, dispatchRows.length) }, (_, index) => {
+                const shipment = dispatchRows.length > 4 ? dispatchRows[dispatchRows.length - 3 + index] : dispatchRows[index]
                 return (
                   <tr key={`dispatch-row-${index}`} className="jc-row-entry">
                     <td className="jc-value jc-actual">{shipment?.dispatch_date ? dateOnly(shipment.dispatch_date) : ""}</td>
@@ -3478,6 +3539,7 @@ export default function JobCardDocument({ jobCardId, mode }: Props) {
           .jc-combo-title .jc-en { text-decoration: underline; }
           .jc-combo-table { width: 100%; border-collapse: collapse; margin-top: 0.6mm; }
           .jc-combo-table td { border: 0 !important; padding: 0.15mm 0 !important; font-size: 8.6pt !important; font-weight: 900; line-height: 1.12; color: #000; }
+          .jc-combo-dense td { font-size: 7.2pt !important; line-height: 1.02; padding: 0 !important; }
           .jc-combo-code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; width: 62%; }
           .jc-combo-num { text-align: right; width: 18%; font-weight: 700 !important; }
           .jc-combo-ply { text-align: right; width: 20%; }

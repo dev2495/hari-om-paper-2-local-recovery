@@ -1,11 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import { Activity, Flame, Plus, Wind } from "lucide-react"
 
 import { ColorChip, JobCardNo, LifecycleBadge } from "@/components/production/lifecycle-chips"
 import { useApp } from "@/context/AppContext"
-import { apiErrorText, useJobCardLifecycle, useRunningEntry, type JobCardLifecycle } from "@/hooks/use-lifecycle"
+import { apiErrorText, newRequestId, useJobCardLifecycle, useRunningEntry, type JobCardLifecycle } from "@/hooks/use-lifecycle"
 import { cn } from "@/lib/utils"
 
 const fmt = (value: number | null | undefined) => Number(value || 0).toLocaleString("en-IN", { maximumFractionDigits: 1 })
@@ -65,15 +65,19 @@ function StageColumn({ data, stage, winderTotal }: { data: JobCardLifecycle; sta
   const finished = stage.status === "COMPLETED"
   const canLog = data.actions.running_entry || data.missed_slot_open
   const Icon = stage.stage === "WINDER" ? Wind : Flame
+  const requestId = useRef<string | null>(null)
   const submit = async () => {
     const value = Number(qty)
     if (!value || value <= 0) return
+    requestId.current ||= newRequestId()
     try {
-      await add.mutateAsync({ jobCardId: data.id, data: { stage: stage.stage, qty: value, scrap_qty: Number(scrap || 0), shift_code: shift } })
+      await add.mutateAsync({ jobCardId: data.id, data: { stage: stage.stage, qty: value, scrap_qty: Number(scrap || 0), shift_code: shift, request_id: requestId.current } })
+      requestId.current = null
       showToast(`${stage.stage.toLowerCase()} +${fmt(value)} ${stage.unit} logged.`, "success")
       setQty("")
       setScrap("")
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.response) requestId.current = null
       showToast(apiErrorText(error), "error")
     }
   }
