@@ -110,7 +110,7 @@ export function SidebarNav({
                           aria-current={isCurrent ? "page" : undefined}
                           onMouseEnter={(event) => setHover(measure(event.currentTarget))}
                           onFocus={(event) => setHover(measure(event.currentTarget))}
-                          onClick={onNavigate}
+                          onClick={(event) => { onNavigate?.(); if (compact && event.detail > 0) event.currentTarget.blur() }}
                         >
                           <item.icon aria-hidden="true" />
                           <span className="tube-nav-label">{item.name}</span>
@@ -130,7 +130,7 @@ export function SidebarNav({
                                 data-level="sub"
                                 aria-current={pathname === child.href ? "page" : undefined}
                                 onMouseEnter={(event) => setHover(measure(event.currentTarget))}
-                                onClick={onNavigate}
+                                onClick={(event) => { onNavigate?.(); if (compact && event.detail > 0) event.currentTarget.blur() }}
                               >
                                 <span className="tube-nav-label">{child.name}</span>
                               </Link>
